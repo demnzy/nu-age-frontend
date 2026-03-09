@@ -27,7 +27,7 @@ def get_landing_appbar(page: ft.Page):
             ),
             ft.Container(width=10) 
         ],
-        bgcolor=ft.Colors.SURFACE_CONTAINER,
+        bgcolor="white",
         toolbar_opacity=0.5,
         elevation=1, 
         toolbar_height=50

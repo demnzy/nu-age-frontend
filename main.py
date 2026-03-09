@@ -4,6 +4,7 @@ from src.Login import login_view
 from src.signup import Signup_view
 from src.dashboard import dashboard_view
 from src.requests.auth import get_current_user_request 
+from src.courses import courses_view
 
 async def main(page: ft.Page):
     page.bgcolor = "#C7F8F3" 
@@ -82,6 +83,9 @@ async def main(page: ft.Page):
             page.views.append(login_view(page))
         elif page.route == "/signup":
             page.views.append(Signup_view(page))
+        elif page.route == "/courses":
+            view= await courses_view(page)
+            page.views.append(view)
 
         page.update()
 
