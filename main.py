@@ -5,9 +5,13 @@ from src.signup import Signup_view
 from src.dashboard import dashboard_view
 from src.requests.auth import get_current_user_request 
 from src.courses import courses_view
+from src.course_view import course_details_view 
+from src.profile import profile_view
+from src.edit_profile import edit_profile_view
 
 async def main(page: ft.Page):
-    page.bgcolor = "#C7F8F3" 
+    page.route = "/dashboard" 
+    page.bgcolor = "#FAFAFA" 
     page.theme_mode = ft.ThemeMode.LIGHT #
     page.appbar = None 
     
@@ -25,7 +29,7 @@ async def main(page: ft.Page):
         content=splash_logo,
         alignment=ft.Alignment(0, 0),
         expand=True,
-        bgcolor="#C7F8F3"  
+        bgcolor="#FFFFFF"  
     )
     
     page.add(splash_container)
@@ -83,14 +87,30 @@ async def main(page: ft.Page):
             page.views.append(login_view(page))
         elif page.route == "/signup":
             page.views.append(Signup_view(page))
+        elif page.route == "/profile":
+            view = await profile_view(page)
+            page.views.append(view)
         elif page.route == "/courses":
             view= await courses_view(page)
             page.views.append(view)
+        elif page.route == "/edit-profile":
+            view= await edit_profile_view(page)
+            page.views.append(view)
 
-        page.update()
+
+
+
+    # This 'match' acts like a logic gate
+        elif page.route.startswith("/courses/"):
+        # Split "/courses/123" by the slashes and take the last part
+            route_parts = page.route.split("/")
+            if len(route_parts) > 2:
+                course_id = route_parts[2]
+                # Now pass that ID into your view
+                page.views.append(await course_details_view(page, course_id))
+            page.update()
 
     page.on_route_change = route_change
-    page.route = "/dashboard" 
     await route_change(None)
     
 ft.run(main, assets_dir="assets")

@@ -85,16 +85,20 @@ def Signup_view(page: ft.Page):
             page.update()
 
     # Define Dialogs
-    cupertino_alert_dialog = ft.CupertinoAlertDialog(
+    cupertino_alert_dialog = ft.AlertDialog(
         title=ft.Row(controls=[ft.Text("Signup Successful!", size=20), ft.Icon(ft.Icons.CHECK, color="#009787")]),
         content=ft.Text("Please proceed to login.", size=14),
-        actions=[ft.CupertinoDialogAction(content=ft.Text("Ok", color="#009787"), on_click=handle_action_click)],
+        actions=[
+            ft.TextButton("Ok", on_click=handle_action_click, style=ft.ButtonStyle(color="#009787"))
+        ],
     )
        
-    custom_error = ft.CupertinoAlertDialog(
+    custom_error = ft.AlertDialog(
         title=ft.Row(controls=[ft.Text("Signup Failed", size=20), ft.Icon(ft.Icons.CLOSE, color="#009787")]),
         content=custom_message,
-        actions=[ft.CupertinoDialogAction(content=ft.Text("Ok", color="#009787"), on_click=lambda e: page.pop_dialog())],
+        actions=[
+            ft.TextButton("Ok", on_click=lambda e: page.pop_dialog(), style=ft.ButtonStyle(color="#009787"))
+        ],
     )
 
     first_name = ft.TextField(label="First Name", expand=1, height=40, text_size=13, on_change=validate_inputs)

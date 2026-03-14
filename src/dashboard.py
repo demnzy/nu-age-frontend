@@ -93,12 +93,12 @@ def dashboard_view(page: ft.Page):
 
 
     Goto_course = ft.Container(
+        
     # Your white background
     bgcolor=ft.Colors.WHITE,
     # High border_radius creates the pill shape
     border_radius=30, 
     padding=ft.padding.only(left=20, right=5, top=5, bottom=5),
-    width=1000,
     # Subtle border to define it against a white page
     border=ft.border.all(1, ft.Colors.BLACK12), 
     
@@ -120,15 +120,15 @@ def dashboard_view(page: ft.Page):
                     shape=ft.CircleBorder(),
                     padding=10,
                 ),
-                on_click=lambda e: print("Navigate to courses")
+                on_click=lambda e: page.go('/courses')
             ),
         ],
     ),
 )
     return ft.View(
         route="/dashboard",
-        bgcolor=ft.Colors.SURFACE_CONTAINER,
         bottom_appbar=App_bar,
+        bgcolor=ft.Colors.SURFACE_CONTAINER,
         controls=[
             ft.SafeArea(
                 content=ft.Column(
