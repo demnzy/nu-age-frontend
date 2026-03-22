@@ -6,43 +6,9 @@ from src.requests.Courses import get_courses
 from src.requests.enrollments import get_enrollments
 
 async def courses_view(page: ft.Page):
-    token = await page.shared_preferences.get("auth_token")
-    course_list = await get_courses(token, {"is_public": True})
-    enrolled_list = await get_enrollments(token,None)
-    enrolled_ids = {course.get("id") for course in enrolled_list}
     course_cards = []
     enroll_cards = []
-    for course in course_list:
-        course_name = course.get("name", "Untitled Course")
-        image_url = course.get("image_url", "")
-        course_id = course.get("id")
-        if course_id not in enrolled_ids: 
-            first_name = course.get("admin", {}).get("first_name","Unknown")
-            last_name = course.get("admin", {}).get("last_name","Instructor")
-            full_name = f'{first_name} {last_name}'
-            category = course.get("category",{}).get("name")
-            card = get_course_card(course_name,category,full_name,image_url)
-            card.on_click = lambda e, c_id=course_id: page.go(f"/courses/{c_id}")
-            card.col = {"xs": 12, "sm": 6}
-            course_cards.append(card)
-            card.opacity = 1
-            card.offset = ft.Offset(0, 0)
-        
-    for course in enrolled_list:
-        course_name = course.get("name", "Untitled Course")
-        image_url = course.get("image_url", "")
-        progress = course.get("progress", 0.0)
-        course_id = course.get("id")
-        first_name = course.get("admin", {}).get("first_name","Unknown")
-        last_name = course.get("admin", {}).get("last_name","Instructor")
-        full_name = f'{first_name} {last_name}'
-        category = course.get("category",{}).get("name")
-        card = get_enrolled_card(course_name,category,full_name,image_url,progress)
-        card.on_click = lambda e, c_id=course_id: page.go(f"/courses/{c_id}")
-        card.col = {"xs": 12, "sm": 6}
-        enroll_cards.append(card)
-        card.opacity = 1
-        card.offset = ft.Offset(0, 0)
+
     async def clear_search(e):
         if e.control.value == "":
             await handle_change(e)
@@ -71,14 +37,15 @@ async def courses_view(page: ft.Page):
             card.offset = ft.Offset(0, 0) # Move to original position
             card.opacity = 1
         page.update()
+
     # 2. The UI Control
     search_anchor = ft.SearchBar(
-        bar_bgcolor=ft.Colors.WHITE,     # White background
+        bar_bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST, # Themed equivalent of White
         bar_hint_text="Search courses...",
-        bar_leading=ft.Icon(ft.Icons.SEARCH, color="#009787"), # Search icon
+        bar_leading=ft.Icon(ft.Icons.SEARCH, color=ft.Colors.PRIMARY), # Themed equivalent of #009787
         
         # Style the dropdown view to match Nu-age
-        view_bgcolor=ft.Colors.WHITE,
+        view_bgcolor=ft.Colors.SURFACE,
         view_hint_text="Type to find a course...",
         
         # Behavior
@@ -106,7 +73,7 @@ async def courses_view(page: ft.Page):
                         ),
                         padding=20)
     header_container = ft.Container(
-    bgcolor="#009787",
+    bgcolor=ft.Colors.PRIMARY, # Themed equivalent of #009787
 
     height=85, 
 
@@ -118,118 +85,230 @@ async def courses_view(page: ft.Page):
                 value="What are we learning",
                 size=23,
                 weight=ft.FontWeight.BOLD,
-                color="white",
+                color=ft.Colors.ON_PRIMARY, # Themed equivalent of white on primary
             ),
              ft.Text(
                 value="Today? ",
                 size=23,
-                color="white",
+                color=ft.Colors.ON_PRIMARY, # Themed equivalent of white on primary
                 weight=ft.FontWeight.BOLD,
                 )
         ],
         spacing=2,
         horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
     ),
-)  
+)
     tabs = ft.Tabs(
-    selected_index=0,
-    length=2,
-    expand=True,
-    content=ft.Column(
+        selected_index=0,
+        length=2,
         expand=True,
-        controls=[
-            ft.TabBar(
-                indicator_color="#009787",
-                label_color="#009787",
-                unselected_label_color=ft.Colors.BLACK,
-                # This ensures the tabs are equally spaced across the screen
-                tab_alignment=ft.TabAlignment.CENTER,
-                tabs=[
-                    ft.Tab(label="Available Courses"),
-                    ft.Tab(label="My Courses"),
-                ]
-            ),
-            ft.TabBarView(
-                expand=True,
-                controls=[
-                    ft.Container(
-                        expand=True,
-                        padding=20,
-            content=ft.Column(
+        content=ft.Column(
+            expand=True,
+            controls=[
+                ft.TabBar(
+                    indicator_color=ft.Colors.PRIMARY, # Themed equivalent of #009787
+                    label_color=ft.Colors.PRIMARY, # Themed equivalent of #009787
+                    unselected_label_color=ft.Colors.ON_SURFACE_VARIANT,
+                    # This ensures the tabs are equally spaced across the screen
+                    tab_alignment=ft.TabAlignment.CENTER,
+                    tabs=[
+                        ft.Tab(label="Available Courses"),
+                        ft.Tab(label="My Courses"),
+                    ]
+                ),
+                ft.TabBarView(
                     expand=True,
                     controls=[
-            # A: STATIC SEARCH SECTION
-            ft.Container(
-                content=ft.Row([search_anchor]),
-                # No expand=True here, we want it to stay at its natural height
-            ),
-            
-            # B: SCROLLABLE SECTION
-            ft.ListView(
-    expand=True,
-    scroll=ft.ScrollMode.AUTO,
-    controls=[
-        # Check if we actually have cards to show
-        course_container if course_cards else ft.Container(
-            padding=40,
-            content=ft.Column(
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                controls=[
-                    ft.Icon(ft.Icons.SEARCH_OFF_ROUNDED, size=50, color=ft.Colors.BLACK12),
-                    ft.Text(
-                        "No available courses found",
-                        size=16,
-                        color=ft.Colors.BLACK_54,
-                        weight=ft.FontWeight.W_500,
-                        text_align=ft.TextAlign.CENTER
-                    ),
-                ]
-            )
-        )
-    ],
-)
-        ]
-    )
-),
-                    ft.Container(
-                        content=ft.Column(
-                            controls=[
-                                 ft.ListView(
-                expand=True, # THIS IS VITAL - it fills the remaining space
-                controls=[
-    # Ternary: [RESULT_IF_TRUE] if [CONDITION] else [RESULT_IF_FALSE]
-    enroll_container if enrolled_list else ft.Row(
-        alignment=ft.MainAxisAlignment.CENTER,
-        controls=[
-            ft.Text(
-                "You have no enrolled courses", 
-                size=16, 
-                color=ft.Colors.BLACK_54,
-                weight=ft.FontWeight.W_500
-            )
-        ]
-    )
-],
-                scroll=ft.ScrollMode.AUTO,
-            )
-                                # Replace this with your 'my_courses_container' later
-                            ], 
-                            scroll=ft.ScrollMode.AUTO,
-                            expand=True
+                        ft.Container(
+                            expand=True,
+                            padding=20,
+                            content=ft.Column(
+                                expand=True,
+                                controls=[
+                        # A: STATIC SEARCH SECTION
+                        ft.Container(
+                            content=ft.Row([search_anchor]),
+                            # No expand=True here, we want it to stay at its natural height
                         ),
-                        padding=20,
+                        
+                        # B: SCROLLABLE SECTION
+                        ft.ListView(
+                expand=True,
+                scroll=ft.ScrollMode.AUTO,
+                controls=[
+                    # Check if we actually have cards to show
+                    ft.Container(
+                content=ft.Row(
+                    [ft.ProgressRing(color=ft.Colors.PRIMARY), ft.Text(" Getting available courses...", color=ft.Colors.ON_SURFACE)],
+                    alignment=ft.MainAxisAlignment.CENTER
+                ),
+                height=200,
+            )
+                ],
+            )
+                    ]
+                )
+            ),
+                        ft.Container(
+                            content=ft.Column(
+                                alignment=ft.MainAxisAlignment.CENTER, # Center loading ring
+                                controls=[
+                                    ft.Container(
+                content=ft.Row(
+                    [ft.ProgressRing(color=ft.Colors.PRIMARY), ft.Text(" Fetching your courses...", color=ft.Colors.ON_SURFACE)],
+                    alignment=ft.MainAxisAlignment.CENTER
+                ),
+                height=200,
+            )
+                                    # Replace this with your 'my_courses_container' later
+                                ], 
+                                scroll=ft.ScrollMode.AUTO,
+                                expand=True
+                            ),
+                            padding=20,
+                        )
+                    ],
+                ),
+            ],
+        ),
+    )
+    async def populate_tabs():
+        token = await page.shared_preferences.get("auth_token")
+        course_list = await get_courses(token, {"is_public": True})
+        enrolled_list = await get_enrollments(token,None)
+        enrolled_ids = {course.get("id") for course in enrolled_list}
+
+        for course in course_list:
+            course_name = course.get("name", "Untitled Course")
+            image_url = course.get("image_url", "")
+            course_id = course.get("id")
+            if course_id not in enrolled_ids: 
+                first_name = course.get("admin", {}).get("first_name","Unknown")
+                last_name = course.get("admin", {}).get("last_name","Instructor")
+                full_name = f'{first_name} {last_name}'
+                category = course.get("category",{}).get("name")
+                card = get_course_card(course_name,category,full_name,image_url)
+                card.on_click = lambda e, c_id=course_id: page.go(f"/courses/{c_id}/{course_name}")
+                card.col = {"xs": 12, "sm": 6}
+                course_cards.append(card)
+                card.opacity = 1
+                card.offset = ft.Offset(0, 0)
+            
+        for course in enrolled_list:
+            course_name = course.get("name", "Untitled Course")
+            image_url = course.get("image_url", "")
+            progress = course.get("progress", 0.0)
+            course_id = course.get("id")
+            first_name = course.get("admin", {}).get("first_name","Unknown")
+            last_name = course.get("admin", {}).get("last_name","Instructor")
+            full_name = f'{first_name} {last_name}'
+            category = course.get("category",{}).get("name")
+            card = get_enrolled_card(course_name,category,full_name,image_url,progress)
+            card.on_click = lambda e, c_id=course_id,c_name=course_name: page.go(f"/courses/{c_id}/{c_name}")
+            card.col = {"xs": 12, "sm": 6}
+            enroll_cards.append(card)
+            card.opacity = 1
+            card.offset = ft.Offset(0, 0)
+        
+        real_content = ft.Column(
+            expand=True,
+            controls=[
+                ft.TabBar(
+                    indicator_color=ft.Colors.PRIMARY,
+                    label_color=ft.Colors.PRIMARY,
+                    unselected_label_color=ft.Colors.ON_SURFACE_VARIANT,
+                    # This ensures the tabs are equally spaced across the screen
+                    tab_alignment=ft.TabAlignment.CENTER,
+                    tabs=[
+                        ft.Tab(label="Available Courses"),
+                        ft.Tab(label="My Courses"),
+                    ]
+                ),
+                ft.TabBarView(
+                    expand=True,
+                    controls=[
+                        ft.Container(
+                            expand=True,
+                            padding=20,
+                            content=ft.Column(
+                                expand=True,
+                                controls=[
+                        # A: STATIC SEARCH SECTION
+                        ft.Container(
+                            content=ft.Row([search_anchor]),
+                            # No expand=True here, we want it to stay at its natural height
+                        ),
+                        
+                        # B: SCROLLABLE SECTION
+                        ft.ListView(
+                expand=True,
+                scroll=ft.ScrollMode.AUTO,
+                controls=[
+                    # Check if we actually have cards to show
+                    course_container if course_cards else ft.Container(
+                        padding=40,
+                        content=ft.Column(
+                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            controls=[
+                                ft.Icon(ft.Icons.SEARCH_OFF_ROUNDED, size=50, color=ft.Colors.BLACK_12),
+                                ft.Text(
+                                    "No available courses found",
+                                    size=16,
+                                    color=ft.Colors.ON_SURFACE_VARIANT,
+                                    weight=ft.FontWeight.W_500,
+                                    text_align=ft.TextAlign.CENTER
+                                ),
+                            ]
+                        )
                     )
                 ],
+            )
+                    ]
+                )
             ),
-        ],
-    ),
-)
+                        ft.Container(
+                            content=ft.Column(
+                                controls=[
+                                    ft.ListView(
+                        expand=True, # THIS IS VITAL - it fills the remaining space
+                        controls=[
+                # Ternary: [RESULT_IF_TRUE] if [CONDITION] else [RESULT_IF_FALSE]
+                enroll_container if enrolled_list else ft.Row(
+                    alignment=ft.MainAxisAlignment.CENTER,
+                    controls=[
+                        ft.Text(
+                            "You have no enrolled courses", 
+                            size=16, 
+                            color=ft.Colors.ON_SURFACE_VARIANT,
+                            weight=ft.FontWeight.W_500
+                        )
+                    ]
+                )
+            ],
+                        scroll=ft.ScrollMode.AUTO,
+                    )
+                                    # Replace this with your 'my_courses_container' later
+                                ], 
+                                scroll=ft.ScrollMode.AUTO,
+                                expand=True
+                            ),
+                            padding=20,
+                        )
+                    ],
+                ),
+            ],
+        )
+        tabs.content = real_content
+        page.update()
+        
     # 2. Return the View
+    page.run_task(populate_tabs)
     return ft.View(
         route="/courses",
         bottom_appbar=App_bar,
         # 1. Important: Ensure the view padding doesn't interfere
         padding=0, 
+
         controls=[
             ft.SafeArea(
                 # 2. This Column must fill the screen height

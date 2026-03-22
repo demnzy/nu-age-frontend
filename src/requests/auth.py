@@ -45,3 +45,13 @@ async def get_current_user_request(token: str):
     except Exception as e:
         print(f"Request Error: {e}")
         return 500, {"detail": "Connection failed"}
+    
+async def reset_request(token: str, payload: dict):
+    payload = payload
+    headers = {"Authorization": f"Bearer {token}"}
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.patch(
+            f"{api_url}/users/me/update", 
+            json=payload, headers=headers
+        )
+        return response.status_code, response.json()

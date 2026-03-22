@@ -6,7 +6,7 @@ def get_enrolled_card(course_title: str, course_category: str, course_author: st
     
     if image_url:
         card_top = ft.Container(
-            height=110, # Reduced slightly to accommodate progress bar height
+            height=110, 
             expand=True,
             clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
             border_radius=ft.BorderRadius.only(top_left=10, top_right=10),
@@ -23,9 +23,9 @@ def get_enrolled_card(course_title: str, course_category: str, course_author: st
     else:
         card_top = ft.Container(
             height=110,
-            bgcolor="#009787",
+            bgcolor=ft.Colors.PRIMARY, # Themed equivalent of #009787
             border_radius=ft.BorderRadius.only(top_left=10, top_right=10),
-            content=ft.Icon(ft.Icons.MENU_BOOK, size=40, color="white"),
+            content=ft.Icon(ft.Icons.MENU_BOOK, size=40, color=ft.Colors.ON_PRIMARY), # Themed white
         )
         
     return ft.Container(
@@ -46,19 +46,19 @@ def get_enrolled_card(course_title: str, course_category: str, course_author: st
                             ft.Text(
                                 course_title, 
                                 weight=ft.FontWeight.BOLD,
-                                color="#009787",
+                                color=ft.Colors.PRIMARY, # Themed equivalent of #009787
                                 size=13,
                                 max_lines=1,
                                 overflow=ft.TextOverflow.ELLIPSIS 
                             ),
                             ft.Text(
                                 spans=[
-                                    ft.TextSpan("Author: ", ft.TextStyle(weight=ft.FontWeight.BOLD, size=11)),
-                                    ft.TextSpan(f"{course_author}\n", ft.TextStyle(size=11)),
-                                    ft.TextSpan("Category: ", ft.TextStyle(weight=ft.FontWeight.BOLD, size=11)),
-                                    ft.TextSpan(f"{course_category}", ft.TextStyle(size=11)),
+                                    ft.TextSpan("Author: ", ft.TextStyle(weight=ft.FontWeight.BOLD, size=11, color=ft.Colors.ON_SURFACE)),
+                                    ft.TextSpan(f"{course_author}\n", ft.TextStyle(size=11, color=ft.Colors.ON_SURFACE)),
+                                    ft.TextSpan("Category: ", ft.TextStyle(weight=ft.FontWeight.BOLD, size=11, color=ft.Colors.ON_SURFACE)),
+                                    ft.TextSpan(f"{course_category}", ft.TextStyle(size=11, color=ft.Colors.ON_SURFACE)),
                                 ],
-                                color=ft.Colors.BLACK_54,
+                                color=ft.Colors.ON_SURFACE_VARIANT, # Themed equivalent of BLACK_54
                                 no_wrap=False,
                                 max_lines=2,
                                 overflow=ft.TextOverflow.ELLIPSIS,
@@ -71,17 +71,17 @@ def get_enrolled_card(course_title: str, course_category: str, course_author: st
                                 controls=[
                                     ft.ProgressBar(
                                         value=progress, 
-                                        color="#009787", 
-                                        bgcolor="#EEEEEE",
+                                        color=ft.Colors.PRIMARY, # Themed equivalent of #009787
+                                        bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST, # Themed equivalent of #EEEEEE
                                         height=8,
                                         border_radius=5,
-                                        expand=True # Bar takes up remaining space
+                                        expand=True 
                                     ),
                                     ft.Text(
                                         percentage_text, 
                                         size=11, 
                                         weight=ft.FontWeight.BOLD, 
-                                        color="#009787"
+                                        color=ft.Colors.PRIMARY # Themed equivalent of #009787
                                     ),
                                 ]
                             )
@@ -90,10 +90,10 @@ def get_enrolled_card(course_title: str, course_category: str, course_author: st
                 )
             ],
         ),
-        bgcolor="white",
+        bgcolor=ft.Colors.SURFACE, # Themed equivalent of "white"
         border_radius=10,
-        height=210, # Increased slightly to fit the progress bar comfortably
+        height=210, 
         width=100,
         on_click=lambda e: print(f"Clicked on {course_title} card"),
-        shadow=ft.BoxShadow(blur_radius=2, color=ft.Colors.BLACK12, offset=ft.Offset(0, 2)),
+        shadow=ft.BoxShadow(blur_radius=2, color=ft.Colors.BLACK_12, offset=ft.Offset(0, 2)),
     )
