@@ -4,7 +4,7 @@ from src.components.enrolled_card import get_enrolled_card
 from src.components.bottom_appbar import get_bottom_appbar
 from src.requests.Courses import get_courses
 from src.requests.enrollments import get_enrollments
-
+from datetime import datetime
 async def courses_view(page: ft.Page):
     course_cards = []
     enroll_cards = []
@@ -18,30 +18,50 @@ async def courses_view(page: ft.Page):
     async def handle_change(e):
         new_token = await page.shared_preferences.get("auth_token")
         course_list = await get_courses(new_token, params={"name": e.control.value, "is_public": True})
-        course_cards.clear()
-        for course in course_list:
-            course_name = course.get("name", "Untitled Course")
-            first_name = course.get("admin", {}).get("first_name","Unknown")
-            last_name = course.get("admin", {}).get("last_name","Instructor")
-            full_name = f'{first_name} {last_name}'
-            category = course.get("category",{}).get("name")
-            image_url = course.get("image_url",None)
-            course_id = course.get("id")
-            card = get_course_card(course_name,category,full_name, image_url)
-            card.on_click = lambda e, c_id=course_id: page.go(f"/courses/{c_id}")
-            card.col = {"xs": 12, "sm": 6}
-            course_cards.append(card)
-        course_container.content.controls = course_cards
-        page.update()
-        for card in course_container.content.controls:
-            card.offset = ft.Offset(0, 0) # Move to original position
-            card.opacity = 1
+        if isinstance(course_list, list): 
+            course_cards.clear()
+            for course in course_list:
+                course_name = course.get("name", "Untitled Course")
+                first_name = course.get("admin", {}).get("first_name","Unknown")
+                last_name = course.get("admin", {}).get("last_name","Instructor")
+                full_name = f'{first_name} {last_name}'
+                category = course.get("category",{}).get("name")
+                image_url = course.get("image_url",None)
+                course_id = course.get("id")
+                created_at = course.get("created_at","")
+                created_at = datetime.fromisoformat(created_at)
+                # 2. Format to Day/Month/Year
+                created_at = created_at.strftime("%d/%m/%Y")
+                card = get_course_card(course_name,category,full_name, image_url,created_at)
+                card.on_click = lambda e, c_id=course_id: page.go(f"/courses/{c_id}")
+                card.col = {"xs": 12, "sm": 6}
+                course_cards.append(card)
+            course_container.content.controls = course_cards if course_cards else ft.Container(
+                        padding=40,
+                        content=ft.Column(
+                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            controls=[
+                                ft.Icon(ft.Icons.SEARCH_OFF_ROUNDED, size=50, color=ft.Colors.BLACK_12),
+                                ft.Text(
+                                    "Try a different Search",
+                                    size=16,
+                                    color=ft.Colors.ON_SURFACE_VARIANT,
+                                    weight=ft.FontWeight.W_500,
+                                    text_align=ft.TextAlign.CENTER
+                                )]))
+            page.update()
+            if isinstance(course_container.content.controls, list):
+                for card in course_container.content.controls :
+                    card.offset = ft.Offset(0, 0) # Move to original position
+                    card.opacity = 1
+        else:
+            pass
         page.update()
 
     # 2. The UI Control
     search_anchor = ft.SearchBar(
         bar_bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST, # Themed equivalent of White
-        bar_hint_text="Search courses...",
+        bar_hint_text="Search courses or categories...",
         bar_leading=ft.Icon(ft.Icons.SEARCH, color=ft.Colors.PRIMARY), # Themed equivalent of #009787
         
         # Style the dropdown view to match Nu-age
@@ -187,29 +207,35 @@ async def courses_view(page: ft.Page):
                 last_name = course.get("admin", {}).get("last_name","Instructor")
                 full_name = f'{first_name} {last_name}'
                 category = course.get("category",{}).get("name")
-                card = get_course_card(course_name,category,full_name,image_url)
-                card.on_click = lambda e, c_id=course_id: page.go(f"/courses/{c_id}/{course_name}")
+                created_at = course.get("created_at","")
+                created_at = datetime.fromisoformat(created_at)
+                # 2. Format to Day/Month/Year
+                created_at = created_at.strftime("%d/%m/%Y")
+                card = get_course_card(course_name,category,full_name,image_url,created_at)
+                card.on_click = lambda e, c_id=course_id, c_name=course_name: page.go(f"/courses/{c_id}/{c_name}")
                 card.col = {"xs": 12, "sm": 6}
                 course_cards.append(card)
                 card.opacity = 1
                 card.offset = ft.Offset(0, 0)
-            
-        for course in enrolled_list:
-            course_name = course.get("name", "Untitled Course")
-            image_url = course.get("image_url", "")
-            progress = course.get("progress", 0.0)
-            course_id = course.get("id")
-            first_name = course.get("admin", {}).get("first_name","Unknown")
-            last_name = course.get("admin", {}).get("last_name","Instructor")
-            full_name = f'{first_name} {last_name}'
-            category = course.get("category",{}).get("name")
-            card = get_enrolled_card(course_name,category,full_name,image_url,progress)
-            card.on_click = lambda e, c_id=course_id,c_name=course_name: page.go(f"/courses/{c_id}/{c_name}")
-            card.col = {"xs": 12, "sm": 6}
-            enroll_cards.append(card)
-            card.opacity = 1
-            card.offset = ft.Offset(0, 0)
-        
+        if isinstance(enrolled_list, list):  
+            for course in enrolled_list:
+                course_name = course.get("name", "Untitled Course")
+                image_url = course.get("image_url", "")
+                progress = course.get("progress", 0.0)
+                course_id = course.get("id")
+                first_name = course.get("admin", {}).get("first_name","Unknown")
+                last_name = course.get("admin", {}).get("last_name","Instructor")
+                full_name = f'{first_name} {last_name}'
+                category = course.get("category",{}).get("name")
+                card = get_enrolled_card(course_name,category,full_name,image_url,progress)
+                card.on_click = lambda e, c_id=course_id,c_name=course_name: page.go(f"/courses/{c_id}/{c_name}")
+                card.col = {"xs": 12, "sm": 6}
+                enroll_cards.append(card)
+                card.opacity = 1
+                card.offset = ft.Offset(0, 0)
+        else:
+            print(enrolled_list)
+            enrolled_list.clear()
         real_content = ft.Column(
             expand=True,
             controls=[

@@ -31,7 +31,7 @@ async def course_details_view(page: ft.Page, course_id: str, course_name: str):
         e.control.disabled = True
         # Using ON_PRIMARY for the ring inside the button
         e.control.content = ft.ProgressRing(width=16, height=16, color=ft.Colors.ON_PRIMARY)
-        is_enrolling = e.control.text == "Enroll Now"
+        is_enrolling = True
         page.update()
         
         try:
@@ -74,11 +74,35 @@ async def course_details_view(page: ft.Page, course_id: str, course_name: str):
         course_author = f'{first_name} {last_name}'
         category = course_data.get("category", {}).get("name")
         course_desc = course_data.get("description", "")
+        course_objectives = course_data.get("objectives", [])
         
         enrolled_list = await get_enrollments(token, None)
         enrolled_id = [course.get("id") for course in enrolled_list]
         is_already_enrolled = course_id in enrolled_id
         
+        def bullet_item(text: str):
+            return ft.Row(
+        controls=[
+            # The Bullet
+            ft.Container(
+                width=6,
+                height=6,
+                bgcolor=ft.Colors.PRIMARY,
+                border_radius=3, # Makes it a circle
+            ),
+            # The Text
+            ft.Text(text, size=14, color=ft.Colors.ON_SURFACE, expand=True),
+        ],
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        spacing=10,
+    )
+        obj_list = ft.Column(controls=[])
+        if not course_objectives:
+            obj_list.controls.append(bullet_item(f"Gain Knowledge in {course_name} course"))
+        else:
+            for objective in course_objectives:
+                obj_list.controls.append(bullet_item(f'{objective}'))
+                
         if image_url:
             image = ft.Image(
                 src=image_url,
@@ -111,20 +135,17 @@ async def course_details_view(page: ft.Page, course_id: str, course_name: str):
                     ft.Text(
                         title, 
                         size=18, 
-                        color=ft.Colors.ON_SURFACE_VARIANT,
+                        color="black",
                         weight=ft.FontWeight.BOLD,
                     ),
-                    ft.Text(
-                        value, 
-                        size=14,  
-                        color=ft.Colors.ON_SURFACE
-                    ),
+                    value
                 ], 
                 # Ensure the column doesn't shrink-wrap its content
                 horizontal_alignment=ft.CrossAxisAlignment.START,
                 expand=True
             ))
-
+            
+            
         # REPLACING SPINNER WITH REAL CONTENT
         real_content = ft.Column(controls=[
             ft.Container(
@@ -160,7 +181,7 @@ async def course_details_view(page: ft.Page, course_id: str, course_name: str):
 
             ),
             ft.Container(height=20),
-            info_card("What you will learn:","stuff about some stuff, lets hardcorde it abit"),
+            info_card("What you will learn:",obj_list),
             ft.Container(
                 padding=20,
                 content=ft.Row(

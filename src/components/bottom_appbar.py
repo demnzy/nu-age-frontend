@@ -5,7 +5,7 @@ def get_bottom_appbar(page: ft.Page):
     current_route = page.route
 
     return(ft.BottomAppBar(
-        bgcolor=ft.Colors.SURFACE, # Themed equivalent of "white"
+        bgcolor="#FFFFFF", # Themed equivalent of "white"
         padding=0, 
         height=63, 
         border_radius=ft.border_radius.only(top_left=10, top_right=10), # Rounded top corners

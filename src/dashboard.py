@@ -1,13 +1,15 @@
 import flet as ft
 import flet_charts as fch # pyright: ignore[reportMissingImports]
 from src.components.bottom_appbar import get_bottom_appbar
+from src.components.dashboard_card import get_continue_learning_card
+from src.requests.enrollments import get_enrollments
 
 async def dashboard_view(page: ft.Page):
     app_bar = get_bottom_appbar(page)
-    
+    enrolled_cards=[]
     # Use ON_PRIMARY because this text sits on the Teal header
-    name = ft.Text(value="Hello", size=23, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_PRIMARY)
-
+    name = ft.Text(value="Hello, User!", size=23, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_PRIMARY)
+    continue_learning_section = ft.Column()
     activity_data = [0, 0, 0, 0, 0, 0, 0] 
     
     # The "Socket" for the optimistic UI
@@ -50,8 +52,8 @@ async def dashboard_view(page: ft.Page):
                 ft.Row(
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                     controls=[
-                        ft.Text("Weekly Activity", weight="bold", size=16, color=ft.Colors.PRIMARY),
-                        ft.Icon(ft.Icons.ANALYTICS_OUTLINED, color=ft.Colors.PRIMARY, size=20),
+                        ft.Text("Weekly Activity", weight="bold", size=16, color="black"),
+                        ft.Icon(ft.Icons.ANALYTICS_OUTLINED, color="#028A9C", size=20),
                     ]
                 ),
                 chart_holder 
@@ -59,7 +61,7 @@ async def dashboard_view(page: ft.Page):
             spacing=6,
         ),
     )
-
+    no_courses= ft.Text("You have no enrolled courses")
     # --- 4. NAVIGATION PILL ---
     goto_course = ft.Container(
         bgcolor=ft.Colors.SURFACE,
@@ -90,6 +92,46 @@ async def dashboard_view(page: ft.Page):
         first_name = f'{first_name}! ' if first_name else "User!"
         name.value = f"Hello, {first_name}"
         
+        token = await page.shared_preferences.get("auth_token")
+        enrolled_list = await get_enrollments(token, None)
+        
+        enrolled_cards.clear() # Clear existing to avoid duplicates on re-sync
+        for course in enrolled_list:
+            course_name = course.get("name", "Untitled Course")
+            progress = course.get("progress", 0.0)
+            course_id = course.get("id")
+            
+            card = get_continue_learning_card(course_name, progress, course_id, page)
+            # Correctly latched lambda
+            card.on_click = lambda e, c_id=course_id, c_name=course_name: page.go(f"/courses/{c_id}/{c_name}")
+            enrolled_cards.append(card)
+
+        # FIX: Clear and update the section
+        continue_learning_section.controls.clear()
+        continue_learning_section.controls.append(
+        ft.Container(
+        padding=ft.padding.only(left=20, right=20, top=10, bottom=10),
+        content=ft.Column([
+            # Section Header
+            ft.Row([
+                ft.Text("Get Back to Learning", size=18, weight="bold", color=ft.Colors.ON_SURFACE),
+                ft.TextButton("View All", on_click=lambda _: page.go("/courses"))
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            
+            # The Horizontal Scroll Engine
+            ft.Row(
+                # Use HIDDEN for a sleek mobile look, or AUTO for a visible scrollbar
+                scroll=ft.ScrollMode.AUTO, 
+                spacing=20,
+                # Pass the list of get_continue_learning_card objects directly
+                controls=enrolled_cards if enrolled_cards else no_courses
+            )
+        ])
+    )
+)
+        
+        # ... your existing Chart logic below (unchanged) ...
+        page.update()
         new_activity_data = [4, 7, 4, 9, 6, 6, 5]
         
         chart_points = [
@@ -100,7 +142,7 @@ async def dashboard_view(page: ft.Page):
             data_series=[
                 fch.LineChartData(
                     points=chart_points,
-                    color=ft.Colors.PRIMARY, # Chart line follows primary color
+                    color="#028A9C", # Chart line follows primary color
                     stroke_width=4,
                     curved=True,
                 ),
@@ -130,21 +172,26 @@ async def dashboard_view(page: ft.Page):
         bottom_appbar=app_bar,
         bgcolor=ft.Colors.SURFACE_CONTAINER,
         padding=0,
+        # 1. Add scroll to the View level to ensure the whole page can move
         controls=[
             ft.SafeArea(
+                # 2. Remove expand=True from the Column so it can grow naturally
+                expand=True,
                 content=ft.Column(
+                    expand=True,
                     controls=[
                         header_container,
-                        ft.Container(height=10),
+                        ft.Column( scroll=ft.ScrollMode.AUTO, expand=True,controls=[ft.Container(height=10),
                         goto_course,
                         ft.Container(height=10),
                         ft.Container(
                             padding=ft.Padding(left=10, right=10, top=0, bottom=0), 
                             content=activity_chart
                         ),
-                    ],
-                    scroll=ft.ScrollMode.AUTO,
-                    expand=True,
+                        ft.Container(height=10),
+                        continue_learning_section
+                    ],)],
+                    
                 )
             )
         ]

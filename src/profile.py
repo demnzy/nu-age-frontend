@@ -119,15 +119,15 @@ async def profile_view(page: ft.Page):
 
 def profile_info_card(title, value, icon):
     return ft.Container(
+        border=ft.Border.all(1, ft.Colors.PRIMARY),
         padding=15,
-        bgcolor="#379289",
+        bgcolor="#FFFFFF",
         border_radius=10,
-        shadow=ft.BoxShadow(blur_radius=5, color=ft.Colors.SHADOW, offset=ft.Offset(0, 2)),
         content=ft.Row([
-            ft.Icon(icon, color="white", size=20),
+            ft.Icon(icon, color=ft.Colors.PRIMARY, size=20),
             ft.Column([
-                ft.Text(title, size=11, color="white"),
-                ft.Text(value, size=14, weight=ft.FontWeight.BOLD, color="white"),
+                ft.Text(title, size=11, color="black"),
+                ft.Text(value, size=14, weight=ft.FontWeight.BOLD, color="black"),
             ], spacing=2)
         ], alignment=ft.MainAxisAlignment.START)
     )

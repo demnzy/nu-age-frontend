@@ -1,9 +1,9 @@
 import flet as ft
 
-def get_course_card(course_title: str, course_category: str, course_author: str, image_url:str|None=None):
+def get_course_card(course_title: str, course_category: str, course_author: str, image_url:str|None=None, created_at:str|None=None):
     if image_url:
         card_top= ft.Container(
-                        height=120,
+                        height=150,
                         expand=True,
                         clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
                         border_radius=ft.BorderRadius.only(top_left=10, top_right=10),
@@ -51,7 +51,7 @@ def get_course_card(course_title: str, course_category: str, course_author: str,
                             course_title, 
                             weight=ft.FontWeight.BOLD,
                             color=ft.Colors.PRIMARY, # Themed equivalent of #009787
-                            size=14,
+                            size=15,
                             max_lines=1,
                             overflow=ft.TextOverflow.ELLIPSIS 
                         ),
@@ -60,7 +60,9 @@ def get_course_card(course_title: str, course_category: str, course_author: str,
         ft.TextSpan("Author: ", ft.TextStyle(weight=ft.FontWeight.BOLD, size=12, color=ft.Colors.ON_SURFACE)),
         ft.TextSpan(f"{course_author}\n", ft.TextStyle(size=12, color=ft.Colors.ON_SURFACE)), 
         ft.TextSpan("Category: ", ft.TextStyle(weight=ft.FontWeight.BOLD, size=12, color=ft.Colors.ON_SURFACE)),
-        ft.TextSpan(f"{course_category}", ft.TextStyle(size=12, color=ft.Colors.ON_SURFACE)),
+        ft.TextSpan(f"{course_category}\n", ft.TextStyle(size=12, color=ft.Colors.ON_SURFACE)),
+        ft.TextSpan("Created at: ", ft.TextStyle(weight=ft.FontWeight.BOLD, size=12, color=ft.Colors.ON_SURFACE)),
+        ft.TextSpan(f"{created_at}", ft.TextStyle(size=12, color=ft.Colors.ON_SURFACE)),
     ],
     color=ft.Colors.ON_SURFACE_VARIANT, # Themed equivalent of BLACK_54
     size=18,
@@ -76,8 +78,7 @@ def get_course_card(course_title: str, course_category: str, course_author: str,
     ),
         bgcolor=ft.Colors.SURFACE, # Themed equivalent of white
         border_radius=10,
-        height=200,
+        height=250,
         width=100,
-        on_click=lambda e: print(f"Clicked on {course_title} card"),
         shadow=ft.BoxShadow(blur_radius=2, color=ft.Colors.BLACK_12, offset=ft.Offset(0, 2)),
     )
