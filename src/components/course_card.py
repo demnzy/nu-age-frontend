@@ -25,7 +25,7 @@ def get_course_card(course_title: str, course_category: str, course_author: str,
                     )
     else:
         card_top = ft.Container(
-                height=120, 
+                height=150, 
                 bgcolor=ft.Colors.PRIMARY, # Themed equivalent of #009787
                 border_radius=ft.BorderRadius.only(top_left=10, top_right=10),
                 content=ft.Icon(ft.Icons.MENU_BOOK, size=50, color=ft.Colors.ON_PRIMARY), # Themed equivalent of white

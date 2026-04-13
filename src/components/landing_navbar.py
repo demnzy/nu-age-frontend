@@ -2,17 +2,6 @@ import flet as ft
 
 def get_landing_appbar(page: ft.Page):
     return ft.AppBar(
-        # Adding the logo back as the leading control
-        leading=ft.Container(
-            content=ft.Image(
-                src="logo.png", 
-                width=100, 
-                height=100, 
-                fit="contain"
-            ),
-            padding=ft.Padding(left=15, top=5, bottom=5, right=0)
-        ),
-        leading_width=60,
         actions=[
             ft.TextButton("Login",
                 icon=ft.Icons.LOGIN,

@@ -53,7 +53,7 @@ async def dashboard_view(page: ft.Page):
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                     controls=[
                         ft.Text("Weekly Activity", weight="bold", size=16, color="black"),
-                        ft.Icon(ft.Icons.ANALYTICS_OUTLINED, color="#028A9C", size=20),
+                        ft.Icon(ft.Icons.ANALYTICS_OUTLINED, color=ft.Colors.PRIMARY, size=20),
                     ]
                 ),
                 chart_holder 
@@ -142,7 +142,7 @@ async def dashboard_view(page: ft.Page):
             data_series=[
                 fch.LineChartData(
                     points=chart_points,
-                    color="#028A9C", # Chart line follows primary color
+                    color=ft.Colors.PRIMARY, # Chart line follows primary color
                     stroke_width=4,
                     curved=True,
                 ),

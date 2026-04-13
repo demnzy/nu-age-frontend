@@ -117,14 +117,18 @@ def login_view(page: ft.Page):
         "Login", width=320, 
         color=ft.Colors.ON_PRIMARY, # White text in light, Off-white in dark
         bgcolor=ft.Colors.PRIMARY, 
+        
+        style=ft.ButtonStyle(
+            shape=ft.RoundedRectangleBorder(radius=6),
+        ),
         height=40, disabled=True, on_click=handle_submit
     )
     
     login_card = ft.Container(
         width=350,
-        padding=20,
+        padding=16,
         bgcolor=ft.Colors.SURFACE, # Swaps White <-> Deep Charcoal
-        border_radius=15,
+        border_radius=10,
         height=530,
         
         shadow=ft.BoxShadow(
@@ -135,10 +139,11 @@ def login_view(page: ft.Page):
 
         content=ft.Column(
             [
-                ft.Icon(ft.Icons.ACCOUNT_CIRCLE, 
-                color=ft.Colors.PRIMARY, 
-                size=100
-            ),
+                ft.CircleAvatar(
+            foreground_image_src="Nu logo only.jpeg",
+            bgcolor= ft.Colors.SURFACE,
+            radius=40
+        ),
                 ft.Text("Welcome Back!", size=24, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
                 ft.Row(controls=[
                     ft.Icon(ft.Icons.MAIL_OUTLINE, 
@@ -165,7 +170,7 @@ def login_view(page: ft.Page):
     )
 
     return ft.View(
-        bgcolor="#379289",
+        bgcolor=ft.Colors.PRIMARY, # Use themed surface color for the background
         route="/",
         controls=[login_card],
         vertical_alignment=ft.MainAxisAlignment.CENTER,

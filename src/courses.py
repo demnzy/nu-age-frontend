@@ -228,7 +228,7 @@ async def courses_view(page: ft.Page):
                 full_name = f'{first_name} {last_name}'
                 category = course.get("category",{}).get("name")
                 card = get_enrolled_card(course_name,category,full_name,image_url,progress)
-                card.on_click = lambda e, c_id=course_id,c_name=course_name: page.go(f"/courses/{c_id}/{c_name}")
+                card.on_click = lambda e, c_id=course_id,c_name=course_name: page.go(f"/courses/{c_id}/view")
                 card.col = {"xs": 12, "sm": 6}
                 enroll_cards.append(card)
                 card.opacity = 1

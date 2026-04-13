@@ -8,13 +8,23 @@ from src.courses import courses_view
 from src.course_view import course_details_view 
 from src.profile import profile_view
 from src.edit_profile import edit_profile_view
+from src.org_view import organisations_view
+from src.create_course import create_courses_view
+from src.course_builder import course_builder_view
+from src.course_page import course_learner_view
 
 async def main(page: ft.Page):
     # --- 1. THE UNIVERSAL SOURCE OF TRUTH ---
     # We define the ColorScheme AND Transitions in ONE object so they don't overwrite each other.
+    page.fonts = {
+        "inter": "/fonts/Inter_28pt-Regular.ttf",# Local path in /assets/
+        "roboto": "/fonts/Roboto_SemiCondensed-Regular.ttf",
+        "montserrat": "/fonts/Montserrat-Regular.ttf"
+    }
     page.theme = ft.Theme(
+        font_family="montserrat",
         color_scheme=ft.ColorScheme(
-            primary="#037166",          # Refactored modules use ft.Colors.PRIMARY
+            primary="#024700",          # Refactored modules use ft.Colors.PRIMARY
             on_primary=ft.Colors.WHITE, 
             surface="#FAFAFA",          # Refactored modules use ft.Colors.SURFACE
             on_surface="#1A1A1A",       
@@ -37,8 +47,8 @@ async def main(page: ft.Page):
     
     # --- 3. SPLASH SCREEN ---
     splash_logo = ft.Image(
-        src="logo.png",
-        width=200, height=200, fit="contain",
+        src="Nu age new logo.png",
+        width=800, height=800, fit="contain",
     )
     
     splash_container = ft.Container(
@@ -68,8 +78,12 @@ async def main(page: ft.Page):
     async def route_change(e):
         page.views.clear()
         
-        # Dashboard Logic
-        if page.route == "/dashboard":
+        # Initialize TemplateRoute for pattern matching
+        troute = ft.TemplateRoute(page.route)
+        
+        # --- GLOBAL AUTH CHECK ---
+        # Only bypass the auth check if they are explicitly on the login or signup pages
+        if page.route not in ["/", "/signup"]:
             token = await page.shared_preferences.get("auth_token")
             if not token:
                 page.route = "/"
@@ -79,14 +93,15 @@ async def main(page: ft.Page):
             status, user_data = await get_current_user_request(token)
             if status == 200:
                 page.session.store.set("current_user", user_data)
-                page.views.append(await dashboard_view(page))
             else:
                 await page.shared_preferences.remove("auth_token")
                 page.route = "/"
                 await route_change(None)
                 return
         
-        # Static Routes
+        # --- VIEW MAPPING ---
+        if page.route == "/dashboard":
+            page.views.append(await dashboard_view(page))
         elif page.route == "/":
             page.views.append(login_view(page))
         elif page.route == "/signup":
@@ -97,7 +112,20 @@ async def main(page: ft.Page):
             page.views.append(await courses_view(page))
         elif page.route == "/edit-profile":
             page.views.append(await edit_profile_view(page))
+        elif page.route == "/organisations":
+            page.views.append(await organisations_view(page))
+        
 
+        # --- NEW: Dynamic Organization Courses Route ---
+        elif troute.match("/organisations/:org_id/courses"):
+            # Extracts the ID from the URL and passes it to the view
+            page.views.append(await create_courses_view(page, troute.org_id))
+        elif troute.match("/courses/:course_id/manage"):
+            # Extracts the ID from the URL and passes it to the view
+            page.views.append(await course_builder_view(page, troute.course_id))
+        elif troute.match("/courses/:course_id/view"):
+            # Extracts the ID from the URL and passes it to the view
+            page.views.append(await course_learner_view(page, troute.course_id))
         # Dynamic Course Details
         elif page.route.startswith("/courses/"):
             route_parts = page.route.split("/")
