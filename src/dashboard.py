@@ -103,7 +103,7 @@ async def dashboard_view(page: ft.Page):
             
             card = get_continue_learning_card(course_name, progress, course_id, page)
             # Correctly latched lambda
-            card.on_click = lambda e, c_id=course_id, c_name=course_name: page.go(f"/courses/{c_id}/{c_name}")
+            card.on_click = lambda e, c_id=course_id: page.go(f"/courses/{c_id}/view")
             enrolled_cards.append(card)
 
         # FIX: Clear and update the section

@@ -958,7 +958,7 @@ async def course_learner_view(page: ft.Page, course_id: str):
         bgcolor=ft.Colors.SURFACE_CONTAINER_LOW,
         padding=0,
         appbar=ft.AppBar(
-            leading=menu_button,
+            leading=ft.IconButton(menu_button),
             title=ft.Text(
                 course_data["course_title"],
                 size=18,

@@ -11,11 +11,21 @@ from src.edit_profile import edit_profile_view
 from src.org_view import organisations_view
 from src.create_course import create_courses_view
 from src.course_builder import course_builder_view
+from src.course_settings import course_settings_view
 from src.course_page import course_learner_view
 
 async def main(page: ft.Page):
     # --- 1. THE UNIVERSAL SOURCE OF TRUTH ---
     # We define the ColorScheme AND Transitions in ONE object so they don't overwrite each other.
+    def view_pop(view):
+        # Prevent crashing if there's only one page left
+        if len(page.views) > 1:
+            page.views.pop()             # Remove the current view from the stack
+            top_view = page.views[-1]    # Look at the view underneath it
+            page.go(top_view.route)      # Navigate to that route
+            
+    # 2. Attach it to the page event
+    page.on_view_pop = view_pop
     page.fonts = {
         "inter": "/fonts/Inter_28pt-Regular.ttf",# Local path in /assets/
         "roboto": "/fonts/Roboto_SemiCondensed-Regular.ttf",
@@ -24,7 +34,7 @@ async def main(page: ft.Page):
     page.theme = ft.Theme(
         font_family="montserrat",
         color_scheme=ft.ColorScheme(
-            primary="#024700",          # Refactored modules use ft.Colors.PRIMARY
+            primary="#035800",          # Refactored modules use ft.Colors.PRIMARY
             on_primary=ft.Colors.WHITE, 
             surface="#FAFAFA",          # Refactored modules use ft.Colors.SURFACE
             on_surface="#1A1A1A",       
@@ -48,7 +58,7 @@ async def main(page: ft.Page):
     # --- 3. SPLASH SCREEN ---
     splash_logo = ft.Image(
         src="Nu age new logo.png",
-        width=800, height=800, fit="contain",
+        width=400, height=600, fit="contain",
     )
     
     splash_container = ft.Container(
@@ -126,6 +136,9 @@ async def main(page: ft.Page):
         elif troute.match("/courses/:course_id/view"):
             # Extracts the ID from the URL and passes it to the view
             page.views.append(await course_learner_view(page, troute.course_id))
+        elif troute.match("/courses/:course_id/settings"):
+            # Extracts the ID from the URL and passes it to the view
+            page.views.append(await course_settings_view(page, troute.course_id))
         # Dynamic Course Details
         elif page.route.startswith("/courses/"):
             route_parts = page.route.split("/")

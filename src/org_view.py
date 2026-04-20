@@ -1,3 +1,5 @@
+from calendar import c
+
 import flet as ft
 from src.components.bottom_appbar import get_bottom_appbar
 from src.requests.organisations import create_organisation, get_my_organisation, get_organisation_members, get_organisation_courses
@@ -33,7 +35,8 @@ async def organisations_view(page: ft.Page):
             "members": org_data.get("members", 0),
             "courses": org_data.get("courses", 0),
             "staff": org_data.get("staff", 0),
-            "plan": org_data.get("plan",{}).get("name", "Free") # Or "Premium (Ends 12/26)"
+            "plan": org_data.get("plan",{}).get("name", "Free"), # Or "Premium (Ends 12/26)",\
+            "students": org_data.get("students", 0)
         }
         
         # Await the API call and fix the ID lookup
@@ -49,7 +52,7 @@ async def organisations_view(page: ft.Page):
                 padding=20,
                 border_radius=15,
                 # Responsive: Takes up 50% width on mobile (xs=6), 25% on desktop (sm=3)
-                col={"xs": 6, "sm": 3}, 
+                col={"xs": 6, "sm": 2.4}, 
                 content=ft.Row([
                     ft.Column([
                         ft.Text(str(value), size=24, weight=ft.FontWeight.BOLD, color="white"),
@@ -104,7 +107,7 @@ async def organisations_view(page: ft.Page):
                             padding=ft.padding.symmetric(horizontal=10, vertical=4),
                             bgcolor=badge_bg,
                             border_radius=12,
-                            content=ft.Text(member_role, size=11, color=badge_text, weight=ft.FontWeight.BOLD)
+                            content=ft.Text(member_role, size=8, color=badge_text, weight=ft.FontWeight.BOLD)
                         ),
                         ft.PopupMenuButton(
                             icon=ft.Icons.MORE_VERT_ROUNDED,
@@ -125,14 +128,15 @@ async def organisations_view(page: ft.Page):
             desc = course.get("description", "No description available.") # You can pull this from relational data later
             image_url = course.get("image_url")
             course_id = course.get("id", "")
+            course_status = course.get("public")
             
             # --- Badges ---
             # 1. Level/Status Badge (Green)
             level_badge = ft.Container(
                 padding=ft.padding.symmetric(horizontal=8, vertical=4),
-                bgcolor=ft.Colors.GREEN_50,
+                bgcolor=ft.Colors.GREEN_50 if course_status else "grey",
                 border_radius=12,
-                content=ft.Text("Advance level", size=8, color=ft.Colors.GREEN_700, weight=ft.FontWeight.W_600)
+                content=ft.Text("Public" if course_status else "draft", size=8, color=ft.Colors.GREEN_700 if course_status else "black", weight=ft.FontWeight.W_600)
             )
 
             # 2. Enrollment Badge (Blue)
@@ -158,7 +162,7 @@ async def organisations_view(page: ft.Page):
                             height=140, # Forces a standard 16:9ish ratio
                             bgcolor="white", # Placeholder bg color
                             content=ft.Image(
-                                src=image_url or "https://nu-age-cdn.b-cdn.net/logos/placeholder%202.png",
+                                src=image_url or "placeholder.png",
                                 fit=ft.BoxFit.COVER
                             )
                         ),
@@ -176,7 +180,7 @@ async def organisations_view(page: ft.Page):
                                         controls=[
                                             ft.Text(title, size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS), 
                                             # THE FIX: Wrapped the string in an actual ft.Icon control
-                                            ft.IconButton(ft.Icons.EDIT, icon_color=theme_color, on_click=lambda e, c_id=course_id: page.go(f"/courses/{course_id}/manage"))
+                                            ft.IconButton(ft.Icons.EDIT, icon_color=theme_color, on_click=lambda e, c_id=course_id: page.go(f"/courses/{course_id}/settings")) # <--- THE FIX: Dynamic Theme Color and proper routing
                                         ]
                                     ),
                                     # Description
@@ -265,7 +269,7 @@ async def organisations_view(page: ft.Page):
                                             content=ft.CircleAvatar(
                                                 radius=46, 
                                                 bgcolor=ft.Colors.BLUE_GREY_100, 
-                                                background_image_src=org_data.get("logo") or "https://via.placeholder.com/150"
+                                                background_image_src=org_data.get("logo") or "placeholder.png"
                                             )
                                         )
                                     ),
@@ -311,6 +315,7 @@ async def organisations_view(page: ft.Page):
                                     stat_card(ft.Icons.GROUPS_ROUNDED, "Members", stats["members"], ft.Colors.ORANGE_400),
                                     stat_card(ft.Icons.LIBRARY_BOOKS_ROUNDED, "Courses", stats["courses"], ft.Colors.INDIGO_400),
                                     stat_card(ft.Icons.BADGE_ROUNDED, "Staff", stats["staff"], ft.Colors.CYAN_400),
+                                    stat_card(ft.Icons.SCHOOL_OUTLINED, "Students", stats["students"], ft.Colors.BLUE_ACCENT_400),
                                     stat_card(ft.Icons.WORKSPACE_PREMIUM_ROUNDED, "Plan", stats["plan"], ft.Colors.PURPLE_400),
                                 ]
                             ),
@@ -334,7 +339,8 @@ async def organisations_view(page: ft.Page):
                                             controls=[build_course_row(c) for c in recent_courses] if recent_courses else [ft.Text("No active courses published.", color=ft.Colors.ON_SURFACE_VARIANT)],
                                             spacing=5
                                         ), 
-                                        manage_route=f"/organisations/{org_id}/courses"
+                                        manage_route=f"/organisations/{org_id}/courses",
+                                        action_icon=ft.Icons.LOCAL_LIBRARY_OUTLINED
                                     )
                                 ]
                             ),

@@ -1,9 +1,10 @@
 import flet as ft
+from src import course_view
 from src.components.course_card import get_course_card
 from src.components.enrolled_card import get_enrolled_card
 from src.components.bottom_appbar import get_bottom_appbar
 from src.requests.Courses import get_courses
-from src.requests.enrollments import get_enrollments
+from src.requests.enrollments import get_enrollments, enrol_user
 from datetime import datetime
 async def courses_view(page: ft.Page):
     course_cards = []
@@ -14,6 +15,36 @@ async def courses_view(page: ft.Page):
             await handle_change(e)
         else:
             pass
+        
+    async def handle_enrol_click(e,course_id:str):
+        token = await page.shared_preferences.get("auth_token")
+        if e.control.disabled:
+            return
+        
+        e.control.disabled = True
+        # Using ON_PRIMARY for the ring inside the button
+        e.control.content = ft.ProgressRing(width=16, height=16, color=ft.Colors.ON_PRIMARY)
+        is_enrolling = True
+        page.update()
+        
+        try:
+            if is_enrolling:
+                status, data = await enrol_user(token, course_id, None)
+            else:
+                pass # Unenroll logic here
+            
+            if status == 200:
+                e.control.content= ft.Text("Fetching Course Contents...")
+                page.update()
+                page.go(f"/courses/{course_id}/view")
+            else:
+                e.control.disabled = False
+                e.control.content = ft.Text("Enroll") 
+                page.update()
+        except Exception:
+            e.control.disabled = False
+            page.update()
+        
             
     async def handle_change(e):
         new_token = await page.shared_preferences.get("auth_token")
@@ -211,7 +242,7 @@ async def courses_view(page: ft.Page):
                 created_at = datetime.fromisoformat(created_at)
                 # 2. Format to Day/Month/Year
                 created_at = created_at.strftime("%d/%m/%Y")
-                card = get_course_card(course_name,category,full_name,image_url,created_at)
+                card = get_course_card(course_name,category,full_name,image_url,created_at,on_enroll_click=lambda e, c_id=course_id: e.page.run_task(handle_enrol_click, e, c_id))
                 card.on_click = lambda e, c_id=course_id, c_name=course_name: page.go(f"/courses/{c_id}/{c_name}")
                 card.col = {"xs": 12, "sm": 6}
                 course_cards.append(card)

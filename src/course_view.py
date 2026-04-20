@@ -156,6 +156,9 @@ async def course_details_view(page: ft.Page, course_id: str, course_name: str):
                 border_radius=14,
                 content=image,
             ),
+            ft.Container(height=10),
+            ft.Divider(thickness=1, color=ft.Colors.OUTLINE_VARIANT),
+            ft.Container(height=10),
             ft.Container(
                 padding=ft.padding.only(left=15, top=10),
                 content=ft.Column(controls=[
@@ -173,14 +176,18 @@ async def course_details_view(page: ft.Page, course_id: str, course_name: str):
                     ], tight=True)
                 ])
             ),
-            ft.Container(height=20),
+            ft.Container(height=10),
+            ft.Divider(thickness=1, color=ft.Colors.OUTLINE_VARIANT),
+            ft.Container(height=10),
             ft.Text("   Course Description", size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
             ft.Container(
                 padding=ft.padding.only(left=15, right=15),
                 content=ft.Text(value=course_desc, size=14, color=ft.Colors.ON_SURFACE),
 
             ),
-            ft.Container(height=20),
+            ft.Container(height=10),
+            ft.Divider(thickness=1, color=ft.Colors.OUTLINE_VARIANT),
+            ft.Container(height=10),
             info_card("What you will learn:",obj_list),
             ft.Container(
                 padding=20,

@@ -420,25 +420,31 @@ async def course_builder_view(page: ft.Page, course_id: str):
         try:
             res = await upload_video_background(token, file_name=f.name, file_bytes=file_bytes)
             print(res)
-            content["video_url"] = res.get("url", "")
+            url = res.get("url", "")
+            content["video_url"] = url
+            url_input.value = content["video_url"]
+            status.value = "Uploaded successfully."
+            status.color = ft.Colors.GREEN_700
+            status.update()
+            url_input.update()
+            e.control.disabled=True 
+            page.update()
             
             if not content.get("file_name") and not res.get("error"):
                 content["file_name"] = f.name
                 name_input.value = f.name
                 name_input.update()
-                e.control.disabled=False
+                page.update()
             if res.get("error"):
+                name_input.value = ""
+                name_input.update()
                 status.value = "Upload Failed"
                 status.color = ft.Colors.RED_700
                 e.control.disabled=False 
                 page.update()
                 return
 
-            url_input.value = content["video_url"]
-            status.value = "Uploaded successfully."
-            status.color = ft.Colors.GREEN_700
-            status.update()
-            url_input.update()
+            
             
             
         except Exception as ex:
@@ -451,8 +457,7 @@ async def course_builder_view(page: ft.Page, course_id: str):
             status.update()
             url_input.update()
             e.control.disabled=False
-        page.update()
-        build_editor()
+        
     async def pick_and_upload_asset(asset_type: str, content: dict, status: ft.Text, name_input: ft.TextField, allowed_ext=None, file_type=None, e=None):
         e.control.disabled = True
         files = await ft.FilePicker().pick_files(

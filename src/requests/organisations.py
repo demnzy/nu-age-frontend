@@ -1,5 +1,8 @@
 import httpx
-api_url = "http://localhost:8000"
+import os
+from dotenv import load_dotenv
+load_dotenv()
+api_url = os.getenv("API_URL")
 
 async def create_organisation(token:str, payload): 
     url = f"{api_url}/organisations/create" 
@@ -39,8 +42,8 @@ async def get_my_organisation(token:str):
         print(f"Request Error: {e}")
         return e
 
-async def get_organisation_members(token:str, id: str): 
-    url = f"{api_url}/organisations/members?id={id}" 
+async def get_organisation_members(token:str, id: str, students: bool = False, teachers: bool = False): 
+    url = f"{api_url}/organisations/members?id={id}&students={students}&teachers={teachers}" 
     headers = {"Authorization": f"Bearer {token}"}
 
     try:

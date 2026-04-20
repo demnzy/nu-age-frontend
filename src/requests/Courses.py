@@ -1,5 +1,9 @@
 import httpx
-api_url = "http://localhost:8000"
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+api_url = os.getenv("API_URL")
 
 
 

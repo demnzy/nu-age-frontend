@@ -1,12 +1,8 @@
-from turtle import bgcolor
-from unicodedata import category
 
-from arrow import get
 import flet as ft
 from src.components.bottom_appbar import get_bottom_appbar
 from src.requests.Courses import create_course,get_categories,get_courses
-from src.requests.organisations import get_my_organisation
-import base64
+from src.requests.organisations import get_my_organisation, get_organisation_members
 # MOCK API FUNCTIONS (Replace these with your actual backend requests)
 
 async def create_courses_view(page: ft.Page, org_id: str = None):
@@ -15,6 +11,7 @@ async def create_courses_view(page: ft.Page, org_id: str = None):
     
     # 1. Placeholders for State Management
     categories_options = []
+    teachers_options = []
     theme_color = ft.Colors.PRIMARY
     current_courses = []
 
@@ -138,9 +135,8 @@ async def create_courses_view(page: ft.Page, org_id: str = None):
         name_input = ft.TextField(label="Course Title *", **input_style)
         desc_input = ft.TextField(label="Short Description", multiline=True, min_lines=2, max_lines=3, **input_style)
         
-        public_switch = ft.Switch(label="Make Course Public", value=False, active_color=ft.Colors.PRIMARY)
-        supervised_switch = ft.Switch(label="Instructor-Led (Supervised)", value=False, active_color=ft.Colors.PRIMARY)
         category_dropdown = ft.Dropdown(label="Category", options=categories_options, **input_style)
+        teacher_dropdown = ft.Dropdown(label="Teacher (Optional)", options=teachers_options, **input_style)
         objectives_list = []
         objectives_chips = ft.Row(wrap=True, spacing=5)
         selected_logo_bytes = None
@@ -230,12 +226,12 @@ async def create_courses_view(page: ft.Page, org_id: str = None):
                 "name": name_input.value,
                 "category_id": category_dropdown.value,
                 "description": desc_input.value or name_input.value,
-                "public": public_switch.value,
-                "supervised": supervised_switch.value,
+                "public": False,
                 "objectives": objectives_list,
                 "image_bytes": logo_b64,              
                 "image_filename": selected_logo_name,
-                "org_id": org_id
+                "org_id": org_id,
+                "teacher_id": teacher_dropdown.value or None
             }
             new_course_data = await create_course(token, payload)
             close_modal()
@@ -260,13 +256,13 @@ async def create_courses_view(page: ft.Page, org_id: str = None):
                         name_input,
                         desc_input,
                         category_dropdown,
+                        teacher_dropdown,
                         image_picker_btn,
                         ft.Divider(height=1),
                         ft.Text("Course Objectives", weight=ft.FontWeight.BOLD, size=14),
                         obj_input,
                         objectives_chips,
                         ft.Divider(height=1),
-                        ft.Row([public_switch, supervised_switch], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, wrap=True),
                         error_text
                     ]
                 )
@@ -284,12 +280,14 @@ async def create_courses_view(page: ft.Page, org_id: str = None):
 
     # --- BACKGROUND DATA FETCHER ---
     async def fetch_initial_data():
-        nonlocal categories_options, theme_color, current_courses
+        nonlocal categories_options, theme_color, current_courses, teachers_options
         
         # 1. Await all the data
         categories = await get_categories(token, None) or []
         categories_options = [ft.dropdown.Option(key=cat['id'], text=cat['name']) for cat in categories]
         
+        teachers = await get_organisation_members(token, id=org_id, teachers=True) or []
+        teachers_options = [ft.dropdown.Option(key=teacher['id'], text=f"{teacher['first_name']} {teacher['last_name']}".capitalize()) for teacher in teachers]
         org_data = await get_my_organisation(token)
         if org_data:
             theme_color = org_data.get("theme_color", ft.Colors.PRIMARY)
