@@ -30,25 +30,29 @@ async def course_learner_view(page: ft.Page, course_id: str):
             "document": "DOCUMENT",
             "cards": "FLASHCARDS",
             "assessment": "ASSESSMENT",
+            "scenario": "SCENARIO",
+            "assignment": "ASSIGNMENT",
         }
         return labels.get(lesson_type, "LESSON")
 
     # =========================================================
-    # 1. API LAYER (EASY TO REPLACE)
+    # 1. API LAYER
     # =========================================================
-    # Replace only the functions in this section when connecting
-    # to your real backend/API. Everything below consumes this
-    # layer and should not need structural changes.
-    # =========================================================
+    async def api_submit_assignment(lesson_id: str, file_name: str, file_bytes: bytes):
+        # Calculate size just to prove the bytes arrived successfully
+        size_kb = len(file_bytes) / 1024 if file_bytes else 0
+        print(f"API: Uploading '{file_name}' ({size_kb:.2f} KB) for lesson {lesson_id}")
+        
+        return {
+            "success": True, 
+            "message": "Assignment submitted successfully! Your instructor will review it and email your results."
+        }
 
     async def api_fetch_course_data(c_id: str):
-        # Initial load simulated API: Returns user's persisted progress via 'is_done'
-        course_data = await get_course_curriculum(token,course_id)
-        print(course_data)
+        course_data = await get_course_curriculum(token, course_id)
         return course_data
 
     async def api_save_progress(lesson_id: str):
-        # Fires to the backend every time a lesson is completed
         print(f"API: Saving progress... Lesson {lesson_id} marked as done.")
         return True
 
@@ -61,31 +65,25 @@ async def course_learner_view(page: ft.Page, course_id: str):
         return {"passed": True, "score": 100}
 
     # =========================================================
-    # 2. STATE MANAGEMENT
+    # 2. STATE MANAGEMENT (Initialized Empty)
     # =========================================================
-
-    course_data = await api_fetch_course_data(course_id)
-
+    
+    course_data = None
     current_module_idx = 0
     current_lesson_idx = 0
     sidebar_visible = False
     current_assessment_state = {}
+    module_expanded_state = {}
 
-    # Automatically scan course payload on load to jump to the current active lesson
-    for m_idx, mod in enumerate(course_data["modules"]):
-        if not mod.get("is_done", False):
-            current_module_idx = m_idx
-            for l_idx, les in enumerate(mod.get("lessons", [])):
-                if not les.get("is_done", False):
-                    current_lesson_idx = l_idx
-                    break
-            break
-
-    # Sidebar-only expansion state
-    module_expanded_state = {
-        mod["id"]: (idx == current_module_idx)
-        for idx, mod in enumerate(course_data["modules"])
-    }
+    # --- THE LAZY LOAD SOCKET ---
+    content_socket = ft.Container(
+        expand=True, 
+        alignment=ft.Alignment.CENTER, 
+        content=ft.Row([
+            ft.ProgressRing(color=UI_ACCENT, stroke_width=3),
+            ft.Text(" Loading curriculum...", color=ft.Colors.ON_SURFACE_VARIANT, weight=ft.FontWeight.W_500)
+        ], alignment=ft.MainAxisAlignment.CENTER)
+    )
 
     # =========================================================
     # 3. CORE UI CONTAINERS
@@ -97,10 +95,35 @@ async def course_learner_view(page: ft.Page, course_id: str):
     main_content_area = ft.Container(expand=True, padding=0)
     body_host = ft.Container(expand=True)
 
+    def toggle_sidebar(e):
+        nonlocal sidebar_visible
+        if is_desktop_layout():
+            return
+        sidebar_visible = not sidebar_visible
+        refresh_layout_shell()
+        page.update()
+
     close_sidebar_button = ft.IconButton(
         ft.Icons.CLOSE,
         icon_size=18,
-        on_click=lambda e: toggle_sidebar(e),
+        on_click=toggle_sidebar,
+    )
+
+    menu_button = ft.IconButton(
+        icon=ft.Icons.MENU,
+        icon_color=ft.Colors.WHITE,
+        on_click=toggle_sidebar,
+        tooltip="Course Menu",
+        visible=False # Hidden initially
+    )
+
+    # Dynamic Course Title for Sidebar (Updated after fetch)
+    sidebar_course_title = ft.Text(
+        "Loading...",
+        color=ft.Colors.WHITE,
+        weight=ft.FontWeight.BOLD,
+        size=13,
+        expand=True,
     )
 
     sidebar_container = ft.Container(
@@ -127,12 +150,7 @@ async def course_learner_view(page: ft.Page, course_id: str):
                     bgcolor=ft.Colors.WHITE,
                     content=ft.Row(
                         [
-                            ft.Text(
-                                "Course Menu",
-                                weight=ft.FontWeight.BOLD,
-                                size=14,
-                                color=ft.Colors.ON_SURFACE,
-                            ),
+                            ft.Text("Course Menu", weight=ft.FontWeight.BOLD, size=14, color=ft.Colors.ON_SURFACE),
                             close_sidebar_button,
                         ],
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -144,13 +162,7 @@ async def course_learner_view(page: ft.Page, course_id: str):
                     content=ft.Row(
                         [
                             ft.Icon(ft.Icons.MENU_BOOK_ROUNDED, color=ft.Colors.WHITE, size=16),
-                            ft.Text(
-                                course_data["course_title"],
-                                color=ft.Colors.WHITE,
-                                weight=ft.FontWeight.BOLD,
-                                size=13,
-                                expand=True,
-                            ),
+                            sidebar_course_title,
                         ],
                         spacing=8,
                     ),
@@ -164,11 +176,20 @@ async def course_learner_view(page: ft.Page, course_id: str):
         ),
     )
 
-    menu_button = ft.IconButton(
-        icon=ft.Icons.MENU,
-        icon_color=ft.Colors.WHITE,
-        on_click=lambda e: toggle_sidebar(e),
-        tooltip="Course Menu",
+    # Dynamic App Bar Title (Updated after fetch)
+    appbar_title = ft.Text(
+        "Loading Course...",
+        size=18,
+        weight=ft.FontWeight.BOLD,
+        color=ft.Colors.WHITE,
+    )
+
+    page_appbar = ft.AppBar(
+        leading=ft.IconButton(ft.Icons.ARROW_BACK_ROUNDED, icon_color=ft.Colors.WHITE, on_click=lambda _: page.go("/courses")),
+        title=appbar_title,
+        center_title=False,
+        bgcolor=UI_ACCENT,
+        actions=[menu_button]
     )
 
     # =========================================================
@@ -190,16 +211,8 @@ async def course_learner_view(page: ft.Page, course_id: str):
             body_host.content = ft.Row(
                 [
                     sidebar_container,
-                    ft.VerticalDivider(
-                        width=1,
-                        thickness=1,
-                        color=ft.Colors.with_opacity(0.06, ft.Colors.BLACK),
-                    ),
-                    ft.Container(
-                        expand=True,
-                        padding=ft.padding.all(16),
-                        content=main_content_area,
-                    ),
+                    ft.VerticalDivider(width=1, thickness=1, color=ft.Colors.with_opacity(0.06, ft.Colors.BLACK)),
+                    ft.Container(expand=True, padding=ft.padding.all(16), content=main_content_area),
                 ],
                 spacing=0,
                 expand=True,
@@ -212,30 +225,15 @@ async def course_learner_view(page: ft.Page, course_id: str):
 
             body_host.content = ft.Stack(
                 [
-                    ft.Container(
-                        expand=True,
-                        padding=ft.padding.all(12),
-                        content=main_content_area,
-                    ),
+                    ft.Container(expand=True, padding=ft.padding.all(12), content=main_content_area),
                     sidebar_container,
                 ],
                 expand=True,
             )
 
-    def toggle_sidebar(e):
-        nonlocal sidebar_visible
-
-        if is_desktop_layout():
-            return
-
-        sidebar_visible = not sidebar_visible
-        refresh_layout_shell()
-        page.update()
-        # =========================================================
-    # CONTENT UI RENDERERS (KEY-DRIVEN, ORDER-PRESERVING)
     # =========================================================
-
-
+    # CONTENT UI RENDERERS
+    # =========================================================
 
     CONTENT_RENDERERS = {}
 
@@ -276,10 +274,7 @@ async def course_learner_view(page: ft.Page, course_id: str):
                             end=ft.Alignment.BOTTOM_CENTER,
                             colors=[ft.Colors.BLACK87, ft.Colors.TRANSPARENT],
                         ),
-                        left=0,
-                        right=0,
-                        top=0,
-                        height=60,
+                        left=0, right=0, top=0, height=60,
                     ),
                 ],
                 expand=True,
@@ -288,6 +283,9 @@ async def course_learner_view(page: ft.Page, course_id: str):
         
     @register_content_renderer("accompanying_text")
     def render_notes_block(value, lesson):
+        async def handle_link_tap(e):
+            await e.page.launch_url(e.data)
+
         return ft.Container(
             padding=18,
             border_radius=12,
@@ -296,7 +294,12 @@ async def course_learner_view(page: ft.Page, course_id: str):
             content=ft.Column(
                 [
                     ft.Text("Instructor Notes", weight=ft.FontWeight.BOLD, size=15),
-                    ft.Text(value, size=14, color=ft.Colors.ON_SURFACE_VARIANT),
+                    ft.Markdown(
+                        value,
+                        selectable=False, 
+                        extension_set=ft.MarkdownExtensionSet.GITHUB_FLAVORED,
+                        on_tap_link=handle_link_tap 
+                    ),
                 ],
                 spacing=10,
                 horizontal_alignment=ft.CrossAxisAlignment.START,
@@ -306,6 +309,10 @@ async def course_learner_view(page: ft.Page, course_id: str):
     @register_content_renderer("document_url")
     def render_document_block(value, lesson):
         file_name = lesson["content"].get("file_name", "Document")
+
+        # THE FIX: Wrap the URL launcher in an async function so it gets awaited
+        async def handle_download(e):
+            await lesson["_page"].launch_url(value)
 
         return ft.Container(
             padding=40,
@@ -320,7 +327,7 @@ async def course_learner_view(page: ft.Page, course_id: str):
                     ft.ElevatedButton(
                         content=ft.Text("Download Document"),
                         icon=ft.Icons.DOWNLOAD,
-                        on_click=lambda e: lesson["_page"].launch_url(value),
+                        on_click=handle_download, # <--- Pass the async function here
                     ),
                 ],
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -330,6 +337,9 @@ async def course_learner_view(page: ft.Page, course_id: str):
         
     @register_content_renderer("text")
     def render_text_block(value, lesson):
+        async def handle_link_tap(e):
+            await e.page.launch_url(e.data)
+
         return ft.Container(
             padding=24,
             border_radius=14,
@@ -337,13 +347,19 @@ async def course_learner_view(page: ft.Page, course_id: str):
             border=ft.border.all(1, ft.Colors.with_opacity(0.06, ft.Colors.BLACK)),
             content=ft.Markdown(
                 value,
-                selectable=True,
+                selectable=False, 
                 extension_set=ft.MarkdownExtensionSet.GITHUB_FLAVORED,
+                on_tap_link=handle_link_tap 
             ),
         )
+
     @register_content_renderer("audio_path")
     def render_audio_block(value, lesson):
         file_name = lesson["content"].get("file_name", "Audio Lesson")
+
+        # THE FIX: Wrap the URL launcher in an async function so it gets awaited
+        async def handle_download(e):
+            await lesson["_page"].launch_url(value)
 
         return ft.Container(
             padding=40,
@@ -354,16 +370,11 @@ async def course_learner_view(page: ft.Page, course_id: str):
             content=ft.Column(
                 [
                     ft.Icon(ft.Icons.AUDIO_FILE_ROUNDED, size=56, color=ft.Colors.PRIMARY),
-                    ft.Text(
-                        file_name,
-                        weight=ft.FontWeight.BOLD,
-                        size=18,
-                        text_align=ft.TextAlign.CENTER,
-                    ),
+                    ft.Text(file_name, weight=ft.FontWeight.BOLD, size=18, text_align=ft.TextAlign.CENTER),
                     ft.ElevatedButton(
-                        "Download Audio",
-                        icon=ft.Icons.DOWNLOAD,
-                        on_click=lambda e: lesson["_page"].launch_url(value),
+                        "Download Audio", 
+                        icon=ft.Icons.DOWNLOAD, 
+                        on_click=handle_download # <--- Pass the async function here
                     ),
                 ],
                 spacing=14,
@@ -378,9 +389,7 @@ async def course_learner_view(page: ft.Page, course_id: str):
 
         card_text = ft.Text(
             cards_list[0] if cards_list else "No cards",
-            size=22,
-            weight=ft.FontWeight.W_600,
-            text_align=ft.TextAlign.CENTER,
+            size=22, weight=ft.FontWeight.W_600, text_align=ft.TextAlign.CENTER,
         )
 
         counter_text = ft.Text(
@@ -403,21 +412,9 @@ async def course_learner_view(page: ft.Page, course_id: str):
                     ft.Container(card_text, expand=True, alignment=ft.Alignment(0, 0)),
                     ft.Row(
                         [
-                            ft.IconButton(
-                                ft.Icons.ARROW_BACK_IOS_ROUNDED,
-                                on_click=lambda e: (
-                                    card_idx.__setitem__(0, max(card_idx[0] - 1, 0)),
-                                    update(),
-                                ),
-                            ),
+                            ft.IconButton(ft.Icons.ARROW_BACK_IOS_ROUNDED, on_click=lambda e: (card_idx.__setitem__(0, max(card_idx[0] - 1, 0)), update())),
                             counter_text,
-                            ft.IconButton(
-                                ft.Icons.ARROW_FORWARD_IOS_ROUNDED,
-                                on_click=lambda e: (
-                                    card_idx.__setitem__(0, min(card_idx[0] + 1, len(cards_list) - 1)),
-                                    update(),
-                                ),
-                            ),
+                            ft.IconButton(ft.Icons.ARROW_FORWARD_IOS_ROUNDED, on_click=lambda e: (card_idx.__setitem__(0, min(card_idx[0] + 1, len(cards_list) - 1)), update())),
                         ],
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                     ),
@@ -428,6 +425,173 @@ async def course_learner_view(page: ft.Page, course_id: str):
     # =========================================================
     # 5. LESSON TYPE RENDERERS
     # =========================================================
+    @register_content_renderer("prompt_text")
+    def render_assignment_ui(lesson: dict):
+        prompt = lesson.get("content", {}).get("prompt_text", "")
+        status_text = ft.Text("No file selected", size=12, color=ft.Colors.ON_SURFACE_VARIANT)
+        
+        selected_file = [{"name": None, "bytes": None}] 
+
+        submit_btn = ft.ElevatedButton(
+            "Submit Assignment",
+            icon=ft.Icons.SEND_ROUNDED,
+            bgcolor=UI_ACCENT,
+            color=ft.Colors.WHITE,
+            disabled=True, 
+        )
+
+        async def handle_upload(e):
+            files = await ft.FilePicker().pick_files(
+                allow_multiple=False,
+                with_data=True 
+            )
+            
+            if files:
+                f = files[0]
+                file_bytes = getattr(f, "bytes", None)
+
+                if not file_bytes and getattr(f, "path", None):
+                    try:
+                        with open(f.path, "rb") as fp:
+                            file_bytes = fp.read()
+                    except Exception:
+                        file_bytes = None
+
+                if file_bytes:
+                    selected_file[0] = {"name": f.name, "bytes": file_bytes}
+                    status_text.value = f"Selected: {f.name}"
+                    status_text.color = ft.Colors.GREEN_700
+                    submit_btn.disabled = False 
+                else:
+                    status_text.value = "Failed to read file data."
+                    status_text.color = ft.Colors.RED_700
+                    submit_btn.disabled = True
+                    
+                lesson["_page"].update()
+
+        async def handle_submit(e):
+            if not selected_file[0]["bytes"]:
+                return
+
+            # Trigger Loading State
+            submit_btn.disabled = True
+            submit_btn.content = ft.Row([
+                ft.ProgressRing(width=16, height=16, color=ft.Colors.WHITE, stroke_width=2),
+                ft.Text("Uploading...", weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE)
+            ], alignment=ft.MainAxisAlignment.CENTER)
+            lesson["_page"].update()
+
+            # Pass the actual file bytes to the API
+            result = await api_submit_assignment(
+                lesson["id"], 
+                selected_file[0]["name"], 
+                selected_file[0]["bytes"]
+            )
+
+            if result.get("success"):
+                # Lock the button into a "Success" state
+                submit_btn.content = ft.Text("Submitted for Grading", weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE)
+                submit_btn.icon = ft.Icons.CHECK_CIRCLE
+                submit_btn.bgcolor = ft.Colors.GREEN_600
+                
+                # Show the non-blocking toast
+                snack = ft.SnackBar(content=ft.Text(result["message"]), bgcolor=ft.Colors.GREEN_700)
+                lesson["_page"].overlay.append(snack)
+                snack.open = True
+            else:
+                # Reset if upload fails
+                submit_btn.content = ft.Text("Submit Assignment", weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE)
+                submit_btn.disabled = False
+                
+                snack = ft.SnackBar(content=ft.Text("Upload failed. Try again."), bgcolor=ft.Colors.RED_700)
+                lesson["_page"].overlay.append(snack)
+                snack.open = True
+                
+            lesson["_page"].update()
+
+        submit_btn.on_click = handle_submit
+
+        return ft.Container(
+            padding=25,
+            border_radius=16,
+            bgcolor=ft.Colors.WHITE,
+            border=ft.border.all(1, ft.Colors.with_opacity(0.06, ft.Colors.BLACK)),
+            content=ft.Column([
+                ft.Row([
+                    ft.Icon(ft.Icons.ASSIGNMENT_ROUNDED, color=UI_ACCENT, size=28),
+                    ft.Text("Project Assignment", weight=ft.FontWeight.BOLD, size=18, color=UI_ACCENT)
+                ]),
+                ft.Markdown(prompt, selectable=False, extension_set=ft.MarkdownExtensionSet.GITHUB_FLAVORED),
+                ft.Divider(height=10, color=ft.Colors.OUTLINE_VARIANT),
+                ft.Row([
+                    ft.OutlinedButton("Select File", icon=ft.Icons.ATTACH_FILE_ROUNDED, on_click=handle_upload),
+                    status_text
+                ]),
+                ft.Container(height=10),
+                submit_btn 
+            ], spacing=15)
+        )
+    def render_scenario_ui(lesson: dict):
+        content = lesson.get("content", {})
+        scenario_text = content.get("scenario", "")
+        choices = content.get("choices", [])
+        
+        consequence_box = ft.Container(
+            padding=20,
+            border_radius=12,
+            bgcolor=ft.Colors.BLUE_50,
+            border=ft.border.all(1, ft.Colors.BLUE_200),
+            visible=False, 
+            content=ft.Column([
+                ft.Row([ft.Icon(ft.Icons.LIGHTBULB_CIRCLE, color=ft.Colors.BLUE_700), ft.Text("Result", weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_900)]),
+                ft.Markdown("", selectable=False, extension_set=ft.MarkdownExtensionSet.GITHUB_FLAVORED)
+            ])
+        )
+
+        buttons_col = ft.Column(spacing=10, horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
+        
+        def handle_choice(idx, cons_text):
+            for i, btn in enumerate(buttons_col.controls):
+                if i == idx:
+                    btn.bgcolor = UI_ACCENT
+                    btn.color = ft.Colors.WHITE
+                else:
+                    btn.bgcolor = ft.Colors.TRANSPARENT
+                    btn.color = UI_ACCENT
+            
+            consequence_box.content.controls[1].value = cons_text
+            consequence_box.visible = True
+            lesson["_page"].update()
+
+        for idx, ch in enumerate(choices):
+            btn = ft.OutlinedButton(
+                content=ch.get("text", f"Option {idx+1}"),
+                style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), padding=20),
+                on_click=lambda e, i=idx, c_t=ch.get("consequence", ""): handle_choice(i, c_t)
+            )
+            buttons_col.controls.append(btn)
+
+        return ft.Container(
+            padding=25,
+            border_radius=16,
+            bgcolor=ft.Colors.WHITE,
+            border=ft.border.all(1, ft.Colors.with_opacity(0.06, ft.Colors.BLACK)),
+            content=ft.Column(
+                [
+                    ft.Row([
+                        ft.Icon(ft.Icons.CALL_SPLIT_ROUNDED, color=UI_ACCENT, size=28),
+                        ft.Text("Decision Matrix", weight=ft.FontWeight.BOLD, size=18, color=UI_ACCENT)
+                    ]),
+                    ft.Text(scenario_text, size=16, color=ft.Colors.ON_SURFACE),
+                    ft.Divider(height=10, color=ft.Colors.OUTLINE_VARIANT),
+                    ft.Text("What is the best course of action?", weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE_VARIANT),
+                    buttons_col,
+                    ft.Container(height=5),
+                    consequence_box
+                ],
+                spacing=10,
+            ),
+        )
     def render_assessment_ui(lesson: dict):
         content = lesson.get("content", {})
         questions = content.get("questions", [])
@@ -436,20 +600,13 @@ async def course_learner_view(page: ft.Page, course_id: str):
         question_cards = []
 
         for q_idx, q in enumerate(questions):
-            q_text = ft.Text(
-                f"Q{q_idx + 1}: {q.get('text', '')}",
-                weight=ft.FontWeight.BOLD,
-                size=16,
-            )
+            q_text = ft.Text(f"Q{q_idx + 1}: {q.get('text', '')}", weight=ft.FontWeight.BOLD, size=16)
 
             options_group = ft.RadioGroup(
                 content=ft.Column(
                     [
                         ft.Row(
-                            [
-                                ft.Radio(value=opt.get("text")),
-                                ft.Text(opt.get("text"), expand=True),
-                            ],
+                            [ft.Radio(value=opt.get("text")), ft.Text(opt.get("text"), expand=True)],
                             vertical_alignment=ft.CrossAxisAlignment.START,
                         )
                         for opt in q.get("options", [])
@@ -466,53 +623,39 @@ async def course_learner_view(page: ft.Page, course_id: str):
                     border_radius=16,
                     bgcolor=ft.Colors.WHITE,
                     border=ft.border.all(1, ft.Colors.with_opacity(0.06, ft.Colors.BLACK)),
-                    content=ft.Column(
-                        [
-                            q_text,
-                            ft.Divider(height=1),
-                            options_group,
-                        ],
-                        spacing=15,
-                    ),
+                    content=ft.Column([q_text, ft.Divider(height=1), options_group], spacing=15),
                 )
             )
 
         return ft.Container(
-            width=None,              # full width
+            width=None,
             padding=0,
-            content=ft.Column(
-                question_cards,
-                spacing=20,
-                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
-            ),
+            content=ft.Column(question_cards, spacing=20, horizontal_alignment=ft.CrossAxisAlignment.STRETCH),
         )
 
 
     def render_lesson_ui(lesson: dict):
         content = lesson.get("content", {})
         blocks = []
-
-        # Inject page reference for blocks that need it
         lesson["_page"] = page
 
         for key, value in content.items():
-            # Skip assessment questions (handled separately)
-            if key == "questions":
+            # Add the new keys to the skip list
+            if key in ["questions", "scenario", "choices", "prompt_text"]:
                 continue
 
             renderer = CONTENT_RENDERERS.get(key)
             if renderer:
                 blocks.append(renderer(value, lesson))
 
-        # Assessment remains special
         if lesson["type"] == "assessment":
             blocks.append(render_assessment_ui(lesson))
+        elif lesson["type"] == "scenario":
+            blocks.append(render_scenario_ui(lesson))
+        elif lesson["type"] == "assignment":
+            blocks.append(render_assignment_ui(lesson))
 
-        return ft.Column(
-            blocks,
-            spacing=20,
-            horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
-        )
+        return ft.Column(blocks, spacing=20, horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
 
     # =========================================================
     # 6. SIDEBAR HELPERS
@@ -524,40 +667,22 @@ async def course_learner_view(page: ft.Page, course_id: str):
         if is_done:
             lesson_icon = ft.Icon(ft.Icons.CHECK_CIRCLE, size=14, color=ft.Colors.GREEN)
         elif is_active_lesson:
-            lesson_icon = ft.Icon(
-                ft.Icons.PLAY_CIRCLE_FILL_ROUNDED,
-                size=14,
-                color=UI_ACCENT,
-            )
+            lesson_icon = ft.Icon(ft.Icons.PLAY_CIRCLE_FILL_ROUNDED, size=14, color=UI_ACCENT)
         else:
-            lesson_icon = ft.Icon(
-                ft.Icons.CIRCLE_OUTLINED,
-                size=12,
-                color=ft.Colors.GREY_500,
-            )
+            lesson_icon = ft.Icon(ft.Icons.CIRCLE_OUTLINED, size=12, color=ft.Colors.GREY_500)
 
         return ft.Container(
             ink=True,
             on_click=lambda e, m=m_idx, l=l_idx: jump_to_lesson(m, l),
             bgcolor=ft.Colors.with_opacity(0.06, UI_ACCENT) if is_active_lesson else ft.Colors.WHITE,
             border=ft.border.only(
-                left=ft.border.BorderSide(
-                    4,
-                    UI_ACCENT if is_active_lesson else ft.Colors.TRANSPARENT,
-                ),
-                bottom=ft.border.BorderSide(
-                    1,
-                    ft.Colors.with_opacity(0.05, ft.Colors.BLACK),
-                ),
+                left=ft.border.BorderSide(4, UI_ACCENT if is_active_lesson else ft.Colors.TRANSPARENT),
+                bottom=ft.border.BorderSide(1, ft.Colors.with_opacity(0.05, ft.Colors.BLACK)),
             ),
             padding=ft.padding.symmetric(horizontal=12, vertical=10),
             content=ft.Row(
                 [
-                    ft.Container(
-                        width=18,
-                        alignment=ft.Alignment(0, 0),
-                        content=lesson_icon,
-                    ),
+                    ft.Container(width=18, alignment=ft.Alignment(0, 0), content=lesson_icon),
                     ft.Text(
                         les["title"],
                         size=12.5,
@@ -602,14 +727,8 @@ async def course_learner_view(page: ft.Page, course_id: str):
 
                 if current_module_idx >= len(course_data["modules"]) - 1:
                     dialog = ft.AlertDialog(
-                        title=ft.Text(
-                            "🎉 Course Completed!",
-                            weight=ft.FontWeight.BOLD,
-                            size=24,
-                        ),
-                        content=ft.Text(
-                            f"You have fully mastered {course_data['course_title']}."
-                        ),
+                        title=ft.Text("🎉 Course Completed!", weight=ft.FontWeight.BOLD, size=24),
+                        content=ft.Text(f"You have fully mastered {course_data['course_title']}."),
                         actions=[
                             ft.ElevatedButton(
                                 content=ft.Text("Return to Dashboard"),
@@ -688,9 +807,7 @@ async def course_learner_view(page: ft.Page, course_id: str):
         color=ft.Colors.WHITE,
         height=ACTION_BUTTON_HEIGHT,
         expand=True,
-        style=ft.ButtonStyle(
-            shape=ft.RoundedRectangleBorder(radius=6),
-        ),
+        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=6)),
     )
 
     def refresh_ui():
@@ -703,17 +820,11 @@ async def course_learner_view(page: ft.Page, course_id: str):
             lesson_controls = []
             for l_idx, les in enumerate(mod.get("lessons", [])):
                 is_active_lesson = is_active_module and (l_idx == current_lesson_idx)
-                lesson_controls.append(
-                    build_sidebar_lesson_row(les, m_idx, l_idx, is_active_lesson)
-                )
+                lesson_controls.append(build_sidebar_lesson_row(les, m_idx, l_idx, is_active_lesson))
 
             sidebar_column.controls.append(
                 ft.ExpansionTile(
-                    title=ft.Text(
-                        mod["title"],
-                        weight=ft.FontWeight.BOLD,
-                        size=12.5,
-                    ),
+                    title=ft.Text(mod["title"], weight=ft.FontWeight.BOLD, size=12.5),
                     expanded=module_expanded_state.get(mod["id"], False),
                     on_change=lambda e, module_id=mod["id"]: handle_module_tile_change(e, module_id),
                     maintain_state=True,
@@ -727,12 +838,7 @@ async def course_learner_view(page: ft.Page, course_id: str):
                     icon_color=ft.Colors.ON_SURFACE_VARIANT,
                     shape=ft.RoundedRectangleBorder(radius=0),
                     collapsed_shape=ft.RoundedRectangleBorder(radius=0),
-                    controls=[
-                        ft.Container(
-                            bgcolor=ft.Colors.WHITE,
-                            content=ft.Column(lesson_controls, spacing=0),
-                        )
-                    ],
+                    controls=[ft.Container(bgcolor=ft.Colors.WHITE, content=ft.Column(lesson_controls, spacing=0))],
                 )
             )
 
@@ -766,20 +872,14 @@ async def course_learner_view(page: ft.Page, course_id: str):
                 payload = {q_key: rg.value for q_key, rg in current_assessment_state.items()}
 
                 if None in payload.values():
-                    snack = ft.SnackBar(
-                        content=ft.Text("Please answer all questions before submitting!"),
-                        bgcolor=ft.Colors.ERROR,
-                    )
+                    snack = ft.SnackBar(content=ft.Text("Please answer all questions before submitting!"), bgcolor=ft.Colors.ERROR)
                     page.overlay.append(snack)
                     snack.open = True
                     page.update()
                     return
 
                 action_button.content = ft.Row(
-                    [
-                        ft.ProgressRing(width=20, height=20, color=ft.Colors.WHITE, stroke_width=2),
-                        ft.Text("Grading...", weight=ft.FontWeight.BOLD),
-                    ],
+                    [ft.ProgressRing(width=20, height=20, color=ft.Colors.WHITE, stroke_width=2), ft.Text("Grading...", weight=ft.FontWeight.BOLD)],
                     alignment=ft.MainAxisAlignment.CENTER,
                 )
                 action_button.disabled = True
@@ -795,31 +895,16 @@ async def course_learner_view(page: ft.Page, course_id: str):
 
                 if result.get("passed"):
                     result_dialog = ft.AlertDialog(
-                        title=ft.Row(
-                            [
-                                ft.Icon(ft.Icons.VERIFIED_ROUNDED, color=ft.Colors.GREEN, size=30),
-                                ft.Text("Assessment Passed!"),
-                            ]
-                        ),
+                        title=ft.Row([ft.Icon(ft.Icons.VERIFIED_ROUNDED, color=ft.Colors.GREEN, size=30), ft.Text("Assessment Passed!")]),
                         content=ft.Text(f"Great job! You scored {result['score']}% on this section."),
-                        actions=[
-                            ft.ElevatedButton(
-                                content=ft.Text("Continue"),
-                                bgcolor=UI_ACCENT,
-                                color=ft.Colors.WHITE,
-                                on_click=lambda e: handle_assessment_success(result, result_dialog),
-                            )
-                        ],
+                        actions=[ft.ElevatedButton(content=ft.Text("Continue"), bgcolor=UI_ACCENT, color=ft.Colors.WHITE, on_click=lambda e: handle_assessment_success(result, result_dialog))],
                         actions_alignment=ft.MainAxisAlignment.CENTER,
                     )
                     page.overlay.append(result_dialog)
                     result_dialog.open = True
                     page.update()
                 else:
-                    snack = ft.SnackBar(
-                        content=ft.Text("Submission failed. Try again."),
-                        bgcolor=ft.Colors.ERROR,
-                    )
+                    snack = ft.SnackBar(content=ft.Text("Submission failed. Try again."), bgcolor=ft.Colors.ERROR)
                     page.overlay.append(snack)
                     snack.open = True
                     page.update()
@@ -838,38 +923,19 @@ async def course_learner_view(page: ft.Page, course_id: str):
                 [
                     ft.Row(
                         [
-                            ft.Text(
-                                active_mod["title"].upper(),
-                                size=12,
-                                weight=ft.FontWeight.BOLD,
-                                color=UI_ACCENT,
-                            ),
+                            ft.Text(active_mod["title"].upper(), size=12, weight=ft.FontWeight.BOLD, color=UI_ACCENT),
                             ft.Container(
                                 padding=ft.padding.symmetric(horizontal=10, vertical=6),
                                 border_radius=999,
                                 bgcolor=ft.Colors.with_opacity(0.10, UI_ACCENT),
-                                content=ft.Text(
-                                    get_lesson_type_label(active_les["type"]),
-                                    size=11,
-                                    weight=ft.FontWeight.BOLD,
-                                    color=UI_ACCENT,
-                                ),
+                                content=ft.Text(get_lesson_type_label(active_les["type"]), size=11, weight=ft.FontWeight.BOLD, color=UI_ACCENT),
                             ),
                         ],
-                        alignment=ft.MainAxisAlignment.START,
-                        spacing=10,
-                        wrap=True,
+                        alignment=ft.MainAxisAlignment.START, spacing=10, wrap=True,
                     ),
-                    ft.Text(
-                        active_les["title"],
-                        size=28,
-                        weight=ft.FontWeight.W_900,
-                        color=ft.Colors.ON_SURFACE,
-                        text_align=ft.TextAlign.LEFT,
-                    ),
+                    ft.Text(active_les["title"], size=28, weight=ft.FontWeight.W_900, color=ft.Colors.ON_SURFACE, text_align=ft.TextAlign.LEFT),
                 ],
-                spacing=12,
-                horizontal_alignment=ft.CrossAxisAlignment.START,
+                spacing=12, horizontal_alignment=ft.CrossAxisAlignment.START,
             ),
         )
 
@@ -880,62 +946,33 @@ async def course_learner_view(page: ft.Page, course_id: str):
                 render_lesson_ui(active_les),
                 ft.Container(height=24),
             ],
-            scroll=ft.ScrollMode.AUTO,
-            expand=True,
-            spacing=0,
-            horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+            scroll=ft.ScrollMode.AUTO, expand=True, spacing=0, horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
         )
 
-        # ---------------- FOOTER (EXACT PLACEMENT) ----------------
-
+        # ---------------- FOOTER ----------------
         is_assessment = active_les["type"] == "assessment"
-
         action_footer_controls = []
 
         if is_assessment:
-            # ✅ Assessment: SUBMIT ONLY
-            action_footer_controls.append(
-                ft.Row([action_button], spacing=0)
-            )
+            action_footer_controls.append(ft.Row([action_button], spacing=0))
         else:
-            # ✅ Normal lesson navigation
             if not is_first_overall:
-                action_footer_controls.append(
-                    ft.Row([previous_button], spacing=0)
-                )
-
-            action_footer_controls.append(
-                ft.Row([action_button], spacing=0)
-            )
+                action_footer_controls.append(ft.Row([previous_button], spacing=0))
+            action_footer_controls.append(ft.Row([action_button], spacing=0))
 
         action_footer_container.content = ft.Container(
             padding=ft.padding.only(top=14),
-            border=ft.border.only(
-                top=ft.border.BorderSide(
-                    1, ft.Colors.with_opacity(0.06, ft.Colors.BLACK)
-                )
-            ),
-            content=ft.Column(
-                action_footer_controls,
-                spacing=10,
-                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
-            ),
+            border=ft.border.only(top=ft.border.BorderSide(1, ft.Colors.with_opacity(0.06, ft.Colors.BLACK))),
+            content=ft.Column(action_footer_controls, spacing=10, horizontal_alignment=ft.CrossAxisAlignment.STRETCH),
         )
-
-# ----------------------------------------------------------
             
         main_content_area.content = ft.Container(
             padding=ft.padding.all(16),
             border_radius=16,
             bgcolor=ft.Colors.SURFACE,
             content=ft.Column(
-                [
-                    lesson_body_scroll,
-                    action_footer_container,
-                ],
-                expand=True,
-                spacing=0,
-                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+                [lesson_body_scroll, action_footer_container],
+                expand=True, spacing=0, horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
             ),
         )
 
@@ -943,13 +980,54 @@ async def course_learner_view(page: ft.Page, course_id: str):
         page.update()
 
     # =========================================================
-    # 9. INITIAL RENDER
+    # 9. ASYNC BACKGROUND DATA FETCHER
     # =========================================================
 
-    refresh_ui()
+    async def fetch_initial_data():
+        nonlocal course_data, current_module_idx, current_lesson_idx, module_expanded_state
+        
+        # Await the API call in the background
+        course_data = await api_fetch_course_data(course_id)
+        
+        if not course_data or "modules" not in course_data:
+            content_socket.alignment = ft.Alignment.CENTER
+            content_socket.content = ft.Text("Failed to load course data.", color=ft.Colors.ERROR)
+            page.update()
+            return
+
+        # Scan course payload to jump to the current active lesson
+        for m_idx, mod in enumerate(course_data["modules"]):
+            if not mod.get("is_done", False):
+                current_module_idx = m_idx
+                for l_idx, les in enumerate(mod.get("lessons", [])):
+                    if not les.get("is_done", False):
+                        current_lesson_idx = l_idx
+                        break
+                break
+
+        # Setup sidebar expansion state
+        module_expanded_state = {
+            mod["id"]: (idx == current_module_idx)
+            for idx, mod in enumerate(course_data["modules"])
+        }
+
+        # Update dynamic App Bar and Sidebar titles
+        appbar_title.value = course_data["course_title"]
+        sidebar_course_title.value = course_data["course_title"]
+
+        # Render the initial UI
+        refresh_ui()
+
+        # Swap the loading ring out for the actual body host
+        content_socket.alignment = None
+        content_socket.content = body_host
+        page.update()
+
+    # Trigger the background fetch task
+    page.run_task(fetch_initial_data)
 
     # =========================================================
-    # 10. VIEW RETURN
+    # 10. VIEW RETURN (Immediate)
     # =========================================================
 
     return ft.View(
@@ -957,21 +1035,11 @@ async def course_learner_view(page: ft.Page, course_id: str):
         bottom_appbar=app_bar,
         bgcolor=ft.Colors.SURFACE_CONTAINER_LOW,
         padding=0,
-        appbar=ft.AppBar(
-            leading=ft.IconButton(menu_button),
-            title=ft.Text(
-                course_data["course_title"],
-                size=18,
-                weight=ft.FontWeight.BOLD,
-                color=ft.Colors.WHITE,
-            ),
-            center_title=False,
-            bgcolor=UI_ACCENT,
-        ),
+        appbar=page_appbar,
         controls=[
             ft.SafeArea(
                 expand=True,
-                content=body_host,
+                content=content_socket,
             )
         ],
     )

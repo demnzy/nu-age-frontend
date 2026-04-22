@@ -52,6 +52,11 @@ async def profile_view(page: ft.Page):
                             bgcolor=ft.Colors.PRIMARY,
                             padding=ft.Padding(top=35, bottom=25, left=20, right=20),
                             border_radius=ft.BorderRadius.only(bottom_left=30, bottom_right=30),
+                            gradient=ft.LinearGradient(
+                                begin=ft.Alignment.TOP_CENTER,
+                                end=ft.Alignment.BOTTOM_CENTER,
+                                colors=[ft.Colors.PRIMARY, ft.Colors.SECONDARY],
+                         ),
                             width=float("inf"),
                             content=ft.Column(
                                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,

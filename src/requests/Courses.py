@@ -199,3 +199,57 @@ async def get_course_curriculum(token: str, course_id: str):
     except Exception as e:
         print(f"Request Error: {e}")
         return {"error": "connection_failed"}
+    
+async def update_course_settings(token: str, course_id: str, setting: dict):
+    """
+    Updates the settings for a specific course.
+    """
+    url = f"{api_url}/courses/{course_id}/update_settings"  
+    headers = {"Authorization": f"Bearer {token}"}
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, headers=headers, json=setting)
+            
+            if response.status_code == 200:
+                print(f"Settings for course {course_id} updated successfully")
+                return response.json() # This will be your updated course object
+            
+            elif response.status_code == 404:
+                print("Course not found.")
+                return {"error": "not_found"}
+            
+            elif response.status_code == 401:
+                return {"error": "unauthorized"}
+            else:
+                return {"error": "server_fail", "details": response.text}
+    except Exception as e:
+        print(f"Request Error: {e}")
+        return {"error": "connection_failed"}
+    
+async def delete_course(token: str, course_id: str):
+    """
+    Deletes a specific course.
+    """
+    url = f"{api_url}/courses/{course_id}/delete"
+    headers = {"Authorization": f"Bearer {token}"}
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.delete(url, headers=headers)
+
+            if response.status_code == 200:
+                print(f"Course {course_id} deleted successfully")
+                return {"message": "Course deleted successfully"}
+            
+            elif response.status_code == 404:
+                print("Course not found.")
+                return {"error": "not_found"}
+            
+            elif response.status_code == 401:
+                return {"error": "unauthorized"}
+            else:
+                return {"error": "server_fail", "details": response.text}
+    except Exception as e:
+        print(f"Request Error: {e}")
+        return {"error": "connection_failed"}

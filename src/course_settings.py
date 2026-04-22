@@ -2,63 +2,64 @@ import flet as ft
 import asyncio
 
 from src.components.bottom_appbar import get_bottom_appbar 
+from src.requests.Courses import get_categories,get_courses,update_course_settings,delete_course
+from src.requests.organisations import get_organisation_members
+from src.requests.enrollments import bulk_enrol_students, bulk_unenrol_students,get_enrolled_students
 
 # =========================================================
 # SECTION 1: API ENDPOINTS (Replace with real imports)
 # =========================================================
-async def mock_get_categories():
-    await asyncio.sleep(0.5) 
-    return ["Mechatronics", "Software Engineering", "Bioinformatics", "Data Engineering"]
 
-async def mock_get_teachers():
-    await asyncio.sleep(0.5)
-    return [
-        {"id": "t1", "name": "Dr. Kolapo"},
-        {"id": "t2", "name": "Oluwatobiloba Davies"},
-        {"id": "t3", "name": "Sesade Adande"}
-    ]
-
-async def mock_get_org_students():
-    await asyncio.sleep(0.8)
-    return [
-        {"id": "s1", "name": "Alice Johnson", "email": "alice.j@futminna.edu.ng", "is_enrolled": True},
-        {"id": "s2", "name": "Bob Smith", "email": "bob.s.engineering@futminna.edu.ng", "is_enrolled": False},
-        {"id": "s3", "name": "Charlie Davis", "email": "charlie@futminna.edu.ng", "is_enrolled": True},
-        {"id": "s4", "name": "Diana Prince", "email": "diana.prince.tech@futminna.edu.ng", "is_enrolled": False},
-    ]
-
-async def mock_save_setting(setting_name, value):
-    await asyncio.sleep(0.5)
-    print(f"API CALL: Saved {setting_name} -> {value}")
-    return True
-
-async def mock_enroll_students(student_ids):
-    await asyncio.sleep(0.5)
-    print(f"API CALL: Enrolled -> {student_ids}")
-    return True, f"Enrolled {len(student_ids)}"
-
-async def mock_unenroll_students(student_ids):
-    await asyncio.sleep(0.5)
-    print(f"API CALL: Unenrolled -> {student_ids}")
-    return True, f"Unenrolled {len(student_ids)}"
 
 
 # =========================================================
 # SECTION 2: MAIN VIEW FUNCTION
 # =========================================================
-async def course_settings_view(page: ft.Page, course_id: str) -> ft.View:
+async def course_settings_view(page: ft.Page, course_id: str, org_id: str) -> ft.View:
+    token = await page.shared_preferences.get("auth_token")
     
-    # --- 2A. Theme & Initialization ---
+    async def mock_get_categories():
+        categories = await get_categories(token, None) or []
+        return categories
+
+    async def mock_get_teachers():
+        teachers = await get_organisation_members(token, id=org_id, teachers=True) or []
+        return teachers
+    
+    async def mock_get_org_students():
+        students = await get_organisation_members(token, id=org_id, students=True) or []
+        return students
+
+    async def mock_save_setting(setting_name, value):
+        res= await update_course_settings(token, course_id, {setting_name: value})
+        print(res)
+        return True if res else False
+
+    async def mock_enroll_students(student_ids):
+        await bulk_enrol_students(token, course_id, payload = {"student_ids": student_ids}, params = {})
+        return True, f"Enrolled {len(student_ids)}"
+
+    async def mock_unenroll_students(student_ids):
+        await bulk_unenrol_students(token, course_id, payload = {"student_ids": student_ids}, params={})
+        return True, f"Unenrolled {len(student_ids)}"
+
+    course_data = course_data = await get_courses(token, params={"id": course_id})
+    course_data = course_data[0] if course_data else None
+    if not course_data:
+        return ft.View(
+            route=f"/courses/{course_id}/settings",
+            bgcolor=ft.Colors.SURFACE_CONTAINER,
+            controls=[
+                ft.Container(
+                    expand=True,
+                    alignment=ft.Alignment.CENTER,
+                    content=ft.Text("Course not found.", color=ft.Colors.ERROR, size=20)
+                )
+            ]
+        )
+            # --- 2A. Theme & Initialization ---
     NU_DARK = ft.Colors.PRIMARY
     bottom_bar = get_bottom_appbar(page)
-
-    course_data = {
-        "id": course_id,
-        "name": "FastAPI Backend Architecture",
-        "category": "Software Engineering",
-        "visibility": "private",
-        "teacher_id": "t2"
-    }
 
     # --- 2B. The Lazy Load Socket ---
     content_socket = ft.Container(
@@ -103,7 +104,7 @@ async def course_settings_view(page: ft.Page, course_id: str) -> ft.View:
     # SECTION 3: GENERAL SETTINGS
     # =========================================================
     name_input = ft.TextField(value=course_data["name"], label="Course Name", expand=True, **input_style)
-    category_dropdown = ft.Dropdown(label="Category", value=course_data["category"], expand=True, **input_style)
+    category_dropdown = ft.Dropdown(label="Category", value=course_data["category"]["name"], expand=True, **input_style)
 
     async def save_name(e):
         e.control.disabled = True
@@ -141,23 +142,23 @@ async def course_settings_view(page: ft.Page, course_id: str) -> ft.View:
     # =========================================================
     # SECTION 4: ACCESS CONTROLS
     # =========================================================
-    visibility_radio = ft.RadioGroup(
-        value=course_data["visibility"],
+    public_radio = ft.RadioGroup(
+        value=course_data["public"],
         content=ft.Row([
-            ft.Radio(value="private", label="Private", fill_color=NU_DARK), 
+            ft.Radio(value=False, label="Private", fill_color=NU_DARK), 
             ft.Radio(value="organization", label="Organization", fill_color=NU_DARK),
-            ft.Radio(value="public", label="Public", fill_color=NU_DARK),
+            ft.Radio(value=True, label="Public", fill_color=NU_DARK),
         ], wrap=True)
     )
     
     teacher_dropdown = ft.Dropdown(label="Assigned Instructor", value=course_data["teacher_id"], expand=True, **input_style)
 
-    async def save_visibility(e):
+    async def save_public(e):
         e.control.disabled = True
         e.control.content = ft.ProgressRing(width=16, height=16, color=ft.Colors.ON_PRIMARY)
         page.update()
-        await mock_save_setting("visibility", visibility_radio.value)
-        show_toast("Visibility updated.")
+        await mock_save_setting("public", public_radio.value)
+        show_toast("status updated.")
         e.control.disabled = False
         e.control.content = ft.Text("Save", color=ft.Colors.ON_PRIMARY, weight=ft.FontWeight.BOLD)
         page.update()
@@ -179,8 +180,8 @@ async def course_settings_view(page: ft.Page, course_id: str) -> ft.View:
             spacing=20,
             controls=[
                 ft.Row([
-                    ft.Column([ft.Text("Course Visibility", weight=ft.FontWeight.W_600), visibility_radio], expand=True),
-                    ft.ElevatedButton(content=ft.Text("Save", color=ft.Colors.ON_PRIMARY, weight=ft.FontWeight.BOLD), bgcolor=NU_DARK, style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)), on_click=lambda e: page.run_task(save_visibility, e))
+                    ft.Column([ft.Text("Course public", weight=ft.FontWeight.W_600), public_radio], expand=True),
+                    ft.ElevatedButton(content=ft.Text("Save", color=ft.Colors.ON_PRIMARY, weight=ft.FontWeight.BOLD), bgcolor=NU_DARK, style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)), on_click=lambda e: page.run_task(save_public, e))
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                 
                 ft.Row([
@@ -272,11 +273,11 @@ async def course_settings_view(page: ft.Page, course_id: str) -> ft.View:
         page.update()
         
         async def fetch_and_populate():
-            students = await mock_get_org_students()
+            students = await get_enrolled_students(token, course_id, params={})
             
             loading_ring.visible = False 
             content_wrapper.visible = True 
-            
+            print(students)
             for student in students:
                 is_enrolled = student.get("is_enrolled", False)
                 initial_states[student['id']] = is_enrolled
@@ -294,7 +295,7 @@ async def course_settings_view(page: ft.Page, course_id: str) -> ft.View:
                     content=ft.Row([
                         cb,
                         ft.Column([
-                            ft.Text(student['name'], size=14, weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE),
+                            ft.Text(f'{student["name"]}', size=14, weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE),
                             ft.Text(student['email'], size=12, color=ft.Colors.ON_SURFACE_VARIANT)
                         ], expand=True, spacing=2) 
                     ])
@@ -312,6 +313,7 @@ async def course_settings_view(page: ft.Page, course_id: str) -> ft.View:
         description="Manually batch enroll or remove students from your organization.",
         content=ft.ElevatedButton(
             "Open Enrollment Manager", 
+            width=float("inf"),
             icon=ft.Icons.PEOPLE_ALT_ROUNDED,
             icon_color=ft.Colors.ON_SURFACE,
             color=ft.Colors.ON_SURFACE,
@@ -331,9 +333,11 @@ async def course_settings_view(page: ft.Page, course_id: str) -> ft.View:
             page.update()
 
         async def confirm_delete(e):
+            res=await delete_course(token, course_id)
+            print(res)
             close_delete_modal()
             show_toast("Course deleted successfully.", ft.Colors.RED_700)
-            page.go("/courses")
+            page.go("/organisations")
 
         dlg_delete = ft.AlertDialog(
             modal=True,
@@ -359,7 +363,7 @@ async def course_settings_view(page: ft.Page, course_id: str) -> ft.View:
         title="Danger Zone",
         description="Irreversible actions regarding this course.",
         is_danger=True,
-        content=ft.ElevatedButton("Delete Course", bgcolor=ft.Colors.RED_50, color=ft.Colors.RED_700, style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)), on_click=open_delete_modal)
+        content=ft.Button("Delete Course", bgcolor=ft.Colors.RED_50, color=ft.Colors.RED_700, width=float("inf"), style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)), on_click=open_delete_modal)
     )
 
 
@@ -371,8 +375,8 @@ async def course_settings_view(page: ft.Page, course_id: str) -> ft.View:
         categories = await mock_get_categories()
         teachers = await mock_get_teachers()
         
-        category_dropdown.options = [ft.dropdown.Option(c) for c in categories]
-        teacher_dropdown.options = [ft.dropdown.Option(key=t["id"], text=t["name"]) for t in teachers]
+        category_dropdown.options = [ft.dropdown.Option(c["name"]) for c in categories]
+        teacher_dropdown.options = [ft.dropdown.Option(key=t["id"], text=f"{t['first_name']} {t['last_name']}".capitalize()) for t in teachers]
         teacher_dropdown.options.insert(0, ft.dropdown.Option(key="none", text="None (Unassigned)"))
         
         # Build the final layout
@@ -421,7 +425,7 @@ async def course_settings_view(page: ft.Page, course_id: str) -> ft.View:
 
     # Return the View immediately with the spinning content_socket
     return ft.View(
-        route=f"/courses/{course_id}/settings",
+        route=f"/organisations/{org_id}/courses/{course_id}/settings",
         bgcolor=ft.Colors.SURFACE_CONTAINER,
         padding=0, 
         bottom_appbar=bottom_bar, 

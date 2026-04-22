@@ -23,6 +23,8 @@ LESSON_TYPES = {
     "text": "Text",
     "cards": "Flashcards",
     "assessment": "Assessment",
+    "scenario": "Decision Matrix",
+    "assignment": "Assignment",
 }
 
 LESSON_TYPE_ICONS = {
@@ -32,6 +34,8 @@ LESSON_TYPE_ICONS = {
     "text": ft.Icons.NOTES_ROUNDED,
     "cards": ft.Icons.VIEW_CAROUSEL_ROUNDED,
     "assessment": ft.Icons.QUIZ_ROUNDED,
+    "scenario": ft.Icons.CALL_SPLIT_ROUNDED,
+    "assignment": ft.Icons.ASSIGNMENT_ROUNDED,
 }
 
 LESSON_TYPE_COLORS = {
@@ -41,6 +45,8 @@ LESSON_TYPE_COLORS = {
     "text": ft.Colors.BROWN_500,
     "cards": ft.Colors.PURPLE_500,
     "assessment": ft.Colors.ORANGE_500,
+    "scenario": ft.Colors.TEAL_600,
+    "assignment": ft.Colors.DEEP_PURPLE_600,
 }
 
 # Strict allowed keys per lesson type (API structure unchanged)
@@ -51,6 +57,8 @@ LESSON_CONTENT_SCHEMA = {
     "text": ["text"],
     "cards": ["cards"],
     "assessment": ["questions"],
+    "scenario": ["scenario", "choices"],
+    "assignment": ["prompt_text"],
 }
 
 # Required keys for validation
@@ -61,6 +69,8 @@ REQUIRED_KEYS = {
     "text": ["text"],
     "cards": ["cards"],
     "assessment": ["questions"],
+    "scenario": ["scenario", "choices"],
+    "assignment": ["prompt_text"],
 }
 
 # Optional blocks that can be toggled on/off
@@ -71,6 +81,8 @@ OPTIONAL_KEYS = {
     "text": [],
     "cards": [],
     "assessment": [],
+    "scenario": [],
+    "assignment": [],
 }
 
 DEFAULTS = {
@@ -82,6 +94,9 @@ DEFAULTS = {
     "text": "",
     "cards": [],
     "questions": [],
+    "scenario": "",
+    "choices": [],
+    "prompt_text": "",
 }
 
 # =========================================================
@@ -161,6 +176,21 @@ def validate_lesson(lesson: dict):
             errors.append(f"Missing required content: {k}")
         elif isinstance(v, list) and len(v) == 0:
             errors.append(f"Missing required content: {k}")
+    if t == "scenario":
+        if not str(c.get("scenario", "")).strip():
+            errors.append("Scenario prompt text is required.")
+        choices = c.get("choices", [])
+        if len(choices) < 2:
+            errors.append("Provide at least 2 choices for the scenario.")
+        for i, ch in enumerate(choices):
+            if not str(ch.get("text", "")).strip():
+                errors.append(f"Choice {i+1} needs text.")
+            if not str(ch.get("consequence", "")).strip():
+                errors.append(f"Choice {i+1} needs a consequence.")
+
+    if t == "assignment":
+        if not str(c.get("prompt_text", "")).strip():
+            errors.append("Assignment instructions cannot be empty.")
 
     if t == "assessment":
         qs = c.get("questions", [])
@@ -509,7 +539,7 @@ async def course_builder_view(page: ft.Page, course_id: str):
                 file_bytes=file_bytes,
             )
             print(res)
-            path = res.get("path", "")
+            path = res.get("download_url", "")
 
             if asset_type == "audio":
                 content["audio_path"] = path
@@ -657,12 +687,106 @@ async def course_builder_view(page: ft.Page, course_id: str):
         )
 
     def text_block(content: dict):
-        return ft.TextField(
+        text_input = ft.TextField(
             label="Lesson Text (Markdown)",
             value=content.get("text", ""),
             multiline=True,
             min_lines=10,
             on_change=lambda e: content.__setitem__("text", e.control.value),
+        )
+
+        status_text = ft.Text("", size=12, color=ft.Colors.ON_SURFACE_VARIANT)
+
+        async def upload_and_insert_image(e):
+            e.control.disabled = True
+            status_text.value = "Selecting..."
+            status_text.color = ft.Colors.ON_SURFACE_VARIANT
+            page.update()
+
+            files = await ft.FilePicker().pick_files(
+                allow_multiple=False,
+                file_type=ft.FilePickerFileType.IMAGE,
+                with_data=True,
+            )
+
+            if not files:
+                status_text.value = "Cancelled."
+                e.control.disabled = False
+                page.update()
+                return
+
+            f = files[0]
+            file_bytes = getattr(f, "bytes", None)
+            
+            if not file_bytes and getattr(f, "path", None):
+                try:
+                    with open(f.path, "rb") as fp:
+                        file_bytes = fp.read()
+                except Exception:
+                    file_bytes = None
+
+            if not file_bytes:
+                status_text.value = "Failed to read image."
+                status_text.color = ft.Colors.ERROR
+                e.control.disabled = False
+                page.update()
+                return
+
+            status_text.value = f"Uploading {f.name}..."
+            status_text.color = ft.Colors.ORANGE_700
+            page.update()
+
+            try:
+                # THE FIX: Disguise the image as a "document" to pass backend validation
+                res = await upload_asset_background(
+                    token,
+                    course_id=course_id,
+                    asset_type="document", 
+                    file_name=f.name,
+                    file_bytes=file_bytes,
+                )
+                
+                img_url = res.get("view_url", "") or res.get("url", "")
+                
+                if res.get("error") or not img_url:
+                    status_text.value = "Upload failed."
+                    status_text.color = ft.Colors.RED_700
+                else:
+                    # Inject the generated CDN URL into standard markdown
+                    markdown_image = f"\n![{f.name}]({img_url})\n"
+                    
+                    current_text = text_input.value or ""
+                    new_text = current_text + markdown_image
+                    
+                    text_input.value = new_text
+                    content["text"] = new_text
+                    
+                    status_text.value = "Image inserted!"
+                    status_text.color = ft.Colors.GREEN_700
+
+            except Exception as ex:
+                status_text.value = f"Error: {ex}"
+                status_text.color = ft.Colors.ERROR
+
+            e.control.disabled = False
+            page.update()
+
+        insert_img_btn = ft.TextButton(
+            "Insert Image",
+            icon=ft.Icons.ADD_PHOTO_ALTERNATE_OUTLINED,
+            icon_color=UI_ACCENT,
+            on_click=lambda e: page.run_task(upload_and_insert_image, e)
+        )
+
+        return ft.Column(
+            controls=[
+                ft.Row(
+                    [insert_img_btn, status_text], 
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN
+                ),
+                text_input
+            ],
+            spacing=5
         )
 
     def cards_block(content: dict):
@@ -727,7 +851,80 @@ async def course_builder_view(page: ft.Page, course_id: str):
             ],
             spacing=10,
         )
+    def assignment_block(content: dict):
+        return ft.TextField(
+            label="Assignment Prompt / Instructions (Markdown supported)",
+            value=content.get("prompt_text", ""),
+            multiline=True,
+            min_lines=4,
+            on_change=lambda e: content.__setitem__("prompt_text", e.control.value),
+        )
 
+    def scenario_block(content: dict):
+        content.setdefault("scenario", "")
+        choices = content.setdefault("choices", [])
+        
+        scenario_input = ft.TextField(
+            label="The Scenario (Prompt)",
+            value=content["scenario"],
+            multiline=True,
+            min_lines=2,
+            on_change=lambda e: content.__setitem__("scenario", e.control.value),
+        )
+
+        choices_col = ft.Column(spacing=10)
+
+        def rebuild():
+            choices_col.controls.clear()
+            for idx, ch in enumerate(choices):
+                ch.setdefault("text", "")
+                ch.setdefault("consequence", "")
+
+                def del_choice(i):
+                    def handler(e):
+                        choices.pop(i)
+                        build_editor()
+                        page.update()
+                    return handler
+
+                def text_change(i):
+                    def handler(e):
+                        choices[i]["text"] = e.control.value
+                    return handler
+
+                def cons_change(i):
+                    def handler(e):
+                        choices[i]["consequence"] = e.control.value
+                    return handler
+
+                choices_col.controls.append(
+                    ft.Container(
+                        padding=12,
+                        border_radius=8,
+                        border=ft.border.all(1, ft.Colors.OUTLINE_VARIANT),
+                        content=ft.Column([
+                            ft.Row([
+                                ft.Text(f"Choice {idx + 1}", weight=ft.FontWeight.BOLD, expand=True),
+                                ft.IconButton(ft.Icons.DELETE, icon_color=ft.Colors.RED_500, on_click=del_choice(idx))
+                            ]),
+                            ft.TextField(label="User Option (e.g., 'Restart Server')", value=ch["text"], on_change=text_change(idx)),
+                            ft.TextField(label="Consequence (Markdown supported)", value=ch["consequence"], multiline=True, on_change=cons_change(idx))
+                        ])
+                    )
+                )
+
+        def add_choice(e):
+            choices.append({"text": "", "consequence": ""})
+            build_editor()
+            page.update()
+
+        rebuild()
+        return ft.Column([
+            scenario_input,
+            ft.Text("Choices & Consequences", weight=ft.FontWeight.BOLD),
+            choices_col,
+            ft.TextButton("Add Choice +", icon=ft.Icons.ADD, on_click=add_choice)
+        ], spacing=15)
     def assessment_block(content: dict):
         questions = content.setdefault("questions", [])
         q_col = ft.Column(spacing=12)
@@ -938,7 +1135,10 @@ async def course_builder_view(page: ft.Page, course_id: str):
             editor_content.controls.append(block_card("Flashcards", cards_block(content), tint=ft.Colors.PURPLE_50))
         elif t == "assessment":
             editor_content.controls.append(block_card("Assessment", assessment_block(content), tint=ft.Colors.ORANGE_50))
-
+        elif t == "scenario":
+            editor_content.controls.append(block_card("Decision Matrix", scenario_block(content), tint=ft.Colors.TEAL_50))
+        elif t == "assignment":
+            editor_content.controls.append(block_card("Assignment", assignment_block(content), tint=ft.Colors.DEEP_PURPLE_50))
         # Optional blocks menu
         missing_optional = [k for k in OPTIONAL_KEYS.get(t, []) if k not in content]
         if missing_optional:

@@ -129,6 +129,7 @@ async def organisations_view(page: ft.Page):
             image_url = course.get("image_url")
             course_id = course.get("id", "")
             course_status = course.get("public")
+            course_students = course.get("total_students", 0)
             
             # --- Badges ---
             # 1. Level/Status Badge (Green)
@@ -144,7 +145,7 @@ async def organisations_view(page: ft.Page):
                 padding=ft.padding.symmetric(horizontal=8, vertical=4),
                 bgcolor=ft.Colors.BLUE_50,
                 border_radius=12,
-                content=ft.Text("160 Enrolled", size=8, color=ft.Colors.BLUE_700, weight=ft.FontWeight.W_600)
+                content=ft.Text(f"{course_students} Enrolled", size=8, color=ft.Colors.BLUE_700, weight=ft.FontWeight.W_600)
             )
 
             return ft.Container(
@@ -180,7 +181,7 @@ async def organisations_view(page: ft.Page):
                                         controls=[
                                             ft.Text(title, size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS), 
                                             # THE FIX: Wrapped the string in an actual ft.Icon control
-                                            ft.IconButton(ft.Icons.EDIT, icon_color=theme_color, on_click=lambda e, c_id=course_id: page.go(f"/courses/{course_id}/settings")) # <--- THE FIX: Dynamic Theme Color and proper routing
+                                            ft.IconButton(ft.Icons.SETTINGS, icon_color=theme_color, on_click=lambda e,org_id=org_id, c_id=course_id: page.go(f"/organisations/{org_id}/courses/{course_id}/settings")) # <--- THE FIX: Dynamic Theme Color and proper routing
                                         ]
                                     ),
                                     # Description
@@ -208,25 +209,34 @@ async def organisations_view(page: ft.Page):
 
         # --- HELPER: Section Container Generator (Side-by-Side Responsive) ---
         def dashboard_section(title, list_content, manage_route, action_icon=ft.Icons.ADD):
+            
+            # 1. Force the passed Column to become scrollable
+            list_content.scroll = ft.ScrollMode.AUTO
+            
             return ft.Container(
                 col={"xs": 12, "md": 6}, # Desktop: 50% width, Mobile: 100% width
                 bgcolor=ft.Colors.SURFACE,
                 padding=20,
                 border_radius=15,
                 border=ft.border.all(1, ft.Colors.OUTLINE_VARIANT),
-                content=ft.Column(scroll=ft.ScrollMode.AUTO, controls=[
+                content=ft.Column(controls=[
                     ft.Row(spacing=20, controls=[
                         ft.Text(title, size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
                         ft.IconButton(
                             icon=action_icon, 
                             icon_color=ft.Colors.WHITE,
-                            bgcolor=theme_color, # <--- THE FIX: Matched action buttons to the theme color too
+                            bgcolor=theme_color, 
                             icon_size=20,
                             on_click=lambda e, r=manage_route: page.go(r) 
                         )
                     ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                     ft.Divider(height=20, color=ft.Colors.OUTLINE_VARIANT),
-                    list_content
+                    
+                    # 2. THE FIX: Constrain the height so the column knows when to start scrolling
+                    ft.Container(
+                        height=310, # Fits exactly two course cards
+                        content=list_content
+                    )
                 ])
             )
 

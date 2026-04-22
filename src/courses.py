@@ -126,26 +126,23 @@ async def courses_view(page: ft.Page):
     header_container = ft.Container(
     bgcolor=ft.Colors.PRIMARY, # Themed equivalent of #009787
 
-    height=85, 
+    height=80, 
 
     border_radius=ft.border_radius.only(bottom_left=30, bottom_right=30),
     padding=ft.padding.only(top=10, left=25, right=25, bottom=20),
+    gradient=ft.LinearGradient(
+            begin=ft.Alignment.TOP_LEFT,
+            end=ft.Alignment.BOTTOM_RIGHT,
+            colors=[ft.Colors.PRIMARY, ft.Colors.SECONDARY],
+        ),
     content=ft.Column(
         controls=[
             ft.Text(
-                value="What are we learning",
+                value="What are we learning Today?",
                 size=23,
                 weight=ft.FontWeight.BOLD,
-                color=ft.Colors.ON_PRIMARY, # Themed equivalent of white on primary
-            ),
-             ft.Text(
-                value="Today? ",
-                size=23,
-                color=ft.Colors.ON_PRIMARY, # Themed equivalent of white on primary
-                weight=ft.FontWeight.BOLD,
-                )
+                color=ft.Colors.ON_PRIMARY,) # Themed equivalent of white on primary
         ],
-        spacing=2,
         horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
     ),
 )

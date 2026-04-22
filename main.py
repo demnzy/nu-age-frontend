@@ -34,7 +34,8 @@ async def main(page: ft.Page):
     page.theme = ft.Theme(
         font_family="montserrat",
         color_scheme=ft.ColorScheme(
-            primary="#035800",          # Refactored modules use ft.Colors.PRIMARY
+            primary="#035800",  
+            secondary="#37BF14",       # Refactored modules use ft.Colors.PRIMARY
             on_primary=ft.Colors.WHITE, 
             surface="#FAFAFA",          # Refactored modules use ft.Colors.SURFACE
             on_surface="#1A1A1A",       
@@ -136,9 +137,9 @@ async def main(page: ft.Page):
         elif troute.match("/courses/:course_id/view"):
             # Extracts the ID from the URL and passes it to the view
             page.views.append(await course_learner_view(page, troute.course_id))
-        elif troute.match("/courses/:course_id/settings"):
+        elif troute.match("/organisations/:org_id/courses/:course_id/settings"):
             # Extracts the ID from the URL and passes it to the view
-            page.views.append(await course_settings_view(page, troute.course_id))
+            page.views.append(await course_settings_view(page, troute.course_id, troute.org_id))
         # Dynamic Course Details
         elif page.route.startswith("/courses/"):
             route_parts = page.route.split("/")
