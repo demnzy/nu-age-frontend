@@ -3,7 +3,9 @@ import flet_charts as fch # pyright: ignore[reportMissingImports]
 from src.components.bottom_appbar import get_bottom_appbar
 from src.components.dashboard_card import get_continue_learning_card
 from src.requests.enrollments import get_enrollments
-
+from src.utils.db_manager import get_weekly_activity
+from datetime import datetime, timedelta
+import sqlite3
 async def dashboard_view(page: ft.Page):
     app_bar = get_bottom_appbar(page)
     enrolled_cards=[]
@@ -132,9 +134,40 @@ async def dashboard_view(page: ft.Page):
         )
         
         # --- THE FIX: Inject Bar Chart into Socket ---
-        new_activity_data = [4, 7, 4, 9, 6, 6, 5]
         
+        # 1. Calculate Current Week (Monday to Sunday)
+        today = datetime.now()
+        monday = today - timedelta(days=today.weekday()) # 0 = Monday, 6 = Sunday
+        
+        new_activity_data = []
+        week_labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        
+        # Highlight today's label so the user knows where they are
+        week_labels[today.weekday()] = "Today"
+
+        # 2. Fetch only THIS week's data (Automatically "resets" every Monday)
+        conn = sqlite3.connect("lms_local.db")
+        c = conn.cursor()
+        
+        for i in range(7):
+            target_date = monday + timedelta(days=i)
+            
+            # If the day is in the future (e.g. tomorrow), lock it to 0
+            if target_date.date() > today.date():
+                new_activity_data.append(0)
+            else:
+                c.execute('SELECT activity_count FROM daily_activity WHERE date = ?', (target_date.strftime('%Y-%m-%d'),))
+                res = c.fetchone()
+                new_activity_data.append(res[0] if res else 0)
+                
+        conn.close()
+        
+        # 3. Calculate dynamic maximum Y value (Fallback to 10 if week is completely empty)
+        chart_max_y = max(new_activity_data) + 2 if max(new_activity_data) > 0 else 10
+        
+        # 4. Render the Chart
         weekly_bar_chart = fch.BarChart(
+            max_y=chart_max_y, 
             groups=[
                 fch.BarChartGroup(
                     x=i, 
@@ -143,13 +176,16 @@ async def dashboard_view(page: ft.Page):
             ],
             bottom_axis=fch.ChartAxis(
                 labels=[
-                    fch.ChartAxisLabel(value=0, label=ft.Text("Sun", size=10, color=ft.Colors.ON_SURFACE_VARIANT)),
-                    fch.ChartAxisLabel(value=1, label=ft.Text("Mon", size=10, color=ft.Colors.ON_SURFACE_VARIANT)),
-                    fch.ChartAxisLabel(value=2, label=ft.Text("Tue", size=10, color=ft.Colors.ON_SURFACE_VARIANT)),
-                    fch.ChartAxisLabel(value=3, label=ft.Text("Wed", size=10, color=ft.Colors.ON_SURFACE_VARIANT)),
-                    fch.ChartAxisLabel(value=4, label=ft.Text("Thu", size=10, color=ft.Colors.ON_SURFACE_VARIANT)),
-                    fch.ChartAxisLabel(value=5, label=ft.Text("Fri", size=10, color=ft.Colors.ON_SURFACE_VARIANT)),
-                    fch.ChartAxisLabel(value=6, label=ft.Text("Sat", size=10, color=ft.Colors.ON_SURFACE_VARIANT)),
+                    fch.ChartAxisLabel(
+                        value=i, 
+                        label=ft.Text(
+                            week_labels[i], 
+                            size=10, 
+                            # Make "Today" bold and Primary colored, keep others muted
+                            color=ft.Colors.PRIMARY if week_labels[i] == "Today" else ft.Colors.ON_SURFACE_VARIANT,
+                            weight=ft.FontWeight.BOLD if week_labels[i] == "Today" else ft.FontWeight.NORMAL
+                        )
+                    ) for i in range(7)
                 ],
             ),
             horizontal_grid_lines=fch.ChartGridLines(

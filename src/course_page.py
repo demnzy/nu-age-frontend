@@ -1,8 +1,10 @@
+from urllib import response
+import flet_charts as fch 
 import flet as ft
 from flet_video import Video, VideoMedia
 import asyncio
 from src.components.bottom_appbar import get_bottom_appbar
-from src.requests.Courses import get_course_curriculum
+from src.requests.Courses import get_course_curriculum,mark_complete
 
 async def course_learner_view(page: ft.Page, course_id: str):
     token = await page.shared_preferences.get("auth_token")
@@ -31,30 +33,21 @@ async def course_learner_view(page: ft.Page, course_id: str):
             "cards": "FLASHCARDS",
             "assessment": "ASSESSMENT",
             "scenario": "SCENARIO",
-            "assignment": "ASSIGNMENT",
         }
         return labels.get(lesson_type, "LESSON")
 
     # =========================================================
     # 1. API LAYER
     # =========================================================
-    async def api_submit_assignment(lesson_id: str, file_name: str, file_bytes: bytes):
-        # Calculate size just to prove the bytes arrived successfully
-        size_kb = len(file_bytes) / 1024 if file_bytes else 0
-        print(f"API: Uploading '{file_name}' ({size_kb:.2f} KB) for lesson {lesson_id}")
-        
-        return {
-            "success": True, 
-            "message": "Assignment submitted successfully! Your instructor will review it and email your results."
-        }
+
 
     async def api_fetch_course_data(c_id: str):
         course_data = await get_course_curriculum(token, course_id)
         return course_data
 
-    async def api_save_progress(lesson_id: str):
-        print(f"API: Saving progress... Lesson {lesson_id} marked as done.")
-        return True
+    async def api_save_progress(course_id: str, lesson_id: str):
+        res= await mark_complete(token, course_id, lesson_id)
+        return res  # course_progress will update your progress bar later
 
     async def api_verify_module_completion(module_id: str):
         return True
@@ -74,6 +67,29 @@ async def course_learner_view(page: ft.Page, course_id: str):
     sidebar_visible = False
     current_assessment_state = {}
     module_expanded_state = {}
+
+    # --- THE LOCK ENGINE ---
+    def recalculate_locks():
+        if not course_data or "modules" not in course_data: return
+        
+        # The very first lesson of the course is ALWAYS unlocked
+        previous_lesson_done = True 
+        
+        for mod in course_data["modules"]:
+            mod_is_done = True
+            for les in mod.get("lessons", []):
+                is_done = les.get("is_done", False)
+                
+                # A lesson is unlocked IF it is already done, OR the lesson immediately preceding it is done
+                les["is_unlocked"] = is_done or previous_lesson_done
+                
+                # Update tracker for the next loop iteration
+                previous_lesson_done = is_done
+                
+                if not is_done:
+                    mod_is_done = False
+                    
+            mod["is_done"] = mod_is_done
 
     # --- THE LAZY LOAD SOCKET ---
     content_socket = ft.Container(
@@ -425,112 +441,6 @@ async def course_learner_view(page: ft.Page, course_id: str):
     # =========================================================
     # 5. LESSON TYPE RENDERERS
     # =========================================================
-    @register_content_renderer("prompt_text")
-    def render_assignment_ui(lesson: dict):
-        prompt = lesson.get("content", {}).get("prompt_text", "")
-        status_text = ft.Text("No file selected", size=12, color=ft.Colors.ON_SURFACE_VARIANT)
-        
-        selected_file = [{"name": None, "bytes": None}] 
-
-        submit_btn = ft.ElevatedButton(
-            "Submit Assignment",
-            icon=ft.Icons.SEND_ROUNDED,
-            bgcolor=UI_ACCENT,
-            color=ft.Colors.WHITE,
-            disabled=True, 
-        )
-
-        async def handle_upload(e):
-            files = await ft.FilePicker().pick_files(
-                allow_multiple=False,
-                with_data=True 
-            )
-            
-            if files:
-                f = files[0]
-                file_bytes = getattr(f, "bytes", None)
-
-                if not file_bytes and getattr(f, "path", None):
-                    try:
-                        with open(f.path, "rb") as fp:
-                            file_bytes = fp.read()
-                    except Exception:
-                        file_bytes = None
-
-                if file_bytes:
-                    selected_file[0] = {"name": f.name, "bytes": file_bytes}
-                    status_text.value = f"Selected: {f.name}"
-                    status_text.color = ft.Colors.GREEN_700
-                    submit_btn.disabled = False 
-                else:
-                    status_text.value = "Failed to read file data."
-                    status_text.color = ft.Colors.RED_700
-                    submit_btn.disabled = True
-                    
-                lesson["_page"].update()
-
-        async def handle_submit(e):
-            if not selected_file[0]["bytes"]:
-                return
-
-            # Trigger Loading State
-            submit_btn.disabled = True
-            submit_btn.content = ft.Row([
-                ft.ProgressRing(width=16, height=16, color=ft.Colors.WHITE, stroke_width=2),
-                ft.Text("Uploading...", weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE)
-            ], alignment=ft.MainAxisAlignment.CENTER)
-            lesson["_page"].update()
-
-            # Pass the actual file bytes to the API
-            result = await api_submit_assignment(
-                lesson["id"], 
-                selected_file[0]["name"], 
-                selected_file[0]["bytes"]
-            )
-
-            if result.get("success"):
-                # Lock the button into a "Success" state
-                submit_btn.content = ft.Text("Submitted for Grading", weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE)
-                submit_btn.icon = ft.Icons.CHECK_CIRCLE
-                submit_btn.bgcolor = ft.Colors.GREEN_600
-                
-                # Show the non-blocking toast
-                snack = ft.SnackBar(content=ft.Text(result["message"]), bgcolor=ft.Colors.GREEN_700)
-                lesson["_page"].overlay.append(snack)
-                snack.open = True
-            else:
-                # Reset if upload fails
-                submit_btn.content = ft.Text("Submit Assignment", weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE)
-                submit_btn.disabled = False
-                
-                snack = ft.SnackBar(content=ft.Text("Upload failed. Try again."), bgcolor=ft.Colors.RED_700)
-                lesson["_page"].overlay.append(snack)
-                snack.open = True
-                
-            lesson["_page"].update()
-
-        submit_btn.on_click = handle_submit
-
-        return ft.Container(
-            padding=25,
-            border_radius=16,
-            bgcolor=ft.Colors.WHITE,
-            border=ft.border.all(1, ft.Colors.with_opacity(0.06, ft.Colors.BLACK)),
-            content=ft.Column([
-                ft.Row([
-                    ft.Icon(ft.Icons.ASSIGNMENT_ROUNDED, color=UI_ACCENT, size=28),
-                    ft.Text("Project Assignment", weight=ft.FontWeight.BOLD, size=18, color=UI_ACCENT)
-                ]),
-                ft.Markdown(prompt, selectable=False, extension_set=ft.MarkdownExtensionSet.GITHUB_FLAVORED),
-                ft.Divider(height=10, color=ft.Colors.OUTLINE_VARIANT),
-                ft.Row([
-                    ft.OutlinedButton("Select File", icon=ft.Icons.ATTACH_FILE_ROUNDED, on_click=handle_upload),
-                    status_text
-                ]),
-                ft.Container(height=10),
-                submit_btn 
-            ], spacing=15)
-        )
     def render_scenario_ui(lesson: dict):
         content = lesson.get("content", {})
         scenario_text = content.get("scenario", "")
@@ -595,44 +505,109 @@ async def course_learner_view(page: ft.Page, course_id: str):
     def render_assessment_ui(lesson: dict):
         content = lesson.get("content", {})
         questions = content.get("questions", [])
+        
+        # --- CHECK COMPLETION STATE ---
+        is_completed = lesson.get("is_done", False)
 
         current_assessment_state.clear()
         question_cards = []
+        
+        # Setup muted colors for the locked state
+        text_color = ft.Colors.ON_SURFACE_VARIANT if is_completed else ft.Colors.ON_SURFACE
+        accent_color = ft.Colors.GREY_400 if is_completed else UI_ACCENT
 
         for q_idx, q in enumerate(questions):
-            q_text = ft.Text(f"Q{q_idx + 1}: {q.get('text', '')}", weight=ft.FontWeight.BOLD, size=16)
+            options_data = q.get("options", [])
+            
+            # Count correct options to determine if it's multiple choice
+            correct_count = sum(1 for opt in options_data if opt.get("is_correct"))
+            is_multi_select = correct_count > 1
 
-            options_group = ft.RadioGroup(
-                content=ft.Column(
-                    [
+            # Build Question Text
+            q_text_str = f"Q{q_idx + 1}: {q.get('text', '')}"
+            if is_multi_select:
+                q_text_str += " (Select all that apply)"
+                
+            q_text = ft.Text(q_text_str, weight=ft.FontWeight.BOLD, size=16, color=text_color)
+
+            # Build Options UI dynamically
+            if is_multi_select:
+                checkboxes = []
+                options_rows = []
+                for opt in options_data:
+                    opt_text = opt.get("text", "")
+                    
+                    # Apply disabled flag and dynamic colors based on completion
+                    cb = ft.Checkbox(
+                        value=False, 
+                        data=opt_text, 
+                        fill_color=accent_color if is_completed else "white", 
+                        check_color=ft.Colors.WHITE if is_completed else UI_ACCENT,
+                        disabled=is_completed
+                    )
+                    checkboxes.append(cb)
+                    options_rows.append(
                         ft.Row(
-                            [ft.Radio(value=opt.get("text")), ft.Text(opt.get("text"), expand=True)],
+                            [cb, ft.Text(opt_text, expand=True, color=text_color)],
                             vertical_alignment=ft.CrossAxisAlignment.START,
                         )
-                        for opt in q.get("options", [])
-                    ],
-                    spacing=10,
+                    )
+                
+                options_ui = ft.Column(options_rows, spacing=10)
+                current_assessment_state[f"question_{q_idx + 1}"] = {"type": "multi", "controls": checkboxes}
+            
+            else:
+                options_group = ft.RadioGroup(
+                    content=ft.Column(
+                        [
+                            ft.Row(
+                                [
+                                    ft.Radio(value=opt.get("text"), fill_color=accent_color, disabled=is_completed), 
+                                    ft.Text(opt.get("text"), expand=True, color=text_color)
+                                ],
+                                vertical_alignment=ft.CrossAxisAlignment.START,
+                            )
+                            for opt in options_data
+                        ],
+                        spacing=10,
+                    )
                 )
-            )
-
-            current_assessment_state[f"question_{q_idx + 1}"] = options_group
+                options_ui = options_group
+                current_assessment_state[f"question_{q_idx + 1}"] = {"type": "single", "controls": options_group}
 
             question_cards.append(
                 ft.Container(
                     padding=25,
                     border_radius=16,
-                    bgcolor=ft.Colors.WHITE,
+                    # Slightly grey out the background of the card if completed
+                    bgcolor=ft.Colors.with_opacity(0.02, ft.Colors.BLACK) if is_completed else ft.Colors.WHITE,
                     border=ft.border.all(1, ft.Colors.with_opacity(0.06, ft.Colors.BLACK)),
-                    content=ft.Column([q_text, ft.Divider(height=1), options_group], spacing=15),
+                    content=ft.Column([
+                        ft.Row([q_text, ft.Icon(ft.Icons.LOCK_ROUNDED, color=ft.Colors.GREY_400, size=18) if is_completed else ft.Container()], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                        ft.Divider(height=1), 
+                        options_ui
+                    ], spacing=15),
                 )
             )
+
+        # Add a success banner at the top if they already finished it
+        banner = []
+        if is_completed:
+            banner = [
+                ft.Container(
+                    padding=15, border_radius=12, bgcolor=ft.Colors.GREEN_50, border=ft.border.all(1, ft.Colors.GREEN_200),
+                    content=ft.Row([
+                        ft.Icon(ft.Icons.VERIFIED_ROUNDED, color=ft.Colors.GREEN_600),
+                        ft.Text("You have already passed this assessment.", weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_800)
+                    ])
+                )
+            ]
 
         return ft.Container(
             width=None,
             padding=0,
-            content=ft.Column(question_cards, spacing=20, horizontal_alignment=ft.CrossAxisAlignment.STRETCH),
+            content=ft.Column(banner + question_cards, spacing=20, horizontal_alignment=ft.CrossAxisAlignment.STRETCH),
         )
-
 
     def render_lesson_ui(lesson: dict):
         content = lesson.get("content", {})
@@ -652,8 +627,6 @@ async def course_learner_view(page: ft.Page, course_id: str):
             blocks.append(render_assessment_ui(lesson))
         elif lesson["type"] == "scenario":
             blocks.append(render_scenario_ui(lesson))
-        elif lesson["type"] == "assignment":
-            blocks.append(render_assignment_ui(lesson))
 
         return ft.Column(blocks, spacing=20, horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
 
@@ -663,17 +636,29 @@ async def course_learner_view(page: ft.Page, course_id: str):
 
     def build_sidebar_lesson_row(les, m_idx, l_idx, is_active_lesson):
         is_done = les.get("is_done", False)
+        is_unlocked = les.get("is_unlocked", False)
 
+        # Visual States
         if is_done:
             lesson_icon = ft.Icon(ft.Icons.CHECK_CIRCLE, size=14, color=ft.Colors.GREEN)
+            text_color = UI_ACCENT if is_active_lesson else ft.Colors.ON_SURFACE
+        elif not is_unlocked:
+            lesson_icon = ft.Icon(ft.Icons.LOCK_ROUNDED, size=13, color=ft.Colors.GREY_400)
+            text_color = ft.Colors.GREY_400
         elif is_active_lesson:
             lesson_icon = ft.Icon(ft.Icons.PLAY_CIRCLE_FILL_ROUNDED, size=14, color=UI_ACCENT)
+            text_color = UI_ACCENT
         else:
             lesson_icon = ft.Icon(ft.Icons.CIRCLE_OUTLINED, size=12, color=ft.Colors.GREY_500)
+            text_color = ft.Colors.ON_SURFACE
+
+        def handle_click(e):
+            if is_unlocked:
+                jump_to_lesson(m_idx, l_idx)
 
         return ft.Container(
-            ink=True,
-            on_click=lambda e, m=m_idx, l=l_idx: jump_to_lesson(m, l),
+            ink=is_unlocked, # Only show ripple effect if unlocked
+            on_click=handle_click if is_unlocked else None, # Physically lock the click
             bgcolor=ft.Colors.with_opacity(0.06, UI_ACCENT) if is_active_lesson else ft.Colors.WHITE,
             border=ft.border.only(
                 left=ft.border.BorderSide(4, UI_ACCENT if is_active_lesson else ft.Colors.TRANSPARENT),
@@ -687,7 +672,7 @@ async def course_learner_view(page: ft.Page, course_id: str):
                         les["title"],
                         size=12.5,
                         weight=ft.FontWeight.BOLD if is_active_lesson else ft.FontWeight.NORMAL,
-                        color=UI_ACCENT if is_active_lesson else ft.Colors.ON_SURFACE,
+                        color=text_color,
                         expand=True,
                     ),
                 ],
@@ -715,9 +700,14 @@ async def course_learner_view(page: ft.Page, course_id: str):
         active_mod = course_data["modules"][current_module_idx]
         active_les = active_mod["lessons"][current_lesson_idx]
 
+        # 1. Save Progress & Unlock
         if not active_les.get("is_done", False):
-            await api_save_progress(active_les["id"])
+            # Pass course_id AND lesson_id
+            result = await api_save_progress(course_id, active_les["id"])
+            
+            # Mark local state as done and cascade the unlocks for the next lesson!
             active_les["is_done"] = True
+            recalculate_locks() 
 
         is_last_lesson = current_lesson_idx >= len(active_mod["lessons"]) - 1
 
@@ -843,6 +833,7 @@ async def course_learner_view(page: ft.Page, course_id: str):
             )
 
         # ---------- Main Content ----------
+        # ---------- Main Content ----------
         active_mod = course_data["modules"][current_module_idx]
         active_les = active_mod["lessons"][current_lesson_idx]
 
@@ -851,63 +842,221 @@ async def course_learner_view(page: ft.Page, course_id: str):
             current_module_idx == len(course_data["modules"]) - 1
             and current_lesson_idx == len(active_mod["lessons"]) - 1
         )
-
+        
+        is_completed = active_les.get("is_done", False)
+        
         if active_les["type"] == "assessment":
-            next_btn_text = "Submit & Finish Course" if is_last_overall else "Submit Assessment"
+            if is_completed:
+                next_btn_text = "Assessment Completed"
+                action_button.bgcolor = ft.Colors.GREY_300  # Hardcode the grey background
+                action_button.color = ft.Colors.GREY_600    # Grey out the text 
+                action_button.disabled = True
+            else:
+                next_btn_text = "Submit & Finish Course" if is_last_overall else "Submit Assessment"
+                action_button.bgcolor = UI_ACCENT           # Restore active color
+                action_button.color = ft.Colors.WHITE
+                action_button.disabled = False
         else:
             next_btn_text = "Finish Course" if is_last_overall else "Next Lesson"
-
+            action_button.bgcolor = UI_ACCENT               # Restore active color
+            action_button.color = ft.Colors.WHITE
+            action_button.disabled = False
+            
         previous_button.content = ft.Text("Previous Lesson", weight=ft.FontWeight.BOLD)
         previous_button.visible = not is_first_overall
         previous_button.disabled = False
 
         action_button.content = ft.Text(next_btn_text, weight=ft.FontWeight.BOLD)
-        action_button.disabled = False
+        
+        # We must call page.update() inside the button click, but Flet will automatically 
+        # apply the disabled visual styling (greyed out) based on the flag we set above!
 
         async def on_previous_click(e):
             await go_to_previous_lesson()
 
         async def on_action_click(e):
             if active_les["type"] == "assessment":
-                payload = {q_key: rg.value for q_key, rg in current_assessment_state.items()}
+                payload = {}
+                is_incomplete = False
+                
+                # Extract answers safely based on UI type (Radio vs Checkbox)
+                for q_key, state_data in current_assessment_state.items():
+                    if state_data["type"] == "single":
+                        ans = state_data["controls"].value
+                        if ans is None:
+                            is_incomplete = True
+                        payload[q_key] = ans
+                    else:
+                        # It's a multi-select, pull the 'data' from checked boxes
+                        selected_answers = [cb.data for cb in state_data["controls"] if cb.value]
+                        if len(selected_answers) == 0:
+                            is_incomplete = True
+                        payload[q_key] = selected_answers
 
-                if None in payload.values():
+                if is_incomplete:
                     snack = ft.SnackBar(content=ft.Text("Please answer all questions before submitting!"), bgcolor=ft.Colors.ERROR)
                     page.overlay.append(snack)
                     snack.open = True
                     page.update()
                     return
 
-                action_button.content = ft.Row(
-                    [ft.ProgressRing(width=20, height=20, color=ft.Colors.WHITE, stroke_width=2), ft.Text("Grading...", weight=ft.FontWeight.BOLD)],
-                    alignment=ft.MainAxisAlignment.CENTER,
+                # --- CLIENT-SIDE GRADING ENGINE ---
+                questions = active_les.get("content", {}).get("questions", [])
+                total_q = len(questions)
+                correct_count = 0
+                results_breakdown = []
+
+                for q_idx, q in enumerate(questions):
+                    q_key = f"question_{q_idx + 1}"
+                    user_answer = payload.get(q_key)
+
+                    # Extract all correct options into a list
+                    correct_opts = [opt.get("text") for opt in q.get("options", []) if opt.get("is_correct")]
+                    
+                    # Compare and score
+                    if isinstance(user_answer, list):
+                        is_correct = set(user_answer) == set(correct_opts)
+                        user_ans_str = ", ".join(user_answer)
+                    else:
+                        is_correct = user_answer in correct_opts and len(correct_opts) == 1
+                        user_ans_str = str(user_answer)
+                        
+                    correct_ans_str = ", ".join(correct_opts) if correct_opts else "N/A"
+
+                    if is_correct:
+                        correct_count += 1
+
+                    # Log for the dashboard
+                    results_breakdown.append({
+                        "question": q.get("text", f"Question {q_idx + 1}"),
+                        "user_answer": user_ans_str,
+                        "correct_answer": correct_ans_str,
+                        "is_correct": is_correct
+                    })
+
+                # Analytics calculation (70% Threshold - explicitly forced to integer)
+                score_percentage = int((correct_count / total_q) * 100) if total_q > 0 else 0
+                passed = score_percentage >= 70
+                incorrect_count = total_q - correct_count
+
+                # --- BUILD THE DASHBOARD MODAL ---
+                score_color = ft.Colors.GREEN_600 if passed else ft.Colors.RED_600
+                status_icon = ft.Icons.VERIFIED_ROUNDED if passed else ft.Icons.CANCEL_ROUNDED
+                status_text = "PASSED" if passed else "FAILED"
+
+                # 1. Build the Pie Chart Analytics Block
+                chart_sections = []
+                if correct_count > 0:
+                    chart_sections.append(fch.PieChartSection(value=correct_count, color=ft.Colors.GREEN_500, radius=20, title=" "))
+                if incorrect_count > 0:
+                    chart_sections.append(fch.PieChartSection(value=incorrect_count, color=ft.Colors.RED_500, radius=20, title=" "))
+
+                analytics_chart_ui = ft.Container(
+                    padding=ft.padding.symmetric(vertical=15),
+                    content=ft.Row([
+                        ft.Container(
+                            width=70, height=70,
+                            content=fch.PieChart(sections=chart_sections, sections_space=2, center_space_radius=25)
+                        ),
+                        ft.Column([
+                            ft.Row([ft.Icon(ft.Icons.CIRCLE, size=10, color=ft.Colors.GREEN_500), ft.Text(f"Correct: {correct_count}", size=13, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE)]),
+                            ft.Row([ft.Icon(ft.Icons.CIRCLE, size=10, color=ft.Colors.RED_500), ft.Text(f"Incorrect: {incorrect_count}", size=13, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE)]),
+                        ], spacing=4, alignment=ft.MainAxisAlignment.CENTER)
+                    ], alignment=ft.MainAxisAlignment.CENTER, spacing=25)
                 )
-                action_button.disabled = True
-                previous_button.disabled = True
-                page.update()
 
-                result = await api_submit_assessment(active_les["id"], payload)
+                # 2. Build the Breakdown List (Optimized for Mobile Wrapping)
+                breakdown_controls = []
+                for res in results_breakdown:
+                    icon = ft.Icons.CHECK_CIRCLE if res["is_correct"] else ft.Icons.CANCEL
+                    color = ft.Colors.GREEN_600 if res["is_correct"] else ft.Colors.RED_600
+                    
+                    correct_answer_ui = ft.Container()
+                    if not res["is_correct"]:
+                        # Used expand=True to ensure long correct answers wrap cleanly
+                        correct_answer_ui = ft.Row([
+                            ft.Icon(ft.Icons.SUBDIRECTORY_ARROW_RIGHT_ROUNDED, size=14, color=ft.Colors.ON_SURFACE_VARIANT),
+                            ft.Text(f"Correct: {res['correct_answer']}", color=ft.Colors.ON_SURFACE_VARIANT, size=12, expand=True)
+                        ], vertical_alignment=ft.CrossAxisAlignment.START)
 
-                action_button.content = ft.Text(next_btn_text, weight=ft.FontWeight.BOLD)
-                action_button.disabled = False
-                previous_button.disabled = False
-                page.update()
-
-                if result.get("passed"):
-                    result_dialog = ft.AlertDialog(
-                        title=ft.Row([ft.Icon(ft.Icons.VERIFIED_ROUNDED, color=ft.Colors.GREEN, size=30), ft.Text("Assessment Passed!")]),
-                        content=ft.Text(f"Great job! You scored {result['score']}% on this section."),
-                        actions=[ft.ElevatedButton(content=ft.Text("Continue"), bgcolor=UI_ACCENT, color=ft.Colors.WHITE, on_click=lambda e: handle_assessment_success(result, result_dialog))],
-                        actions_alignment=ft.MainAxisAlignment.CENTER,
+                    breakdown_controls.append(
+                        ft.Container(
+                            padding=12,
+                            border_radius=8,
+                            bgcolor=ft.Colors.with_opacity(0.05, color),
+                            border=ft.border.all(1, ft.Colors.with_opacity(0.2, color)),
+                            content=ft.Column([
+                                ft.Text(res["question"], weight=ft.FontWeight.W_600, size=14),
+                                # Used expand=True to ensure long user answers wrap cleanly on mobile
+                                ft.Row([
+                                    ft.Icon(icon, color=color, size=16),
+                                    ft.Text(f"Your answer: {res['user_answer']}", color=color, size=13, weight=ft.FontWeight.W_500, expand=True),
+                                ], vertical_alignment=ft.CrossAxisAlignment.START),
+                                correct_answer_ui
+                            ], spacing=6)
+                        )
                     )
-                    page.overlay.append(result_dialog)
-                    result_dialog.open = True
+
+                def close_and_retry(e):
+                    result_dialog.open = False
                     page.update()
-                else:
-                    snack = ft.SnackBar(content=ft.Text("Submission failed. Try again."), bgcolor=ft.Colors.ERROR)
-                    page.overlay.append(snack)
-                    snack.open = True
+
+                def close_and_continue(e):
+                    result_dialog.open = False
                     page.update()
+                    page.run_task(advance_to_next_lesson)
+
+                # 3. Assemble the Full Modal
+                result_dialog = ft.AlertDialog(
+                    modal=True,
+                    content_padding=0,
+                    content=ft.Container(
+                        width=450, # Slightly reduced width so it floats nicely on tablets, Flet handles mobile squishing automatically
+                        height=650, 
+                        bgcolor=ft.Colors.SURFACE,
+                        border_radius=12,
+                        content=ft.Column([
+                            ft.Container(
+                                padding=20,
+                                bgcolor=score_color,
+                                border_radius=ft.border_radius.only(top_left=12, top_right=12),
+                                content=ft.Column([
+                                    ft.Row([
+                                        ft.Icon(status_icon, color=ft.Colors.WHITE, size=32),
+                                        ft.Text(f"Assessment {status_text}", weight=ft.FontWeight.BOLD, size=21, color=ft.Colors.WHITE)
+                                    ], alignment=ft.MainAxisAlignment.CENTER),
+                                    ft.Text(f"You scored {score_percentage}%", color=ft.Colors.WHITE, size=18, weight=ft.FontWeight.W_500, text_align=ft.TextAlign.CENTER)
+                                ], horizontal_alignment=ft.CrossAxisAlignment.CENTER)
+                            ),
+                            ft.Container(
+                                padding=ft.padding.symmetric(horizontal=20),
+                                expand=True,
+                                content=ft.Column(
+                                    controls=[
+                                        analytics_chart_ui,
+                                        ft.Divider(height=1, color=ft.Colors.OUTLINE_VARIANT),
+                                        ft.Text("Detailed Breakdown", weight=ft.FontWeight.BOLD, size=16)
+                                    ] + breakdown_controls + [ft.Container(height=10)], # Extra bottom padding for scroll
+                                    scroll=ft.ScrollMode.AUTO,
+                                    spacing=12
+                                )
+                            ),
+                            ft.Container(
+                                padding=20,
+                                border=ft.border.only(top=ft.border.BorderSide(1, ft.Colors.OUTLINE_VARIANT)),
+                                content=ft.Row([
+                                    ft.OutlinedButton("Retry Assessment", icon=ft.Icons.REPLAY_ROUNDED, on_click=close_and_retry) if not passed else ft.Container(),
+                                    ft.ElevatedButton("Continue Course", icon=ft.Icons.ARROW_FORWARD_ROUNDED, bgcolor=UI_ACCENT, color=ft.Colors.WHITE, on_click=close_and_continue) if passed else ft.Container()
+                                ], alignment=ft.MainAxisAlignment.END if passed else ft.MainAxisAlignment.SPACE_BETWEEN)
+                            )
+                        ], spacing=0)
+                    )
+                )
+
+                page.overlay.append(result_dialog)
+                result_dialog.open = True
+                page.update()
+
             else:
                 await advance_to_next_lesson()
 
@@ -986,7 +1135,6 @@ async def course_learner_view(page: ft.Page, course_id: str):
     async def fetch_initial_data():
         nonlocal course_data, current_module_idx, current_lesson_idx, module_expanded_state
         
-        # Await the API call in the background
         course_data = await api_fetch_course_data(course_id)
         
         if not course_data or "modules" not in course_data:
@@ -995,14 +1143,25 @@ async def course_learner_view(page: ft.Page, course_id: str):
             page.update()
             return
 
-        # Scan course payload to jump to the current active lesson
+        # 1. Hydrate "is_done" state from the backend's completed_lesson_ids
+        completed_ids = course_data.get("completed_lesson_ids", [])
+        for mod in course_data["modules"]:
+            for les in mod.get("lessons", []):
+                les["is_done"] = les.get("id") in completed_ids
+
+        # 2. Run the Lock Engine to figure out what is accessible
+        recalculate_locks()
+
+        # 3. Find the first UNFINISHED but UNLOCKED lesson to jump to
+        found_bookmark = False
         for m_idx, mod in enumerate(course_data["modules"]):
-            if not mod.get("is_done", False):
-                current_module_idx = m_idx
-                for l_idx, les in enumerate(mod.get("lessons", [])):
-                    if not les.get("is_done", False):
-                        current_lesson_idx = l_idx
-                        break
+            for l_idx, les in enumerate(mod.get("lessons", [])):
+                if not les.get("is_done", False) and les.get("is_unlocked", True):
+                    current_module_idx = m_idx
+                    current_lesson_idx = l_idx
+                    found_bookmark = True
+                    break
+            if found_bookmark:
                 break
 
         # Setup sidebar expansion state
@@ -1011,14 +1170,11 @@ async def course_learner_view(page: ft.Page, course_id: str):
             for idx, mod in enumerate(course_data["modules"])
         }
 
-        # Update dynamic App Bar and Sidebar titles
-        appbar_title.value = course_data["course_title"]
-        sidebar_course_title.value = course_data["course_title"]
+        appbar_title.value = course_data.get("course_title", "Course")
+        sidebar_course_title.value = course_data.get("course_title", "Course")
 
-        # Render the initial UI
         refresh_ui()
 
-        # Swap the loading ring out for the actual body host
         content_socket.alignment = None
         content_socket.content = body_host
         page.update()

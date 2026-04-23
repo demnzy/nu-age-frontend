@@ -50,7 +50,7 @@ def get_continue_learning_card(course_name, progress, course_id, page: ft.Page):
                         ft.Row([
                             ft.Text("Progress", size=10, color="black"),
                             ft.Text(
-                                f"{int(progress*100)}%", 
+                                f"{int(progress)}%", 
                                 size=10, 
                                 weight=ft.FontWeight.BOLD, 
                                 color=ft.Colors.PRIMARY
@@ -58,7 +58,7 @@ def get_continue_learning_card(course_name, progress, course_id, page: ft.Page):
                         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                         
                         ft.ProgressBar(
-                            value=progress,
+                            value=progress/100,
                             color=ft.Colors.PRIMARY,
                             bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
                             height=6,

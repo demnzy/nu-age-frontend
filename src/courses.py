@@ -1,5 +1,5 @@
 import flet as ft
-from src import course_view
+from src.components.completed_card import get_completed_card
 from src.components.course_card import get_course_card
 from src.components.enrolled_card import get_enrolled_card
 from src.components.bottom_appbar import get_bottom_appbar
@@ -9,6 +9,7 @@ from datetime import datetime
 async def courses_view(page: ft.Page):
     course_cards = []
     enroll_cards = []
+    completed_cards = []
 
     async def clear_search(e):
         if e.control.value == "":
@@ -123,6 +124,13 @@ async def courses_view(page: ft.Page):
                             controls=enroll_cards, # Blank for now
                         ),
                         padding=20)
+    completed_container=ft.Container(
+                        content=ft.ResponsiveRow(
+                            spacing=20,          # Horizontal space between cards
+                            run_spacing=20,
+                            controls=completed_cards, # Blank for now
+                        ),
+                        padding=20)
     header_container = ft.Container(
     bgcolor=ft.Colors.PRIMARY, # Themed equivalent of #009787
 
@@ -161,7 +169,8 @@ async def courses_view(page: ft.Page):
                     tab_alignment=ft.TabAlignment.CENTER,
                     tabs=[
                         ft.Tab(label="Available Courses"),
-                        ft.Tab(label="My Courses"),
+                        ft.Tab(label="Ongoing Courses"),
+                        ft.Tab(label="Completed Courses"),
                     ]
                 ),
                 ft.TabBarView(
@@ -214,6 +223,24 @@ async def courses_view(page: ft.Page):
                                 expand=True
                             ),
                             padding=20,
+                        ),
+                        ft.Container(
+                            content=ft.Column(
+                                alignment=ft.MainAxisAlignment.CENTER, # Center loading ring
+                                controls=[
+                                    ft.Container(
+                content=ft.Row(
+                    [ft.ProgressRing(color=ft.Colors.PRIMARY), ft.Text(" Gettiing your completed courses...", color=ft.Colors.ON_SURFACE)],
+                    alignment=ft.MainAxisAlignment.CENTER
+                ),
+                height=200,
+            )
+                                    # Replace this with your 'my_courses_container' later
+                                ], 
+                                scroll=ft.ScrollMode.AUTO,
+                                expand=True
+                            ),
+                            padding=20,
                         )
                     ],
                 ),
@@ -224,13 +251,15 @@ async def courses_view(page: ft.Page):
         token = await page.shared_preferences.get("auth_token")
         course_list = await get_courses(token, {"is_public": True})
         enrolled_list = await get_enrollments(token,None)
+        completed_list = await get_courses(token, {"progress": 100})
         enrolled_ids = {course.get("id") for course in enrolled_list}
+        completed_ids = {course.get("id") for course in completed_list}
 
         for course in course_list:
             course_name = course.get("name", "Untitled Course")
             image_url = course.get("image_url", "")
             course_id = course.get("id")
-            if course_id not in enrolled_ids: 
+            if course_id not in enrolled_ids and course_id not in completed_ids:
                 first_name = course.get("admin", {}).get("first_name","Unknown")
                 last_name = course.get("admin", {}).get("last_name","Instructor")
                 full_name = f'{first_name} {last_name}'
@@ -249,8 +278,28 @@ async def courses_view(page: ft.Page):
             for course in enrolled_list:
                 course_name = course.get("name", "Untitled Course")
                 image_url = course.get("image_url", "")
-                progress = course.get("progress", 0.0)
                 course_id = course.get("id")
+                if course_id not in completed_ids:
+                    progress = course.get("progress", 0.0)
+                    first_name = course.get("admin", {}).get("first_name","Unknown")
+                    last_name = course.get("admin", {}).get("last_name","Instructor")
+                    full_name = f'{first_name} {last_name}'
+                    category = course.get("category",{}).get("name")
+                    card = get_enrolled_card(course_name,category,full_name,image_url,progress)
+                    card.on_click = lambda e, c_id=course_id,c_name=course_name: page.go(f"/courses/{c_id}/view")
+                    card.col = {"xs": 12, "sm": 6}
+                    enroll_cards.append(card)
+                    card.opacity = 1
+                    card.offset = ft.Offset(0, 0)
+        else:
+            print(enrolled_list)
+            enrolled_list.clear()
+        if isinstance(enrolled_list, list):
+            for course in completed_list:
+                course_name = course.get("name", "Untitled Course")
+                image_url = course.get("image_url", "")
+                course_id = course.get("id")
+                progress = course.get("progress", 0.0)
                 first_name = course.get("admin", {}).get("first_name","Unknown")
                 last_name = course.get("admin", {}).get("last_name","Instructor")
                 full_name = f'{first_name} {last_name}'
@@ -262,8 +311,8 @@ async def courses_view(page: ft.Page):
                 card.opacity = 1
                 card.offset = ft.Offset(0, 0)
         else:
-            print(enrolled_list)
-            enrolled_list.clear()
+            print(completed_list)
+            completed_list.clear()
         real_content = ft.Column(
             expand=True,
             controls=[
@@ -332,6 +381,34 @@ async def courses_view(page: ft.Page):
                     controls=[
                         ft.Text(
                             "You have no enrolled courses", 
+                            size=16, 
+                            color=ft.Colors.ON_SURFACE_VARIANT,
+                            weight=ft.FontWeight.W_500
+                        )
+                    ]
+                )
+            ],
+                        scroll=ft.ScrollMode.AUTO,
+                    )
+                                    # Replace this with your 'my_courses_container' later
+                                ], 
+                                scroll=ft.ScrollMode.AUTO,
+                                expand=True
+                            ),
+                            padding=20,
+                        ),
+                        ft.Container(
+                            content=ft.Column(
+                                controls=[
+                                    ft.ListView(
+                        expand=True, # THIS IS VITAL - it fills the remaining space
+                        controls=[
+                # Ternary: [RESULT_IF_TRUE] if [CONDITION] else [RESULT_IF_FALSE]
+                completed_container if completed_list else ft.Row(
+                    alignment=ft.MainAxisAlignment.CENTER,
+                    controls=[
+                        ft.Text(
+                            "You have no completed courses", 
                             size=16, 
                             color=ft.Colors.ON_SURFACE_VARIANT,
                             weight=ft.FontWeight.W_500

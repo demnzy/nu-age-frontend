@@ -253,3 +253,31 @@ async def delete_course(token: str, course_id: str):
     except Exception as e:
         print(f"Request Error: {e}")
         return {"error": "connection_failed"}
+    
+
+async def mark_complete(token: str, course_id: str, lesson_id: str):
+    """
+    Marks a lesson as complete.
+    """
+    url = f"{api_url}/courses/{course_id}/lessons/{lesson_id}/complete"
+    headers = {"Authorization": f"Bearer {token}"}
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, headers=headers)
+
+            if response.status_code == 200:
+                print(f"Lesson {lesson_id} marked as complete for course {course_id}")
+                return {"message": "Lesson marked as complete"}
+            
+            elif response.status_code == 404:
+                print("Course not found.")
+                return {"error": "not_found"}
+            
+            elif response.status_code == 401:
+                return {"error": "unauthorized"}
+            else:
+                return {"error": "server_fail", "details": response.text}
+    except Exception as e:
+        print(f"Request Error: {e}")
+        return {"error": "connection_failed"}

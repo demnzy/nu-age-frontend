@@ -2,7 +2,7 @@ import flet as ft
 
 def get_enrolled_card(course_title: str, course_category: str, course_author: str, image_url: str|None=None, progress: float=0.0):
     # Determine the percentage string (e.g., 0.65 -> "65%")
-    percentage_text = f"{int(progress * 100)}%"
+    percentage_text = f"{int(progress)}%"
     
     if image_url:
         card_top = ft.Container(
@@ -70,7 +70,7 @@ def get_enrolled_card(course_title: str, course_category: str, course_author: st
                                 spacing=10,
                                 controls=[
                                     ft.ProgressBar(
-                                        value=progress, 
+                                        value=progress/100, 
                                         color=ft.Colors.PRIMARY, # Themed equivalent of #009787
                                         bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST, # Themed equivalent of #EEEEEE
                                         height=8,

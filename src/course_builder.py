@@ -24,7 +24,6 @@ LESSON_TYPES = {
     "cards": "Flashcards",
     "assessment": "Assessment",
     "scenario": "Decision Matrix",
-    "assignment": "Assignment",
 }
 
 LESSON_TYPE_ICONS = {
@@ -35,7 +34,6 @@ LESSON_TYPE_ICONS = {
     "cards": ft.Icons.VIEW_CAROUSEL_ROUNDED,
     "assessment": ft.Icons.QUIZ_ROUNDED,
     "scenario": ft.Icons.CALL_SPLIT_ROUNDED,
-    "assignment": ft.Icons.ASSIGNMENT_ROUNDED,
 }
 
 LESSON_TYPE_COLORS = {
@@ -46,7 +44,6 @@ LESSON_TYPE_COLORS = {
     "cards": ft.Colors.PURPLE_500,
     "assessment": ft.Colors.ORANGE_500,
     "scenario": ft.Colors.TEAL_600,
-    "assignment": ft.Colors.DEEP_PURPLE_600,
 }
 
 # Strict allowed keys per lesson type (API structure unchanged)
@@ -58,7 +55,6 @@ LESSON_CONTENT_SCHEMA = {
     "cards": ["cards"],
     "assessment": ["questions"],
     "scenario": ["scenario", "choices"],
-    "assignment": ["prompt_text"],
 }
 
 # Required keys for validation
@@ -70,7 +66,6 @@ REQUIRED_KEYS = {
     "cards": ["cards"],
     "assessment": ["questions"],
     "scenario": ["scenario", "choices"],
-    "assignment": ["prompt_text"],
 }
 
 # Optional blocks that can be toggled on/off
@@ -82,7 +77,6 @@ OPTIONAL_KEYS = {
     "cards": [],
     "assessment": [],
     "scenario": [],
-    "assignment": [],
 }
 
 DEFAULTS = {
@@ -96,7 +90,6 @@ DEFAULTS = {
     "questions": [],
     "scenario": "",
     "choices": [],
-    "prompt_text": "",
 }
 
 # =========================================================
@@ -187,10 +180,6 @@ def validate_lesson(lesson: dict):
                 errors.append(f"Choice {i+1} needs text.")
             if not str(ch.get("consequence", "")).strip():
                 errors.append(f"Choice {i+1} needs a consequence.")
-
-    if t == "assignment":
-        if not str(c.get("prompt_text", "")).strip():
-            errors.append("Assignment instructions cannot be empty.")
 
     if t == "assessment":
         qs = c.get("questions", [])
@@ -851,14 +840,6 @@ async def course_builder_view(page: ft.Page, course_id: str):
             ],
             spacing=10,
         )
-    def assignment_block(content: dict):
-        return ft.TextField(
-            label="Assignment Prompt / Instructions (Markdown supported)",
-            value=content.get("prompt_text", ""),
-            multiline=True,
-            min_lines=4,
-            on_change=lambda e: content.__setitem__("prompt_text", e.control.value),
-        )
 
     def scenario_block(content: dict):
         content.setdefault("scenario", "")
@@ -1137,8 +1118,6 @@ async def course_builder_view(page: ft.Page, course_id: str):
             editor_content.controls.append(block_card("Assessment", assessment_block(content), tint=ft.Colors.ORANGE_50))
         elif t == "scenario":
             editor_content.controls.append(block_card("Decision Matrix", scenario_block(content), tint=ft.Colors.TEAL_50))
-        elif t == "assignment":
-            editor_content.controls.append(block_card("Assignment", assignment_block(content), tint=ft.Colors.DEEP_PURPLE_50))
         # Optional blocks menu
         missing_optional = [k for k in OPTIONAL_KEYS.get(t, []) if k not in content]
         if missing_optional:

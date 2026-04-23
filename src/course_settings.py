@@ -43,7 +43,7 @@ async def course_settings_view(page: ft.Page, course_id: str, org_id: str) -> ft
         await bulk_unenrol_students(token, course_id, payload = {"student_ids": student_ids}, params={})
         return True, f"Unenrolled {len(student_ids)}"
 
-    course_data = course_data = await get_courses(token, params={"id": course_id})
+    course_data = await get_courses(token, params={"id": course_id})
     course_data = course_data[0] if course_data else None
     if not course_data:
         return ft.View(
@@ -70,8 +70,10 @@ async def course_settings_view(page: ft.Page, course_id: str, org_id: str) -> ft
 
     # --- 2C. Shared UI Helpers ---
     def show_toast(message, color=ft.Colors.GREEN_700):
-        page.snack_bar = ft.SnackBar(content=ft.Text(message), bgcolor=color, duration=3000)
-        page.snack_bar.open = True
+        # THE FIX: Append to overlay instead of using page.snack_bar
+        snack = ft.SnackBar(content=ft.Text(message), bgcolor=color, duration=3000)
+        page.overlay.append(snack)
+        snack.open = True
         page.update()
 
     def create_section(title: str, description: str, content: ft.Control, is_danger=False):

@@ -13,6 +13,7 @@ from src.create_course import create_courses_view
 from src.course_builder import course_builder_view
 from src.course_settings import course_settings_view
 from src.course_page import course_learner_view
+from src.utils.db_manager import init_db
 
 async def main(page: ft.Page):
     # --- 1. THE UNIVERSAL SOURCE OF TRUTH ---
@@ -159,5 +160,5 @@ async def main(page: ft.Page):
     # Trigger initial route
     page.route = "/dashboard" if await page.shared_preferences.get("auth_token") else "/"
     await route_change(None)
-    
+
 ft.run(main, assets_dir="assets")

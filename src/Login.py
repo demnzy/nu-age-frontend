@@ -1,6 +1,9 @@
+from math import log
+
 import flet as ft
 from src.requests.auth import login_request
 from src.components.landing_navbar import get_landing_appbar
+from src.utils.db_manager import log_daily_activity
 
 def login_view(page: ft.Page):
     is_processing = False
@@ -80,6 +83,7 @@ def login_view(page: ft.Page):
                 token = data.get("access_token")
                 await page.shared_preferences.set("auth_token", token)
                 Submit.bgcolor = ft.Colors.PRIMARY 
+                log_daily_activity()  # Log the login activity in the local database
                 page.show_dialog(cupertino_alert_dialog)
 
             elif status == 404:
