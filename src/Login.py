@@ -1,183 +1,337 @@
-from math import log
-
 import flet as ft
 from src.requests.auth import login_request
 from src.components.landing_navbar import get_landing_appbar
 from src.utils.db_manager import log_daily_activity
+import asyncio
+
 
 def login_view(page: ft.Page):
     is_processing = False
-    custom_message = ft.Text("")
-    # Error signals usually stay red/amber even in dark mode for urgency
-    validation_error = ft.Text("", color=ft.Colors.RED_700, size=12, weight=ft.FontWeight.W_500)
-    
-    def handle_action_click(e: ft.Event[ft.CupertinoDialogAction]):
-        page.pop_dialog()
-        page.go("/dashboard")
-        
-    def validate_inputs(e):
-        fields = [
-            email.value, password.value
-        ]
-        all_filled = all(f and f.strip() for f in fields)
-        if not all_filled:
-            validation_error.value = "         All fields are required."
-        else:
-            validation_error.value = ""
+    page.theme_mode = ft.ThemeMode.LIGHT
 
-        Submit.disabled = not (all_filled)
+    # ── shared state ──────────────────────────────────────────────
+    custom_message   = ft.Text("", size=13)
+    validation_error = ft.Text(
+        "",
+        color=ft.Colors.RED_700,
+        size=12,
+        weight=ft.FontWeight.W_500,
+    )
+
+    # ── helpers ───────────────────────────────────────────────────
+    def set_error(msg: str):
+        """Show inline validation error."""
+        validation_error.value = msg
         page.update()
 
-    cupertino_alert_dialog = ft.AlertDialog(
+    def clear_error():
+        validation_error.value = ""
+        page.update()
+
+    # ── dialogs ───────────────────────────────────────────────────
+    def handle_action_click(e):
+        page.pop_dialog()
+        page.go("/dashboard")
+
+    success_dialog = ft.AlertDialog(
         title=ft.Row(
             controls=[
-                ft.Text("Login Successful!"),
-                ft.Icon(ft.Icons.CHECK, color=ft.Colors.PRIMARY) # Use PRIMARY instead of #009787
+                ft.Icon(ft.Icons.CHECK_CIRCLE_OUTLINE_ROUNDED,
+                        color=ft.Colors.PRIMARY, size=22),
+                ft.Text("Login Successful!", size=18,
+                        weight=ft.FontWeight.W_600),
             ],
-            alignment=ft.MainAxisAlignment.START,
+            spacing=8,
         ),
-        content=ft.Text("Welcome back to Nu-age."),
-        
+        content=ft.Text("Welcome back to Nu-age.", size=13),
         actions=[
             ft.TextButton(
-                content=ft.Text("Ok", color=ft.Colors.PRIMARY, weight=ft.FontWeight.BOLD),
+                "Go to Dashboard",
                 on_click=handle_action_click,
-            ),
+                style=ft.ButtonStyle(color=ft.Colors.PRIMARY),
+            )
         ],
-        actions_alignment=ft.MainAxisAlignment.END,
     )
-    
-    User_Not_found = ft.AlertDialog(
+
+    error_dialog = ft.AlertDialog(
         title=ft.Row(
             controls=[
-                ft.Text("Login Failed!"), 
-                ft.Icon(ft.Icons.CLOSE, color=ft.Colors.RED_700) 
+                ft.Icon(ft.Icons.ERROR_OUTLINE_ROUNDED,
+                        color=ft.Colors.RED_600, size=22),
+                ft.Text("Login Failed", size=18, weight=ft.FontWeight.W_600),
             ],
-            alignment=ft.MainAxisAlignment.START,
+            spacing=8,
         ),
         content=custom_message,
         actions=[
             ft.TextButton(
-                content=ft.Text("Ok", color=ft.Colors.PRIMARY),
-                on_click=lambda e: page.pop_dialog(), 
-            ),
+                "Dismiss",
+                on_click=lambda e: page.pop_dialog(),
+                style=ft.ButtonStyle(color=ft.Colors.PRIMARY),
+            )
         ],
-        actions_alignment=ft.MainAxisAlignment.END,
     )
 
+    timeout_dialog = ft.AlertDialog(
+        title=ft.Row(
+            controls=[
+                ft.Icon(ft.Icons.WIFI_OFF_ROUNDED,
+                        color=ft.Colors.ORANGE_700, size=22),
+                ft.Text("Connection Problem", size=18,
+                        weight=ft.FontWeight.W_600),
+            ],
+            spacing=8,
+        ),
+        content=ft.Text(
+            "Unable to reach the server. Please check your internet "
+            "connection and try again.",
+            size=13,
+        ),
+        actions=[
+            ft.TextButton(
+                "Dismiss",
+                on_click=lambda e: page.pop_dialog(),
+                style=ft.ButtonStyle(color=ft.Colors.PRIMARY),
+            )
+        ],
+    )
+
+    # ── validation ────────────────────────────────────────────────
+    def validate_inputs(e):
+        all_filled = all(
+            f and f.strip() for f in [email.value, password.value]
+        )
+
+        if not all_filled:
+            validation_error.value = "Email/username and password are required."
+        else:
+            validation_error.value = ""
+
+        Submit.disabled = not all_filled
+        page.update()
+
+    # ── submit handler ────────────────────────────────────────────
     async def handle_submit(e):
         nonlocal is_processing
-        Submit.disabled = True
-        page.update()
         if is_processing:
             return
-            
-        is_processing = True
+
+        is_processing   = True
         Submit.disabled = True
-        # Using ON_SURFACE or a static color for the ring inside the button
-        Submit.content = ft.ProgressRing(width=16, height=16, color=ft.Colors.ON_PRIMARY) 
+        Submit.text     = "Signing in…"
+        clear_error()
         page.update()
+
         try:
-            status, data = await login_request(email.value, password.value)   
+            status, data = await asyncio.wait_for(
+                login_request(email.value, password.value),
+                timeout=15,
+            )
+
             if status == 200:
                 token = data.get("access_token")
                 await page.shared_preferences.set("auth_token", token)
-                Submit.bgcolor = ft.Colors.PRIMARY 
-                log_daily_activity()  # Log the login activity in the local database
-                page.show_dialog(cupertino_alert_dialog)
+                log_daily_activity()
+                page.show_dialog(success_dialog)
 
             elif status == 404:
-                custom_message.value = "This account does not exist. Please check your email and try again."
-                page.update()
-                page.show_dialog(User_Not_found)
-                Submit.disabled = False
-                page.update()
+                set_error(
+                    "No account found for that email. "
+                    "Please check and try again."
+                )
 
             elif status == 403:
-                Submit.bgcolor = ft.Colors.PRIMARY 
-                page.update()
-                custom_message.value = "Incorrect Password. Please try again"
-                page.show_dialog(User_Not_found)
-                Submit.disabled = False
-                page.update()
+                set_error("Incorrect password. Please try again.")
+
+            elif status == 429:
+                set_error(
+                    "Too many login attempts. Please wait a moment "
+                    "before trying again."
+                )
+
+            elif status is not None:
+                custom_message.value = (
+                    f"Unexpected error (code {status}). "
+                    "Please try again later."
+                )
+                page.show_dialog(error_dialog)
+
+        except asyncio.TimeoutError:
+            page.show_dialog(timeout_dialog)
+
+        except Exception as ex:
+            custom_message.value = (
+                "Something went wrong while connecting to the server. "
+                f"Detail: {type(ex).__name__}."
+            )
+            page.show_dialog(error_dialog)
+
         finally:
-            is_processing = False
-            Submit.content = "Login"
+            is_processing   = False
+            Submit.disabled = False
+            Submit.text     = "Sign In"
             page.update()
-            
-    email = ft.TextField(
-        label="Email/Username", 
-        width=270, height=40, text_size=15, 
-        on_change=validate_inputs,
-        border_color=ft.Colors.OUTLINE # Themed border
+
+    # ── field factory ─────────────────────────────────────────────
+    def field(**kwargs) -> ft.TextField:
+        return ft.TextField(
+            height=46,
+            text_size=13,
+            border_radius=8,
+            border_color=ft.Colors.GREY_300,
+            focused_border_color=ft.Colors.PRIMARY,
+            content_padding=ft.padding.symmetric(horizontal=14, vertical=10),
+            on_change=validate_inputs,
+            **kwargs,
+        )
+
+    # ── fields ────────────────────────────────────────────────────
+    email = field(
+        label="Email or Username",
+        prefix_icon=ft.Icons.PERSON_OUTLINE_ROUNDED,
+        keyboard_type=ft.KeyboardType.EMAIL,
+        expand=True,
     )
-    password = ft.TextField(
-        label="Password", password=True, can_reveal_password=True, 
-        width=270, height=40, text_size=15, 
-        on_change=validate_inputs,
-        border_color=ft.Colors.OUTLINE
+    password = field(
+        label="Password",
+        prefix_icon=ft.Icons.LOCK_OUTLINE_ROUNDED,
+        password=True,
+        can_reveal_password=True,
+        expand=True,
     )
-    Submit = ft.Button(
-        "Login", width=320, 
-        color=ft.Colors.ON_PRIMARY, # White text in light, Off-white in dark
-        bgcolor=ft.Colors.PRIMARY, 
-        
+
+    # ── submit button ─────────────────────────────────────────────
+    Submit = ft.ElevatedButton(
+        "Sign In",
+        expand=True,
+        color=ft.Colors.WHITE,
+        bgcolor=ft.Colors.PRIMARY,
+        height=46,
+        disabled=True,
+        on_click=handle_submit,
         style=ft.ButtonStyle(
-            shape=ft.RoundedRectangleBorder(radius=6),
+            shape=ft.RoundedRectangleBorder(radius=10),
+            elevation=0,
         ),
-        height=40, disabled=True, on_click=handle_submit
     )
-    
+
+    # ── login card ────────────────────────────────────────────────
     login_card = ft.Container(
         width=350,
-        padding=16,
-        bgcolor=ft.Colors.SURFACE, # Swaps White <-> Deep Charcoal
-        border_radius=10,
         height=530,
-        
+        padding=13,
+        bgcolor=ft.Colors.WHITE,
+        border_radius=16,
         shadow=ft.BoxShadow(
-            blur_radius=15,
-            color=ft.Colors.SHADOW, # Uses themed shadow color
-            offset=ft.Offset(0, 5)
+            blur_radius=24,
+            spread_radius=0,
+            color=ft.Colors.with_opacity(0.10, ft.Colors.BLACK),
+            offset=ft.Offset(0, 6),
         ),
-
         content=ft.Column(
-            [
-                ft.CircleAvatar(
-            foreground_image_src="Nu logo only.jpeg",
-            bgcolor= ft.Colors.SURFACE,
-            radius=40
-        ),
-                ft.Text("Welcome Back!", size=24, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
-                ft.Row(controls=[
-                    ft.Icon(ft.Icons.MAIL_OUTLINE, 
-                        color=ft.Colors.PRIMARY, 
-                        width=20, height=40
-                    ),
-                email]),
-                ft.Row(controls=[
-                    ft.Icon(ft.Icons.VPN_KEY, 
-                        color=ft.Colors.PRIMARY, 
-                        width=20, height=40
-                    ),
-                password]),
-                ft.Row(controls=[ft.Text("  "),
-                        ft.TextButton(content=ft.Text("Forgot Password", color=ft.Colors.PRIMARY)),
-                        ft.TextButton(content=ft.Text("Create an Account", color=ft.Colors.PRIMARY), on_click=lambda _: page.go("/signup")),
-                 ]),
-                Submit
+            controls=[
+                # ── Branding ─────────────────────────────────────
+                ft.Column(
+                    controls=[
+                        ft.CircleAvatar(
+                            foreground_image_src="Nu logo only.jpeg",
+                            bgcolor=ft.Colors.GREY_100,
+                            radius=32,
+                        ),
+                        ft.Text(
+                            "Welcome back",
+                            size=22,
+                            weight=ft.FontWeight.W_700,
+                            color=ft.Colors.GREY_900,
+                        ),
+                        ft.Text(
+                            "Sign in to your Nu-age account.",
+                            size=13,
+                            color=ft.Colors.GREY_500,
+                        ),
+                    ],
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    spacing=6,
+                ),
+
+                ft.Divider(height=1, color=ft.Colors.GREY_100),
+
+                # ── Fields ───────────────────────────────────────
+                ft.Container(height=20), # Spacer
+                email,
+                password,
+
+                # ── Validation error ─────────────────────────────
+                ft.Container(
+                    content=validation_error,
+                    visible=not(bool(validation_error.value)),
+                    padding=ft.padding.only(left=2, top=0),
+                ),
+
+                # ── Forgot password ───────────────────────────────
+                ft.Row(alignment=ft.MainAxisAlignment.CENTER,
+                    controls=[
+                        ft.TextButton(
+                            content=ft.Text("Forgot password?"),
+                            style=ft.ButtonStyle(
+                                color=ft.Colors.PRIMARY,
+                                padding=ft.padding.all(0),
+                            ),
+                        )
+                    ],
+                ),
+
+                # ── Submit ────────────────────────────────────────
+                ft.Row(controls=[Submit]),
+
+                # ── Sign-up link ──────────────────────────────────
+                ft.Row(
+                    controls=[
+                        ft.Text(
+                            "Don't have an account?",
+                            size=12,
+                            color=ft.Colors.GREY_500,
+                        ),
+                        ft.TextButton(
+                            "Create one",
+                            on_click=lambda _: page.go("/signup"),
+                            style=ft.ButtonStyle(
+                                color=ft.Colors.PRIMARY,
+                                padding=ft.padding.only(left=4),
+                            ),
+                        ),
+                    ],
+                    alignment=ft.MainAxisAlignment.CENTER,
+                    spacing=0,
+                ),
             ],
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            spacing=30,
-            tight=True
-        )
+            spacing=14,
+            tight=True,
+            horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+        ),
     )
 
-    return ft.View(
-        bgcolor=ft.Colors.PRIMARY, # Use themed surface color for the background
+    # ── page layout ───────────────────────────────────────────────
+    def get_view_padding():
+        return (
+            ft.padding.symmetric(vertical=80, horizontal=16)
+            if page.width < 600
+            else ft.padding.symmetric(vertical=10, horizontal=16)
+        )
+
+    view=ft.View(
+        bgcolor=ft.Colors.GREY_100, # Use themed surface color for the background
         route="/",
         controls=[login_card],
         vertical_alignment=ft.MainAxisAlignment.CENTER,
         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
         appbar=get_landing_appbar(page)
     )
+
+    def on_page_resize(e):
+        view.padding = get_view_padding()
+        page.update()
+
+    page.on_resize = on_page_resize
+
+    return view

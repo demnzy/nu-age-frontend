@@ -13,7 +13,9 @@ from src.create_course import create_courses_view
 from src.course_builder import course_builder_view
 from src.course_settings import course_settings_view
 from src.course_page import course_learner_view
-from src.utils.db_manager import init_db
+from src.chat_view import chat_view
+from src.self_study import self_study_view
+from src.network import network_view
 
 async def main(page: ft.Page):
     # --- 1. THE UNIVERSAL SOURCE OF TRUTH ---
@@ -126,8 +128,12 @@ async def main(page: ft.Page):
             page.views.append(await edit_profile_view(page))
         elif page.route == "/organisations":
             page.views.append(await organisations_view(page))
-        
-
+        elif page.route == "/network":
+            page.views.append(await network_view(page))
+        elif page.route == "/nu-chat":
+            page.views.append(await chat_view(page))
+        elif page.route == "/self-study":
+            page.views.append(await self_study_view(page))
         # --- NEW: Dynamic Organization Courses Route ---
         elif troute.match("/organisations/:org_id/courses"):
             # Extracts the ID from the URL and passes it to the view

@@ -281,3 +281,18 @@ async def mark_complete(token: str, course_id: str, lesson_id: str):
     except Exception as e:
         print(f"Request Error: {e}")
         return {"error": "connection_failed"}
+
+async def generate_course_certificate(token: str, course_id: str):
+    """Hits the backend to generate or fetch the existing certificate for a course."""
+    # Replace `API_BASE_URL` with your actual backend URL variable
+    url = f"{api_url}/certificates/{course_id}/generate"
+    headers = {"Authorization": f"Bearer {token}"}
+    
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client: # Generates can take a few seconds
+            response = await client.post(url, headers=headers)
+            if response.status_code == 200:
+                return response.json()
+            return {"error": f"Failed to generate certificate: {response.status_code}"}
+    except Exception as e:
+        return {"error": str(e)}

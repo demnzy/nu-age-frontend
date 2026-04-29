@@ -6,6 +6,7 @@ from src.components.bottom_appbar import get_bottom_appbar
 from src.requests.Courses import get_courses
 from src.requests.enrollments import get_enrollments, enrol_user
 from datetime import datetime
+
 async def courses_view(page: ft.Page):
     course_cards = []
     enroll_cards = []
@@ -45,8 +46,9 @@ async def courses_view(page: ft.Page):
         except Exception:
             e.control.disabled = False
             page.update()
-        
-            
+            e.control.content = ft.Text("Enroll")
+            page.update()
+          
     async def handle_change(e):
         new_token = await page.shared_preferences.get("auth_token")
         course_list = await get_courses(new_token, params={"name": e.control.value, "is_public": True})
@@ -91,6 +93,7 @@ async def courses_view(page: ft.Page):
         page.update()
 
     # 2. The UI Control
+    
     search_anchor = ft.SearchBar(
         bar_bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST, # Themed equivalent of White
         bar_hint_text="Search courses or categories...",
@@ -156,7 +159,7 @@ async def courses_view(page: ft.Page):
 )
     tabs = ft.Tabs(
         selected_index=0,
-        length=2,
+        length=3,
         expand=True,
         content=ft.Column(
             expand=True,
@@ -235,7 +238,6 @@ async def courses_view(page: ft.Page):
                 ),
                 height=200,
             )
-                                    # Replace this with your 'my_courses_container' later
                                 ], 
                                 scroll=ft.ScrollMode.AUTO,
                                 expand=True
@@ -294,20 +296,18 @@ async def courses_view(page: ft.Page):
         else:
             print(enrolled_list)
             enrolled_list.clear()
-        if isinstance(enrolled_list, list):
+        if isinstance(completed_list, list):
             for course in completed_list:
                 course_name = course.get("name", "Untitled Course")
                 image_url = course.get("image_url", "")
                 course_id = course.get("id")
-                progress = course.get("progress", 0.0)
                 first_name = course.get("admin", {}).get("first_name","Unknown")
                 last_name = course.get("admin", {}).get("last_name","Instructor")
                 full_name = f'{first_name} {last_name}'
                 category = course.get("category",{}).get("name")
-                card = get_enrolled_card(course_name,category,full_name,image_url,progress)
-                card.on_click = lambda e, c_id=course_id,c_name=course_name: page.go(f"/courses/{c_id}/view")
+                card = get_completed_card(course_name,course_id, on_review_click=lambda e, cid=course_id: page.go(f"/courses/{cid}/view"))
                 card.col = {"xs": 12, "sm": 6}
-                enroll_cards.append(card)
+                completed_cards.append(card)
                 card.opacity = 1
                 card.offset = ft.Offset(0, 0)
         else:
@@ -324,7 +324,8 @@ async def courses_view(page: ft.Page):
                     tab_alignment=ft.TabAlignment.CENTER,
                     tabs=[
                         ft.Tab(label="Available Courses"),
-                        ft.Tab(label="My Courses"),
+                        ft.Tab(label="Ongoing Courses"),
+                        ft.Tab(label="Completed Courses"),
                     ]
                 ),
                 ft.TabBarView(

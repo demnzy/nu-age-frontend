@@ -1,24 +1,20 @@
 import flet as ft
 
-def get_course_card(
-    course_title: str, 
-    course_category: str, 
-    course_author: str, 
-    image_url: str | None = None, 
-    created_at: str | None = None,
-    on_enroll_click = None
-):
-    
 
-    # =========================================================
-    # UI Construction
-    # =========================================================
+def get_course_card(
+    course_title: str,
+    course_category: str,
+    course_author: str,
+    image_url: str | None = None,
+    created_at: str | None = None,
+    on_enroll_click=None,
+):
+    # ── cover ─────────────────────────────────────────────────────────────────
     if image_url:
-        card_top = ft.Container(
-            height=150,
-            expand=True,
+        cover = ft.Container(
+            height=140,
             clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-            border_radius=ft.border_radius.only(top_left=10, top_right=10),
+            border_radius=ft.BorderRadius.only(top_left=12, top_right=12),
             content=ft.Image(
                 src=image_url,
                 fit=ft.BoxFit.COVER,
@@ -36,72 +32,119 @@ def get_course_card(
             ),
         )
     else:
-        card_top = ft.Container(
-            height=150, 
-            bgcolor="#37BF14", 
-            border_radius=ft.border_radius.only(top_left=10, top_right=10),
-            content=ft.Icon(ft.Icons.MENU_BOOK, size=50, color=ft.Colors.ON_PRIMARY), 
+        cover = ft.Container(
+            height=140,
+            bgcolor=ft.Colors.PRIMARY_CONTAINER,
+            border_radius=ft.BorderRadius.only(top_left=12, top_right=12),
+            alignment=ft.Alignment.CENTER,
+            content=ft.Icon(ft.Icons.MENU_BOOK_ROUNDED, size=44,
+                            color=ft.Colors.PRIMARY),
         )
-        
+
+    # ── category pill ─────────────────────────────────────────────────────────
+    category_pill = ft.Container(
+        padding=ft.padding.symmetric(horizontal=8, vertical=3),
+        bgcolor=ft.Colors.GREY_100,
+        border_radius=10,
+        content=ft.Text(
+            course_category or "General",
+            size=10,
+            weight=ft.FontWeight.W_600,
+            color=ft.Colors.PRIMARY,
+            max_lines=1,
+            overflow=ft.TextOverflow.ELLIPSIS,
+        ),
+    )
+
+    # ── meta row ──────────────────────────────────────────────────────────────
+    def _meta(icon, value: str):
+        return ft.Row(
+            spacing=4,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                ft.Icon(icon, size=12, color=ft.Colors.GREY_400),
+                ft.Text(value, size=11, color=ft.Colors.GREY_500,
+                        max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
+                        expand=True),
+            ],
+        )
+
+    # ── enroll button ─────────────────────────────────────────────────────────
+    enroll_btn = ft.ElevatedButton(
+        content=ft.Text("Enroll Now", size=13,
+                        color=ft.Colors.WHITE, weight=ft.FontWeight.W_600),
+        bgcolor=ft.Colors.PRIMARY,
+        expand=True,
+        height=40,
+        style=ft.ButtonStyle(
+            shape=ft.RoundedRectangleBorder(radius=8),
+            elevation=0,
+        ),
+        on_click=on_enroll_click,
+    )
+
+    # ── card ──────────────────────────────────────────────────────────────────
     return ft.Container(
-        offset=ft.Offset(0, 0.1), 
+        # preserve original animation contract
+        offset=ft.Offset(0, 0.1),
         animate_offset=ft.Animation(400, ft.AnimationCurve.DECELERATE),
         opacity=0,
         animate_opacity=300,
-        bgcolor=ft.Colors.SURFACE, 
-        border_radius=10,
-        height=310, 
-        width=100,
-        shadow=ft.BoxShadow(blur_radius=2, color=ft.Colors.BLACK_12, offset=ft.Offset(0, 2)),
+        bgcolor=ft.Colors.SURFACE,
+        border_radius=12,
+        shadow=ft.BoxShadow(
+            blur_radius=8,
+            color=ft.Colors.with_opacity(0.08, ft.Colors.BLACK),
+            offset=ft.Offset(0, 3),
+        ),
         ink=True,
+        clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
         content=ft.Column(
+            spacing=0,
             horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
-            spacing=0, 
             controls=[
-                card_top,
+                # ── Cover ──────────────────────────────────────────────────
+                cover,
+
+                # ── Body ───────────────────────────────────────────────────
                 ft.Container(
-                    padding=ft.padding.all(10),
+                    padding=ft.padding.only(left=12, right=12, top=10, bottom=12),
                     content=ft.Column(
                         spacing=8,
                         controls=[
-                            ft.Text(
-                                course_title, 
-                                weight=ft.FontWeight.BOLD,
-                                color=ft.Colors.PRIMARY, 
-                                size=15,
-                                max_lines=1,
-                                overflow=ft.TextOverflow.ELLIPSIS 
-                            ),
-                            ft.Text(
-                                spans=[
-                                    ft.TextSpan("Author: ", ft.TextStyle(weight=ft.FontWeight.BOLD, size=12, color=ft.Colors.ON_SURFACE)),
-                                    ft.TextSpan(f"{course_author}\n", ft.TextStyle(size=12, color=ft.Colors.ON_SURFACE)), 
-                                    ft.TextSpan("Category: ", ft.TextStyle(weight=ft.FontWeight.BOLD, size=12, color=ft.Colors.ON_SURFACE)),
-                                    ft.TextSpan(f"{course_category}\n", ft.TextStyle(size=12, color=ft.Colors.ON_SURFACE)),
-                                    ft.TextSpan("Created at: ", ft.TextStyle(weight=ft.FontWeight.BOLD, size=12, color=ft.Colors.ON_SURFACE)),
-                                    ft.TextSpan(f"{created_at}", ft.TextStyle(size=12, color=ft.Colors.ON_SURFACE)),
+                            # Category + date on same row
+                            ft.Row(
+                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                controls=[
+                                    category_pill,
+                                    ft.Text(
+                                        created_at or "",
+                                        size=10,
+                                        color=ft.Colors.GREY_400,
+                                    ),
                                 ],
-                                color=ft.Colors.ON_SURFACE_VARIANT, 
-                                size=18,
-                                no_wrap=False,
-                                max_lines=3,
+                            ),
+
+                            # Title
+                            ft.Text(
+                                course_title,
+                                size=14,
+                                weight=ft.FontWeight.W_700,
+                                color=ft.Colors.ON_SURFACE,
+                                max_lines=2,
                                 overflow=ft.TextOverflow.ELLIPSIS,
                             ),
-                            # Square Enroll Button
-                            ft.Button(
-                                content=ft.Text("Enroll", weight=ft.FontWeight.BOLD),
-                                width= float("inf"),
-                                bgcolor=ft.Colors.PRIMARY,
-                                color=ft.Colors.WHITE,
-                                height=40,
-                                style=ft.ButtonStyle(
-                                    shape=ft.RoundedRectangleBorder(radius=4)
-                                ),
-                                on_click=on_enroll_click # Enrollment handled internally
-                            )
-                        ]
-                    )
-                )
+
+                            # Author
+                            _meta(ft.Icons.PERSON_OUTLINE_ROUNDED, course_author),
+
+                            ft.Divider(height=1, color=ft.Colors.GREY_100),
+
+                            # Enroll button
+                            ft.Row(controls=[enroll_btn]),
+                        ],
+                    ),
+                ),
             ],
         ),
     )

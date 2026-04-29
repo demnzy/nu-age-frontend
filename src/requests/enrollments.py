@@ -113,19 +113,3 @@ async def bulk_unenrol_students(token:str, course_id,payload, params:dict|None):
         print(f"Request Error: {e}")
         return {"error": "Connection failed"}
     
-async def get_enrollment_count(token:str, course_id: UUID):
-    url = f"{api_url}/courses/{course_id}/enrollments/count"
-    headers = {"Authorization": f"Bearer {token}"}
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(url, headers=headers)
-            if response.status_code == 200:
-                return response.json()
-            elif response.status_code == 401:
-                print("Unauthorized access. Please log in again.")
-                return {"error": "unauthorized"}
-            else:
-                return {"error": "server_fail"}
-    except Exception as e:
-        print(f"Request Error: {e}")
-        return {"error": "Connection failed"}

@@ -15,7 +15,7 @@ async def login_request(email: str, password: str):
         )
         return response.status_code, response.json()
     
-async def signup_request(email: str, username: str, password: str, first_name: str, last_name: str, gender: str, role: str, organisation: dict | None = None):
+async def signup_request(email: str, username: str, password: str, first_name: str, last_name: str, gender: str, role: str, university: str | None = None, organisation: dict | None = None):
     
     payload = {
         "username": username,
@@ -24,7 +24,8 @@ async def signup_request(email: str, username: str, password: str, first_name: s
         "first_name": first_name,
         "last_name": last_name,
         "gender": gender,
-        "role": role
+        "role": role,
+        "university": university if university else None
     }
 
     if organisation is not None:
@@ -59,3 +60,15 @@ async def reset_request(token: str, payload: dict):
             json=payload, headers=headers
         )
         return response.status_code, response.json()
+
+async def get_universities():
+
+    url = f"http://universities.hipolabs.com/search?country=Nigeria" 
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url)
+            return response.json()
+    except Exception as e:
+        print(f"Request Error: {e}")
+        return 500, {"detail": "Connection failed"}
