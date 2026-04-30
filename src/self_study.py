@@ -1,6 +1,4 @@
 import asyncio
-from ctypes import alignment
-import random
 
 import flet as ft
 from src.components.bottom_appbar import get_bottom_appbar

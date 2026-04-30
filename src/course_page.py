@@ -1,4 +1,3 @@
-from urllib import response
 import flet_charts as fch 
 import flet as ft
 from flet_video import Video, VideoMedia

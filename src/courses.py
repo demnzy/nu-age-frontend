@@ -1,5 +1,4 @@
 import flet as ft
-from src.components import enrolled_card
 from src.components.completed_card import get_completed_card
 from src.components.course_card import get_course_card
 from src.components.enrolled_card import get_enrolled_card

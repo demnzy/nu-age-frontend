@@ -1,7 +1,6 @@
 import asyncio
 import sqlite3
 from datetime import datetime, timedelta
-import token
 
 import flet as ft
 import flet_charts as fch  # pyright: ignore[reportMissingImports]

@@ -1,4 +1,3 @@
-from arrow import get
 import flet as ft
 from src.requests.auth import signup_request, get_universities
 from src.components.landing_navbar import get_landing_appbar

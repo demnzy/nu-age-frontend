@@ -1,5 +1,5 @@
 import flet as ft
-from datetime import datetime, timezone
+from datetime import datetime
 
 from src.components.bottom_appbar import get_bottom_appbar
 from src.requests.enrollments import get_enrollment_stats
