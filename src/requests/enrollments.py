@@ -1,5 +1,3 @@
-from uuid import UUID
-
 import httpx
 
 api_url = "https://nu-age.fly.dev"

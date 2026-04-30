@@ -1,5 +1,3 @@
-import json
-
 import httpx
 api_url = "https://nu-age.fly.dev"
 
