@@ -33,12 +33,11 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install flet
-          # If you have a requirements.txt file, uncomment the line below:
-          # pip install -r requirements.txt
+          pip install -r requirements.txt
 
       - name: Compile the APK
-        run: flet build apk --product "Nu Age"
-        
+        run: flet build apk --product "Nu Age" --verbose
+
       - name: Rename the APK file
         run: |
           cd build/apk
