@@ -1,9 +1,5 @@
 import httpx
-import os
-from dotenv import load_dotenv
-
-load_dotenv()
-api_url = os.getenv("API_URL")
+api_url = "https://nu-age.fly.dev"
 
 
 

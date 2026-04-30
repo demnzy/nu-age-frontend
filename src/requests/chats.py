@@ -1,12 +1,9 @@
 import httpx
-import os
 import asyncio
 import json
 import websockets
-from dotenv import load_dotenv
 
-load_dotenv()
-api_url = os.getenv("API_URL")
+api_url = "https://nu-age.fly.dev"
 
 # Automatically convert http:// to ws:// for the WebSocket connection
 if api_url and api_url.startswith("https"):

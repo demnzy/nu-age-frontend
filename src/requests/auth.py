@@ -1,9 +1,6 @@
 import httpx
-import os
-from dotenv import load_dotenv
 
-load_dotenv()
-api_url = os.getenv("API_URL")
+api_url = "https://nu-age.fly.dev"
 
 async def login_request(email: str, password: str):
     limits = httpx.Timeout(5.0, read=10.0)

@@ -1,9 +1,6 @@
 import httpx
 import typing
-import os
-from dotenv import load_dotenv
-load_dotenv()
-api_url = os.getenv("API_URL")
+api_url = "https://nu-age.fly.dev"
 
 async def get_due_cards(token: str) -> list:
     url = f"{api_url}/study/cards/due"

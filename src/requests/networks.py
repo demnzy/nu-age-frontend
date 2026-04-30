@@ -1,10 +1,7 @@
 import httpx
 from typing import List, Dict, Any
 
-import os
-from dotenv import load_dotenv
-load_dotenv()
-api_url = os.getenv("API_URL")
+api_url = "https://nu-age.fly.dev"
 
 def _headers(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
