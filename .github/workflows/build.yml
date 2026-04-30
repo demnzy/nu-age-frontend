@@ -22,7 +22,10 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-
+      - name: Accept Android SDK Licenses
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --update || true
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
