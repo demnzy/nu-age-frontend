@@ -112,4 +112,46 @@ async def bulk_unenrol_students(token:str, course_id,payload, params:dict|None):
     except Exception as e:
         print(f"Request Error: {e}")
         return {"error": "Connection failed"}
-    
+
+
+
+async def get_enrollment(token: str,course_id):
+    """
+    Gets an enrollment given course id
+    """
+    async with httpx.AsyncClient() as client:
+        try:
+            # Note: Adjust the "/enrollments/" prefix to match exactly where 
+            # this router is mounted in your FastAPI main.py
+            response = await client.get(
+                f"{api_url}/courses/{course_id}/enrollment", 
+                headers={"Authorization": f"Bearer {token}"}
+            )
+            response.raise_for_status()
+            return response.json()
+            
+        except httpx.HTTPStatusError as e:
+            # Catches the 404 (Not Found) or 400 (Not 100% complete) errors
+            return {"error": e.response.json().get("detail", "Failed to fetch enrollment")}
+        except Exception as e:
+            return {"error": str(e)}
+        
+
+async def get_enrollment_stats(token: str, enrollment_id: str):
+    # Force a 10-second timeout so it never hangs infinitely
+    async with httpx.AsyncClient(timeout=10.0) as client: 
+        try:
+            response = await client.get(
+                f"{api_url}/enrollments/{enrollment_id}/stats", 
+                headers={"Authorization": f"Bearer {token}"}
+            )
+            response.raise_for_status()
+            return response.json()
+            
+        except httpx.HTTPStatusError as e:
+            # Fix a potential crash if the backend returns a 422 Validation Error (which is a list, not a dict)
+            data = e.response.json()
+            if isinstance(data, list): return {"error": str(data)}
+            return {"error": data.get("detail", "Failed to fetch stats")}
+        except Exception as e:
+            return {"error": str(e)}

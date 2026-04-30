@@ -34,11 +34,16 @@ def get_course_card(
     else:
         cover = ft.Container(
             height=140,
-            bgcolor=ft.Colors.PRIMARY_CONTAINER,
+            bgcolor=ft.Colors.INDIGO_300,
+            gradient=ft.LinearGradient(
+                        begin=ft.Alignment.TOP_LEFT,
+                        end=ft.Alignment.BOTTOM_RIGHT,
+                        colors=[ft.Colors.PURPLE_200, ft.Colors.INDIGO_200]
+                    ),
             border_radius=ft.BorderRadius.only(top_left=12, top_right=12),
             alignment=ft.Alignment.CENTER,
             content=ft.Icon(ft.Icons.MENU_BOOK_ROUNDED, size=44,
-                            color=ft.Colors.PRIMARY),
+                            color=ft.Colors.WHITE),
         )
 
     # ── category pill ─────────────────────────────────────────────────────────

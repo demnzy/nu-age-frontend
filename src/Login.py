@@ -43,7 +43,7 @@ def login_view(page: ft.Page):
             ],
             spacing=8,
         ),
-        content=ft.Text("Welcome back to Nu-age.", size=13),
+        content=ft.Text("Welcome back to Nu Age.", size=13),
         actions=[
             ft.TextButton(
                 "Go to Dashboard",
@@ -234,7 +234,7 @@ def login_view(page: ft.Page):
                 ft.Column(
                     controls=[
                         ft.CircleAvatar(
-                            foreground_image_src="Nu logo only.jpeg",
+                            foreground_image_src="icon.png",
                             bgcolor=ft.Colors.GREY_100,
                             radius=32,
                         ),
@@ -245,7 +245,7 @@ def login_view(page: ft.Page):
                             color=ft.Colors.GREY_900,
                         ),
                         ft.Text(
-                            "Sign in to your Nu-age account.",
+                            "Sign in to your Nu Age account.",
                             size=13,
                             color=ft.Colors.GREY_500,
                         ),
@@ -270,6 +270,7 @@ def login_view(page: ft.Page):
 
                 # ── Forgot password ───────────────────────────────
                 ft.Row(alignment=ft.MainAxisAlignment.CENTER,
+                       visible=False,
                     controls=[
                         ft.TextButton(
                             content=ft.Text("Forgot password?"),

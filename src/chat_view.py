@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 import asyncio
 import json
 
+
 # ==========================================
 # REAL BACKEND IMPORTS
 # ==========================================
@@ -17,7 +18,8 @@ from src.requests.chats import (
     ChatWebSocketClient,
     add_group_members,
     get_group_members,
-    delete_chat_channel
+    delete_chat_channel,
+    leave_group_channel
 )
 
 
@@ -50,6 +52,7 @@ async def chat_view(page: ft.Page) -> ft.View:
     search_query      = [""]
     seen_msg_ids      = set()
     chat_load_lock    = [False]
+    showing_placeholder = [False]  # True only while the "Say Hello!" empty-state is displayed
     last_typing_time  = [0]
     typing_tokens     = {}
 
@@ -272,7 +275,7 @@ async def chat_view(page: ft.Page) -> ft.View:
                         ),
                         bgcolor=UNREAD_BADGE_BG,
                         border_radius=12,
-                        width=22 if unread < 10 else 28,
+                        width=22 if unread < 10 else (28 if unread < 100 else 36),
                         height=22,
                         alignment=ft.Alignment(0, 0),
                         padding=ft.Padding(left=2, right=2, top=0, bottom=0)
@@ -585,38 +588,51 @@ async def chat_view(page: ft.Page) -> ft.View:
         tok = datetime.now().timestamp()
         typing_tokens[channel_id] = tok
 
+        # 1. Always update the channel list state so the list tile shows
+        #    "typing..." regardless of which panel is currently visible.
+        for chat in channels_list:
+            if chat.get("channel_id") == channel_id:
+                chat["is_typing"]   = True
+                chat["typing_name"] = sender_name
+                break
+        render_chat_list()
+
+        # 2. If this channel is currently open, also update the chat header.
         if channel_id == current_chat_id[0]:
             if len(active_chat_header.controls) >= 3:
                 status_col  = active_chat_header.controls[2]
                 status_text = status_col.controls[1]
-                status_text.value = f"{sender_name} is typing…"
+                status_text.value = "typing..."
                 status_text.color = ONLINE_DOT
                 page.update()
 
-                async def clear_typing(t):
-                    await asyncio.sleep(2)
-                    if typing_tokens.get(channel_id) == t and current_chat_id[0] == channel_id:
-                        status_text.value = "online"
-                        status_text.color = ONLINE_DOT
-                        page.update()
-                page.run_task(clear_typing, tok)
-        else:
-            for chat in channels_list:
-                if chat.get("channel_id") == channel_id:
-                    chat["is_typing"]    = True
-                    chat["typing_name"]  = sender_name
-                    render_chat_list()
-
-                    async def clear_list_typing(cid, t):
-                        await asyncio.sleep(2)
-                        if typing_tokens.get(cid) == t:
-                            for c in channels_list:
-                                if c.get("channel_id") == cid:
-                                    c.pop("is_typing", None)
-                                    render_chat_list()
-                                    break
-                    page.run_task(clear_list_typing, channel_id, tok)
+        # 3. Single clear task that resets BOTH list state and header.
+        async def clear_typing(t):
+            await asyncio.sleep(3)
+            if typing_tokens.get(channel_id) != t:
+                return
+            # Clear list state.
+            for c in channels_list:
+                if c.get("channel_id") == channel_id:
+                    c.pop("is_typing", None)
+                    c.pop("typing_name", None)
                     break
+            render_chat_list()
+            # Clear header only if this channel is still the open one.
+            if current_chat_id[0] == channel_id and len(active_chat_header.controls) >= 3:
+                status_col  = active_chat_header.controls[2]
+                status_text = status_col.controls[1]
+                chat_info   = next((c for c in channels_list if c.get("channel_id") == channel_id), {})
+                is_online   = chat_info.get("is_online", False)
+                chat_type   = chat_info.get("type", "direct")
+                if chat_type == "direct":
+                    status_text.value = "online" if is_online else "Offline"
+                    status_text.color = ONLINE_DOT if is_online else ft.Colors.with_opacity(0.6, ft.Colors.WHITE)
+                else:
+                    status_text.value = ""
+                page.update()
+
+        page.run_task(clear_typing, tok)
 
     # ==========================================
     # 11. LIFECYCLE — REST + WebSocket
@@ -677,6 +693,20 @@ async def chat_view(page: ft.Page) -> ft.View:
                         icon_size=22,
                         tooltip="Add members",
                         on_click=lambda e: open_add_member_modal(chat_id)
+                    )
+                )
+                # THE FIX: Add a 3-dot menu with the Leave Group action
+                header_actions.append(
+                    ft.PopupMenuButton(
+                        icon=ft.Icons.MORE_VERT_ROUNDED,
+                        icon_color=ft.Colors.WHITE,
+                        items=[
+                            ft.PopupMenuItem(
+                                content="Leave Group",
+                                icon=ft.Icons.EXIT_TO_APP_ROUNDED,
+                                on_click=lambda e: confirm_leave_group(chat_id, _chat_name)
+                            )
+                        ]
                     )
                 )
 
@@ -764,6 +794,7 @@ async def chat_view(page: ft.Page) -> ft.View:
 
             messages_listview.controls.clear()
             seen_msg_ids.clear()
+            showing_placeholder[0] = False
 
             if isinstance(history, list) and len(history) > 0:
                 current_date_label = None
@@ -791,6 +822,7 @@ async def chat_view(page: ft.Page) -> ft.View:
 
                     messages_listview.controls.append(render_message_bubble(msg))
             else:
+                showing_placeholder[0] = True
                 messages_listview.controls = [
                     ft.Container(
                         expand=True,
@@ -811,9 +843,16 @@ async def chat_view(page: ft.Page) -> ft.View:
             if len(active_chat_header.controls) >= 3:
                 status_col = active_chat_header.controls[2]
                 if len(status_col.controls) >= 2:
-                    online_text = "online" if chat_info.get("is_online") and chat_info.get("type") == "direct" else "Offline"
+                    _is_online  = chat_info.get("is_online", False)
+                    _chat_type  = chat_info.get("type", "direct")
+                    if _chat_type == "direct":
+                        online_text  = "online" if _is_online else "Offline"
+                        online_color = ONLINE_DOT if _is_online else ft.Colors.with_opacity(0.6, ft.Colors.WHITE)
+                    else:
+                        online_text  = ""
+                        online_color = ft.Colors.with_opacity(0.6, ft.Colors.WHITE)
                     status_col.controls[1].value = online_text
-                    status_col.controls[1].color = ft.Colors.with_opacity(0.85, ft.Colors.WHITE)
+                    status_col.controls[1].color = online_color
             page.update()
 
             ws_client_ref[0] = ChatWebSocketClient(token)
@@ -841,9 +880,15 @@ async def chat_view(page: ft.Page) -> ft.View:
                     if len(active_chat_header.controls) >= 3:
                         status_col = active_chat_header.controls[2]
                         if len(status_col.controls) >= 2:
-                            online_text = "online" if (is_online and chat_info.get("type") == "direct") else "Offline" if (chat_info.get("type") == "direct") else ""
+                            _chat_type = chat_info.get("type", "direct")
+                            if _chat_type == "direct":
+                                online_text  = "online" if is_online else "Offline"
+                                online_color = ONLINE_DOT if is_online else ft.Colors.with_opacity(0.6, ft.Colors.WHITE)
+                            else:
+                                online_text  = ""
+                                online_color = ft.Colors.with_opacity(0.6, ft.Colors.WHITE)
                             status_col.controls[1].value = online_text
-                            status_col.controls[1].color = ft.Colors.with_opacity(0.85, ft.Colors.WHITE)
+                            status_col.controls[1].color = online_color
                     page.update()
             return
 
@@ -876,8 +921,9 @@ async def chat_view(page: ft.Page) -> ft.View:
         render_chat_list()
 
         if incoming_channel_id == current_chat_id[0]:
-            if messages_listview.controls and not isinstance(messages_listview.controls[0], ft.Row):
+            if showing_placeholder[0]:
                 messages_listview.controls.clear()
+                showing_placeholder[0] = False
             messages_listview.controls.append(render_message_bubble(msg_dict))
             page.update()
 
@@ -892,6 +938,65 @@ async def chat_view(page: ft.Page) -> ft.View:
             if isinstance(res, list): all_users_cache = res
 
     # ── User picker (DM) ─────────────────────────────────────────────────────
+    # ── Leave Group modal ────────────────────────────────────────────────────
+    def confirm_leave_group(channel_id, group_name):
+        async def execute_leave(e):
+            nonlocal channels_list
+            
+            # 1. Broadcast the system message to the group BEFORE leaving
+            if ws_client_ref[0]:
+                page.run_task(
+                    ws_client_ref[0].send_message, 
+                    channel_id, 
+                    "A member has left the chat.", 
+                    "system"
+                )
+                
+                # Brief yield to ensure the socket fires before we disconnect
+                await asyncio.sleep(0.2) 
+
+            # 2. Hit the backend to sever the connection
+            try:
+                await leave_group_channel(token, channel_id)
+            except Exception as ex:
+                print(f"Failed to leave group: {ex}")
+            
+            # 3. Clean up the UI state
+            channels_list = [c for c in channels_list if c.get("channel_id") != channel_id]
+            
+            # Close dialog safely
+            if hasattr(page, "close"): page.close(dlg)
+            else: dlg.open = False; page.update()
+
+            # 4. Route the user away from the deleted chat
+            if current_chat_id[0] == channel_id:
+                await close_chat_mobile()
+            else:
+                render_chat_list()
+
+        # The Confirmation Dialog UI
+        dlg = ft.AlertDialog(
+            modal=True,
+            shape=ft.RoundedRectangleBorder(radius=16),
+            title=ft.Text(f"Leave '{group_name}'?", weight=ft.FontWeight.BOLD, size=16),
+            content=ft.Column([
+                ft.Container(height=4),
+                ft.Text("You will no longer receive messages from this group.", size=13, color=ft.Colors.ON_SURFACE_VARIANT)
+            ], tight=True, spacing=0),
+            actions=[
+                ft.TextButton("Cancel", style=ft.ButtonStyle(color=ft.Colors.ON_SURFACE_VARIANT),
+                              on_click=lambda e: (setattr(dlg, "open", False), page.update())),
+                ft.FilledButton("Leave", style=ft.ButtonStyle(bgcolor=ft.Colors.RED_400, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8)),
+                                on_click=execute_leave)
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+            actions_padding=ft.Padding(left=16, right=16, top=0, bottom=16)
+        )
+        
+        # Version-safe dialog mounting
+        if hasattr(page, "open"): page.open(dlg)
+        else: page.overlay.append(dlg); dlg.open = True; page.update()
+
     def open_users_modal(e):
         user_search = ft.TextField(
             prefix_icon=ft.Icons.SEARCH_ROUNDED,
@@ -922,7 +1027,7 @@ async def chat_view(page: ft.Page) -> ft.View:
                 user_list_col.controls.append(
                     ft.Container(
                         padding=20, alignment=ft.Alignment(0, 0),
-                        content=ft.Text("No users found.", color=ft.Colors.ON_SURFACE_VARIANT)
+                        content=ft.Text("No users found. Head over to the friends tab to Make some friends!", color=ft.Colors.ON_SURFACE_VARIANT)
                     )
                 )
             else:
@@ -1077,7 +1182,7 @@ async def chat_view(page: ft.Page) -> ft.View:
                 users_listview.controls.append(
                     ft.Container(
                         padding=24, alignment=ft.Alignment(0, 0),
-                        content=ft.Text("Everyone is already in this chat! 🎉",
+                        content=ft.Text("Everyone is already in this chat",
                                         color=ft.Colors.ON_SURFACE_VARIANT,
                                         text_align=ft.TextAlign.CENTER)
                     )
@@ -1136,6 +1241,7 @@ async def chat_view(page: ft.Page) -> ft.View:
     def open_create_channel_modal(e):
         name_input = ft.TextField(
             label="Group name",
+            width=float("inf"),
             border_radius=10,
             filled=True,
             bgcolor="#F0F2F5",
@@ -1161,31 +1267,34 @@ async def chat_view(page: ft.Page) -> ft.View:
         async def _load_users():
             await _load_users_if_needed()
             loading_ring.visible = False
-            for u in all_users_cache:
-                display_name = u.get("name") or u.get("full_name") or u.get("username") or "User"
-                uid          = u.get("id") or u.get("user_id")
-                if str(uid).strip().lower() != current_user_id[0]:
-                    cb = ft.Checkbox(data=uid, fill_color=UI_ACCENT)
-                    checkboxes.append(cb)
+            if all_users_cache:
+                for u in all_users_cache:
+                    display_name = u.get("name") or u.get("full_name") or u.get("username") or "User"
+                    uid          = u.get("id") or u.get("user_id")
+                    if str(uid).strip().lower() != current_user_id[0]:
+                        cb = ft.Checkbox(data=uid, fill_color=ft.Colors.PRIMARY)
+                        checkboxes.append(cb)
 
-                    def toggle_row(e, checkbox=cb):
-                        checkbox.value = not checkbox.value
-                        page.update()
+                        def toggle_row(e, checkbox=cb):
+                            checkbox.value = not checkbox.value
+                            page.update()
 
-                    initials = "".join([t[0] for t in display_name.split()[:2]]).upper()
-                    avatar   = ft.CircleAvatar(
-                        content=ft.Text(initials, size=10, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
-                        bgcolor=UI_ACCENT, radius=16
-                    )
-                    row = ft.Container(
-                        padding=ft.Padding(left=12, right=12, top=10, bottom=10),
-                        border=ft.border.only(bottom=ft.BorderSide(1, DIVIDER_COLOR)),
-                        ink=True, on_click=toggle_row,
-                        content=ft.Row([avatar, ft.Container(width=10),
-                                        ft.Text(display_name, expand=True, size=14, weight=ft.FontWeight.W_500),
-                                        cb], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=0)
-                    )
-                    users_listview.controls.append(row)
+                        initials = "".join([t[0] for t in display_name.split()[:2]]).upper()
+                        avatar   = ft.CircleAvatar(
+                            content=ft.Text(initials, size=10, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+                            bgcolor=UI_ACCENT, radius=16
+                        )
+                        row = ft.Container(
+                            padding=ft.Padding(left=12, right=12, top=10, bottom=10),
+                            border=ft.border.only(bottom=ft.BorderSide(1, DIVIDER_COLOR)),
+                            ink=True, on_click=toggle_row,
+                            content=ft.Row([avatar, ft.Container(width=10),
+                                            ft.Text(display_name, expand=True, size=14, weight=ft.FontWeight.W_500),
+                                            cb], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=0)
+                        )
+                        users_listview.controls.append(row)
+            else:
+                users_listview.controls.append(ft.Text("Go make some friends first!"))
             page.update()
 
         create_btn = ft.FilledButton(

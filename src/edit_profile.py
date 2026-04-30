@@ -181,11 +181,8 @@ async def edit_profile_view(page: ft.Page) -> ft.View:
     # =========================================================
     # SECTION 6: AVATAR (display only — no upload)
     # =========================================================
-    initials = (
-        (user_data.get("first_name") or " ")[0].upper()
-        + (user_data.get("last_name") or " ")[0].upper()
-    ).strip() or "?"
-
+    full_name  = f"{user_data.get("first_name")} {user_data.get("last_name")}".strip() or "Unknown Learner"
+    initials = "".join([n[0] for n in full_name.split()[:2]]).upper()
     avatar = ft.Container(
         width=90,
         height=90,

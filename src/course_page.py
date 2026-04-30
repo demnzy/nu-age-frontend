@@ -888,62 +888,87 @@ async def course_learner_view(page: ft.Page, course_id: str):
                         ),
                     )
 
-                    page.overlay.append(dialog)
-                    dialog.open = True
-                    page.update()
+                    # 1. THE FIX: Version-safe dialog mounting so it actually shows up!
+                    if hasattr(page, "open"): 
+                        page.open(dialog)
+                    else: 
+                        page.overlay.append(dialog)
+                        dialog.open = True
+                        page.update()
 
-                    res = await generate_course_certificate(token, course_id)
+                    # 2. THE RECURSIVE RETRY FUNCTION
+                    async def attempt_cert_generation(e=None):
+                        # Crucial: Give Flet 100ms to mount the dialog in the DOM before updating children
+                        await asyncio.sleep(0.1)
+                        
+                        if not dialog.open: return
 
-                    if "error" in res:
-                        cert_action_container.content = ft.Container(
-                            padding=ft.padding.symmetric(vertical=8, horizontal=12),
-                            border_radius=10, bgcolor=ft.Colors.RED_50, border=ft.border.all(1, ft.Colors.RED_200),
-                            content=ft.Row(
+                        # Reset to loading spinner
+                        cert_action_container.content = cert_loading_indicator
+                        if cert_action_container.page: cert_action_container.update()
+
+                        # Fire API
+                        res = await generate_course_certificate(token, course_id)
+                        
+                        if not dialog.open: return
+                        
+                        if "error" in res:
+                            cert_action_container.content = ft.Container(
+                                padding=ft.padding.symmetric(vertical=8, horizontal=12),
+                                border_radius=10, bgcolor=ft.Colors.RED_50, border=ft.border.all(1, ft.Colors.RED_200),
+                                content=ft.Column(
+                                    spacing=10, 
+                                    controls=[
+                                        ft.Row([
+                                            ft.Icon(ft.Icons.ERROR_OUTLINE_ROUNDED, color=ft.Colors.RED_600, size=20),
+                                            ft.Text("Could not generate certificate. Please try again later.", color=ft.Colors.RED_700, size=13, expand=True),
+                                        ], vertical_alignment=ft.CrossAxisAlignment.START),
+                                        ft.ElevatedButton(
+                                            content="Retry", color=ft.Colors.WHITE, bgcolor=ft.Colors.RED, align=ft.Alignment.CENTER,
+                                            on_click=lambda e: page.run_task(attempt_cert_generation) 
+                                        )
+                                    ]
+                                )
+                            )
+                            if cert_action_container.page: cert_action_container.update()
+                        else:
+                            cert_url = res.get("url", "")
+                            cred_id = res.get("credential_id", "")
+
+                            async def handle_cert_download(e):
+                                if cert_url: await page.launch_url(cert_url)
+
+                            cert_action_container.content = ft.Column(
                                 [
-                                    ft.Icon(ft.Icons.ERROR_OUTLINE_ROUNDED, color=ft.Colors.RED_600, size=20),
-                                    ft.Text("Could not generate certificate. Please try again later.", color=ft.Colors.RED_700, size=13, expand=True),
-                                ],
-                                spacing=10, vertical_alignment=ft.CrossAxisAlignment.START,
-                            ),
-                        )
-                    else:
-                        cert_url = res.get("url", "")
-                        cred_id = res.get("credential_id", "")
-
-                        async def handle_cert_download(e):
-                            if cert_url: await page.launch_url(cert_url)
-
-                        cert_action_container.content = ft.Column(
-                            [
-                                ft.FilledButton(
-                                    content=ft.Row(
-                                        [
-                                            ft.Icon(ft.Icons.DOWNLOAD_ROUNDED, color=ft.Colors.WHITE, size=18),
-                                            ft.Text("Download Certificate", color=ft.Colors.WHITE, weight=ft.FontWeight.BOLD, size=14),
-                                        ],
-                                        tight=True, spacing=8, alignment=ft.MainAxisAlignment.CENTER,
+                                    ft.FilledButton(
+                                        content=ft.Row(
+                                            [
+                                                ft.Icon(ft.Icons.DOWNLOAD_ROUNDED, color=ft.Colors.WHITE, size=18),
+                                                ft.Text("Download Certificate", color=ft.Colors.WHITE, weight=ft.FontWeight.BOLD, size=14),
+                                            ], tight=True, spacing=8, alignment=ft.MainAxisAlignment.CENTER,
+                                        ),
+                                        style=ft.ButtonStyle(bgcolor=UI_ACCENT, shape=ft.RoundedRectangleBorder(radius=10), padding=ft.Padding(24, 14, 24, 14), elevation=0),
+                                        on_click=handle_cert_download, expand=True,
                                     ),
-                                    style=ft.ButtonStyle(bgcolor=UI_ACCENT, shape=ft.RoundedRectangleBorder(radius=10), padding=ft.Padding(24, 14, 24, 14), elevation=0),
-                                    on_click=handle_cert_download, expand=True,
-                                ),
-                                ft.Container(
-                                    padding=ft.padding.symmetric(horizontal=12, vertical=8), border_radius=8,
-                                    bgcolor=ft.Colors.with_opacity(0.05, ft.Colors.BLACK), border=ft.border.all(1, ft.Colors.OUTLINE_VARIANT),
-                                    content=ft.Row(
-                                        [
-                                            ft.Icon(ft.Icons.FINGERPRINT_ROUNDED, size=14, color=ft.Colors.ON_SURFACE_VARIANT),
-                                            ft.Text("Credential ID: ", size=11, color=ft.Colors.ON_SURFACE_VARIANT, weight=ft.FontWeight.W_500),
-                                            ft.Text(str(cred_id), size=11, color=ft.Colors.ON_SURFACE, weight=ft.FontWeight.BOLD, selectable=True),
-                                        ],
-                                        spacing=4, alignment=ft.MainAxisAlignment.CENTER, wrap=True,
+                                    ft.Container(
+                                        padding=ft.padding.symmetric(horizontal=12, vertical=8), border_radius=8,
+                                        bgcolor=ft.Colors.with_opacity(0.05, ft.Colors.BLACK), border=ft.border.all(1, ft.Colors.OUTLINE_VARIANT),
+                                        content=ft.Row(
+                                            [
+                                                ft.Icon(ft.Icons.FINGERPRINT_ROUNDED, size=14, color=ft.Colors.ON_SURFACE_VARIANT),
+                                                ft.Text("Credential ID: ", size=11, color=ft.Colors.ON_SURFACE_VARIANT, weight=ft.FontWeight.W_500),
+                                                ft.Text(str(cred_id), size=11, color=ft.Colors.ON_SURFACE, weight=ft.FontWeight.BOLD, selectable=True),
+                                            ], spacing=4, alignment=ft.MainAxisAlignment.CENTER, wrap=True,
+                                        ),
                                     ),
-                                ),
-                            ],
-                            horizontal_alignment=ft.CrossAxisAlignment.STRETCH, spacing=10,
-                        )
+                                ], horizontal_alignment=ft.CrossAxisAlignment.STRETCH, spacing=10,
+                            )
+                            if cert_action_container.page: cert_action_container.update()
 
-                    page.update()
+                    # 3. Kick off the generation
+                    page.run_task(attempt_cert_generation)
                     return
+
 
                 else:
                     current_module_idx += 1

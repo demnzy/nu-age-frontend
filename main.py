@@ -16,10 +16,13 @@ from src.course_page import course_learner_view
 from src.chat_view import chat_view
 from src.self_study import self_study_view
 from src.network import network_view
+from src.member_profile import member_profile_view
+from src.course_stats import course_stats_view
 
 async def main(page: ft.Page):
     # --- 1. THE UNIVERSAL SOURCE OF TRUTH ---
     # We define the ColorScheme AND Transitions in ONE object so they don't overwrite each other.
+    page.window.icon = "icon.ico"
     def view_pop(view):
         # Prevent crashing if there's only one page left
         if len(page.views) > 1:
@@ -132,6 +135,8 @@ async def main(page: ft.Page):
             page.views.append(await network_view(page))
         elif page.route == "/nu-chat":
             page.views.append(await chat_view(page))
+        elif troute.match("/courses/:id/stats"):
+            page.views.append(await course_stats_view(page,troute.id))
         elif page.route == "/self-study":
             page.views.append(await self_study_view(page))
         # --- NEW: Dynamic Organization Courses Route ---
@@ -144,6 +149,9 @@ async def main(page: ft.Page):
         elif troute.match("/courses/:course_id/view"):
             # Extracts the ID from the URL and passes it to the view
             page.views.append(await course_learner_view(page, troute.course_id))
+        elif troute.match("/member/:user_id"):
+            # Extracts the ID from the URL and passes it to the view
+            page.views.append(await member_profile_view(page, troute.user_id))
         elif troute.match("/organisations/:org_id/courses/:course_id/settings"):
             # Extracts the ID from the URL and passes it to the view
             page.views.append(await course_settings_view(page, troute.course_id, troute.org_id))

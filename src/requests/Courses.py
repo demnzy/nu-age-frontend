@@ -289,7 +289,7 @@ async def generate_course_certificate(token: str, course_id: str):
     headers = {"Authorization": f"Bearer {token}"}
     
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client: # Generates can take a few seconds
+        async with httpx.AsyncClient(timeout=60.0) as client: # Generates can take a few seconds
             response = await client.post(url, headers=headers)
             if response.status_code == 200:
                 return response.json()

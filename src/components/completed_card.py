@@ -1,6 +1,6 @@
 import flet as ft
 
-def get_completed_card(course_name,course_id, on_review_click):
+def get_completed_card(course_name,course_id, on_review_click, on_stats_click):
 
     # ── Palette (uses your PRIMARY throughout) ────────────────────────────────
     CARD_BG      = ft.Colors.WHITE
@@ -123,6 +123,7 @@ def get_completed_card(course_name,course_id, on_review_click):
         border_radius=8,
         border=ft.border.all(1.5, ft.Colors.PRIMARY),
         alignment=ft.Alignment(0, 0),
+        on_click=lambda e: on_stats_click(course_id),
         content=ft.Row(
             alignment=ft.MainAxisAlignment.CENTER,
             spacing=6,

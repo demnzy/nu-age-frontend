@@ -2,7 +2,9 @@ from arrow import get
 import flet as ft
 from src.requests.auth import signup_request, get_universities
 from src.components.landing_navbar import get_landing_appbar
+from src.requests.organisations import join_org
 import re
+import uuid
 
 
 def Signup_view(page: ft.Page):
@@ -42,6 +44,14 @@ def Signup_view(page: ft.Page):
             r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
             email.value or ""
         ))
+        def is_valid_uuid(val: str):
+            try:
+                uuid.UUID(val)
+                return True
+            except ValueError:
+                return False
+
+        org_val = organisation_id.value.strip() if organisation_id.value else ""
 
         if not all_filled:
             validation_error.value = "All required fields must be completed."
@@ -51,12 +61,15 @@ def Signup_view(page: ft.Page):
             validation_error.value = "Passwords do not match."
         elif not terms_accepted:
             validation_error.value = "You must accept the Terms & Privacy Policy."
+        # 2. THE FIX: Check if it exists AND is NOT valid
+        elif org_val and not is_valid_uuid(org_val):
+            validation_error.value = "You must input a valid Org ID. Please try again."
         else:
             validation_error.value = ""
 
-        Submit.disabled = not (all_filled and passwords_match and terms_accepted and email_ok)
+        # 3. THE FIX: If there is an error message, disable the button. If it's empty, enable it.
+        Submit.disabled = validation_error.value != ""
         page.update()
-
     # ── dialog helpers ────────────────────────────────────────────
     def handle_action_click(e):
         page.pop_dialog()
@@ -84,21 +97,46 @@ def Signup_view(page: ft.Page):
                 role       = role_selection.value,
                 university = University.value if University.value else None,  # Handle empty selection
             )
+            
             # Include organisation_id only when provided
             org_val = organisation_id.value.strip() if organisation_id.value else ""
-            if org_val:
-                payload["organisation_id"] = org_val
-
+            
             status, data = await signup_request(**payload)
 
             if status == 200:
+                if org_val:
+                    user_id = data.get("id") 
+                    
+                    if user_id:
+                        org_status = await join_org(org_val, user_id)
+                        print(org_status)
+                        # 1. Defensively check the response type
+                        if isinstance(org_status, dict):
+                            # 2. Safely check for failures using .get() or the presence of an "error" key
+                            has_error = org_status.get("status") is False or "error" in org_status
+                            
+                            if has_error:
+                                # Extract a readable error if the backend provided one
+                                err_msg = org_status.get("error", "Invalid Organization ID.")
+                                validation_error.value = f"Signup Successful, but failed to join Org: {err_msg}. Proceed to Login"
+                                page.update()
+                                return  # <-- STOP here so we don't show the generic success dialog
+                        else:
+                            # Catch the scenario where join_org returns an Exception object
+                            print(f"CRITICAL ERROR in join_org: {org_status}")
+                            validation_error.value = "Signup Successful, but a system error prevented joining the Org. Proceed to Login"
+                            page.update()
+                            return  # <-- STOP here
+
+                # 3. If we made it here, either they didn't want to join an org, or they joined it successfully!
                 page.show_dialog(success_dialog)
+                
             elif status == 409:
                 detail = data.get("detail", "")
                 validation_error.value = (
                     "Username already taken."
                     if "Username" in detail
-                    else "Email already registered."
+                    else  "Email already registered."
                 )
                 page.update()
             else:
@@ -202,32 +240,65 @@ def Signup_view(page: ft.Page):
         disabled=True,
         menu_width=get_container_width() - 32,  # match form width minus horizontal padding
         menu_style=ft.MenuStyle(bgcolor=ft.Colors.PRIMARY)
-)
+    )
 
-# 2. Create a background task to fetch and populate the options
+    # 2. Create a background task to fetch and populate the options
     async def load_universities():
         try:
-            universities = await get_universities()
+            universities_data = await get_universities()
             
-            # Populate options using 'key', not 'value'
-            University.options = [
-                ft.dropdown.Option(content=ft.Text(uni["name"], color="white"), key=uni["name"]) 
-                for uni in universities
-            ]
-            
-            # Unlock the dropdown and update the hint
-            University.hint_text = "Optional – enter your university name"
-            University.disabled = False
-            
+            # Defensively check if it returned an error dictionary
+            if isinstance(universities_data, dict) and "error" in universities_data:
+                err_msg = universities_data.get("error", "Failed to connect.")
+                
+                # Build the SnackBar
+                error_snack = ft.SnackBar(
+                    content=ft.Text(f"Could not load universities: {err_msg}", color=ft.Colors.WHITE),
+                    bgcolor=ft.Colors.RED_600,
+                    behavior=ft.SnackBarBehavior.FLOATING,
+                    duration=4000
+                )
+                
+                # Version-safe SnackBar trigger
+                if hasattr(page, "open"): 
+                    page.open(error_snack)
+                else: 
+                    page.overlay.append(error_snack)
+                    error_snack.open = True
+                
+                # Disable the dropdown and warn the user
+                University.options = []
+                University.hint_text = "Failed to load universities"
+                University.disabled = True
+                
+            # If it's a list, the request was successful
+            elif isinstance(universities_data, list):
+                # Populate options using 'key' and your custom content styling
+                University.options = [
+                    ft.dropdown.Option(
+                        key=uni.get("name", ""), 
+                        content=ft.Text(uni.get("name", ""), color="white")
+                    ) 
+                    for uni in universities_data if uni.get("name")
+                ]
+                
+                # Unlock the dropdown and update the hint
+                University.hint_text = "Optional – enter your university name"
+                University.disabled = False
+                
         except Exception as e:
-            print(f"Failed to load universities: {e}")
+            # Absolute fallback in case something completely unexpected crashes the parsing
+            print(f"Critical failure in load_universities: {e}")
             University.hint_text = "Failed to load universities"
+            University.disabled = True
             
-        # Push the changes to the UI
-        University.update()
+        # Push the changes to the UI safely
+        if University.page:
+            University.update()
+        else:
+            page.update()
 
     # 3. Trigger the fetch in the background without freezing the screen
-
     page.run_task(load_universities)
     # ── role radio group ──────────────────────────────────────────
     role_selection = ft.RadioGroup(
@@ -294,7 +365,7 @@ def Signup_view(page: ft.Page):
                         color=ft.Colors.GREY_900,
                     ),
                     ft.Text(
-                        "Join Nu-age and start learning today.",
+                        "Join Nu Age and start learning today.",
                         size=13,
                         color=ft.Colors.GREY_500,
                     ),

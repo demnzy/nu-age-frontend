@@ -31,11 +31,17 @@ def get_enrolled_card(
         )
     else:
         cover = ft.Container(
-            height=120,
-            bgcolor=ft.Colors.PRIMARY_CONTAINER,
+            height=140,
+            bgcolor=ft.Colors.INDIGO_300,
+            gradient=ft.LinearGradient(
+                        begin=ft.Alignment.TOP_LEFT,
+                        end=ft.Alignment.BOTTOM_RIGHT,
+                        colors=[ft.Colors.PURPLE_200, ft.Colors.INDIGO_200]
+                    ),
             border_radius=ft.BorderRadius.only(top_left=12, top_right=12),
             alignment=ft.Alignment.CENTER,
-            content=ft.Icon(ft.Icons.MENU_BOOK_ROUNDED, size=40, color=ft.Colors.PRIMARY),
+            content=ft.Icon(ft.Icons.MENU_BOOK_ROUNDED, size=44,
+                            color=ft.Colors.WHITE),
         )
 
     # ── meta row helper ───────────────────────────────────────────────────────

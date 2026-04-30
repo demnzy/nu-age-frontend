@@ -1,6 +1,7 @@
 import asyncio
 import sqlite3
 from datetime import datetime, timedelta
+import token
 
 import flet as ft
 import flet_charts as fch  # pyright: ignore[reportMissingImports]
@@ -9,7 +10,7 @@ from src.components.bottom_appbar import get_bottom_appbar
 from src.components.dashboard_card import get_continue_learning_card
 from src.requests.enrollments import get_enrollments
 from src.utils.db_manager import get_weekly_activity
-
+from src.requests.chats import get_all_users
 
 # ─────────────────────────────────────────────────────────────────────────────
 # HELPERS
@@ -118,7 +119,7 @@ async def dashboard_view(page: ft.Page):
             ),
             quick_tile(
                 ft.Icons.PEOPLE_ALT_ROUNDED,
-                "Friends", "Connect & study",
+                "Network", "Connect & study",
                 ft.Colors.TEAL_500, ft.Colors.WHITE,
                 "/network",
             ),
@@ -128,9 +129,8 @@ async def dashboard_view(page: ft.Page):
     # ─────────────────────────────────────────────────────────────────────────
     # 3. FRIENDS SECTION
     # ─────────────────────────────────────────────────────────────────────────
-    def friend_avatar(name: str, status: str = "online"):
+    def friend_avatar(name: str, ):
         initials = "".join(p[0].upper() for p in name.split()[:2])
-        status_color = ft.Colors.GREEN_400 if status == "online" else ft.Colors.GREY_300
         return ft.Column(
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             spacing=4,
@@ -143,15 +143,7 @@ async def dashboard_view(page: ft.Page):
                             bgcolor=ft.Colors.PRIMARY_CONTAINER,
                             color=ft.Colors.ON_PRIMARY_CONTAINER,
                             radius=24,
-                        ),
-                        ft.Container(
-                            width=11, height=11,
-                            bgcolor=status_color,
-                            border_radius=6,
-                            border=ft.border.all(2, ft.Colors.SURFACE),
-                            alignment=ft.Alignment.BOTTOM_RIGHT,
-                            margin=ft.margin.only(left=35, top=35),
-                        ),
+                        )
                     ],
                 ),
                 ft.Text(name.split()[0], size=10, color=ft.Colors.GREY_600,
@@ -160,12 +152,8 @@ async def dashboard_view(page: ft.Page):
         )
 
     # placeholder friends — replace with real API data
-    _mock_friends = [
-        ("Ada Obi",   "online"),
-        ("Emeka T",   "offline"),
-        ("Fatima S",  "online"),
-        ("Tunde B",   "offline"),
-    ]
+    token = await page.shared_preferences.get("auth_token")
+    friends = await get_all_users(token)
 
     friends_row = ft.Row(
         scroll=ft.ScrollMode.AUTO,
@@ -183,14 +171,14 @@ async def dashboard_view(page: ft.Page):
                         border=ft.border.all(1, ft.Colors.GREY_300),
                         alignment=ft.Alignment.CENTER,
                         ink=True,
-                        on_click=lambda _: page.go("/friends/add"),
+                        on_click=lambda _: page.go("/network"),
                         content=ft.Icon(ft.Icons.PERSON_ADD_ALT_1_ROUNDED,
                                         color=ft.Colors.PRIMARY, size=20),
                     ),
                     ft.Text("Add", size=10, color=ft.Colors.PRIMARY),
                 ],
             ),
-            *[friend_avatar(n, s) for n, s in _mock_friends],
+            *[friend_avatar(friend["name"]) for friend in friends],
         ],
     )
 
@@ -210,7 +198,7 @@ async def dashboard_view(page: ft.Page):
                         ]),
                         ft.TextButton(
                             "See All",
-                            on_click=lambda _: page.go("/friends"),
+                            on_click=lambda _: page.go("/network"),
                             style=ft.ButtonStyle(
                                 color=ft.Colors.PRIMARY,
                                 padding=ft.padding.all(0),
@@ -552,6 +540,8 @@ async def dashboard_view(page: ft.Page):
                                         controls=[
                                             # Quick action tiles
                                             quick_actions,
+                                            friends_card,
+                                            
                                             #browse activity
                                             activity_card,
                                             # Continue learning
@@ -559,6 +549,7 @@ async def dashboard_view(page: ft.Page):
 
                                             # Self-study
                                             self_study_card,
+                                            
 
                                             
 

@@ -221,6 +221,13 @@ async def course_details_view(page: ft.Page, course_id: str, course_name: str):
                 border_radius=ft.BorderRadius.only(
                     bottom_left=20, bottom_right=20
                 ),
+                bgcolor=ft.Colors.INDIGO_300,
+            gradient=ft.LinearGradient(
+                        begin=ft.Alignment.TOP_LEFT,
+                        end=ft.Alignment.BOTTOM_RIGHT,
+                        colors=[ft.Colors.PURPLE_200, ft.Colors.INDIGO_200]
+                    ),
+
                 clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
                 content=(
                     ft.Image(
@@ -231,12 +238,17 @@ async def course_details_view(page: ft.Page, course_id: str, course_name: str):
                     )
                     if image_url
                     else ft.Container(
-                        bgcolor=ft.Colors.PRIMARY_CONTAINER,
-                        expand=True,
-                        alignment=ft.Alignment.CENTER,
-                        content=ft.Icon(ft.Icons.MENU_BOOK_ROUNDED,
-                                        size=56, color=ft.Colors.PRIMARY),
-                    )
+            bgcolor=ft.Colors.INDIGO_300,
+            gradient=ft.LinearGradient(
+                        begin=ft.Alignment.TOP_LEFT,
+                        end=ft.Alignment.BOTTOM_RIGHT,
+                        colors=[ft.Colors.PURPLE_200, ft.Colors.INDIGO_200]
+                    ),
+            border_radius=ft.BorderRadius.only(top_left=12, top_right=12),
+            alignment=ft.Alignment.CENTER,
+            content=ft.Icon(ft.Icons.MENU_BOOK_ROUNDED, size=44,
+                            color=ft.Colors.WHITE),
+        )
                 ),
             )
 
@@ -388,12 +400,7 @@ async def course_details_view(page: ft.Page, course_id: str, course_name: str):
                                         spacing=8,
                                         controls=[
                                             ft.Row(controls=[enrol_btn]),
-                                            ft.Text(
-                                                "You can unenroll at any time from your dashboard.",
-                                                size=11,
-                                                color=ft.Colors.GREY_400,
-                                                text_align=ft.TextAlign.CENTER,
-                                            ) if not is_already_enrolled else ft.Container(),
+                                             ft.Container(),
                                         ],
                                     ),
                                 ),

@@ -62,13 +62,29 @@ async def reset_request(token: str, payload: dict):
         return response.status_code, response.json()
 
 async def get_universities():
-
-    url = f"http://universities.hipolabs.com/search?country=Nigeria" 
+    url = "http://universities.hipolabs.com/search?country=Nigeria" 
     
     try:
-        async with httpx.AsyncClient() as client:
+        # Added a timeout so a slow network triggers the except block cleanly
+        async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.get(url)
+            
+            # Ensure we don't accidentally try to parse an HTML error page as JSON
+            response.raise_for_status() 
+            
             return response.json()
+            
     except Exception as e:
         print(f"Request Error: {e}")
-        return 500, {"detail": "Connection failed"}
+        # THE FIX: Return a dictionary (or empty list) instead of a tuple!
+        return {"error": "Connection failed"}
+    
+async def get_member_profile(token: str, identifier: str):
+    """Fetches a specific user's public profile data."""
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            f"{api_url}/users/one?identifier={identifier}", # Assuming your router prefix is /users
+            headers={"Authorization": f"Bearer {token}"}
+        )
+        response.raise_for_status()
+        return response.json()

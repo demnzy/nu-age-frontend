@@ -13,6 +13,8 @@ async def profile_view(page: ft.Page):
     username   = user_data.get("username", "—")
     gender     = user_data.get("gender", "—")
     role       = user_data.get("role", "—")
+    university = user_data.get("university")
+    streak = user_data.get("streak")
 
     initials = "".join([n[0] for n in full_name.split()[:2]]).upper() if full_name else "?"
 
@@ -199,7 +201,20 @@ async def profile_view(page: ft.Page):
                 padding=ft.Padding(left=68, right=0, top=0, bottom=0)
             )
         ], spacing=0, tight=True)
-
+    
+    rows_data = [
+            info_row(ft.Icons.ALTERNATE_EMAIL_ROUNDED, "Email", email),
+            info_row(ft.Icons.BADGE_OUTLINED,          "Username", username),
+            info_row( ft.Icons.MALE if str(gender).lower() == "male" else ft.Icons.FEMALE,
+                "Gender", gender
+            ),
+            info_row(ft.Icons.SCHOOL_OUTLINED,         "Role", role, is_last=True if not (streak or university) else False )
+            ]
+    if university:
+            rows_data.append(info_row(ft.Icons.ACCOUNT_BALANCE_ROUNDED, "University", university, is_last=True if not streak else False))
+    if streak and int(streak) > 0:
+            rows_data.append(info_row(ft.Icons.LOCAL_FIRE_DEPARTMENT_ROUNDED, "Learning Streak", f"{streak} day" if streak ==1 else f"{streak} days", is_last=True))
+            
     info_card = ft.Container(
         bgcolor=CARD_BG,
         border_radius=16,
@@ -211,13 +226,8 @@ async def profile_view(page: ft.Page):
         ),
         clip_behavior=ft.ClipBehavior.HARD_EDGE,
         content=ft.Column([
-            info_row(ft.Icons.ALTERNATE_EMAIL_ROUNDED, "Email", email),
-            info_row(ft.Icons.BADGE_OUTLINED,          "Username", username),
-            info_row(
-                ft.Icons.MALE if str(gender).lower() == "male" else ft.Icons.FEMALE,
-                "Gender", gender
-            ),
-            info_row(ft.Icons.SCHOOL_OUTLINED,         "Role", role, is_last=True),
+            row for row in rows_data
+            
         ], spacing=0, tight=True)
     )
 
@@ -258,8 +268,7 @@ async def profile_view(page: ft.Page):
 
     actions_row = ft.Row([
         quick_action(ft.Icons.MENU_BOOK_ROUNDED,     "My Courses",  lambda _: page.go("/courses")),
-        quick_action(ft.Icons.EMOJI_EVENTS_ROUNDED,  "Certificates"),
-        quick_action(ft.Icons.SETTINGS_OUTLINED,     "Settings"),
+        quick_action(ft.Icons.SETTINGS_OUTLINED,     "Settings", lambda _: page.go("/edit-profile")),
     ], spacing=12)
 
     # ── Body ──────────────────────────────────────────────────────────────────

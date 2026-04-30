@@ -1,4 +1,5 @@
 import flet as ft
+from src.components import enrolled_card
 from src.components.completed_card import get_completed_card
 from src.components.course_card import get_course_card
 from src.components.enrolled_card import get_enrolled_card
@@ -36,7 +37,7 @@ async def courses_view(page: ft.Page):
                 pass # Unenroll logic here
             
             if status == 200:
-                e.control.content= ft.Text("Fetching Course Contents...")
+                e.control.content= ft.Text("Fetching Course Contents...", color=ft.Colors.WHITE)
                 page.update()
                 page.go(f"/courses/{course_id}/view")
             else:
@@ -294,7 +295,6 @@ async def courses_view(page: ft.Page):
                     card.opacity = 1
                     card.offset = ft.Offset(0, 0)
         else:
-            print(enrolled_list)
             enrolled_list.clear()
         if isinstance(completed_list, list):
             for course in completed_list:
@@ -305,7 +305,7 @@ async def courses_view(page: ft.Page):
                 last_name = course.get("admin", {}).get("last_name","Instructor")
                 full_name = f'{first_name} {last_name}'
                 category = course.get("category",{}).get("name")
-                card = get_completed_card(course_name,course_id, on_review_click=lambda e, cid=course_id: page.go(f"/courses/{cid}/view"))
+                card = get_completed_card(course_name,course_id, on_review_click=lambda e, cid=course_id: page.go(f"/courses/{cid}/view"), on_stats_click=lambda e, cid=course_id: page.go(f"/courses/{cid}/stats"))
                 card.col = {"xs": 12, "sm": 6}
                 completed_cards.append(card)
                 card.opacity = 1
@@ -376,12 +376,11 @@ async def courses_view(page: ft.Page):
                                     ft.ListView(
                         expand=True, # THIS IS VITAL - it fills the remaining space
                         controls=[
-                # Ternary: [RESULT_IF_TRUE] if [CONDITION] else [RESULT_IF_FALSE]
-                enroll_container if enrolled_list else ft.Row(
+                enroll_container if enroll_cards else ft.Row(
                     alignment=ft.MainAxisAlignment.CENTER,
                     controls=[
                         ft.Text(
-                            "You have no enrolled courses", 
+                            "You have no ongoing courses", 
                             size=16, 
                             color=ft.Colors.ON_SURFACE_VARIANT,
                             weight=ft.FontWeight.W_500
@@ -404,8 +403,7 @@ async def courses_view(page: ft.Page):
                                     ft.ListView(
                         expand=True, # THIS IS VITAL - it fills the remaining space
                         controls=[
-                # Ternary: [RESULT_IF_TRUE] if [CONDITION] else [RESULT_IF_FALSE]
-                completed_container if completed_list else ft.Row(
+                completed_container if completed_cards else ft.Row(
                     alignment=ft.MainAxisAlignment.CENTER,
                     controls=[
                         ft.Text(
