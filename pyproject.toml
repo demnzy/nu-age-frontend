@@ -26,13 +26,14 @@ dev = [
 ]
 
 [tool.flet]
-org = "Nu Age"
-product = "Nu Age"
-company = "Nu Age"
-copyright = "Copyright (C) 2023-2026 by Oluwatobiloba Davies"
+org = "com.mycompany"
+product = "Nu Age"      
+company = "Flet"
+copyright = "Copyright (C) 2023-2026 by Flet"
 
 [tool.flet.app]
 path = "."
+bundle_id = "com.mycompany.nuage"  
 
 [tool.flet.android]
 permissions = [
