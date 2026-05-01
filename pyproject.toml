@@ -43,8 +43,6 @@ splash_android = "assets/splash_android.png"
 splash_android_dark = "assets/splash_android_dark.png"
 
 [tool.flet.splash]
-color = "#ffffff"           # change to match your app background color
-dark_color = "#ffffff"      # change to match your dark mode background color
 android_gravity = "fill"  # position of splash image: center, fill, etc.
 hide_animation = true       # hides the Flet spinner/logo during Python startup
 
