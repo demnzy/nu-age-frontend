@@ -39,8 +39,8 @@ bundle_id = "com.mycompany.nuage"
 
 [tool.flet.icons]
 android = "assets/icon.png"
-splash_android = "assets/icon.png"
-splash_android_dark = "assets/icon.png"
+splash_android = "assets/splash_android.png"
+splash_android_dark = "assets/splash_android_dark.png"
 
 [tool.flet.splash]
 color = "#ffffff"           # change to match your app background color
