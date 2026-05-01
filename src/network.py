@@ -584,6 +584,7 @@ async def network_view(page: ft.Page):
                                     size=14, weight=ft.FontWeight.W_700,
                                     color=ft.Colors.ON_SURFACE,
                                     max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
+                                    expand=True, # Added to ensure name shrinks safely
                                 ),
                                 ft.Row(
                                     spacing=6,
@@ -591,8 +592,10 @@ async def network_view(page: ft.Page):
                                     controls=[
                                         ft.Icon(ft.Icons.SCHOOL_ROUNDED,
                                                 size=11, color=ft.Colors.GREY_400),
+                                        # THE FIX: expand=True added to the university text
                                         ft.Text(university, size=11, color=ft.Colors.GREY_500,
-                                                max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                                                max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, 
+                                                expand=True), 
                                     ],
                                 ),
                                 _org_pill(org),
@@ -661,8 +664,8 @@ async def network_view(page: ft.Page):
                 ),
             ),
         ],
-    ),
-)
+    ))
+        
         def _sent_card(req: dict) -> ft.Container:
             user    = req.get("user") or {}
             row     = ft.Ref[ft.Container]()
@@ -760,7 +763,7 @@ async def network_view(page: ft.Page):
                                 ref=btn_ref,
                                 content=ft.Text("Cancel", size=11,
                                                 weight=ft.FontWeight.W_500,
-                                                color=ft.Colors.GREY_400),
+                                                color=ft.Colors.BLACK),
                                 style=ft.ButtonStyle(
                                     overlay_color=ft.Colors.with_opacity(0.005, ft.Colors.GREY_400),
                                 ),
