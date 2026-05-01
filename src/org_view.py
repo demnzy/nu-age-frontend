@@ -58,11 +58,18 @@ async def organisations_view(page: ft.Page):
         org_phone = org_data.get("number", "+000 0000 0000")
         theme_color = org_data.get("theme_color") or ft.Colors.PRIMARY
 
+        # Guard: crash early with a clear message rather than sending "" to the server
+        if not org_id:
+            raise ValueError(
+                "build_dashboard_view received org_data with no valid 'id'. "
+                f"Keys present: {list(org_data.keys())}"
+            )
+
         stats = {
             "members":  org_data.get("members", 0),
             "courses":  org_data.get("courses", 0),
             "staff":    org_data.get("staff", 0),
-            "plan":     org_data.get("plan", {}).get("name", "Free"),
+            "plan":     org_data.get("plan", {}).get("name", "Free") if org_data.get("plan") else "Free",
             "students": org_data.get("students", 0),
         }
 
@@ -70,14 +77,20 @@ async def organisations_view(page: ft.Page):
             members = await asyncio.wait_for(
                 get_organisation_members(token, org_id), timeout=15
             )
-        except (asyncio.TimeoutError, Exception):
+        except asyncio.TimeoutError:
+            members = []
+        except Exception as ex:
+            print(f"Warning: could not load members: {type(ex).__name__}: {ex}")
             members = []
 
         try:
             courses = await asyncio.wait_for(
                 get_organisation_courses(token, org_id), timeout=15
             )
-        except (asyncio.TimeoutError, Exception):
+        except asyncio.TimeoutError:
+            courses = []
+        except Exception as ex:
+            print(f"Warning: could not load courses: {type(ex).__name__}: {ex}")
             courses = []
 
         # ── stat card ─────────────────────────────────────────────────────────
@@ -473,28 +486,47 @@ async def organisations_view(page: ft.Page):
             ],
         )
 
+        # ==========================================
+# 1. THE SETUP (Put this in your main page setup, NOT inside the button click)
+# ==========================================
+
+# This function automatically wakes up when the user finishes picking an image
+# Do NOT append anything to page.overlay
+
         async def handle_logo_pick(e):
             nonlocal selected_logo_bytes, selected_logo_name
             try:
-                files = await ft.FilePicker().pick_files(
+                # 1. Instantiate the Service natively inside the function
+                file_picker = ft.FilePicker()
+                
+                # 2. Await it directly! This pauses execution until the user selects an image.
+                # In 0.84.0, this returns a list of FilePickerFile objects directly.
+                files = await file_picker.pick_files(
                     allow_multiple=False,
                     file_type=ft.FilePickerFileType.IMAGE,
-                    with_data=True,
+                    with_data=True, 
                 )
-                if files:
-                    selected = files[0]
-                    selected_logo_bytes = selected.bytes
+                
+                # 3. Process the files 
+                if files and len(files) > 0:
+                    selected = files[0] # Notice it is just files[0], not files.files
+                    
+                    # Because you used with_data=True, the raw bytes are already here!
+                    selected_logo_bytes = selected.bytes 
                     selected_logo_name  = selected.name
+                    
+                    # Update UI
                     logo_icon.name  = ft.Icons.CHECK_CIRCLE_ROUNDED
                     logo_icon.color = ft.Colors.GREEN_600
                     logo_text.value = f"Selected: {selected_logo_name}"
                     logo_text.color = ft.Colors.GREEN_600
                     page.update()
-            except Exception:
+                    
+            except Exception as ex:
+                print(f"FilePicker error: {type(ex).__name__}: {ex}")
                 logo_text.value = "Could not open file picker. Try again."
                 logo_text.color = ft.Colors.RED_700
                 page.update()
-
         async def handle_submit(e):
             nonlocal selected_logo_bytes, selected_logo_name
             if not all([name_input.value, email_input.value, number_input.value, address_input.value]):
@@ -531,14 +563,24 @@ async def organisations_view(page: ft.Page):
                 }
 
                 tok = await page.shared_preferences.get("auth_token")
+
+                # Step 1: Create the org
                 new_org = await asyncio.wait_for(
                     create_organisation(tok, payload), timeout=20
                 )
 
-                if isinstance(new_org, dict):
-                    await show_dashboard(new_org)
-                else:
-                    raise ValueError("Invalid response from server.")
+                if not isinstance(new_org, dict) or not new_org.get("id"):
+                    raise ValueError(f"Unexpected response from server: {new_org}")
+
+                # Step 2: Fetch full org data from /me (includes stats, plan, members, courses)
+                full_org_data = await asyncio.wait_for(
+                    get_my_organisation(tok), timeout=15
+                )
+
+                if not full_org_data:
+                    raise ValueError("Organisation created but could not load dashboard data.")
+
+                await show_dashboard(full_org_data)
 
             except asyncio.TimeoutError:
                 error_text.value   = "Request timed out. Please check your connection and try again."
@@ -548,7 +590,7 @@ async def organisations_view(page: ft.Page):
                 page.update()
 
             except Exception as ex:
-                error_text.value   = f"Something went wrong: {type(ex).__name__}. Please try again."
+                error_text.value   = f"Something went wrong: {type(ex).__name__}: {str(ex)}"
                 error_text.visible = True
                 submit_btn.disabled = False
                 submit_btn.content = ft.Text("Create Organisation", color=ft.Colors.WHITE, weight=ft.FontWeight.W_600, size=14)

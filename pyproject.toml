@@ -31,7 +31,7 @@ dev = [
 org = "com.mycompany"
 product = "Nu Age"
 company = "Flet"
-copyright = "Copyright (C) 2023-2026 by Flet"
+copyright = "Copyright (C) 2023-2026 by Nu Age"
 
 [tool.flet.app]
 path = "."
@@ -39,10 +39,13 @@ bundle_id = "com.mycompany.nuage"
 
 [tool.flet.icons]
 android = "assets/icon.png"
+splash_android = "assets/icon.png"
+splash_android_dark = "assets/icon.png"
 
 [tool.flet.splash]
 color = "#ffffff"           # change to match your app background color
 dark_color = "#ffffff"      # change to match your dark mode background color
+android_gravity = "fill"  # position of splash image: center, fill, etc.
 hide_animation = true       # hides the Flet spinner/logo during Python startup
 
 [tool.flet.android]
