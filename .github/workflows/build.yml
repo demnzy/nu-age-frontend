@@ -1,31 +1,26 @@
-name: Build Nu Age APK (Manual Env Mode)
+name: Build Nu Age EXE (Manual Env Mode)
 
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    name: Build APK
-    runs-on: ubuntu-latest
+    name: Build EXE
+    runs-on: windows-latest
+
+    env:
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: "utf-8"
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Java (Required for Android)
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'zulu'
-          java-version: '17'
-
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-      - name: Accept Android SDK Licenses
-        run: |
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --update || true
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -36,20 +31,20 @@ jobs:
           python -m pip install --upgrade pip
           pip install flet-cli==0.84.0 flet==0.84.0 flet-video==0.84.0 flet-charts==0.84.0 httpx==0.28.1 requests==2.33.1
 
-      - name: Compile the APK
+      - name: Compile the EXE
         run: |
-          if ! flet build apk --product "Nu Age" --verbose; then
-            echo "::error::CRITICAL ERROR: Flet compiler crashed! Check verbose logs for Dart/Python errors."
+          flet build windows --product "Nu Age" --verbose
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "CRITICAL ERROR: Flet compiler crashed! Check verbose logs for Dart/Python errors."
             exit 1
-          fi
+          }
 
-      - name: Rename the APK file
+      - name: Rename the EXE file
         run: |
-          cd build/apk
-          mv *.apk "Nu Age.apk"
+          Get-ChildItem -Path build/windows -Filter *.exe | Rename-Item -NewName "Nu Age.exe"
 
-      - name: Upload APK
+      - name: Upload Full App Folder
         uses: actions/upload-artifact@v4
         with:
           name: Nu Age App
-          path: build/apk/Nu Age.apk
+          path: build/windows/

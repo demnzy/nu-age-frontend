@@ -10,16 +10,15 @@ authors = [
 dependencies = [
     "flet>=0.84.0",
     "flet-video>=0.84.0",
-    "flet-charts>=0.84.0",
+    "flet-charts>=0.84.0",  
     "httpx>=0.28.1",
     "requests>=2.33.1",
-    "websockets>=16.0",
     "certifi>=2026.2.25",
     "charset-normalizer>=3.4.7",
+    "websockets>=16.0", 
     "idna>=3.11",
     "urllib3>=2.6.3",
 ]
-
 [dependency-groups]
 dev = [
     "flet-cli>=0.84.0",
@@ -29,76 +28,16 @@ dev = [
 
 [tool.flet]
 org = "com.mycompany"
-product = "Nu Age"
-company = "Flet"
-copyright = "Copyright (C) 2023-2026 by Nu Age"
+product = "Nu Age"      
+company = "Nu Age"
+copyright = "Copyright (C) 2023-2026 by Flet"
 
 [tool.flet.app]
 path = "."
 bundle_id = "com.mycompany.nuage"
 
-[tool.flet.icons]
-android = "assets/icon.png"
-splash_android = "assets/splash_android.png"
-splash_android_dark = "assets/splash_android_dark.png"
-
-[tool.flet.splash]
-color = "#ffffff"           # change to match your app background color
-dark_color = "#ffffff"      # change to match your dark mode background color
-android_gravity = "fill"  # position of splash image: center, fill, etc.
-hide_animation = true       # hides the Flet spinner/logo during Python startup
-
-[tool.flet.android]
-permissions = [
-    # ─── NETWORK ──────────────────────────────────────────────────────────────
-    # Required for any HTTP/HTTPS calls
-    "android.permission.INTERNET",
-    # Lets app check if device is online before making calls
-    "android.permission.ACCESS_NETWORK_STATE",
-    # Lets app check if device is on WiFi
-    "android.permission.ACCESS_WIFI_STATE",
-
-    # ─── STORAGE (Android 9 and below) ────────────────────────────────────────
-    # Read any file from external storage (covers all file types on older Android)
-    "android.permission.READ_EXTERNAL_STORAGE",
-    # Write/save files to external storage (downloads, exports, saved files)
-    "android.permission.WRITE_EXTERNAL_STORAGE",
-
-    # ─── STORAGE (Android 10+) ────────────────────────────────────────────────
-    # Allows app to opt out of scoped storage (needed if you access arbitrary paths)
-    "android.permission.MANAGE_EXTERNAL_STORAGE",
-
-    # ─── MEDIA (Android 13+ replacements for READ_EXTERNAL_STORAGE) ───────────
-    # Read image files (jpg, png, gif, webp, etc.)
-    "android.permission.READ_MEDIA_IMAGES",
-    # Read video files (mp4, mkv, etc.)
-    "android.permission.READ_MEDIA_VIDEO",
-    # Read audio files (mp3, wav, etc.)
-    "android.permission.READ_MEDIA_AUDIO",
-    # Read documents and PDFs (Android 13+)
-    "android.permission.READ_MEDIA_DOCUMENTS",
-    # Read files selected via system picker even from other apps (Android 14+)
-    "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
-
-    # ─── DOWNLOADS ────────────────────────────────────────────────────────────
-    # Queue files for download via Android DownloadManager
-    "android.permission.DOWNLOAD_WITHOUT_NOTIFICATION",
-
-    # ─── CAMERA ───────────────────────────────────────────────────────────────
-    # Access device camera (for photo capture or QR scanning)
-    "android.permission.CAMERA",
-
-    # ─── NOTIFICATIONS ────────────────────────────────────────────────────────
-    # Show push/local notifications (required on Android 13+)
-    "android.permission.POST_NOTIFICATIONS",
-    # Keep notification service alive in background
-    "android.permission.FOREGROUND_SERVICE",
-
-    # ─── DEVICE & RUNTIME ─────────────────────────────────────────────────────
-    # Prevent screen from sleeping (useful for media or active sessions)
-    "android.permission.WAKE_LOCK",
-    # Allow app to run on boot (if you need background startup)
-    "android.permission.RECEIVE_BOOT_COMPLETED",
-    # Vibrate device (for alerts or feedback)
-    "android.permission.VIBRATE",
-]
+[tool.flet.windows]
+file_description = "Nu Age"
+product_name = "Nu Age"
+company_name = "Flet"
+copyright = "Copyright (C) 2023-2026 by Flet"
