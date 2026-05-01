@@ -1,16 +1,40 @@
 import httpx
-
+import json
 api_url = "https://nu-age.fly.dev"
 
 async def login_request(email: str, password: str):
-    limits = httpx.Timeout(5.0, read=10.0)
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            f"{api_url}/users/auth/login", 
+    # I bumped the timeout to 15 seconds. If the DB is waking up, 
+    # giving it 5 extra seconds might just save the request.
+    limits = httpx.Timeout(15.0) 
+    
+    try:
+        async with httpx.AsyncClient(timeout=limits) as client:
+            response = await client.post(
+                f"{api_url}/users/auth/login", 
+                data={'username': email, 'password': password} 
+            )
+            
+            # Scenario A: Perfect Login
+            if response.status_code == 200:
+                return response.status_code, response.json()
+            
+            # Scenario B: Wrong password, or a 502/504 Bad Gateway from Fly.io
+            else:
+                try:
+                    # Attempt to parse it if FastAPI returned a clean 401 error
+                    error_data = response.json()
+                    return response.status_code, error_data
+                except json.decoder.JSONDecodeError:
+                    # The server threw an HTML error page (like a 502 Proxy Error)
+                    return response.status_code, {"detail": "Server error or waking up. Please try again."}
 
-            data={'username': email, 'password': password} 
-        )
-        return response.status_code, response.json()
+    # Scenario C: The timeout elapsed before Fly.io or Neon could respond
+    except httpx.ReadTimeout:
+        return 504, {"detail": "The server is waking up. Please click login again."}
+        
+    # Scenario D: Catch-all for complete network failures (e.g., no internet)
+    except httpx.RequestError as e:
+        return 503, {"detail": f"Network error: {str(e)}"}
     
 async def signup_request(email: str, username: str, password: str, first_name: str, last_name: str, gender: str, role: str, university: str | None = None, organisation: dict | None = None):
     

@@ -718,7 +718,7 @@ async def self_study_view(page: ft.Page):
     # ─────────────────────────────────────────────────────────────────────────
     # SIDEBAR & GENERATION STATUS
     # ─────────────────────────────────────────────────────────────────────────
-    gen_status_text = ft.Text("Status: All good!", size=12, weight=ft.FontWeight.W_600, color=ft.Colors.GREEN_700)
+    gen_status_text = ft.Text("Status: All good!", size=10, weight=ft.FontWeight.W_600, color=ft.Colors.GREEN_700)
     gen_status_icon = ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED, color=ft.Colors.GREEN_600, size=16)
     
     generation_banner = ft.Container(
