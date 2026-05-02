@@ -757,15 +757,14 @@ async def network_view(page: ft.Page):
                         ft.Container(
                             border_radius=8,
                             height= 30,
-                            border=ft.border.all(1, ft.Colors.GREY_200),
+                            border=ft.border.all(1, ft.Colors.GREY_300),
                             padding=ft.padding.symmetric(horizontal=10, vertical=5),
                             content=ft.TextButton(
                                 ref=btn_ref,
                                 content=ft.Text("Cancel", size=11,
-                                                weight=ft.FontWeight.W_500,
-                                                color=ft.Colors.BLACK_12),
+                                                weight=ft.FontWeight.W_500,),
                                 style=ft.ButtonStyle(
-                                    overlay_color=ft.Colors.with_opacity(0.005, ft.Colors.GREY_400),
+                                    overlay_color=ft.Colors.with_opacity(0.00005, ft.Colors.GREY_400),
                                 ),
                                 on_click=lambda e: page.run_task(on_cancel, e),
                             ),

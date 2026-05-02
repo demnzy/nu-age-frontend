@@ -129,7 +129,7 @@ async def create_courses_view(page: ft.Page, org_id: str = None):
             icon_size=16,
             icon_color=ft.Colors.GREY_400,
             tooltip="Course Settings",
-            on_click=lambda e, cid=course_id: page.go(f"/courses/{cid}/settings"),
+            on_click=lambda e, oid=org_id, cid=course_id: page.go(f"/organisations/{oid}/courses/{cid}/settings"),
         )
 
         return ft.Container(
