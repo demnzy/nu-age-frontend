@@ -58,7 +58,7 @@ async def create_courses_view(page: ft.Page, org_id: str = None):
         course_id   = course.get("id", "")
         is_public   = course.get("public",      False)
         is_supervised = course.get("supervised", False)
-        students    = course.get("total_students", 0)
+        students    = len(course.get("Students", []))
 
         # ── badges ────────────────────────────────────────────────────────────
         def pill(label, bg, fg):

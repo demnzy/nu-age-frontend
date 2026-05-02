@@ -645,19 +645,27 @@ async def course_learner_view(page: ft.Page, course_id: str):
                 current_assessment_state[f"question_{q_idx + 1}"] = {"type": "single", "controls": options_group}
 
             question_cards.append(
-                ft.Container(
-                    padding=25,
-                    border_radius=16,
-                    # Slightly grey out the background of the card if completed
-                    bgcolor=ft.Colors.with_opacity(0.02, ft.Colors.BLACK) if is_completed else ft.Colors.WHITE,
-                    border=ft.border.all(1, ft.Colors.with_opacity(0.06, ft.Colors.BLACK)),
-                    content=ft.Column([
-                        ft.Row([q_text, ft.Icon(ft.Icons.LOCK_ROUNDED, color=ft.Colors.GREY_400, size=18) if is_completed else ft.Container()], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                        ft.Divider(height=1), 
-                        options_ui
-                    ], spacing=15),
-                )
-            )
+    ft.Container(
+        padding=25,
+        border_radius=16,
+        # Slightly grey out the background of the card if completed
+        bgcolor=ft.Colors.with_opacity(0.02, ft.Colors.BLACK) if is_completed else ft.Colors.WHITE,
+        border=ft.border.all(1, ft.Colors.with_opacity(0.06, ft.Colors.BLACK)),
+        content=ft.Column([
+            ft.Row(
+                controls=[
+                    # THE FIX: Wrap q_text with expand=True so it respects screen bounds and wraps
+                    ft.Container(content=q_text, expand=True), 
+                    
+                    ft.Icon(ft.Icons.LOCK_ROUNDED, color=ft.Colors.GREY_400, size=18) if is_completed else ft.Container()
+                ], 
+                # alignment=ft.MainAxisAlignment.SPACE_BETWEEN is no longer needed since expand=True pushes the icon perfectly to the right edge
+            ),
+            ft.Divider(height=1), 
+            options_ui
+        ], spacing=15),
+    )
+)
 
         # Add a success banner at the top if they already finished it
         banner = []

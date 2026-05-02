@@ -707,6 +707,7 @@ async def network_view(page: ft.Page):
     content=ft.Column(
         spacing=0,
         controls=[
+            # 1. The Top Gradient Border
             ft.Container(
                 height=2,
                 border_radius=ft.border_radius.only(top_left=14, top_right=14),
@@ -716,61 +717,78 @@ async def network_view(page: ft.Page):
                     colors=[ft.Colors.PURPLE_300, ft.Colors.with_opacity(0.2, ft.Colors.INDIGO_200)],
                 ),
             ),
+            
+            # 2. The Main Inner Content
             ft.Container(
-                padding=ft.padding.symmetric(horizontal=14, vertical=10),
-                content=ft.Row(
-                    spacing=12,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                padding=ft.padding.symmetric(horizontal=14, vertical=12),
+                content=ft.Column(
+                    spacing=12, # Adds clean space between the user info and the button
                     controls=[
-                        ft.Container(
-                            padding=ft.padding.all(2),
-                            border_radius=101,
-                            content=ft.Container(
-                                padding=ft.padding.all(2),
-                                bgcolor=ft.Colors.SURFACE,
-                                border_radius=99,
-                                content=_avatar(user, radius=18),
-                            ),
-                        ),
-                        ft.Column(
-                            spacing=2, expand=True,
+                        # --- TOP ROW: Avatar & Info ---
+                        ft.Row(
+                            spacing=12,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
                             controls=[
-                                ft.Text(
-                                    f"{first} {last}".strip(),
-                                    size=13, weight=ft.FontWeight.W_600,
-                                    color=ft.Colors.ON_SURFACE,
-                                    max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
+                                ft.Container(
+                                    padding=ft.padding.all(2),
+                                    border_radius=101,
+                                    content=ft.Container(
+                                        padding=ft.padding.all(2),
+                                        bgcolor=ft.Colors.SURFACE,
+                                        border_radius=99,
+                                        content=_avatar(user, radius=18),
+                                    ),
                                 ),
-                                ft.Row(
-                                    spacing=5,
-                                    visible=bool(org),
-                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                ft.Column(
+                                    spacing=2, expand=True,
                                     controls=[
-                                        ft.Icon(ft.Icons.BUSINESS_ROUNDED,
-                                                size=10, color=ft.Colors.GREY_400),
-                                        ft.Text(org or "", size=11, color=ft.Colors.GREY_400,
-                                                max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                                        ft.Text(
+                                            f"{first} {last}".strip(),
+                                            size=13, weight=ft.FontWeight.W_600,
+                                            color=ft.Colors.ON_SURFACE,
+                                            max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
+                                        ),
+                                        ft.Row(
+                                            spacing=5,
+                                            visible=bool(org),
+                                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                            controls=[
+                                                ft.Icon(ft.Icons.BUSINESS_ROUNDED,
+                                                        size=10, color=ft.Colors.GREY_400),
+                                                ft.Text(org or "", size=11, color=ft.Colors.GREY_400,
+                                                        max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
+                                                        expand=True), 
+                                            ],
+                                        ),
                                     ],
                                 ),
                             ],
                         ),
-                        ft.Container(
-                            border_radius=8,
-                            height= 30,
-                            border=ft.border.all(1, ft.Colors.GREY_300),
-                            padding=ft.padding.symmetric(horizontal=10, vertical=5),
-                            content=ft.TextButton(
-                                ref=btn_ref,
-                                content=ft.Text("Cancel", size=11,
-                                                weight=ft.FontWeight.W_500,),
-                                style=ft.ButtonStyle(
-                                    overlay_color=ft.Colors.with_opacity(0.00005, ft.Colors.GREY_400),
+                        
+                        # --- BOTTOM ROW: Action Button ---
+                        ft.Row(
+                            # This pushes the button to the far right side of the card
+                            alignment=ft.MainAxisAlignment.END, 
+                            controls=[
+                                ft.Container(
+                                    border_radius=8,
+                                    height=30,
+                                    border=ft.border.all(1, ft.Colors.GREY_300),
+                                    padding=ft.padding.symmetric(horizontal=10, vertical=0),
+                                    content=ft.TextButton(
+                                        ref=btn_ref,
+                                        content=ft.Text("Cancel", size=11,
+                                                        weight=ft.FontWeight.W_500),
+                                        style=ft.ButtonStyle(
+                                            overlay_color=ft.Colors.with_opacity(0.00005, ft.Colors.GREY_400),
+                                        ),
+                                        on_click=lambda e: page.run_task(on_cancel, e),
+                                    ),
                                 ),
-                                on_click=lambda e: page.run_task(on_cancel, e),
-                            ),
-                        ),
-                    ],
-                ),
+                            ]
+                        )
+                    ]
+                )
             ),
         ],
     ),
