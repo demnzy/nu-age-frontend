@@ -1,6 +1,6 @@
 import httpx
 import json
-api_url = "https://nu-age.fly.dev"
+api_url = "https://api.nu-age.name.ng"
 
 async def login_request(email: str, password: str):
     # I bumped the timeout to 15 seconds. If the DB is waking up, 

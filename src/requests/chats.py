@@ -3,7 +3,7 @@ import asyncio
 import json
 import websockets
 
-api_url = "https://nu-age.fly.dev"
+api_url = "https://api.nu-age.name.ng"
 
 # Automatically convert http:// to ws:// for the WebSocket connection
 if api_url and api_url.startswith("https"):

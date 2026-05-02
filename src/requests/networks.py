@@ -1,8 +1,7 @@
 import httpx
 from typing import List, Dict, Any
 
-api_url = "https://nu-age.fly.dev"
-
+api_url = "https://api.nu-age.name.ng"
 def _headers(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 

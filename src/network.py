@@ -763,7 +763,7 @@ async def network_view(page: ft.Page):
                                 ref=btn_ref,
                                 content=ft.Text("Cancel", size=11,
                                                 weight=ft.FontWeight.W_500,
-                                                color=ft.Colors.BLACK),
+                                                color=ft.Colors.BLACK_12),
                                 style=ft.ButtonStyle(
                                     overlay_color=ft.Colors.with_opacity(0.005, ft.Colors.GREY_400),
                                 ),

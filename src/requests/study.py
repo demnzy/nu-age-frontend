@@ -1,6 +1,6 @@
 import httpx
 import typing
-api_url = "https://nu-age.fly.dev"
+api_url = "https://api.nu-age.name.ng"
 
 async def get_due_cards(token: str) -> list:
     url = f"{api_url}/study/cards/due"

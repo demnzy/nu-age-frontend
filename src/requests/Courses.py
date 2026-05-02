@@ -1,5 +1,5 @@
 import httpx
-api_url = "https://nu-age.fly.dev"
+api_url = "https://api.nu-age.name.ng"
 
 
 
