@@ -1366,7 +1366,8 @@ async def self_study_view(page: ft.Page):
             page.update()
 
         modal = ft.AlertDialog(
-            modal=True,
+            modal=False, 
+            on_dismiss=close_generate_modal,
             bgcolor=ft.Colors.SURFACE,
             title=ft.Row(
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
