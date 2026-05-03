@@ -1126,7 +1126,7 @@ async def course_learner_view(page: ft.Page, course_id: str):
                 action_button.color = ft.Colors.WHITE
                 action_button.disabled = False
         else:
-            next_btn_text = "Finish Course 🎓" if is_last_overall else "Next Lesson →"
+            next_btn_text = "Finish Course" if is_last_overall else "Next Lesson →"
             action_button.bgcolor = UI_ACCENT
             action_button.color = ft.Colors.WHITE
             action_button.disabled = False
