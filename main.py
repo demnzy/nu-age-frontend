@@ -175,4 +175,4 @@ async def main(page: ft.Page):
     page.route = "/dashboard" if await page.shared_preferences.get("auth_token") else "/"
     await route_change(None)
 
-ft.run(main, assets_dir="assets")
+ft.run(main, assets_dir="assets", view=ft.AppView.WEB_BROWSER, host="0.0.0.0", port=8000)

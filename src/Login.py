@@ -151,8 +151,7 @@ def login_view(page: ft.Page):
 
             elif status is not None:
                 custom_message.value = (
-                    f"Unexpected error (code {status}). "
-                    "Please try again later."
+                    f"Unexpected error, {data["detail"]} "
                 )
                 page.show_dialog(error_dialog)
 

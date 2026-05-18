@@ -1,5 +1,5 @@
 import flet as ft
-from src.requests.auth import signup_request, get_universities
+from src.requests.auth import signup_request, get_universities, verify_email_request
 from src.components.landing_navbar import get_landing_appbar
 from src.requests.organisations import join_org
 import re
@@ -128,7 +128,7 @@ def Signup_view(page: ft.Page):
                             return  # <-- STOP here
 
                 # 3. If we made it here, either they didn't want to join an org, or they joined it successfully!
-                page.show_dialog(success_dialog)
+                page.show_dialog(otp_dialog)
                 
             elif status == 409:
                 detail = data.get("detail", "")
@@ -177,6 +177,73 @@ def Signup_view(page: ft.Page):
                 style=ft.ButtonStyle(color=ft.Colors.PRIMARY),
             )
         ],
+    )
+    # ── OTP Verification Dialog & Logic ─────────────────────────────
+    otp_error_text = ft.Text("", color=ft.Colors.RED_600, size=12, text_align=ft.TextAlign.CENTER)
+    
+    otp_input = ft.TextField(
+        width=250,
+        height=65,
+        text_align=ft.TextAlign.CENTER,
+        text_size=20,
+        keyboard_type=ft.KeyboardType.NUMBER,
+        max_length=6,
+        border_radius=12,
+        border_color=ft.Colors.GREY_300,
+        focused_border_color=ft.Colors.PRIMARY,
+        cursor_color=ft.Colors.PRIMARY,
+        cursor_height=20,
+        counter=" ", # Hides the default "0/6" counter for a cleaner look
+        hint_text="_ _ _ _ _ _", # Custom hint to show 6 digit slots
+    )
+
+    async def handle_verification(e):
+        otp_btn.disabled = True
+        otp_btn.text = "Verifying..."
+        otp_error_text.value = ""
+        page.update()
+
+        # Call the new API helper using the email they just signed up with
+        status, data = await verify_email_request(email.value, otp_input.value)
+
+        if status == 200:
+            # Success! Close the dialog and route to login
+            otp_btn.text = "Success!"
+            page.pop_dialog()
+            page.go("/login")
+        else:
+            # Failed! Show the error (e.g. "Code expired" or "Invalid code")
+            otp_error_text.value = data.get("detail", "Verification failed. Please try again.")
+            otp_btn.disabled = False
+            otp_btn.text = "Verify Account"
+            page.update()
+
+    otp_btn = ft.ElevatedButton(
+        "Verify Account",
+        width=250, height=46,
+        color=ft.Colors.WHITE, bgcolor=ft.Colors.PRIMARY,
+        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10), elevation=0),
+        on_click=handle_verification
+    )
+
+    otp_dialog = ft.AlertDialog(
+        modal=True,
+        title=ft.Row([
+            ft.Icon(ft.Icons.MARK_EMAIL_READ_ROUNDED, color=ft.Colors.PRIMARY, size=24),
+            ft.Text("Verify your Email", size=18, weight=ft.FontWeight.W_700),
+        ], alignment=ft.MainAxisAlignment.CENTER),
+        content=ft.Container(
+            width=300,
+            content=ft.Column([
+                ft.Text("We sent a 6-digit code to your email. Enter it below to activate your account.", 
+                        size=13, color=ft.Colors.GREY_600, text_align=ft.TextAlign.CENTER),
+                ft.Container(height=10),
+                ft.Row([otp_input], alignment=ft.MainAxisAlignment.CENTER),
+                ft.Row([otp_error_text], alignment=ft.MainAxisAlignment.CENTER),
+                ft.Container(height=10),
+                ft.Row([otp_btn], alignment=ft.MainAxisAlignment.CENTER),
+            ], tight=True, spacing=5)
+        )
     )
 
     # ── helper: section label ─────────────────────────────────────

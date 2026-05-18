@@ -34,7 +34,7 @@ async def login_request(email: str, password: str):
         
     # Scenario D: Catch-all for complete network failures (e.g., no internet)
     except httpx.RequestError as e:
-        return 503, {"detail": f"Network error: {str(e)}"}
+        return 503, {"detail": f"Please Check you Internet Connection and Try again."}
     
 async def signup_request(email: str, username: str, password: str, first_name: str, last_name: str, gender: str, role: str, university: str | None = None, organisation: dict | None = None):
     
@@ -109,3 +109,14 @@ async def get_member_profile(token: str, identifier: str):
         )
         response.raise_for_status()
         return response.json()
+
+async def verify_email_request(email: str, code: str):
+    # Adjust your base URL if it is different
+    payload = {"email": email, "code": code}
+    
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(f"{api_url}/users/auth/verify-email", json=payload)
+            return response.status_code, response.json()
+        except Exception as e:
+            return 500, {"detail": str(e)}

@@ -1,3 +1,5 @@
+import random
+
 import flet_charts as fch 
 import flet as ft
 from flet_video import Video, VideoMedia
@@ -468,44 +470,94 @@ async def course_learner_view(page: ft.Page, course_id: str):
         )
     
     @register_content_renderer("cards")
+# Define a palette of nice, soft background colors for your flashcards
     def render_cards_block(value, lesson):
+        CARD_COLORS = [
+        ft.Colors.BLUE_50, ft.Colors.RED_50, ft.Colors.GREEN_50, 
+        ft.Colors.AMBER_50, ft.Colors.PURPLE_50, ft.Colors.TEAL_50
+    ]
         cards_list = value
         card_idx = [0]
+        
+        # 1. Safely extract the raw markdown string
+        raw_markdown_string = cards_list[0] if cards_list else "No cards"
+        
+        # 2. Pick a random color for this specific card
+        card_bg_color =     random.choice(CARD_COLORS)
 
-        card_text = ft.Text(
-            cards_list[0] if cards_list else "No cards",
-            size=22, weight=ft.FontWeight.W_600, text_align=ft.TextAlign.CENTER,
+        # 3. Wrap it in a Container for the background, and style the Markdown perfectly
+        card_text = ft.Container(
+            alignment=ft.Alignment(0, 0), 
+            bgcolor=card_bg_color,      # Applies your random background color
+            padding=30,                 # Gives the text breathing room inside the colored box
+            border_radius=12,           # Rounds the corners of the card
+            content=ft.Markdown(
+                value=raw_markdown_string,
+                selectable=False, 
+                extension_set=ft.MarkdownExtensionSet.GITHUB_FLAVORED,
+                
+                # THE FIX: Force the markdown to center align and use your custom font size
+                md_style_sheet=ft.MarkdownStyleSheet(
+                    text_alignment=ft.TextAlign.CENTER,
+                    p_text_style=ft.TextStyle(
+                        size=22, 
+                        weight=ft.FontWeight.W_600,
+                    ),
+                )
+            ),
         )
-
         counter_text = ft.Text(
             f"1 / {len(cards_list)}",
             color=ft.Colors.ON_SURFACE_VARIANT,
             weight=ft.FontWeight.BOLD,
         )
 
-        def update():
-            card_text.value = cards_list[card_idx[0]]
-            counter_text.value = f"{card_idx[0] + 1} / {len(cards_list)}"
-            lesson["_page"].update()
-
-        return ft.Container(
+        card_container = ft.Container(
             padding=40,
             border_radius=16,
-            bgcolor=ft.Colors.BLUE_50,
-            content=ft.Column(
-                [
-                    ft.Container(card_text, expand=True, alignment=ft.Alignment(0, 0)),
-                    ft.Row(
-                        [
-                            ft.IconButton(ft.Icons.ARROW_BACK_IOS_ROUNDED, on_click=lambda e: (card_idx.__setitem__(0, max(card_idx[0] - 1, 0)), update())),
-                            counter_text,
-                            ft.IconButton(ft.Icons.ARROW_FORWARD_IOS_ROUNDED, on_click=lambda e: (card_idx.__setitem__(0, min(card_idx[0] + 1, len(cards_list) - 1)), update())),
-                        ],
-                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                    ),
-                ]
-            ),
+            bgcolor=card_bg_color, # Initial random color
         )
+
+        # 2. The proper update function (no arguments needed!)
+        def update():
+            # Update the text content
+            card_text.content.value = cards_list[card_idx[0]]
+            counter_text.value = f"{card_idx[0] + 1} / {len(cards_list)}"
+            
+            # THE FIX: Directly target the container's background color property
+            card_container.bgcolor = random.choice(CARD_COLORS)
+            card_text.bgcolor = card_container.bgcolor  # Sync the inner text background with the container
+            
+            lesson["_page"].update()
+
+        # 3. Clean navigation handlers instead of messy lambdas
+        def go_back(e):
+            if card_idx[0] > 0:
+                card_idx[0] -= 1
+                update()
+
+        def go_forward(e):
+            if card_idx[0] < len(cards_list) - 1:
+                card_idx[0] += 1
+                update()
+
+        # 4. Attach the inner content to the container
+        card_container.content = ft.Column(
+            [
+                ft.Container(card_text, expand=True, alignment=ft.Alignment(0, 0)),
+                ft.Row(
+                    [
+                        ft.IconButton(ft.Icons.ARROW_BACK_IOS_ROUNDED, on_click=go_back),
+                        counter_text,
+                        ft.IconButton(ft.Icons.ARROW_FORWARD_IOS_ROUNDED, on_click=go_forward),
+                    ],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                ),
+            ]
+        )
+
+        # 5. Return the fully assembled, state-aware container
+        return card_container
 
     # =========================================================
     # 5. LESSON TYPE RENDERERS
