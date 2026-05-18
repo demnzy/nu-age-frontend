@@ -177,7 +177,7 @@ async def main(page: ft.Page):
     await route_change(None)
 
 #app ft.run(main, assets_dir="assets")
-
+"""WEB CONFIG"""
 import flet.fastapi as flet_fastapi
 from fastapi import FastAPI, Request
 
@@ -194,8 +194,13 @@ async def apply_credentialless_coep(request: Request, call_next):
         response.headers["Cross-Origin-Embedder-Policy"] = "credentialless"
     return response
 
-# 3. Mount your Flet app inside FastAPI
-flet_app = flet_fastapi.app(main, assets_dir="assets")
+current_dir = os.path.dirname(os.path.abspath(__file__))
+
+# 2. Join that path with the "assets" folder name
+absolute_assets_path = os.path.join(current_dir, "assets")
+
+# 3. Feed the absolute path into Flet
+flet_app = flet_fastapi.app(main, assets_dir=absolute_assets_path)
 app.mount("/", flet_app)
 import os
 if __name__ == "__main__":
