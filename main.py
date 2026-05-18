@@ -21,6 +21,18 @@ from src.member_profile import member_profile_view
 from src.course_stats import course_stats_view
 import os
 async def main(page: ft.Page):
+    async def keep_alive():
+        while True:
+            await asyncio.sleep(30) # Wait 30 seconds
+            try:
+                # Silently update an invisible text or just ping the page
+                page.update() 
+            except Exception:
+                # If the page is truly dead, break the loop
+                break
+
+    # Start the heartbeat in the background as soon as the user logs in
+    page.run_task(keep_alive)
     # --- 1. THE UNIVERSAL SOURCE OF TRUTH ---
     # We define the ColorScheme AND Transitions in ONE object so they don't overwrite each other.
     page.window.icon = "icon.ico"
@@ -200,7 +212,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 absolute_assets_path = os.path.join(current_dir, "assets")
 
 # 3. Feed the absolute path into Flet
-flet_app = flet_fastapi.app(main, assets_dir=absolute_assets_path)
+flet_app = flet_fastapi.app(main, assets_dir=absolute_assets_path, session_timeout_seconds=86400)
 app.mount("/", flet_app)
 if __name__ == "__main__":
     # Grab Coolify's hidden port variable, or default to 8000 locally
