@@ -1,5 +1,6 @@
 import asyncio
 import flet as ft
+import uvicorn
 from src.Login import login_view
 from src.signup import Signup_view
 from src.dashboard import dashboard_view
@@ -196,3 +197,10 @@ async def apply_credentialless_coep(request: Request, call_next):
 # 3. Mount your Flet app inside FastAPI
 flet_app = flet_fastapi.app(main, assets_dir="assets")
 app.mount("/", flet_app)
+import os
+if __name__ == "__main__":
+    # Grab Coolify's hidden port variable, or default to 8000 locally
+    port = int(os.environ.get("PORT", 8000))
+    
+    # Start the server directly from Python, hiding it from Coolify's UI restrictions
+    uvicorn.run(app, host="0.0.0.0", port=port)
