@@ -19,7 +19,7 @@ from src.self_study import self_study_view
 from src.network import network_view
 from src.member_profile import member_profile_view
 from src.course_stats import course_stats_view
-
+import os
 async def main(page: ft.Page):
     # --- 1. THE UNIVERSAL SOURCE OF TRUTH ---
     # We define the ColorScheme AND Transitions in ONE object so they don't overwrite each other.
@@ -202,7 +202,6 @@ absolute_assets_path = os.path.join(current_dir, "assets")
 # 3. Feed the absolute path into Flet
 flet_app = flet_fastapi.app(main, assets_dir=absolute_assets_path)
 app.mount("/", flet_app)
-import os
 if __name__ == "__main__":
     # Grab Coolify's hidden port variable, or default to 8000 locally
     port = int(os.environ.get("PORT", 8000))
