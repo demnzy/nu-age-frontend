@@ -175,4 +175,24 @@ async def main(page: ft.Page):
     page.route = "/dashboard" if await page.shared_preferences.get("auth_token") else "/"
     await route_change(None)
 
-ft.run(main, assets_dir="assets", view=ft.AppView.WEB_BROWSER, host="0.0.0.0", port=8000)
+#app ft.run(main, assets_dir="assets")
+
+import flet.fastapi as flet_fastapi
+from fastapi import FastAPI, Request
+
+
+# 1. Initialize a FastAPI app
+app = FastAPI()
+
+# 2. The Magic Middleware: This intercepts the outgoing web page and changes the security lock
+@app.middleware("http")
+async def apply_credentialless_coep(request: Request, call_next):
+    response = await call_next(request)
+    # Overwrite Flet's default strict header with the browser's suggested bypass
+    if "Cross-Origin-Embedder-Policy" in response.headers:
+        response.headers["Cross-Origin-Embedder-Policy"] = "credentialless"
+    return response
+
+# 3. Mount your Flet app inside FastAPI
+flet_app = flet_fastapi.app(main, assets_dir="assets")
+app.mount("/", flet_app)
