@@ -33,8 +33,26 @@ async def profile_view(page: ft.Page):
         page.update()
 
     async def handle_logout(e):
-        page.show_dialog(logout_confirmation_dialog)
-        page.update()
+            # 1. Defensively check if Flet already marked the dialog as open
+            if logout_confirmation_dialog.open:
+                return
+
+            # 2. Lock the trigger button instantly to absorb any rapid double-clicks
+            e.control.disabled = True
+            e.control.update()
+
+            try:
+                # 3. Safely open the dialog
+                page.show_dialog(logout_confirmation_dialog)
+                page.update()
+            finally:
+                # 4. Re-enable the button in the background so it works if they 
+                # cancel the dialog and change their mind!
+                e.control.disabled = False
+                try:
+                    e.control.update()
+                except Exception:
+                    pass
 
     logout_confirmation_dialog = ft.AlertDialog(
         modal=True,
