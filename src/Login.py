@@ -341,11 +341,10 @@ def login_view(page: ft.Page):
         on_change=validate_password_input )
 
     async def handle_verification(e):
-        otp_btn.disabled = True
-        otp_btn.text = "Verifying..."
+        e.disabled = True
+        e.text = "Verifying..."
         otp_error_text.value = ""
         page.update()
-
         # Call the new API helper using the email they just signed up with
         status, data = await verify_password(email_request.value, password_input.value, otp_input.value)
 
@@ -358,13 +357,19 @@ def login_view(page: ft.Page):
             # Failed! Show the error (e.g. "Code expired" or "Invalid code")
             otp_error_text.value = data.get("detail", "Verification failed. Please try again.")
             otp_btn.disabled = False
-            otp_btn.text = "Verify Account"
+            otp_btn.text = "Reset Password"
             page.update()
 
     async def send_verification_email(e):
         send_email_btn.disabled = True
         send_email_btn.text = "Sending..."
         email_error_text.value = ""
+        if not email_request.value or not email_request.value.strip():
+            email_error_text.value = "Please enter your email address."
+            send_email_btn.disabled = True
+            send_email_btn.text = "Send Reset Email"
+            page.update()
+            return
         page.update()
 
         status, data = await send_password_reset_otp(email_request.value)
