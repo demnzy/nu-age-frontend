@@ -314,6 +314,7 @@ async def course_details_view(page: ft.Page, course_id: str, course_name: str):
             # ── card wrapper ──────────────────────────────────────────────
             def card(content):
                 return ft.Container(
+                    width=float("inf"),
                     bgcolor=ft.Colors.SURFACE,
                     border_radius=14,
                     border=ft.border.all(1, ft.Colors.GREY_200),
@@ -374,6 +375,7 @@ async def course_details_view(page: ft.Page, course_id: str, course_name: str):
                                                 size=13,
                                                 color=ft.Colors.GREY_700,
                                                 selectable=True,
+                                                width=float("inf"),
                                             ),
                                         ],
                                     )

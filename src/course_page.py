@@ -649,7 +649,18 @@ async def course_learner_view(page: ft.Page, course_id: str):
             if is_multi_select:
                 q_text_str += " (Select all that apply)"
                 
-            q_text = ft.Text(q_text_str, weight=ft.FontWeight.BOLD, size=16, color=text_color)
+            # Assuming 'question_string' holds your markdown text from the database/backend
+            q_text = ft.Markdown(
+                value=q_text_str,
+                selectable=True,
+                # GITHUB_FLAVORED adds support for tables, strikethrough, and task lists
+                extension_set=ft.MarkdownExtensionSet.GITHUB_FLAVORED,
+                
+                # Optional: You can style the paragraph text so it matches your old font sizes
+                md_style_sheet=ft.MarkdownStyleSheet(
+                    p_text_style=ft.TextStyle(size=15, color=ft.Colors.ON_SURFACE, weight=ft.FontWeight.W_500),
+                )
+            )
 
             # Build Options UI dynamically
             if is_multi_select:

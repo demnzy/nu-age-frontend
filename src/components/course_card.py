@@ -93,6 +93,7 @@ def get_course_card(
         # preserve original animation contract
         offset=ft.Offset(0, 0.1),
         animate_offset=ft.Animation(400, ft.AnimationCurve.DECELERATE),
+        tooltip="Tap on this card to view course details",
         opacity=0,
         animate_opacity=300,
         bgcolor=ft.Colors.SURFACE,
