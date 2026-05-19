@@ -383,14 +383,14 @@ def login_view(page: ft.Page):
             send_email_btn.text = "Send Reset Email"
             page.update()
 
-    otp_btn = ft.ElevatedButton(
+    otp_btn = ft.Button(
         "Reset Password",
         width=250, height=46,
         color=ft.Colors.WHITE, bgcolor=ft.Colors.PRIMARY,
         style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10), elevation=0),
         on_click= handle_verification
     )
-    send_email_btn = ft.ElevatedButton(
+    send_email_btn = ft.Button(
         "Send Reset Email",
         width=250, height=46,
         color=ft.Colors.WHITE, bgcolor=ft.Colors.PRIMARY,
