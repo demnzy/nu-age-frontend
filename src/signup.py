@@ -385,12 +385,36 @@ def Signup_view(page: ft.Page):
     )
 
     # ── terms checkbox ────────────────────────────────────────────
+    # 1. The detached checkbox (no label)
     terms_checkbox = ft.Checkbox(
-        label="I accept the Terms of Service & Privacy Policy",
         value=False,
         on_change=validate_inputs,
         active_color=ft.Colors.PRIMARY,
-        label_style=ft.TextStyle(size=12, color=ft.Colors.GREY_700),
+    )
+
+    # 2. The combined row with clickable TextSpans
+    terms_row = ft.Row(
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        spacing=0, # Keeps the text tightly aligned to the checkbox
+        controls=[
+            terms_checkbox,
+            ft.Text(
+                size=14,
+                color=ft.Colors.GREY_700,
+                spans=[
+                    ft.TextSpan("I have read and accept the "),
+                    ft.TextSpan(
+                        "Privacy Policy",
+                        url="https://privacy.nu-age.name.ng", # 🔗 Insert your actual URL here!
+                        style=ft.TextStyle(
+                            color=ft.Colors.PRIMARY, 
+                            weight=ft.FontWeight.W_600,
+                            decoration=ft.TextDecoration.UNDERLINE # Visual cue that it is clickable
+                        )
+                    ),
+                ]
+            )
+        ]
     )
 
     # ── submit button ─────────────────────────────────────────────
@@ -524,7 +548,7 @@ def Signup_view(page: ft.Page):
             ),
 
             # ── Terms ─────────────────────────────────────────────
-            terms_checkbox,
+            terms_row,
 
             # ── Submit ────────────────────────────────────────────
             ft.Row(controls=[Submit], expand=True),
