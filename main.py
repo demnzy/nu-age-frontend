@@ -188,8 +188,8 @@ async def main(page: ft.Page):
     page.route = "/dashboard" if await page.shared_preferences.get("auth_token") else "/"
     await route_change(None)
 
-#app ft.run(main, assets_dir="assets")
-"""WEB CONFIG"""
+ft.run(main, assets_dir="assets")
+"""WEB CONFIG
 import flet.fastapi as flet_fastapi
 from fastapi import FastAPI, Request
 
@@ -219,4 +219,4 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     
     # Start the server directly from Python, hiding it from Coolify's UI restrictions
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    uvicorn.run(app, host="0.0.0.0", port=port)"""

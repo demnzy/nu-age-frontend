@@ -120,3 +120,25 @@ async def verify_email_request(email: str, code: str):
             return response.status_code, response.json()
         except Exception as e:
             return 500, {"detail": str(e)}
+        
+async def send_password_reset_otp(email: str):
+    # Adjust your base URL if it is different
+    
+    
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(f"{api_url}/users/auth/reset-password?email={email}")
+            return response.status_code, response.json()
+        except Exception as e:
+            return 500, {"detail": str(e)}
+    
+async def verify_password(email: str, new_password: str, otp: str):
+    # Adjust your base URL if it is different
+    payload = {"email": email, "new_password": new_password, "otp": otp}
+    
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(f"{api_url}/users/auth/verify-password?email={email}&otp={otp}&new_password={new_password}")
+            return response.status_code, response.json()
+        except Exception as e:
+            return 500, {"detail": str(e)}

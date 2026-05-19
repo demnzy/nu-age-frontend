@@ -1,8 +1,12 @@
+from math import exp
+
 import flet as ft
+import re
 from src.requests.auth import login_request
 from src.components.landing_navbar import get_landing_appbar
 from src.utils.db_manager import log_daily_activity
 import asyncio
+from src.requests.auth import send_password_reset_otp, verify_password
 
 
 def login_view(page: ft.Page):
@@ -213,7 +217,212 @@ def login_view(page: ft.Page):
             elevation=0,
         ),
     )
+    # ── OTP Verification Dialog & Logic ─────────────────────────────
+    def reset_forgot_password_modal():
+        otp_input.value = ""                 # Clear the code
+        otp_error_text.value = ""            # Clear any old errors
+        otp_btn.text = "Reset Password"      # Reset button text
+        otp_btn.disabled = False  
+        password_input.value = ""          # Clear password fields
+        password_confirm_input.value = ""  # Clear password fields   
+        
+        send_email_btn.value = "Send Email"  # Reset button text
+        send_email_btn.disabled = False
+        input_email.visible = True
+        otp_stuff.visible = False
+        otp_dialog.modal = False  # Allow them to close the dialog if they change their mind
+        page.show_dialog(otp_dialog)
 
+        # email_input.value = ""
+    def validate_email_input(e):
+        email_ok        = bool(re.match(
+            r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
+            email_request.value or ""
+        ))
+
+        if not email_request.value or not email_request.value.strip():
+            email_error_text.value = "Please enter your email address."
+        elif not email_ok:
+            email_error_text.value = "Please enter a valid email address."
+        else:
+            email_error_text.value = ""
+
+        # 3. THE FIX: If there is an error message, disable the button. If it's empty, enable it.
+        send_email_btn.disabled = email_error_text.value != ""
+        page.update()
+    def validate_email_input(e):
+        email_ok        = bool(re.match(
+            r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
+            email_request.value or ""
+        ))
+
+        if not email_request.value or not email_request.value.strip():
+            email_error_text.value = "Please enter your email address."
+        elif not email_ok:
+            email_error_text.value = "Please enter a valid email address."
+        else:
+            email_error_text.value = ""
+
+        # 3. THE FIX: If there is an error message, disable the button. If it's empty, enable it.
+        send_email_btn.disabled = email_error_text.value != ""
+        page.update()
+    def validate_password_input(e):
+        passwords_match = password_input.value == password_confirm_input.value
+
+        if not password_input.value or not password_input.value.strip():
+            otp_error_text.value = "Please enter your new password."
+        elif not passwords_match:
+            otp_error_text.value = "Passwords do not match."
+        else:
+            otp_error_text.value = ""
+
+        # 3. THE FIX: If there is an error message, disable the button. If it's empty, enable it.
+        send_email_btn.disabled = email_error_text.value != ""
+        page.update()
+
+    otp_error_text = ft.Text("", color=ft.Colors.RED_600, size=12, text_align=ft.TextAlign.CENTER)
+    email_error_text = ft.Text("", color=ft.Colors.RED_600, size=12, text_align=ft.TextAlign.CENTER)
+    email_request= ft.TextField(
+        expand=True,
+        text_align=ft.TextAlign.CENTER,
+        text_size=15,
+        keyboard_type=ft.KeyboardType.EMAIL,
+        border_radius=12,
+        border_color=ft.Colors.PRIMARY,
+        focused_border_color=ft.Colors.PRIMARY,
+        cursor_color=ft.Colors.PRIMARY,
+        cursor_height=20,
+        counter=" ", # Hides the default "0/6" counter for a cleaner look
+        hint_text="Input your email", # Custom hint to show 6 digit slots
+        on_change=validate_email_input
+    )
+    otp_input = ft.TextField(
+        expand=True,
+        text_align=ft.TextAlign.CENTER,
+        text_size=20,
+        keyboard_type=ft.KeyboardType.NUMBER,
+        max_length=6,
+        border_radius=12,
+        border_color=ft.Colors.GREY_300,
+        focused_border_color=ft.Colors.PRIMARY,
+        cursor_color=ft.Colors.PRIMARY,
+        cursor_height=20,
+        counter=" ", # Hides the default "0/6" counter for a cleaner look
+        hint_text="_ _ _ _ _ _", # Custom hint to show 6 digit slots
+    )
+    password_input = ft.TextField(
+        expand=True,
+        text_align=ft.TextAlign.CENTER,
+        text_size=15,
+        keyboard_type=ft.KeyboardType.VISIBLE_PASSWORD,
+        border_radius=12,
+        border_color=ft.Colors.PRIMARY,
+        focused_border_color=ft.Colors.PRIMARY,
+        cursor_color=ft.Colors.PRIMARY,
+        cursor_height=20,
+        counter=" ", # Hides the default "0/6" counter for a cleaner look
+        password=True, can_reveal_password=True,
+        hint_text="Enter new password",
+        on_change=validate_password_input
+    )
+    password_confirm_input = ft.TextField(
+        expand=True,
+        text_align=ft.TextAlign.CENTER,
+        text_size=15,
+        keyboard_type=ft.KeyboardType.VISIBLE_PASSWORD,
+        border_radius=12,
+        border_color=ft.Colors.PRIMARY,
+        focused_border_color=ft.Colors.PRIMARY,
+        cursor_color=ft.Colors.PRIMARY,
+        cursor_height=20,
+        counter=" ", # Hides the default "0/6" counter for a cleaner look
+        password=True, can_reveal_password=True,\
+        hint_text="Confirm new password",
+        on_change=validate_password_input )
+
+    async def handle_verification(e):
+        otp_btn.disabled = True
+        otp_btn.text = "Verifying..."
+        otp_error_text.value = ""
+        page.update()
+
+        # Call the new API helper using the email they just signed up with
+        status, data = await verify_password(email_request.value, password_input.value, otp_input.value)
+
+        if status == 200:
+            # Success! Close the dialog and route to login
+            otp_btn.text = "Success!"
+            page.pop_dialog()
+
+        else:
+            # Failed! Show the error (e.g. "Code expired" or "Invalid code")
+            otp_error_text.value = data.get("detail", "Verification failed. Please try again.")
+            otp_btn.disabled = False
+            otp_btn.text = "Verify Account"
+            page.update()
+
+    async def send_verification_email(e):
+        send_email_btn.disabled = True
+        send_email_btn.text = "Sending..."
+        email_error_text.value = ""
+        page.update()
+
+        status, data = await send_password_reset_otp(email_request.value)
+
+        if status == 200:
+            # Success! Close the dialog and route to login
+            send_email_btn.text = "Success!"
+            otp_dialog.modal = True # Make the dialog modal to force them to complete the flow
+            input_email.visible = False
+            otp_stuff.visible = True
+            page.update()
+        else:
+            # Failed! Show the error (e.g. "Code expired" or "Invalid code")
+            email_error_text.value = data.get("detail", "Verification failed. Please try again.")
+            send_email_btn.disabled = False
+            send_email_btn.text = "Send Reset Email"
+            page.update()
+
+    otp_btn = ft.ElevatedButton(
+        "Reset Password",
+        width=250, height=46,
+        color=ft.Colors.WHITE, bgcolor=ft.Colors.PRIMARY,
+        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10), elevation=0),
+        on_click= handle_verification
+    )
+    send_email_btn = ft.ElevatedButton(
+        "Send Reset Email",
+        width=250, height=46,
+        color=ft.Colors.WHITE, bgcolor=ft.Colors.PRIMARY,
+        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10), elevation=0),
+        on_click=send_verification_email
+    )
+    input_email = ft.Column(controls=[ft.Text("Enter your email:"), ft.Row(controls=[email_request], alignment=ft.MainAxisAlignment.CENTER), email_error_text,ft.Row([send_email_btn], alignment=ft.MainAxisAlignment.CENTER)], alignment=ft.MainAxisAlignment.CENTER)
+    otp_stuff= ft.Column(controls=[
+                ft.Text("We sent a 6-digit code to your email. Enter it below to reset your password.", 
+                        size=13, color=ft.Colors.GREY_600, text_align=ft.TextAlign.CENTER),
+                ft.Container(height=10),
+                ft.Column(controls=[ft.Text("Enter the 6-digit code:"),ft.Row(otp_input,alignment=ft.MainAxisAlignment.CENTER)], alignment=ft.MainAxisAlignment.CENTER),
+                ft.Column(controls=[ft.Text("Enter your new password:"),ft.Row(password_input,alignment=ft.MainAxisAlignment.CENTER)], alignment=ft.MainAxisAlignment.CENTER),
+                ft.Column(controls=[ft.Text("Confirm your new password:"),ft.Row(password_confirm_input,alignment=ft.MainAxisAlignment.CENTER)], alignment=ft.MainAxisAlignment.CENTER),
+                otp_error_text,
+                ft.Container(height=10),
+
+                ft.Row([otp_btn], alignment=ft.MainAxisAlignment.CENTER)], visible=False)
+    otp_dialog = ft.AlertDialog(
+        modal=False,
+        title=ft.Row([
+            ft.Icon(ft.Icons.MARK_EMAIL_READ_ROUNDED, color=ft.Colors.PRIMARY, size=24),
+            ft.Text("Reset your Password", size=18, weight=ft.FontWeight.W_700),
+        ], alignment=ft.MainAxisAlignment.CENTER),
+        content=ft.Container(
+            width=300,
+            content=ft.Column([
+                input_email,
+                otp_stuff
+            ], tight=True, spacing=5)
+        )
+    )
     # ── login card ────────────────────────────────────────────────
     login_card = ft.Container(
         width=350,
@@ -269,10 +478,10 @@ def login_view(page: ft.Page):
 
                 # ── Forgot password ───────────────────────────────
                 ft.Row(alignment=ft.MainAxisAlignment.CENTER,
-                       visible=False,
                     controls=[
                         ft.TextButton(
                             content=ft.Text("Forgot password?"),
+                            on_click=reset_forgot_password_modal,
                             style=ft.ButtonStyle(
                                 color=ft.Colors.PRIMARY,
                                 padding=ft.padding.all(0),
