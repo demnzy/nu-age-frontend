@@ -198,9 +198,7 @@ async def member_profile_view(page: ft.Page, identifier: str):
         padding=0,
         bottom_appbar=get_bottom_appbar(page),
         controls=[
-            ft.SafeArea(
-                expand=True,
-                content=content_socket
-            )
+                content_socket
+            
         ]
     )
