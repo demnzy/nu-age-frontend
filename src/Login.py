@@ -255,7 +255,7 @@ def login_view(page: ft.Page):
             r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
             email_request.value or ""
         ))
-
+        send_email_btn.disabled = True  # Disable the button immediately on change to prevent rapid clicks
         if not email_request.value or not email_request.value.strip():
             email_error_text.value = "Please enter your email address."
         elif not email_ok:
@@ -395,7 +395,8 @@ def login_view(page: ft.Page):
         width=250, height=46,
         color=ft.Colors.WHITE, bgcolor=ft.Colors.PRIMARY,
         style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10), elevation=0),
-        on_click=send_verification_email
+        on_click=send_verification_email,
+        disabled=True
     )
     input_email = ft.Column(controls=[ft.Text("Enter your email:"), ft.Row(controls=[email_request], alignment=ft.MainAxisAlignment.CENTER), email_error_text,ft.Row([send_email_btn], alignment=ft.MainAxisAlignment.CENTER)], alignment=ft.MainAxisAlignment.CENTER)
     otp_stuff= ft.Column(controls=[
