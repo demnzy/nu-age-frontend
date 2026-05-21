@@ -127,8 +127,7 @@ async def course_learner_view(page: ft.Page, course_id: str):
 
     def toggle_sidebar(e):
         nonlocal sidebar_visible
-        if is_desktop_layout():
-            return
+        # THE FIX: Removed the desktop block so toggling works everywhere!
         sidebar_visible = not sidebar_visible
         refresh_layout_shell()
         page.update()
@@ -275,28 +274,38 @@ async def course_learner_view(page: ft.Page, course_id: str):
     def refresh_layout_shell():
         desktop_mode = is_desktop_layout()
 
-        menu_button.visible = not desktop_mode
-        close_sidebar_button.visible = not desktop_mode
+        # THE FIX: Make the buttons ALWAYS visible so desktop users can toggle
+        menu_button.visible = True
+        close_sidebar_button.visible = True
 
         if desktop_mode:
-            sidebar_container.visible = True
+            # Respect the state instead of forcing True
+            sidebar_container.visible = sidebar_visible
             sidebar_container.left = None
             sidebar_container.top = None
             sidebar_container.bottom = None
 
-            body_host.content = ft.Row(
-                [
-                    sidebar_container,
+            # Dynamically build the Row so the divider disappears when closed
+            desktop_controls = []
+            if sidebar_visible:
+                desktop_controls.append(sidebar_container)
+                desktop_controls.append(
                     ft.VerticalDivider(
                         width=1, thickness=1,
                         color=ft.Colors.with_opacity(0.06, ft.Colors.BLACK),
-                    ),
-                    ft.Container(
-                        expand=True,
-                        padding=ft.padding.all(20),
-                        content=main_content_area,
-                    ),
-                ],
+                    )
+                )
+                
+            desktop_controls.append(
+                ft.Container(
+                    expand=True,
+                    padding=ft.padding.all(20),
+                    content=main_content_area,
+                )
+            )
+
+            body_host.content = ft.Row(
+                desktop_controls,
                 spacing=0,
                 expand=True,
             )
@@ -340,7 +349,8 @@ async def course_learner_view(page: ft.Page, course_id: str):
             show_controls=True,
         )
 
-        return ft.Container(
+        # 1. Build the exact same video container you already had
+        video_container = ft.Container(
             aspect_ratio=16 / 9,
             border_radius=12,
             bgcolor=ft.Colors.BLACK,
@@ -366,6 +376,21 @@ async def course_learner_view(page: ft.Page, course_id: str):
                 ],
                 expand=True,
             ),
+        )
+
+        # 2. THE FIX: Wrap it in a ResponsiveRow to control its width across devices
+        return ft.ResponsiveRow(
+            alignment=ft.MainAxisAlignment.CENTER, # Keeps the video perfectly centered
+            controls=[
+                ft.Container(
+                    # xs=12 (100% width on phones)
+                    # md=10 (~83% width on tablets)
+                    # lg=8  (~66% width on standard desktops)
+                    # xl=7  (~58% width on massive ultra-wide monitors)
+                    col={"xs": 12, "md": 10, "lg": 15, "xl": 7},
+                    content=video_container
+                )
+            ]
         )
         
     @register_content_renderer("accompanying_text")

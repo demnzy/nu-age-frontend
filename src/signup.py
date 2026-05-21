@@ -399,7 +399,7 @@ def Signup_view(page: ft.Page):
         controls=[
             terms_checkbox,
             ft.Text(
-                size=14,
+                size=12,
                 color=ft.Colors.GREY_700,
                 spans=[
                     ft.TextSpan("I have read and accept the "),
