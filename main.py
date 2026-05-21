@@ -19,6 +19,7 @@ from src.self_study import self_study_view
 from src.network import network_view
 from src.member_profile import member_profile_view
 from src.course_stats import course_stats_view
+from src.member_invite_view import member_invite_view
 import os
 async def main(page: ft.Page):
     async def keep_alive():
@@ -50,7 +51,7 @@ async def main(page: ft.Page):
         "roboto": "/fonts/Roboto_SemiCondensed-Regular.ttf",
         "montserrat": "/fonts/Montserrat-Regular.ttf"
     }
-    page.theme = ft.Theme(
+    LIGHT_THEME = ft.Theme(
         font_family="montserrat",
         color_scheme=ft.ColorScheme(
             primary="#035800",  
@@ -65,8 +66,70 @@ async def main(page: ft.Page):
             ios="cupertino"
         )
     )
-
+    DARK_THEME = ft.Theme(
+    font_family="montserrat",
+    color_scheme=ft.ColorScheme(
+        primary="#4CAF50",        # Lighter green — readable on dark bg
+        secondary="#37BF14",      # Stays the same — pops on dark
+        on_primary="#1A1717",     # Dark text on lighter green button
+        surface="#252424",        # True dark surface
+        on_surface="#E8E8E8",     # Soft white text
+        outline="#2C2C2C",        # Subtle borders
+    ),
+    page_transitions=ft.PageTransitionsTheme(
+        android="fadeUpwards",
+        ios="cupertino"
+    )
+)
+    splash_logo = ft.Image(
+        src="Nu age new logo.png",
+        width=400, height=600, fit="contain",
+    )
+    
     # --- 2. FORCE LIGHT MODE ---
+
+    # ─────────────────────────────────────────────
+    # DARK MODE TOGGLE — the only new function
+    # ─────────────────────────────────────────────
+
+    async def apply_theme(is_dark: bool):
+        """Apply the correct theme and persist the preference."""
+        if is_dark:
+            page.theme_mode = ft.ThemeMode.DARK
+            page.theme = LIGHT_THEME       # used as fallback base
+            page.dark_theme = DARK_THEME   # Flet uses dark_theme in dark mode
+            page.bgcolor = "#121212"
+            splash_logo.src = "nu_age_black_2-removebg-preview.png"  # Swap to light logo for dark mode
+            splash_logo.width= 300
+            splash_logo.height= 500
+        else:
+            page.theme_mode = ft.ThemeMode.LIGHT
+            page.theme = LIGHT_THEME
+            page.bgcolor = ft.Colors.SURFACE
+        page.update()
+
+    async def toggle_dark_mode():
+        """
+        Call this from anywhere in your app:
+            await page.session.store.get("toggle_dark_mode")()
+        Or expose it via page.data for global access.
+        """
+        current = await page.shared_preferences.get("dark_mode")
+        is_dark = not (current == "true")
+        await page.shared_preferences.set("dark_mode", "true" if is_dark else "false")
+        await apply_theme(is_dark)
+
+    # Store the toggle function so any view can access it
+    page.data = {"toggle_dark_mode": toggle_dark_mode}
+
+    # ─────────────────────────────────────────────
+    # LOAD PERSISTED THEME PREFERENCE ON STARTUP
+    # ─────────────────────────────────────────────
+
+    saved_mode = await page.shared_preferences.get("dark_mode")
+    is_dark_on_start = saved_mode == "true"
+    await apply_theme(is_dark_on_start)
+
     page.theme_mode = ft.ThemeMode.LIGHT
     page.bgcolor = ft.Colors.SURFACE # Use the alias so it matches the theme
     
@@ -76,10 +139,6 @@ async def main(page: ft.Page):
     page.appbar = None 
     
     # --- 3. SPLASH SCREEN ---
-    splash_logo = ft.Image(
-        src="Nu age new logo.png",
-        width=400, height=600, fit="contain",
-    )
     
     splash_container = ft.Container(
         content=splash_logo,
@@ -107,17 +166,15 @@ async def main(page: ft.Page):
     # --- 4. ROUTING LOGIC ---
     async def route_change(e):
         page.views.clear()
-        
-        # Initialize TemplateRoute for pattern matching
         troute = ft.TemplateRoute(page.route)
-        
-        # --- GLOBAL AUTH CHECK ---
-        # Only bypass the auth check if they are explicitly on the login or signup pages
-        if page.route not in ["/", "/signup"]:
+
+        def is_public_route(route):
+            return route in ["/", "/signup"] or route.startswith("/accept-invite/")
+
+        if not is_public_route(page.route):
             token = await page.shared_preferences.get("auth_token")
             if not token:
-                page.route = "/"
-                await route_change(None)
+                page.go("/")  # ✅ Triggers route_change cleanly via the event system
                 return
 
             status, user_data = await get_current_user_request(token)
@@ -125,9 +182,9 @@ async def main(page: ft.Page):
                 page.session.store.set("current_user", user_data)
             else:
                 await page.shared_preferences.remove("auth_token")
-                page.route = "/"
-                await route_change(None)
+                page.go("/")  # ✅ Same here
                 return
+
         
         # --- VIEW MAPPING ---
         if page.route == "/dashboard":
@@ -168,7 +225,10 @@ async def main(page: ft.Page):
         elif troute.match("/organisations/:org_id/courses/:course_id/settings"):
             # Extracts the ID from the URL and passes it to the view
             page.views.append(await course_settings_view(page, troute.course_id, troute.org_id))
-        # Dynamic Course Details
+        elif troute.match("/accept-invite/:token"):
+        # Safely extract the query parameter ('3839') natively
+                # Mount your view and hand off the token cleanly
+                page.views.append(member_invite_view(page, token=troute.token)) 
         elif page.route.startswith("/courses/"):
             route_parts = page.route.split("/")
             # Check if we have at least: / , courses , id
@@ -188,8 +248,8 @@ async def main(page: ft.Page):
     page.route = "/dashboard" if await page.shared_preferences.get("auth_token") else "/"
     await route_change(None)
 
-ft.run(main, assets_dir="assets")
-"""WEB CONFIG
+#ft.run(main, assets_dir="assets")
+#WEB CONFIG
 import flet.fastapi as flet_fastapi
 from fastapi import FastAPI, Request
 
@@ -219,4 +279,4 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     
     # Start the server directly from Python, hiding it from Coolify's UI restrictions
-    uvicorn.run(app, host="0.0.0.0", port=port)"""
+    uvicorn.run(app, host="0.0.0.0", port=port)
