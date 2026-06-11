@@ -416,7 +416,7 @@ async def organisations_view(page: ft.Page):
                                             if members
                                             else [ft.Text("No members yet.", color=ft.Colors.GREY_400, size=13)],
                                         ),
-                                        manage_route="/organisations/members",
+                                        manage_route=f"organisations/{org_id}/invite-members",
                                     ),
                                     dashboard_section(
                                         title="Courses",

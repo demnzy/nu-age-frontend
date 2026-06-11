@@ -20,6 +20,7 @@ from src.network import network_view
 from src.member_profile import member_profile_view
 from src.course_stats import course_stats_view
 from src.member_invite_view import member_invite_view
+from src.invite_members import invite_members_view
 import os
 async def main(page: ft.Page):
     async def keep_alive():
@@ -99,13 +100,21 @@ async def main(page: ft.Page):
             page.theme = LIGHT_THEME       # used as fallback base
             page.dark_theme = DARK_THEME   # Flet uses dark_theme in dark mode
             page.bgcolor = "#121212"
-            splash_logo.src = "nu_age_black_2-removebg-preview.png"  # Swap to light logo for dark mode
-            splash_logo.width= 300
-            splash_logo.height= 500
+            
+            # Set to Dark Mode Logo
+            splash_logo.src = "nu_age_black_2-removebg-preview.png"  
+            splash_logo.width = 300
+            splash_logo.height = 500
         else:
             page.theme_mode = ft.ThemeMode.LIGHT
             page.theme = LIGHT_THEME
             page.bgcolor = ft.Colors.SURFACE
+            
+            # THE FIX: Explicitly reset to Light Mode Logo
+            splash_logo.src = "Nu age new logo.png" 
+            splash_logo.width = 400
+            splash_logo.height = 600
+            
         page.update()
 
     async def toggle_dark_mode():
@@ -130,8 +139,6 @@ async def main(page: ft.Page):
     is_dark_on_start = saved_mode == "true"
     await apply_theme(is_dark_on_start)
 
-    page.theme_mode = ft.ThemeMode.LIGHT
-    page.bgcolor = ft.Colors.SURFACE # Use the alias so it matches the theme
     
     page.title = "Nu-age"
     page.window_width = 400
@@ -229,6 +236,10 @@ async def main(page: ft.Page):
         # Safely extract the query parameter ('3839') natively
                 # Mount your view and hand off the token cleanly
                 page.views.append(member_invite_view(page, token=troute.token)) 
+        elif troute.match("organisations/:org_id/invite-members"):
+        # Safely extract the query parameter ('3839') natively
+                # Mount your view and hand off the token cleanly
+                page.views.append(await invite_members_view(page, org_id=troute.org_id)) 
         elif page.route.startswith("/courses/"):
             route_parts = page.route.split("/")
             # Check if we have at least: / , courses , id
@@ -249,7 +260,8 @@ async def main(page: ft.Page):
     await route_change(None)
 
 #ft.run(main, assets_dir="assets")
-#WEB CONFIG
+
+###WEB CONFIG
 import flet.fastapi as flet_fastapi
 from fastapi import FastAPI, Request
 

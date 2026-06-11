@@ -304,11 +304,11 @@ async def profile_view(page: ft.Page):
             controls=[
                 section_label("Quick Actions"),
                 actions_row,
-                #ft.Row(controls=[ft.Text(
-            #"TOGGLE APPEARANCE: ",
-            #size=11,
-           #weight=ft.FontWeight.W_700,
-            #color=LABEL_COLOR), dark_switch]),
+                ft.Row(controls=[ft.Text(
+            "TOGGLE APPEARANCE: ",
+            size=11,
+           weight=ft.FontWeight.W_700,
+            color=LABEL_COLOR), dark_switch]),
                 section_label("Account Details"),
                 info_card,
             ]
