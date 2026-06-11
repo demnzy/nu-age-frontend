@@ -67,7 +67,14 @@ async def invite_members_view(page: ft.Page, org_id: str):
     content_socket = ft.Container(
         expand=True,
         alignment=ft.Alignment.CENTER,
-        content=ft.ProgressRing(color=ft.Colors.PRIMARY, stroke_width=3)
+        content=ft.Column(
+            alignment=ft.MainAxisAlignment.CENTER,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                ft.ProgressRing(color=ft.Colors.PRIMARY, width=36, height=36),
+                ft.Text("Loading…", size=13, color=ft.Colors.GREY_500),
+            ],
+        ),
     )
 
     # ── Async Data Fetcher & Renderer ─────────────────────────────────────────
