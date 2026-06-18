@@ -6,6 +6,7 @@ from src.requests.Courses import (
     save_bulk_curriculum,
     get_courses,
     get_course_curriculum,
+    generate_course_draft,
 )
 
 # =========================================================
@@ -1473,6 +1474,153 @@ async def course_builder_view(page: ft.Page, course_id: str):
         )
 
     # =========================================================
+    # AI COURSE DRAFT
+    # =========================================================
+
+    def open_ai_draft_dialog(e=None):
+        # Mock plan check — replace this condition with a real org plan lookup
+        org_on_paid_plan = True
+        if not org_on_paid_plan:
+            show_dialog(
+                "Upgrade Required",
+                "AI course generation is available on paid plans. Upgrade your organisation to use this feature.",
+                success=False,
+            )
+            return
+
+        topic_field = ft.TextField(
+            label="Topic",
+            hint_text="e.g. Introduction to Financial Accounting",
+            autofocus=True,
+            width=float("inf"),
+            
+            # THE FIX: Enable multi-line wrapping and scrolling
+            multiline=True,
+            min_lines=1,  # Starts out looking like a normal 1-line field
+            max_lines=3,  # Stops growing after 3 lines and activates the vertical scrollbar!
+        )
+        context_field = ft.TextField(
+            label="Target Audience / Context",
+            hint_text="e.g. 200-level Business Administration students with no prior accounting background",
+            width=float("inf"),
+            
+            # THE FIX: Enable multi-line wrapping and scrolling
+            multiline=True,
+            min_lines=1,  # Starts out looking like a normal 1-line field
+            max_lines=3,  # Stops growing after 3 lines and activates the vertical scrollbar!
+        )
+        status_text = ft.Text("", size=12, color=ft.Colors.ON_SURFACE_VARIANT)
+        generate_btn = ft.ElevatedButton(
+            "Generate",
+            icon=ft.Icons.AUTO_AWESOME_ROUNDED,
+            bgcolor=UI_ACCENT,
+            color=ft.Colors.WHITE,
+        )
+
+        def close_dialog(ev=None):
+            dlg.open = False
+            page.update()
+
+        async def on_generate(ev):
+            topic = topic_field.value.strip()
+            context = context_field.value.strip()
+
+            if not topic:
+                status_text.value = "Topic is required."
+                status_text.color = ft.Colors.ERROR
+                page.update()
+                return
+            if not context:
+                status_text.value = "Context is required."
+                status_text.color = ft.Colors.ERROR
+                page.update()
+                return
+
+            generate_btn.disabled = True
+            status_text.value = "Generating… this may take a moment."
+            status_text.color = ft.Colors.ORANGE_700
+            page.update()
+
+            result = await generate_course_draft(token=token, topic=topic, context=context)
+
+            if result.get("error") == "forbidden":
+                status_text.value = "You don't have permission to generate courses."
+                status_text.color = ft.Colors.ERROR
+                generate_btn.disabled = False
+                page.update()
+                return
+
+            if result.get("error") == "plan_required":
+                status_text.value = "Your organisation plan doesn't include AI generation."
+                status_text.color = ft.Colors.ERROR
+                generate_btn.disabled = False
+                page.update()
+                return
+
+            if result.get("error") or result.get("status") != "success":
+                status_text.value = "Generation failed. Please try again."
+                status_text.color = ft.Colors.ERROR
+                generate_btn.disabled = False
+                page.update()
+                return
+
+            # ── Populate the builder with the returned draft ──────────────
+            draft = result.get("data", {})
+            new_modules = draft.get("modules", [])
+            if new_modules:
+                modules.clear()
+                modules.extend([ensure_module_shape(m) for m in new_modules])
+
+            close_dialog()
+            refresh_curriculum()
+
+        generate_btn.on_click = lambda ev: page.run_task(on_generate, ev)
+
+        dlg = ft.AlertDialog(
+            modal=True,
+            title=ft.Row(
+                [
+                    ft.Icon(ft.Icons.AUTO_AWESOME_ROUNDED, color=UI_ACCENT),
+                    ft.Text("Generate with AI", weight=ft.FontWeight.BOLD),
+                ],
+                spacing=8,
+            ),
+            content=ft.Container(
+                content=ft.Column(
+                    [
+                        ft.Text(
+                            "Describe your course topic and audience. The AI will draft a full multi-format curriculum for you to review and edit before publishing.",
+                            size=13,
+                            color=ft.Colors.ON_SURFACE_VARIANT,
+                        ),
+                        topic_field,
+                        context_field,
+                        status_text,
+                    ],
+                    spacing=14,
+                    tight=True,
+                ),
+            ),
+            actions=[
+                ft.TextButton("Cancel", on_click=close_dialog),
+                generate_btn,
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        page.overlay.append(dlg)
+        dlg.open = True
+        page.update()
+
+    def build_ai_draft_button():
+        return ft.OutlinedButton(
+            "AI Draft",
+            icon=ft.Icons.SMART_TOY_ROUNDED,
+            height=44,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10)),
+            on_click=open_ai_draft_dialog,
+        )
+
+    # =========================================================
     # Render curriculum
     # =========================================================
 
@@ -1501,6 +1649,7 @@ async def course_builder_view(page: ft.Page, course_id: str):
             on_click=open_add_module_modal,
         )
 
+        ai_draft_btn = build_ai_draft_button()
         publish_btn = build_publish_button()
 
         if is_mobile(page):
@@ -1509,6 +1658,7 @@ async def course_builder_view(page: ft.Page, course_id: str):
                     back_and_title,
                     ft.Column(
                         [
+                            adaptive_action_button(ai_draft_btn),
                             adaptive_action_button(add_module_btn),
                             adaptive_action_button(publish_btn),
                         ],
@@ -1523,6 +1673,7 @@ async def course_builder_view(page: ft.Page, course_id: str):
                     ft.Container(content=back_and_title, expand=True),
                     ft.Row(
                         [
+                            ai_draft_btn,
                             add_module_btn,
                             publish_btn,
                         ],

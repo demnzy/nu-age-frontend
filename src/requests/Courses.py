@@ -292,3 +292,35 @@ async def generate_course_certificate(token: str, course_id: str):
             return {"error": f"Failed to generate certificate: {response.status_code}"}
     except Exception as e:
         return {"error": str(e)}
+    
+# ── Paste this into src/requests/Courses.py alongside your existing helpers ──
+
+async def generate_course_draft(token: str, topic: str, context: str) -> dict:
+    """Hit the /courses/generate-draft endpoint and return the parsed draft dict."""
+    url = f"{api_url}/courses/generate-draft"
+    headers = {"Authorization": f"Bearer {token}"}
+    payload = {"topic": topic, "context": context}
+
+    try:
+        async with httpx.AsyncClient(timeout=120) as client:   # AI gen can be slow
+            response = await client.post(url, headers=headers, json=payload)
+
+        if response.status_code == 200:
+            print("[AI] Draft generated successfully.")
+            return response.json()          # {"status": "success", "data": {...}}
+
+        elif response.status_code == 403:
+            print("[AI] Forbidden — user role not permitted.")
+            return {"error": "forbidden"}
+
+        elif response.status_code == 402:
+            print("[AI] Plan gate — org not on a paid plan.")
+            return {"error": "plan_required"}
+
+        else:
+            print(f"[AI] Generation failed: {response.status_code}")
+            return {"error": "server_fail"}
+
+    except Exception as ex:
+        print(f"[AI] Request exception: {ex}")
+        return {"error": "server_fail"}

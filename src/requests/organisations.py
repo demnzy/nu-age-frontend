@@ -180,3 +180,25 @@ async def send_org_invite(token: str, org_id: str, email: str, role:str) -> dict
     except Exception as e:
         print(f"Request Error: {e}")
         return {"error": str(e)}
+    
+async def get_joined_organisations(token: str) -> list:
+    url = f"{api_url}/organisations/joined"
+    headers = {"Authorization": f"Bearer {token}"}
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, headers=headers)
+
+            if response.status_code == 200:
+                return response.json()
+            else:
+                try:
+                    error_detail = response.json().get("detail", f"HTTP {response.status_code}")
+                except Exception:
+                    error_detail = f"HTTP {response.status_code}: {response.text}"
+                print(f"get_joined_organisations error: {error_detail}")
+                return []
+
+    except Exception as e:
+        print(f"get_joined_organisations request error: {e}")
+        return []
