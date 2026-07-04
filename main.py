@@ -2,6 +2,7 @@ import asyncio
 import flet as ft
 import uvicorn
 from src.Login import login_view
+from src.course_analytics import course_analytics_view
 from src.signup import Signup_view
 from src.dashboard import dashboard_view
 from src.requests.auth import get_current_user_request 
@@ -236,10 +237,15 @@ async def main(page: ft.Page):
         # Safely extract the query parameter ('3839') natively
                 # Mount your view and hand off the token cleanly
                 page.views.append(member_invite_view(page, token=troute.token)) 
-        elif troute.match("organisations/:org_id/invite-members"):
+        
+        elif troute.match("/organisations/:org_id/invite-members"):
         # Safely extract the query parameter ('3839') natively
                 # Mount your view and hand off the token cleanly
                 page.views.append(await invite_members_view(page, org_id=troute.org_id)) 
+        elif troute.match("/organisations/:org_id/courses/:course_id/analytics"):
+            page.views.append(
+                await course_analytics_view(page, org_id=troute.org_id, course_id=troute.course_id)
+            )
         elif page.route.startswith("/courses/"):
             route_parts = page.route.split("/")
             # Check if we have at least: / , courses , id

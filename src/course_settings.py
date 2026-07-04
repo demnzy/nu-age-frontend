@@ -45,6 +45,7 @@ async def course_settings_view(page: ft.Page, course_id: str, org_id: str) -> ft
     async def _get_teachers() -> list:
         try:
             result = await get_organisation_members(token, id=org_id, teachers=True)
+            print(result)
             return result or []
         except Exception as ex:
             _log_error("get_teachers", ex)

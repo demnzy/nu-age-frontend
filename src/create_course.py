@@ -120,7 +120,9 @@ async def create_courses_view(page: ft.Page, org_id: str = None):
                 side=ft.BorderSide(1, theme_color),
                 padding=ft.padding.symmetric(vertical=0, horizontal=8),
             ),
-            on_click=lambda e, cid=course_id: page.go(f"/courses/{cid}/analytics"),
+            on_click=lambda e, oid=org_id, cid=course_id: page.go(
+    f"/organisations/{oid}/courses/{cid}/analytics"
+),
         )
 
         # ── settings icon (top-right of card) ────────────────────────────────
