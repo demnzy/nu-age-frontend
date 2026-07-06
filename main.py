@@ -234,9 +234,13 @@ async def main(page: ft.Page):
             # Extracts the ID from the URL and passes it to the view
             page.views.append(await course_settings_view(page, troute.course_id, troute.org_id))
         elif troute.match("/accept-invite/:token"):
-        # Safely extract the query parameter ('3839') natively
-                # Mount your view and hand off the token cleanly
-                page.views.append(member_invite_view(page, token=troute.token)) 
+            # Safely extract the token natively and mount the invite view.
+            # NOTE: added `await` here — if member_invite_view is a regular
+            # (non-async) function, remove the `await` or you'll get an error.
+            # If it's `async def member_invite_view(...)`, keep the await —
+            # without it you were appending an un-awaited coroutine instead
+            # of the actual view, which would render blank.
+            page.views.append(await member_invite_view(page, token=troute.token))
         
         elif troute.match("/organisations/:org_id/invite-members"):
         # Safely extract the query parameter ('3839') natively
@@ -261,8 +265,16 @@ async def main(page: ft.Page):
         page.update()
 
     page.on_route_change = route_change
-    # Trigger initial route
-    page.route = "/dashboard" if await page.shared_preferences.get("auth_token") else "/"
+
+    # --- THE FIX ---
+    # Previously this unconditionally overwrote page.route with "/dashboard"
+    # or "/", which destroyed real deep links (e.g. /accept-invite/<uuid>
+    # from an email) before route_change ever saw them. Now we only apply
+    # that default when there's no real route to honor (fresh load with no
+    # path, or bare "/").
+    if not page.route or page.route == "/":
+        page.route = "/dashboard" if await page.shared_preferences.get("auth_token") else "/"
+
     await route_change(None)
 
 #ft.run(main, assets_dir="assets")
