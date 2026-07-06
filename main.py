@@ -179,10 +179,36 @@ async def main(page: ft.Page):
         def is_public_route(route):
             return route in ["/", "/signup"] or route.startswith("/accept-invite/")
 
+        async def show_session_expired_dialog(message: str, auto_redirect_seconds: int = 4):
+            """Sleek dialog shown instead of silently kicking the user to login."""
+
+            def go_to_login(e=None):
+                page.close(dlg)
+                page.go("/")
+
+            dlg = ft.AlertDialog(
+                modal=True,
+                title=ft.Row(
+                    [ft.Icon(ft.Icons.LOCK_CLOCK, color=ft.Colors.PRIMARY), ft.Text("Session expired")],
+                    spacing=8,
+                ),
+                content=ft.Text(message),
+                actions=[
+                    ft.FilledButton("Log in again", on_click=go_to_login),
+                ],
+                actions_alignment=ft.MainAxisAlignment.END,
+            )
+            page.open(dlg)
+
+            # Auto-redirect after a few seconds if they don't tap the button
+            await asyncio.sleep(auto_redirect_seconds)
+            if dlg.open:
+                go_to_login()
+
         if not is_public_route(page.route):
             token = await page.shared_preferences.get("auth_token")
             if not token:
-                page.go("/")  # ✅ Triggers route_change cleanly via the event system
+                page.go("/")  # No prior session at all — plain redirect, no dialog needed
                 return
 
             status, user_data = await get_current_user_request(token)
@@ -190,7 +216,9 @@ async def main(page: ft.Page):
                 page.session.store.set("current_user", user_data)
             else:
                 await page.shared_preferences.remove("auth_token")
-                page.go("/")  # ✅ Same here
+                await show_session_expired_dialog(
+                    "Your session has ended. Please log in again to continue."
+                )
                 return
 
         
@@ -235,11 +263,8 @@ async def main(page: ft.Page):
             page.views.append(await course_settings_view(page, troute.course_id, troute.org_id))
         elif troute.match("/accept-invite/:token"):
             # Safely extract the token natively and mount the invite view.
-            # NOTE: added `await` here — if member_invite_view is a regular
-            # (non-async) function, remove the `await` or you'll get an error.
-            # If it's `async def member_invite_view(...)`, keep the await —
-            # without it you were appending an un-awaited coroutine instead
-            # of the actual view, which would render blank.
+            # member_invite_view is a regular (non-async) function that
+            # returns a View directly, so no `await` here.
             page.views.append(member_invite_view(page, token=troute.token))
         
         elif troute.match("/organisations/:org_id/invite-members"):
