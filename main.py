@@ -240,7 +240,7 @@ async def main(page: ft.Page):
             # If it's `async def member_invite_view(...)`, keep the await —
             # without it you were appending an un-awaited coroutine instead
             # of the actual view, which would render blank.
-            page.views.append(await member_invite_view(page, token=troute.token))
+            page.views.append(member_invite_view(page, token=troute.token))
         
         elif troute.match("/organisations/:org_id/invite-members"):
         # Safely extract the query parameter ('3839') natively
