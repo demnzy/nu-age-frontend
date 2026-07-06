@@ -179,7 +179,11 @@ async def main(page: ft.Page):
         def is_public_route(route):
             return route in ["/", "/signup"] or route.startswith("/accept-invite/")
 
-        async def show_session_expired_dialog(message: str, auto_redirect_seconds: int = 4):
+        async def show_session_expired_dialog(
+            message: str,
+            auto_redirect_seconds: int = 4,
+            title: str = "Session expired",
+        ):
             """Sleek dialog shown instead of silently kicking the user to login."""
 
             def go_to_login(e=None):
@@ -189,7 +193,7 @@ async def main(page: ft.Page):
             dlg = ft.AlertDialog(
                 modal=True,
                 title=ft.Row(
-                    [ft.Icon(ft.Icons.LOCK_CLOCK, color=ft.Colors.PRIMARY), ft.Text("Session expired")],
+                    [ft.Icon(ft.Icons.LOCK_CLOCK, color=ft.Colors.PRIMARY), ft.Text(title)],
                     spacing=8,
                 ),
                 content=ft.Text(message),
@@ -206,9 +210,16 @@ async def main(page: ft.Page):
                 go_to_login()
 
         if not is_public_route(page.route):
+            # Fast local check first — no network call needed to know
+            # whether a token even exists.
             token = await page.shared_preferences.get("auth_token")
+
             if not token:
-                page.go("/")  # No prior session at all — plain redirect, no dialog needed
+                await show_session_expired_dialog(
+                    "Please log in to continue.",
+                    auto_redirect_seconds=3,
+                    title="Login required",
+                )
                 return
 
             status, user_data = await get_current_user_request(token)
