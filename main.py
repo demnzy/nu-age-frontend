@@ -187,7 +187,8 @@ async def main(page: ft.Page):
             """Sleek dialog shown instead of silently kicking the user to login."""
 
             def go_to_login(e=None):
-                page.close(dlg)
+                dlg.open = False
+                page.update()
                 page.go("/")
 
             dlg = ft.AlertDialog(
@@ -202,7 +203,9 @@ async def main(page: ft.Page):
                 ],
                 actions_alignment=ft.MainAxisAlignment.END,
             )
-            page.open(dlg)
+            page.dialog = dlg
+            dlg.open = True
+            page.update()
 
             # Auto-redirect after a few seconds if they don't tap the button
             await asyncio.sleep(auto_redirect_seconds)
