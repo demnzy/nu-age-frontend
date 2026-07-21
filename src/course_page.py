@@ -1,5 +1,4 @@
 import random
-from turtle import bgcolor
 
 import flet_charts as fch 
 import flet as ft
