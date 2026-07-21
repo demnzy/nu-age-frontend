@@ -23,7 +23,7 @@ from src.requests.subscription import get_subscription_status
 
 # Backend sends limits, but we map UI colors here on the frontend
 PLAN_COLORS = {
-    "free": ft.Colors.WHITE,
+    "free": ft.Colors.ON_PRIMARY,
     "pro": ft.Colors.PURPLE_400,
     "unlimited": ft.Colors.ORANGE_400,
     "default": ft.Colors.PRIMARY
@@ -95,7 +95,7 @@ def _error_screen(message: str, on_retry) -> ft.Container:
                         text_align=ft.TextAlign.CENTER),
                 ft.Container(height=4),
                 ft.ElevatedButton(
-                    "Retry", bgcolor=ft.Colors.PRIMARY, color=ft.Colors.WHITE, height=40,
+                    "Retry", bgcolor=ft.Colors.PRIMARY, color=ft.Colors.ON_PRIMARY, height=40,
                     style=ft.ButtonStyle(
                         shape=ft.RoundedRectangleBorder(radius=10), elevation=0
                     ),
@@ -159,6 +159,7 @@ async def self_study_view(page: ft.Page):
     # ── shared state ──────────────────────────────────────────────────────────
     state = {
         "materials":         [],
+        "on_hub":            True,
         "sidebar_open":      False,
         "selected_mat_ids":  set(),
         "was_desktop":       True,
@@ -178,17 +179,17 @@ async def self_study_view(page: ft.Page):
     # ─────────────────────────────────────────────────────────────────────────
     sidebar_toggle = ft.IconButton(
         icon=ft.Icons.MENU_OPEN_ROUNDED,
-        icon_color=ft.Colors.WHITE,
+        icon_color=ft.Colors.ON_PRIMARY,
         tooltip="Toggle sidebar",
     )
 
     app_bar = ft.AppBar(
         bgcolor=ft.Colors.PRIMARY,
-        title=ft.Text("Study Hub", color=ft.Colors.WHITE,
+        title=ft.Text("Study Hub", color=ft.Colors.ON_PRIMARY,
                       weight=ft.FontWeight.W_700, size=17),
         leading=ft.IconButton(
             icon=ft.Icons.ARROW_BACK_ROUNDED,
-            icon_color=ft.Colors.WHITE,
+            icon_color=ft.Colors.ON_PRIMARY,
             on_click=lambda _: page.go("/dashboard"),
         ),
         actions=[sidebar_toggle],
@@ -212,7 +213,7 @@ async def self_study_view(page: ft.Page):
     
     mobile_overlay = ft.Container(
         left=0, right=0, top=0, bottom=0,
-        bgcolor=ft.Colors.with_opacity(0.4, ft.Colors.BLACK),
+        bgcolor=ft.Colors.with_opacity(0.4, ft.Colors.ON_SURFACE),
         visible=False,
     )
 
@@ -259,8 +260,8 @@ async def self_study_view(page: ft.Page):
                     content=ft.Row(
                         tight=True, spacing=6,
                         controls=[
-                            ft.Icon(ft.Icons.ARROW_FORWARD_ROUNDED, size=12, color=ft.Colors.WHITE),
-                            ft.Text("Upgrade Plan (coming soon!)", size=11, color=ft.Colors.WHITE, weight=ft.FontWeight.W_600),
+                            ft.Icon(ft.Icons.ARROW_FORWARD_ROUNDED, size=12, color=ft.Colors.ON_PRIMARY),
+                            ft.Text("Upgrade Plan (coming soon!)", size=11, color=ft.Colors.ON_PRIMARY, weight=ft.FontWeight.W_600),
                         ],
                     ),
                     bgcolor=ft.Colors.ORANGE_500, height=32, expand=True,
@@ -291,6 +292,10 @@ async def self_study_view(page: ft.Page):
         # 4. Toggle Free Nudge
         sidebar_upgrade_banner.visible = (state["plan_id"] == "free")
 
+    def _current_selected_ids():
+        """Read the live sidebar selection at call-time (not a stale snapshot)."""
+        return list(state["selected_mat_ids"]) or None
+
     def _refresh_sidebar_materials():
         sidebar_materials_col.controls.clear()
         mats = state["materials"]
@@ -301,15 +306,15 @@ async def self_study_view(page: ft.Page):
             return
 
         icon_map = {
-            "pdf":  (ft.Icons.PICTURE_AS_PDF_ROUNDED, ft.Colors.BLACK),
-            "text": (ft.Icons.TEXT_SNIPPET_OUTLINED,  ft.Colors.BLACK),
-            "url":  (ft.Icons.LINK_ROUNDED,            ft.Colors.BLACK),
+            "pdf":  (ft.Icons.PICTURE_AS_PDF_ROUNDED, ft.Colors.ON_PRIMARY),
+            "text": (ft.Icons.TEXT_SNIPPET_OUTLINED,  ft.Colors.ON_PRIMARY),
+            "url":  (ft.Icons.LINK_ROUNDED,            ft.Colors.ON_PRIMARY),
         }
 
         for mat in mats:
             mat_id = mat["id"]
             icon, color = icon_map.get(mat.get("source_type", "text"),
-                                       (ft.Icons.DESCRIPTION_OUTLINED, ft.Colors.GREY_400))
+                                       (ft.Icons.DESCRIPTION_OUTLINED, ft.Colors.GREY_200))
 
             is_selected = mat_id in state["selected_mat_ids"]
             chip = ft.Container(
@@ -317,7 +322,7 @@ async def self_study_view(page: ft.Page):
                 border_radius=8,
                 border=ft.border.all(
                     1.5,
-                    ft.Colors.PRIMARY if is_selected else ft.Colors.WHITE
+                    ft.Colors.PRIMARY if is_selected else ft.Colors.ON_PRIMARY
                 ),
                 bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.PRIMARY)
                 if is_selected else ft.Colors.SURFACE,
@@ -329,7 +334,7 @@ async def self_study_view(page: ft.Page):
                     controls=[
                         ft.Icon(icon, color=color, size=14),
                         ft.Text(mat.get("title", "Untitled"), size=13,
-                                color=ft.Colors.BLACK, expand=True,
+                                color=ft.Colors.ON_SURFACE, expand=True,
                                 max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
                         ft.Icon(
                             ft.Icons.CHECK_CIRCLE_ROUNDED if is_selected
@@ -347,7 +352,15 @@ async def self_study_view(page: ft.Page):
                 else:
                     state["selected_mat_ids"].add(mid)
                 _refresh_sidebar_materials()
-                page.update()
+                # Keep the "Studying from N selected material(s)" hint and
+                # due-card count in sync if the hub is currently visible.
+                # (Study-mode buttons themselves always read the live
+                # selection at click-time via _current_selected_ids(),
+                # regardless of whether the hub has been re-rendered.)
+                if state.get("on_hub"):
+                    page.run_task(_load_hub)
+                else:
+                    page.update()
 
             chip.on_click = _toggle
             sidebar_materials_col.controls.append(chip)
@@ -356,8 +369,8 @@ async def self_study_view(page: ft.Page):
         content=ft.Row(
             tight=True, spacing=6,
             controls=[
-                ft.Icon(ft.Icons.UPLOAD_FILE_ROUNDED, size=14, color=ft.Colors.WHITE),
-                ft.Text("Upload", size=10, color=ft.Colors.WHITE,
+                ft.Icon(ft.Icons.UPLOAD_FILE_ROUNDED, size=14, color=ft.Colors.ON_PRIMARY),
+                ft.Text("Upload", size=10, color=ft.Colors.ON_PRIMARY,
                         weight=ft.FontWeight.W_600),
             ],
         ),
@@ -374,8 +387,8 @@ async def self_study_view(page: ft.Page):
         content=ft.Row(
             tight=True, spacing=6,
             controls=[
-                ft.Icon(ft.Icons.AUTO_AWESOME_ROUNDED, size=14, color=ft.Colors.WHITE),
-                ft.Text("Generate", size=10, color=ft.Colors.WHITE,
+                ft.Icon(ft.Icons.AUTO_AWESOME_ROUNDED, size=14, color=ft.Colors.ON_PRIMARY),
+                ft.Text("Generate", size=10, color=ft.Colors.ON_PRIMARY,
                         weight=ft.FontWeight.W_600),
             ],
         ),
@@ -394,7 +407,7 @@ async def self_study_view(page: ft.Page):
         return ft.Container(
             border_radius=12,
             padding=ft.padding.only(left=14, right=10, top=10, bottom=10),
-            border=ft.border.all(1, ft.Colors.with_opacity(0.12, ft.Colors.WHITE)),
+            border=ft.border.all(1, ft.Colors.with_opacity(0.12, ft.Colors.ON_PRIMARY)),
             gradient=ft.LinearGradient(
                 begin=ft.Alignment.CENTER_LEFT,
                 end=ft.Alignment.CENTER_RIGHT,
@@ -415,16 +428,16 @@ async def self_study_view(page: ft.Page):
                         controls=[
                             ft.Container(
                                 width=30, height=30,
-                                bgcolor=ft.Colors.with_opacity(0.18, ft.Colors.WHITE),
+                                bgcolor=ft.Colors.with_opacity(0.18, ft.Colors.ON_PRIMARY),
                                 border_radius=8,
                                 alignment=ft.Alignment.CENTER,
-                                content=ft.Icon(icon, color=ft.Colors.WHITE, size=16),
+                                content=ft.Icon(icon, color=ft.Colors.ON_PRIMARY, size=16),
                             ),
                             ft.Text(
                                 label,
                                 size=14,
                                 weight=ft.FontWeight.W_700,
-                                color=ft.Colors.WHITE,
+                                color=ft.Colors.ON_PRIMARY,
                             ),
                         ],
                     ),
@@ -439,7 +452,7 @@ async def self_study_view(page: ft.Page):
         border=ft.border.only(right=ft.BorderSide(1, ft.Colors.GREY_200)),
         shadow=ft.BoxShadow(
             blur_radius=12,
-            color=ft.Colors.with_opacity(0.06, ft.Colors.BLACK),
+            color=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
             offset=ft.Offset(2, 0),
         ),
         content=ft.Column(
@@ -468,7 +481,7 @@ async def self_study_view(page: ft.Page):
                                             trailing=ft.Container(
                                                 width=40, height=22,
                                                 bgcolor=ft.Colors.with_opacity(
-                                                    0.2, ft.Colors.WHITE),
+                                                    0.2, ft.Colors.ON_PRIMARY),
                                                 border_radius=6,
                                                 alignment=ft.Alignment.CENTER,
                                                 content=plan_badge,
@@ -573,31 +586,52 @@ async def self_study_view(page: ft.Page):
     # NAV HELPERS
     # ─────────────────────────────────────────────────────────────────────────
     def _set_appbar(title: str, on_back):
-        app_bar.title = ft.Text(title, color=ft.Colors.WHITE,
+        app_bar.title = ft.Text(title, color=ft.Colors.ON_PRIMARY,
                                 weight=ft.FontWeight.W_700, size=17)
         app_bar.leading = ft.IconButton(
             icon=ft.Icons.ARROW_BACK_ROUNDED,
-            icon_color=ft.Colors.WHITE,
+            icon_color=ft.Colors.ON_PRIMARY,
             on_click=lambda _: on_back(),
         )
 
+    def _lock_exam_ui(locked: bool):
+        """Prevent leaving/navigating away mid-exam without confirming."""
+        state["exam_locked"] = locked
+        sidebar_toggle.disabled = locked
+        if locked and state["sidebar_open"]:
+            state["sidebar_open"] = False
+            update_layout()
+        # Best-effort: ask the browser/OS to prompt before closing the tab.
+        # Support for this varies by Flet version/platform, so failures
+        # here are non-fatal.
+        try:
+            page.window.prevent_close = locked
+            page.update()
+        except Exception:
+            pass
+        page.update()
+
     def go_hub():
+        state["on_hub"] = True
+        _lock_exam_ui(False)
         _set_appbar("Study Hub", lambda: page.go("/dashboard"))
         page.run_task(_load_hub)
 
     def go_flashcards(cards: list):
+        state["on_hub"] = False
         _set_appbar("Flashcards", go_hub)
         content_socket.content = _build_flashcard_session(cards)
         page.update()
 
     def go_quiz(questions: list):
+        state["on_hub"] = False
         _set_appbar("Quick Quiz", go_hub)
         content_socket.content = _build_quiz(questions)
         page.update()
 
-    def go_exam(questions: list):
-        _set_appbar("Exam Simulator", go_hub)
-        content_socket.content = _build_exam(questions)
+    def go_exam(questions: list, duration_seconds: int | None = None):
+        state["on_hub"] = False
+        content_socket.content = _build_exam(questions, duration_seconds)
         page.update()
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -608,7 +642,7 @@ async def self_study_view(page: ft.Page):
         page.update()
         try:
             due_cards, materials, sub_status = await asyncio.gather(
-                asyncio.wait_for(get_due_cards(token),  timeout=15),
+                asyncio.wait_for(get_due_cards(token, _current_selected_ids()), timeout=15),
                 asyncio.wait_for(get_materials(token),  timeout=15),
                 asyncio.wait_for(get_subscription_status(token), timeout=15),
                 return_exceptions=True,
@@ -643,7 +677,14 @@ async def self_study_view(page: ft.Page):
         content_socket.content = _loading("Fetching your due cards…")
         page.update()
         try:
-            cards = await asyncio.wait_for(get_due_cards(token), timeout=15)
+            # NOTE: get_due_cards must accept an optional material_ids filter
+            # (same convention as get_quiz_questions / get_exam_questions).
+            # If src/requests/study.py's get_due_cards doesn't yet take a
+            # second argument, add one there — otherwise this still pulls
+            # every due card regardless of topic.
+            cards = await asyncio.wait_for(
+                get_due_cards(token, material_ids), timeout=15
+            )
             if not cards:
                 content_socket.content = _nothing_due_screen()
                 page.update()
@@ -675,10 +716,20 @@ async def self_study_view(page: ft.Page):
         content_socket.content = _loading("Setting up your exam…")
         page.update()
         try:
-            questions = await asyncio.wait_for(
+            result = await asyncio.wait_for(
                 get_exam_questions(token, material_ids), timeout=15
             )
-            go_exam(questions or [])
+            # Prefer a server-provided time limit (e.g. get_exam_questions
+            # returning {"questions": [...], "duration_seconds": N}) so the
+            # timer reflects however the exam was actually configured,
+            # instead of always falling back to a fixed local formula.
+            if isinstance(result, dict):
+                questions = result.get("questions") or []
+                duration_seconds = result.get("duration_seconds")
+            else:
+                questions = result or []
+                duration_seconds = None
+            go_exam(questions, duration_seconds)
         except Exception as ex:
             content_socket.content = _error_screen(
                 f"Couldn't load exam ({type(ex).__name__}).",
@@ -706,7 +757,7 @@ async def self_study_view(page: ft.Page):
                             text_align=ft.TextAlign.CENTER),
                     ft.ElevatedButton(
                         "Back to Hub", bgcolor=ft.Colors.PRIMARY,
-                        color=ft.Colors.WHITE, height=42,
+                        color=ft.Colors.ON_PRIMARY, height=42,
                         style=ft.ButtonStyle(
                             shape=ft.RoundedRectangleBorder(radius=10), elevation=0
                         ),
@@ -777,7 +828,7 @@ async def self_study_view(page: ft.Page):
                     # --- LIVE SYNC THE DASHBOARD WHEN GENERATION FINISHES ---
                     if done_mats:
                         try:
-                            live_cards = await get_due_cards(token)
+                            live_cards = await get_due_cards(token, _current_selected_ids())
                             new_count = len(live_cards)
                             
                             # Only update if the user is currently looking at the Hub screen!
@@ -828,8 +879,8 @@ async def self_study_view(page: ft.Page):
         due_count = len(due_cards)
 
         # --- THE FIX: STORE THESE CONTROLS IN STATE FOR TARGETED UPDATES ---
-        state["live_due_text"] = ft.Text(str(due_count), size=22, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE)
-        state["live_streak_text"] = ft.Text("Keep your streak going! 🔥" if due_count > 0 else "It's cold in here! ❄️", size=16, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE)
+        state["live_due_text"] = ft.Text(str(due_count), size=22, weight=ft.FontWeight.W_700, color=ft.Colors.ON_PRIMARY)
+        state["live_streak_text"] = ft.Text("Keep your streak going! 🔥" if due_count > 0 else "It's cold in here! ❄️", size=16, weight=ft.FontWeight.W_700, color=ft.Colors.ON_PRIMARY)
 
         mastery_banner = ft.Container(
             border_radius=14,
@@ -846,7 +897,7 @@ async def self_study_view(page: ft.Page):
                         spacing=4, expand=True,
                         controls=[
                             ft.Text("Knowledge Mastery", size=12,
-                                    color=ft.Colors.with_opacity(0.85, ft.Colors.WHITE)),
+                                    color=ft.Colors.with_opacity(0.85, ft.Colors.ON_PRIMARY)),
                             state["live_streak_text"], # Injecting the live streak text
                             ft.Container(height=4),
                             
@@ -860,13 +911,13 @@ async def self_study_view(page: ft.Page):
                         controls=[
                             ft.Container(
                                 width=56, height=56,
-                                bgcolor=ft.Colors.with_opacity(0.2, ft.Colors.WHITE),
+                                bgcolor=ft.Colors.with_opacity(0.2, ft.Colors.ON_PRIMARY),
                                 border_radius=28,
                                 alignment=ft.Alignment.CENTER,
                                 content=state["live_due_text"], # Injecting the live number text
                             ),
                             ft.Text("cards due", size=10,
-                                    color=ft.Colors.with_opacity(0.8, ft.Colors.WHITE)),
+                                    color=ft.Colors.with_opacity(0.8, ft.Colors.ON_PRIMARY)),
                         ],
                     ),
                 ],
@@ -940,7 +991,10 @@ async def self_study_view(page: ft.Page):
             ),
         )
 
-        selected_ids = list(state["selected_mat_ids"]) or None
+        # NOTE: material_ids are resolved live at click-time inside each
+        # mode_card's on_tap (see below) rather than snapshotted here, so
+        # toggling a material chip in the sidebar after the hub has
+        # rendered is respected instead of silently ignored.
 
         return ft.Column(
             expand=True,
@@ -963,7 +1017,9 @@ async def self_study_view(page: ft.Page):
                                         "Spaced repetition — review cards due today.",
                                         f"{due_count} due" if due_count else "All done",
                                         ft.Colors.PURPLE_50, ft.Colors.PURPLE_700,
-                                        lambda: page.run_task(_start_flashcards, selected_ids),
+                                        lambda: page.run_task(
+                                            _start_flashcards, _current_selected_ids()
+                                        ),
                                         ft.Colors.PURPLE_400,
                                     ),
                                     mode_card(
@@ -972,7 +1028,9 @@ async def self_study_view(page: ft.Page):
                                         "One question at a time with immediate feedback.",
                                         "Low Stakes",
                                         ft.Colors.TEAL_50, ft.Colors.TEAL_700,
-                                        lambda: page.run_task(_start_quiz, selected_ids),
+                                        lambda: page.run_task(
+                                            _start_quiz, _current_selected_ids()
+                                        ),
                                         ft.Colors.TEAL_500,
                                     ),
                                     mode_card(
@@ -981,7 +1039,9 @@ async def self_study_view(page: ft.Page):
                                         "Timed full-length exam with result breakdown.",
                                         "Timed",
                                         ft.Colors.ORANGE_50, ft.Colors.ORANGE_700,
-                                        lambda: page.run_task(_start_exam, selected_ids),
+                                        lambda: page.run_task(
+                                            _start_exam, _current_selected_ids()
+                                        ),
                                         ft.Colors.ORANGE_500,
                                     ),
                                 ],
@@ -1072,9 +1132,9 @@ async def self_study_view(page: ft.Page):
                 alignment=ft.MainAxisAlignment.CENTER,
                 controls=[
                     ft.ProgressRing(width=14, height=14,
-                                    color=ft.Colors.WHITE, stroke_width=2),
+                                    color=ft.Colors.ON_PRIMARY, stroke_width=2),
                     ft.Text("Uploading...",
-                            color=ft.Colors.WHITE, size=12),
+                            color=ft.Colors.ON_PRIMARY, size=12),
                 ],
             )
             page.update()
@@ -1097,7 +1157,7 @@ async def self_study_view(page: ft.Page):
                 status_text.visible = True
                 submit_btn.disabled = False
                 submit_btn.content  = ft.Text("Upload Another",
-                                               color=ft.Colors.WHITE,
+                                               color=ft.Colors.ON_PRIMARY,
                                                size=13, weight=ft.FontWeight.W_600)
 
                 new_mat = {
@@ -1124,19 +1184,19 @@ async def self_study_view(page: ft.Page):
                 error_text.value   = "Upload timed out. Check your connection."
                 error_text.visible = True
                 submit_btn.disabled = False
-                submit_btn.content  = ft.Text("Upload", color=ft.Colors.WHITE,
+                submit_btn.content  = ft.Text("Upload", color=ft.Colors.ON_PRIMARY,
                                                size=13, weight=ft.FontWeight.W_600)
                 page.update()
             except Exception as ex:
                 error_text.value   = f"Upload failed ({type(ex).__name__})."
                 error_text.visible = True
                 submit_btn.disabled = False
-                submit_btn.content  = ft.Text("Upload", color=ft.Colors.WHITE,
+                submit_btn.content  = ft.Text("Upload", color=ft.Colors.ON_PRIMARY,
                                                size=13, weight=ft.FontWeight.W_600)
                 page.update()
 
         submit_btn = ft.ElevatedButton(
-            content=ft.Text("Upload", color=ft.Colors.WHITE,
+            content=ft.Text("Upload", color=ft.Colors.ON_PRIMARY,
                             size=13, weight=ft.FontWeight.W_600),
             bgcolor=ft.Colors.PRIMARY,
             expand=True, height=44,
@@ -1243,7 +1303,7 @@ async def self_study_view(page: ft.Page):
             panel_mat_checks.append(cb)
 
         gen_btn = ft.ElevatedButton(
-            content=ft.Text("Generate", color=ft.Colors.WHITE,
+            content=ft.Text("Generate", color=ft.Colors.ON_PRIMARY,
                             size=13, weight=ft.FontWeight.W_600),
             bgcolor=ft.Colors.PURPLE_400,
             expand=True, height=44,
@@ -1278,8 +1338,8 @@ async def self_study_view(page: ft.Page):
             gen_btn.content    = ft.Row(
                 alignment=ft.MainAxisAlignment.CENTER,
                 controls=[
-                    ft.ProgressRing(width=14, height=14, color=ft.Colors.WHITE, stroke_width=2),
-                    ft.Text("Queuing AI Tasks…", color=ft.Colors.WHITE, size=12),
+                    ft.ProgressRing(width=14, height=14, color=ft.Colors.ON_PRIMARY, stroke_width=2),
+                    ft.Text("Queuing AI Tasks…", color=ft.Colors.ON_PRIMARY, size=12),
                 ],
             )
             page.update()
@@ -1305,14 +1365,14 @@ async def self_study_view(page: ft.Page):
                 gen_status.value   = f" ✓ Tasks queued! AI is generating in the background."
                 gen_status.visible = True
                 gen_btn.disabled   = False
-                gen_btn.content    = ft.Text("Generate", color=ft.Colors.WHITE, size=13, weight=ft.FontWeight.W_600)
+                gen_btn.content    = ft.Text("Generate", color=ft.Colors.ON_PRIMARY, size=13, weight=ft.FontWeight.W_600)
                 page.update()
 
             except asyncio.TimeoutError:
                 gen_error.value   = "Server request timed out. Try again."
                 gen_error.visible = True
                 gen_btn.disabled  = False
-                gen_btn.content   = ft.Text("Generate", color=ft.Colors.WHITE, size=13, weight=ft.FontWeight.W_600)
+                gen_btn.content   = ft.Text("Generate", color=ft.Colors.ON_PRIMARY, size=13, weight=ft.FontWeight.W_600)
                 
                 # Only clean up if it outright failed to queue
                 for m_id in mat_ids: state["generating_mats"].discard(m_id)
@@ -1322,7 +1382,7 @@ async def self_study_view(page: ft.Page):
                 gen_error.value   = f"Failed to queue tasks, please try again."
                 gen_error.visible = True
                 gen_btn.disabled  = False
-                gen_btn.content   = ft.Text("Generate", color=ft.Colors.WHITE, size=13, weight=ft.FontWeight.W_600)
+                gen_btn.content   = ft.Text("Generate", color=ft.Colors.ON_PRIMARY, size=13, weight=ft.FontWeight.W_600)
                 
                 # Only clean up if it outright failed to queue
                 for m_id in mat_ids: state["generating_mats"].discard(m_id)
@@ -1427,19 +1487,22 @@ async def self_study_view(page: ft.Page):
     # ─────────────────────────────────────────────────────────────────────────
     def _build_flashcard_session(cards: list) -> ft.Column:
         deck  = cards[:]
-        state_fc = {"index": 0, "flipped": False}
+        # requeue_counts tracks, per card id, how many times it's been
+        # bounced back into the deck this session (caps re-shows so a
+        # stubborn card can't loop forever).
+        state_fc = {"index": 0, "flipped": False, "requeue_counts": {}}
 
         progress_bar   = ft.ProgressBar(value=0, color=ft.Colors.PRIMARY,
                                          bgcolor=ft.Colors.GREY_100, height=6,
                                          border_radius=4, expand=True)
         progress_label = ft.Text(f"1 / {len(deck)}", size=12, color=ft.Colors.GREY_500)
         front_text     = ft.Text("", size=17, weight=ft.FontWeight.W_600,
-                                  color=ft.Colors.WHITE,
+                                  color=ft.Colors.ON_PRIMARY,
                                   text_align=ft.TextAlign.CENTER)
-        back_text      = ft.Text("", size=13, color=ft.Colors.WHITE,
+        back_text      = ft.Text("", size=13, color=ft.Colors.ON_PRIMARY,
                                   text_align=ft.TextAlign.CENTER, visible=False)
         flip_hint      = ft.Text("Tap to reveal answer", size=11,
-                                  color=ft.Colors.WHITE,
+                                  color=ft.Colors.ON_PRIMARY,
                                   text_align=ft.TextAlign.CENTER)
         rating_row     = ft.Row(visible=False,
                                 alignment=ft.MainAxisAlignment.CENTER, spacing=8)
@@ -1487,9 +1550,25 @@ async def self_study_view(page: ft.Page):
             visible_trigger= False
             page.update()
 
+        MAX_REQUEUES = 2  # don't let a card loop forever within one session
+
         async def rate(quality: int):
-            card_id = deck[state_fc["index"]]["id"]
+            card = deck[state_fc["index"]]
+            card_id = card["id"]
             state_fc["index"] += 1
+
+            # Cards rated "Hard" get bounced back into the deck a few cards
+            # later instead of disappearing for the rest of the session —
+            # this is the "show missed cards again periodically" behavior.
+            if quality <= 1:
+                seen = state_fc["requeue_counts"].get(card_id, 0)
+                if seen < MAX_REQUEUES:
+                    state_fc["requeue_counts"][card_id] = seen + 1
+                    # push it further out each time it keeps getting missed
+                    gap = 3 + seen * 2
+                    insert_at = min(state_fc["index"] + gap, len(deck))
+                    deck.insert(insert_at, card)
+
             load_card()
             try:
                 await asyncio.wait_for(
@@ -1506,7 +1585,7 @@ async def self_study_view(page: ft.Page):
         ]:
             rating_row.controls.append(
                 ft.ElevatedButton(
-                    label, bgcolor=color, color=ft.Colors.WHITE, height=38,
+                    label, bgcolor=color, color=ft.Colors.ON_PRIMARY, height=38,
                     style=ft.ButtonStyle(
                         shape=ft.RoundedRectangleBorder(radius=10), elevation=0
                     ),
@@ -1522,16 +1601,16 @@ async def self_study_view(page: ft.Page):
                 spacing=14,
                 controls=[
                     ft.Icon(ft.Icons.CHECK_CIRCLE_OUTLINE_ROUNDED,
-                            color=ft.Colors.WHITE, size=52),
+                            color=ft.Colors.ON_PRIMARY, size=52),
                     ft.Text("Session Complete!", size=20,
                             weight=ft.FontWeight.W_700, color=ft.Colors.ON_SURFACE),
                     ft.Text(f"Reviewed {len(deck)} card(s).\nYour schedule has been updated.",
-                            size=13, color=ft.Colors.WHITE,
+                            size=13, color=ft.Colors.ON_PRIMARY,
                             text_align=ft.TextAlign.CENTER),
                     ft.Container(height=4),
                     ft.ElevatedButton(
                         "Back to Hub",
-                        bgcolor=ft.Colors.WHITE, color=ft.Colors.BLACK, height=40,
+                        bgcolor=ft.Colors.ON_PRIMARY, color=ft.Colors.BLACK, height=40,
                         style=ft.ButtonStyle(
                             shape=ft.RoundedRectangleBorder(radius=10), elevation=0
                         ),
@@ -1552,9 +1631,9 @@ async def self_study_view(page: ft.Page):
             spacing=12,
             controls=[
                 ft.Icon(ft.Icons.LIGHTBULB_OUTLINE_ROUNDED,
-                        color=ft.Colors.WHITE, size=24),
+                        color=ft.Colors.ON_PRIMARY, size=24),
                 front_text,
-                ft.Divider(color=ft.Colors.WHITE, thickness=1),
+                ft.Divider(color=ft.Colors.ON_PRIMARY, thickness=1),
                 back_text,
                 flip_hint,
                 rating_row,
@@ -1607,7 +1686,7 @@ async def self_study_view(page: ft.Page):
             ft.ElevatedButton(
                 "Back to Hub",
                 bgcolor=ft.Colors.PRIMARY,
-                color=ft.Colors.WHITE,
+                color=ft.Colors.ON_PRIMARY,
                 height=42,
                 style=ft.ButtonStyle(
                     shape=ft.RoundedRectangleBorder(radius=10),
@@ -1632,7 +1711,7 @@ async def self_study_view(page: ft.Page):
         feedback_box   = ft.Container(visible=False, border_radius=10, padding=12)
         next_btn       = ft.ElevatedButton(
             "Next Question →", visible=False,
-            bgcolor=ft.Colors.TEAL_500, color=ft.Colors.WHITE, height=40,
+            bgcolor=ft.Colors.TEAL_500, color=ft.Colors.ON_PRIMARY, height=40,
             style=ft.ButtonStyle(
                 shape=ft.RoundedRectangleBorder(radius=10), elevation=0
             ),
@@ -1798,7 +1877,7 @@ async def self_study_view(page: ft.Page):
                                                 ft.ElevatedButton(
                                                     "Retry Quiz",
                                                     bgcolor=ft.Colors.TEAL_500,
-                                                    color=ft.Colors.WHITE, height=42,
+                                                    color=ft.Colors.ON_PRIMARY, height=42,
                                                     style=ft.ButtonStyle(
                                                         shape=ft.RoundedRectangleBorder(radius=10),
                                                         elevation=0,
@@ -1865,7 +1944,7 @@ async def self_study_view(page: ft.Page):
     # ─────────────────────────────────────────────────────────────────────────
     # EXAM SIMULATOR
     # ─────────────────────────────────────────────────────────────────────────
-    def _build_exam(questions: list) -> ft.Container:
+    def _build_exam(questions: list, duration_seconds: int | None = None) -> ft.Container:
         if not questions:
             return ft.Container(
             expand=True,
@@ -1879,13 +1958,13 @@ async def self_study_view(page: ft.Page):
                     ft.Text(
                         "No exam questions available.",
                         size=14,
-                        color=ft.Colors.GREY_400,
+                        color=ft.Colors.ON_SURFACE,
                         text_align=ft.TextAlign.CENTER,
                     ),
                     ft.ElevatedButton(
                         "Back to Hub",
                         bgcolor=ft.Colors.PRIMARY,
-                        color=ft.Colors.WHITE,
+                        color=ft.Colors.ON_PRIMARY,
                         height=42,
                         style=ft.ButtonStyle(
                             shape=ft.RoundedRectangleBorder(radius=10),
@@ -1898,7 +1977,10 @@ async def self_study_view(page: ft.Page):
         )
 
         n         = len(questions)
-        DURATION  = max(n * 90, 300)
+        # Use the backend's configured duration if it gave us one; only
+        # fall back to the "90 sec/question, 5 min floor" heuristic when
+        # no explicit duration was returned.
+        DURATION  = duration_seconds if duration_seconds else max(n * 90, 300)
 
         state_ex = {
             "answers":  [None] * n,
@@ -1953,7 +2035,7 @@ async def self_study_view(page: ft.Page):
                 alignment=ft.Alignment.CENTER,
                 ink=True,
                 data=i,
-                content=ft.Text(str(i + 1), size=10, color=ft.Colors.WHITE,
+                content=ft.Text(str(i + 1), size=10, color=ft.Colors.ON_PRIMARY,
                                  weight=ft.FontWeight.W_600),
             )
             def _jump(e, idx=i):
@@ -2022,7 +2104,7 @@ async def self_study_view(page: ft.Page):
                                 alignment=ft.Alignment.CENTER,
                                 content=ft.Text(
                                     chr(65 + idx), size=10,
-                                    color=(ft.Colors.WHITE if selected
+                                    color=(ft.Colors.ON_PRIMARY if selected
                                            else ft.Colors.GREY_500),
                                     weight=ft.FontWeight.W_700,
                                 ),
@@ -2066,7 +2148,7 @@ async def self_study_view(page: ft.Page):
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             controls=[
                 ft.OutlinedButton(
-                    "← Prev",
+                    "← Previous",
                     style=ft.ButtonStyle(
                         shape=ft.RoundedRectangleBorder(radius=10),
                         side=ft.BorderSide(1, ft.Colors.GREY_300),
@@ -2076,7 +2158,7 @@ async def self_study_view(page: ft.Page):
                 ),
                 ft.ElevatedButton(
                     "Submit Exam",
-                    bgcolor=ft.Colors.RED_400, color=ft.Colors.WHITE, height=40,
+                    bgcolor=ft.Colors.RED_400, color=ft.Colors.ON_PRIMARY, height=40,
                     style=ft.ButtonStyle(
                         shape=ft.RoundedRectangleBorder(radius=10), elevation=0
                     ),
@@ -2084,7 +2166,7 @@ async def self_study_view(page: ft.Page):
                 ),
                 ft.ElevatedButton(
                     "Next →",
-                    bgcolor=ft.Colors.PRIMARY, color=ft.Colors.WHITE, height=40,
+                    bgcolor=ft.Colors.PRIMARY, color=ft.Colors.ON_PRIMARY, height=40,
                     style=ft.ButtonStyle(
                         shape=ft.RoundedRectangleBorder(radius=10), elevation=0
                     ),
@@ -2110,6 +2192,15 @@ async def self_study_view(page: ft.Page):
                 ],
             ),
         )
+
+        # ── LOCK: while an exam is in progress, the appbar's back arrow
+        # can no longer silently abandon the session — it routes through
+        # the same submit-confirmation flow as the "Submit Exam" button.
+        # The sidebar (and therefore switching materials/uploading mid-exam)
+        # is disabled too, via _lock_exam_ui(). Both are released again in
+        # handle_back_to_hub() below once the exam is actually finished.
+        _lock_exam_ui(True)
+        _set_appbar("Exam Simulator", lambda: confirm_submit())
 
         def confirm_submit():
             unanswered = sum(1 for a in state_ex["answers"] if a is None)
@@ -2142,7 +2233,7 @@ async def self_study_view(page: ft.Page):
                     ft.ElevatedButton(
                         "Submit",
                         bgcolor=ft.Colors.PRIMARY,
-                        color=ft.Colors.WHITE,
+                        color=ft.Colors.ON_PRIMARY,
                         style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), elevation=0),
                         on_click=execute_submit,
                     ),
@@ -2180,7 +2271,7 @@ async def self_study_view(page: ft.Page):
                             controls=[
                                 ft.Text(f"Q{i + 1}. {q['question']}", size=12,
                                         weight=ft.FontWeight.W_600,
-                                        color=ft.Colors.ON_SURFACE, expand=True,
+                                        color=ft.Colors.BLACK, expand=True,
                                         max_lines=2,
                                         overflow=ft.TextOverflow.ELLIPSIS),
                                 ft.Icon(
@@ -2215,7 +2306,7 @@ async def self_study_view(page: ft.Page):
             def handle_retry_exam(e):
                 results_dialog.open = False
                 page.update()
-                page.run_task(_start_exam)
+                page.run_task(_start_exam, _current_selected_ids())
 
             # --- OVERLAY INSTEAD OF SOCKET SWAP ---
             results_dialog = ft.AlertDialog(
@@ -2261,7 +2352,7 @@ async def self_study_view(page: ft.Page):
                                             ft.ElevatedButton(
                                                 "Retry Exam",
                                                 bgcolor=ft.Colors.ORANGE_500,
-                                                color=ft.Colors.WHITE, height=42,
+                                                color=ft.Colors.ON_PRIMARY, height=42,
                                                 style=ft.ButtonStyle(
                                                     shape=ft.RoundedRectangleBorder(radius=10),
                                                     elevation=0,
@@ -2313,7 +2404,7 @@ async def self_study_view(page: ft.Page):
                                     _section_label("QUESTION GRID"),
                                     grid_legend,
                                     ft.Container(
-                                        bgcolor=ft.Colors.GREY_50,
+                                        bgcolor=ft.Colors.SURFACE,
                                         border_radius=10, padding=10,
                                         content=grid_row,
                                     ),
@@ -2389,8 +2480,7 @@ async def self_study_view(page: ft.Page):
     return ft.View(
         route="/self-study",
         appbar=app_bar,
-        bottom_appbar=app_bar_bottom,
-        bgcolor=ft.Colors.GREY_50,
+        bgcolor=ft.Colors.ON_PRIMARY,
         padding=0,
         controls=[
             ft.SafeArea(

@@ -129,6 +129,7 @@ async def organisations_view(page: ft.Page):
 
         # ── member row ────────────────────────────────────────────────────────
         def build_member_row(member: dict):
+            user_id= member.get("id")
             member_role = member.get("role", "STUDENT").upper()
             badge_map = {
                 "ADMIN":   (ft.Colors.BLUE_50,   ft.Colors.BLUE_800),
@@ -158,10 +159,10 @@ async def organisations_view(page: ft.Page):
                                     controls=[
                                         ft.Text(
                                             f'{member.get("first_name","")} {member.get("last_name","")}',
-                                            size=14, weight=ft.FontWeight.W_600,
+                                            size=12, weight=ft.FontWeight.W_600,
                                             color=ft.Colors.ON_SURFACE,
                                         ),
-                                        ft.Text(member.get("email", ""), size=12, color=ft.Colors.GREY_500),
+                                        ft.Text(member.get("email", ""), size=11, color=ft.Colors.GREY_500),
                                     ],
                                 ),
                             ],
@@ -173,14 +174,13 @@ async def organisations_view(page: ft.Page):
                                     padding=ft.padding.symmetric(horizontal=9, vertical=3),
                                     bgcolor=badge_bg,
                                     border_radius=10,
-                                    content=ft.Text(member_role, size=9, color=badge_fg, weight=ft.FontWeight.W_700),
+                                    content=ft.Text(member_role, size=7, color=badge_fg, weight=ft.FontWeight.W_700),
                                 ),
                                 ft.PopupMenuButton(
                                     icon=ft.Icons.MORE_VERT_ROUNDED,
                                     icon_color=ft.Colors.GREY_400,
                                     items=[
-                                        ft.PopupMenuItem(content=ft.Text("View Profile", size=13), icon=ft.Icons.PERSON_SEARCH_ROUNDED),
-                                        ft.PopupMenuItem(content=ft.Text("Change Role", size=13), icon=ft.Icons.MANAGE_ACCOUNTS_ROUNDED),
+                                        ft.PopupMenuItem(content=ft.Text("View Profile", size=13), icon=ft.Icons.PERSON_SEARCH_ROUNDED, on_click=lambda _, user_id=user_id: page.go(f"/member/{user_id}")),
                                         ft.PopupMenuItem(content=ft.Text("Remove Member", size=13), icon=ft.Icons.PERSON_REMOVE_OUTLINED),
                                     ],
                                 ),
@@ -417,7 +417,7 @@ async def organisations_view(page: ft.Page):
                                             if members
                                             else [ft.Text("No members yet.", color=ft.Colors.GREY_400, size=13)],
                                         ),
-                                        manage_route=f"organisations/{org_id}/invite-members",
+                                        manage_route=f"/organisations/{org_id}/invite-members",
                                     ),
                                     dashboard_section(
                                         title="Courses",
@@ -895,9 +895,8 @@ async def organisations_view(page: ft.Page):
                     ),
                     margin=ft.margin.only(bottom=2),
                     ink=True,
-                    # 🟡 MOCK: navigates to course settings; swap for real course detail when ready
-                    on_click=lambda e, oid=org_id, cid=cid: page.go(
-                        f"/organisations/{oid}/courses/{cid}/settings"
+                    on_click=lambda e, cid=cid: page.go(
+                        f"/courses/{cid}/manage"
                     ),
                     content=ft.Row(
                         spacing=0,
@@ -1041,26 +1040,6 @@ async def organisations_view(page: ft.Page):
                                                 size=16,
                                                 weight=ft.FontWeight.W_700,
                                                 color=ft.Colors.ON_SURFACE,
-                                            ),
-                                            # 🟡 MOCK: route stub — wire to real create-course flow
-                                            ft.ElevatedButton(
-                                                content=ft.Row(
-                                                    tight=True,
-                                                    spacing=4,
-                                                    controls=[
-                                                        ft.Icon(ft.Icons.ADD_ROUNDED, color=ft.Colors.WHITE, size=16),
-                                                        ft.Text("Create Course", color=ft.Colors.WHITE, size=12, weight=ft.FontWeight.W_600),
-                                                    ],
-                                                ),
-                                                bgcolor=theme_color,
-                                                height=34,
-                                                style=ft.ButtonStyle(
-                                                    shape=ft.RoundedRectangleBorder(radius=8),
-                                                    elevation=0,
-                                                ),
-                                                on_click=lambda _: page.go(
-                                                    f"/organisations/{org_id}/create-course"  # 🟡 MOCK stub
-                                                ),
                                             ),
                                         ],
                                     ),

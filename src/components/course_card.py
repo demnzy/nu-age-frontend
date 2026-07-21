@@ -43,13 +43,13 @@ def get_course_card(
             border_radius=ft.BorderRadius.only(top_left=12, top_right=12),
             alignment=ft.Alignment.CENTER,
             content=ft.Icon(ft.Icons.MENU_BOOK_ROUNDED, size=44,
-                            color=ft.Colors.WHITE),
+                            color=ft.Colors.ON_PRIMARY),
         )
 
     # ── category pill ─────────────────────────────────────────────────────────
     category_pill = ft.Container(
         padding=ft.padding.symmetric(horizontal=8, vertical=3),
-        bgcolor=ft.Colors.GREY_100,
+        bgcolor=ft.Colors.SURFACE,
         border_radius=10,
         content=ft.Text(
             course_category or "General",
@@ -77,7 +77,7 @@ def get_course_card(
     # ── enroll button ─────────────────────────────────────────────────────────
     enroll_btn = ft.ElevatedButton(
         content=ft.Text("Enroll Now", size=13,
-                        color=ft.Colors.WHITE, weight=ft.FontWeight.W_600),
+                        color=ft.Colors.ON_PRIMARY, weight=ft.FontWeight.W_600),
         bgcolor=ft.Colors.PRIMARY,
         expand=True,
         height=40,
@@ -100,7 +100,7 @@ def get_course_card(
         border_radius=12,
         shadow=ft.BoxShadow(
             blur_radius=8,
-            color=ft.Colors.with_opacity(0.08, ft.Colors.BLACK),
+            color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
             offset=ft.Offset(0, 3),
         ),
         ink=True,

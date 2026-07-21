@@ -1,4 +1,5 @@
 import random
+from turtle import bgcolor
 
 import flet_charts as fch 
 import flet as ft
@@ -344,9 +345,8 @@ async def course_learner_view(page: ft.Page, course_id: str):
             show_controls=True,
         )
 
-        # 1. Build the exact same video container you already had
         video_container = ft.Container(
-            aspect_ratio=16 / 9,
+            aspect_ratio=21 / 9,
             border_radius=12,
             bgcolor=ft.Colors.ON_PRIMARY,
             clip_behavior=ft.ClipBehavior.HARD_EDGE,
@@ -373,19 +373,13 @@ async def course_learner_view(page: ft.Page, course_id: str):
             ),
         )
 
-        # 2. THE FIX: Wrap it in a ResponsiveRow to control its width across devices
-        return ft.ResponsiveRow(
-            alignment=ft.MainAxisAlignment.CENTER, # Keeps the video perfectly centered
-            controls=[
-                ft.Container(
-                    # xs=12 (100% width on phones)
-                    # md=10 (~83% width on tablets)
-                    # lg=8  (~66% width on standard desktops)
-                    # xl=7  (~58% width on massive ultra-wide monitors)
-                    col={"xs": 12, "md": 10, "lg": 15, "xl": 7},
-                    content=video_container
-                )
-            ]
+        return ft.Container(
+            expand=True,
+            alignment=ft.Alignment.CENTER,
+            content=ft.Container(
+                width=1000,
+                content=video_container,
+            ),
         )
         
     @register_content_renderer("accompanying_text")
@@ -446,7 +440,6 @@ async def course_learner_view(page: ft.Page, course_id: str):
     def render_text_block(value, lesson):
         async def handle_link_tap(e):
             await e.page.launch_url(e.data)
-
         return ft.Container(
             padding=24,
             border_radius=14,
@@ -454,10 +447,35 @@ async def course_learner_view(page: ft.Page, course_id: str):
             border=ft.border.all(1, ft.Colors.with_opacity(0.06, ft.Colors.ON_PRIMARY)),
             content=ft.Markdown(
                 value,
-                selectable=False, 
-                extension_set=ft.MarkdownExtensionSet.GITHUB_FLAVORED,
-                on_tap_link=handle_link_tap 
-            ),
+                selectable=True, 
+                extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,  # supports HTML passthrough
+                code_theme=ft.MarkdownCodeTheme.ATELIER_LAKESIDE_DARK, 
+                code_style_sheet=ft.MarkdownStyleSheet(
+        code_text_style=ft.TextStyle(font_family="Roboto Mono", size=16),
+        codeblock_decoration=ft.BoxDecoration(     # correct field name, fixes the light-mode bg bug
+            bgcolor="#0662AD",
+            border_radius=ft.border_radius.all(8),
+        ),
+    ),
+                  # light background, default Flet uses
+                
+                on_tap_link=handle_link_tap ,
+                md_style_sheet=ft.MarkdownStyleSheet(
+        text_alignment=ft.TextAlign.START,
+        p_text_style=ft.TextStyle(
+            size=17,
+            weight=ft.FontWeight.W_400,
+            color=ft.Colors.ON_SURFACE,
+        ),
+    code_text_style=ft.TextStyle(
+        size=16,
+        weight=ft.FontWeight.NORMAL,
+        font_family="monospace",
+        color=ft.Colors.ON_SURFACE_VARIANT,
+        bgcolor=ft.Colors.SCRIM,
+    ),
+),
+            )
         )
 
     @register_content_renderer("audio_path")
@@ -529,7 +547,7 @@ async def course_learner_view(page: ft.Page, course_id: str):
         )
         counter_text = ft.Text(
             f"1 / {len(cards_list)}",
-            color=ft.Colors.ON_SURFACE_VARIANT,
+            color=ft.Colors.BLACK,
             weight=ft.FontWeight.BOLD,
         )
 
@@ -568,9 +586,9 @@ async def course_learner_view(page: ft.Page, course_id: str):
                 ft.Container(card_text, expand=True, alignment=ft.Alignment(0, 0)),
                 ft.Row(
                     [
-                        ft.IconButton(ft.Icons.ARROW_BACK_IOS_ROUNDED, on_click=go_back),
+                        ft.IconButton(ft.Icons.ARROW_BACK_IOS_ROUNDED, on_click=go_back, icon_color="BLACK"),
                         counter_text,
-                        ft.IconButton(ft.Icons.ARROW_FORWARD_IOS_ROUNDED, on_click=go_forward),
+                        ft.IconButton(ft.Icons.ARROW_FORWARD_IOS_ROUNDED, on_click=go_forward, icon_color="BLACK"),
                     ],
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 ),
@@ -599,7 +617,7 @@ async def course_learner_view(page: ft.Page, course_id: str):
                 ft.Markdown("", selectable=False, extension_set=ft.MarkdownExtensionSet.GITHUB_FLAVORED, md_style_sheet=ft.MarkdownStyleSheet(
                     p_text_style=ft.TextStyle(
 
-                        color=ft.Colors.BLACK
+                        color=ft.Colors.ON_SURFACE
                     ),
                 ))
             ])
@@ -764,7 +782,7 @@ async def course_learner_view(page: ft.Page, course_id: str):
                     padding=15, border_radius=12, bgcolor=ft.Colors.GREEN_50, border=ft.border.all(1, ft.Colors.GREEN_200),
                     content=ft.Row([
                         ft.Icon(ft.Icons.VERIFIED_ROUNDED, color=ft.Colors.GREEN_600),
-                        ft.Text("You have already passed this assessment.", weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_800)
+                        ft.Text("You have already passed this assessment.", weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_800, size=11)
                     ])
                 )
             ]
@@ -1585,8 +1603,7 @@ async def course_learner_view(page: ft.Page, course_id: str):
 
     return ft.View(
         route=f"/courses/{course_id}/learn",
-        bottom_appbar=app_bar,
-        bgcolor=ft.Colors.SURFACE_CONTAINER_LOW,
+        bgcolor=ft.Colors.ON_PRIMARY,
         padding=0,
         appbar=page_appbar,
         controls=[

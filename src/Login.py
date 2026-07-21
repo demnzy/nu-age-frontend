@@ -207,7 +207,7 @@ def login_view(page: ft.Page):
     Submit = ft.ElevatedButton(
         "Sign In",
         expand=True,
-        color=ft.Colors.WHITE,
+        color=ft.Colors.ON_PRIMARY,
         bgcolor=ft.Colors.PRIMARY,
         height=46,
         disabled=True,
@@ -398,7 +398,7 @@ def login_view(page: ft.Page):
     send_email_btn = ft.Button(
         "Send Reset Email",
         width=250, height=46,
-        color=ft.Colors.WHITE, bgcolor=ft.Colors.PRIMARY,
+        color=ft.Colors.ON_PRIMARY, bgcolor=ft.Colors.PRIMARY,
         style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10), elevation=0),
         on_click=send_verification_email,
         disabled=True
@@ -434,7 +434,7 @@ def login_view(page: ft.Page):
         width=350,
         height=530,
         padding=13,
-        bgcolor=ft.Colors.WHITE,
+        bgcolor=ft.Colors.ON_PRIMARY,
         border_radius=16,
         shadow=ft.BoxShadow(
             blur_radius=24,
@@ -456,7 +456,7 @@ def login_view(page: ft.Page):
                             "Welcome back",
                             size=22,
                             weight=ft.FontWeight.W_700,
-                            color=ft.Colors.GREY_900,
+                            color=ft.Colors.ON_SURFACE,
                         ),
                         ft.Text(
                             "Sign in to your Nu Age account.",

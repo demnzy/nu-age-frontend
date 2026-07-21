@@ -1,12 +1,21 @@
 import asyncio
 
 import flet as ft
-from src.components.bottom_appbar import get_bottom_appbar
-from src.requests.Courses import get_courses, get_course_curriculum
-from src.requests.enrollments import get_enrolled_students
+from src.requests.Courses import (
+    get_courses, 
+    get_course_curriculum,
+
+    get_completion_stats,
+    get_certificates_issued,
+    
+)
+from src.requests.enrollments import (
+        get_enrolled_students,
+        get_weekly_activity
+)
 from src.requests.organisations import get_my_organisation
 from src.requests.chats import start_direct_message
-
+from src.components.bottom_appbar import get_bottom_appbar
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # WHAT IS REAL vs MOCK
@@ -69,7 +78,11 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
     course_data: dict = {}
     students:    list = []   # each item is enrollment+user dict from the backend
     curriculum:  dict = {}
-
+    
+    # NEW LIVE DATA STATE
+    completion_stats: dict = {}
+    certificates_data: dict = {}
+    weekly_activity: list = []
     content_socket = ft.Container(
         expand=True,
         alignment=ft.Alignment.CENTER,
@@ -125,7 +138,10 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
     # ─────────────────────────────────────────────────────────────────────────
     # INSIGHT CARD — mock, no invented numbers
     # ─────────────────────────────────────────────────────────────────────────
-    def insight_card(icon, label, endpoint_hint: str, col=None):
+    # ─────────────────────────────────────────────────────────────────────────
+    # INSIGHT CARD (LIVE)
+    # ─────────────────────────────────────────────────────────────────────────
+    def insight_card(icon, label, value_str: str, col=None):
         return ft.Container(
             col=col or {"xs": 12, "sm": 6},
             bgcolor=ft.Colors.SURFACE,
@@ -139,45 +155,51 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
                     ft.Container(
                         width=40, height=40,
                         border_radius=12,
-                        bgcolor=ft.Colors.GREY_100,
+                        bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.GREEN_600),
                         alignment=ft.Alignment.CENTER,
-                        content=ft.Icon(icon, size=20, color=ft.Colors.GREY_400),
+                        content=ft.Icon(icon, size=20, color=ft.Colors.GREEN_600),
                     ),
                     ft.Column(
                         spacing=3,
                         expand=True,
                         controls=[
-                            ft.Text(label, size=13, weight=ft.FontWeight.W_600,
-                                    color=ft.Colors.GREY_600),
-                            ft.Text(
-                                f"Needs: {endpoint_hint}",
-                                size=10, color=ft.Colors.GREY_400, italic=True,
-                                max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
-                            ),
+                            ft.Text(label, size=13, weight=ft.FontWeight.W_600, color=ft.Colors.GREY_600),
+                            ft.Text(value_str, size=18, weight=ft.FontWeight.W_700, color=ft.Colors.ON_SURFACE),
                         ],
                     ),
                     ft.Container(
                         padding=ft.padding.symmetric(horizontal=8, vertical=4),
-                        bgcolor=ft.Colors.GREY_100,
+                        bgcolor=ft.Colors.GREEN_50,
                         border_radius=8,
-                        content=ft.Text("Soon", size=10, color=ft.Colors.GREY_500,
-                                        weight=ft.FontWeight.W_600),
+                        content=ft.Text("Live", size=10, color=ft.Colors.GREEN_700, weight=ft.FontWeight.W_600),
                     ),
                 ],
             ),
         )
 
     # ─────────────────────────────────────────────────────────────────────────
-    # WEEKLY ACTIVITY PANEL — mock bars, endpoint noted
+    # WEEKLY ACTIVITY PANEL (LIVE)
     # ─────────────────────────────────────────────────────────────────────────
-    def activity_panel():
-        weeks  = ["W1", "W2", "W3", "W4", "W5", "W6"]
-        ratios = [0.4, 0.65, 0.5, 0.9, 0.7, 1.0]
-        max_h  = 56
-        bars   = []
-        for i, (week, ratio) in enumerate(zip(weeks, ratios)):
+    def activity_panel(data: list):
+        if not data:
+            return ft.Container(
+                bgcolor=ft.Colors.SURFACE, border_radius=14, border=ft.border.all(1, ft.Colors.GREY_200),
+                padding=14, content=ft.Text("No activity data available yet.", size=12, color=ft.Colors.GREY_500)
+            )
+
+        # Base scale on participations; ensure max_val isn't 0 to avoid division errors
+        max_val = max((d.get("participations", 0) for d in data), default=0)
+        max_val = max(max_val, 1) 
+        
+        max_h = 56
+        bars = []
+        for i, item in enumerate(data):
+            week_label = str(item.get("week", f"W{i+1}"))
+            val = float(item.get("participations", 0))
+            ratio = val / max_val
             bar_h = max(8, int(max_h * ratio))
-            is_last = i == len(ratios) - 1
+            is_last = i == len(data) - 1
+
             bars.append(
                 ft.Column(
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -186,14 +208,14 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
                         ft.Container(
                             width=22, height=bar_h,
                             border_radius=ft.BorderRadius.only(top_left=5, top_right=5),
-                            bgcolor=ft.Colors.with_opacity(
-                                0.85 if is_last else 0.35, theme_color
-                            ),
+                            bgcolor=ft.Colors.with_opacity(0.85 if is_last else 0.35, theme_color),
+                            tooltip=f"{week_label}: {int(val)} participations"
                         ),
-                        ft.Text(week, size=9, color=ft.Colors.GREY_400),
+                        ft.Text(week_label, size=9, color=ft.Colors.GREY_400),
                     ],
                 )
             )
+
         return ft.Container(
             bgcolor=ft.Colors.SURFACE,
             border_radius=14,
@@ -202,31 +224,7 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
             content=ft.Column(
                 spacing=10,
                 controls=[
-                    ft.Row(
-                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                        controls=[
-                            ft.Column(
-                                spacing=2,
-                                controls=[
-                                    ft.Text("Weekly Activity", size=13,
-                                            weight=ft.FontWeight.W_700,
-                                            color=ft.Colors.ON_SURFACE),
-                                    ft.Text(
-                                        "Needs: GET /courses/{id}/activity?period=weekly",
-                                        size=10, color=ft.Colors.GREY_400, italic=True,
-                                    ),
-                                ],
-                            ),
-                            ft.Container(
-                                padding=ft.padding.symmetric(horizontal=8, vertical=4),
-                                bgcolor=ft.Colors.AMBER_50,
-                                border_radius=8,
-                                content=ft.Text("Mock", size=10,
-                                                color=ft.Colors.AMBER_800,
-                                                weight=ft.FontWeight.W_600),
-                            ),
-                        ],
-                    ),
+                    ft.Text("Weekly Activity (Participations)", size=13, weight=ft.FontWeight.W_700, color=ft.Colors.ON_SURFACE),
                     ft.Row(
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                         vertical_alignment=ft.CrossAxisAlignment.END,
@@ -241,6 +239,9 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
     # ✅ REAL: name, email, progress (from Enrollment.progress)
     # ✅ REAL: message button → start_direct_message, then go to /nu-chat
     # ─────────────────────────────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
+    # STUDENT TABLE ROW
+    # ─────────────────────────────────────────────────────────────────────────
     def student_table_row(student: dict, index: int):
         first     = (student.get("first_name") or "").strip()
         last      = (student.get("last_name") or "").strip()
@@ -248,23 +249,27 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
         user_id   = student.get("id") or student.get("student_id") or ""
         full_name = f"{first} {last}".strip().title() or "Unnamed Student"
 
-        # Safe initials — only use letters, never "?"
         init_chars = [c for c in [first[:1], last[:1]] if c.isalpha()]
         initials   = "".join(init_chars).upper() or full_name[:2].upper()
 
-        # Progress from the enrollment object (0.0 – 1.0)
+        # Progress is given as a float out of 100 (e.g., 98.5)
         raw_progress = student.get("progress", 0.0) or 0.0
         try:
-            progress_pct = float(raw_progress)
+            progress_val = float(raw_progress)
         except (TypeError, ValueError):
-            progress_pct = 0.0
-        progress_pct = max(0.0, min(1.0, progress_pct))
-        display_pct  = f"{int(progress_pct * 100)}%"
-        prog_color   = _progress_color(progress_pct)
+            progress_val = 0.0
+            
+        # Clamp between 0 and 100
+        progress_val = max(0.0, min(100.0, progress_val))
+        
+        # Convert to 0.0 - 1.0 ratio strictly for drawing the UI bar and color
+        progress_ratio = progress_val / 100.0
+        
+        display_pct  = f"{int(progress_val)}%"
+        prog_color   = _progress_color(progress_ratio)
         is_even      = index % 2 == 0
 
         async def _message(e, uid=user_id):
-            # Always routes to /nu-chat — channel is created server-side
             result = await start_direct_message(token, str(uid))
             if result and "error" in result:
                 print(f"DM create failed for {uid}: {result}")
@@ -278,80 +283,48 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
                 spacing=10,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 controls=[
-                    # Avatar — coloured initials, never a question mark
                     ft.Container(
                         width=36, height=36,
                         border_radius=18,
                         bgcolor=ft.Colors.with_opacity(0.14, theme_color),
                         alignment=ft.Alignment.CENTER,
-                        content=ft.Text(
-                            initials,
-                            size=12,
-                            weight=ft.FontWeight.W_700,
-                            color=theme_color,
-                        ),
+                        content=ft.Text(initials, size=12, weight=ft.FontWeight.W_700, color=theme_color),
                     ),
-                    # Name (line 1) + email (line 2)
                     ft.Column(
                         spacing=1,
                         expand=True,
                         controls=[
-                            ft.Text(
-                                full_name,
-                                size=13,
-                                weight=ft.FontWeight.W_600,
-                                color=ft.Colors.ON_SURFACE,
-                                max_lines=1,
-                                overflow=ft.TextOverflow.ELLIPSIS,
-                            ),
-                            ft.Text(
-                                email,
-                                size=11,
-                                color=ft.Colors.GREY_500,
-                                max_lines=1,
-                                overflow=ft.TextOverflow.ELLIPSIS,
-                            ),
+                            ft.Text(full_name, size=13, weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                            ft.Text(email, size=11, color=ft.Colors.GREY_500, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                         ],
                     ),
-                    # Progress pill — real from Enrollment.progress
                     ft.Column(
                         spacing=3,
                         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                         controls=[
-                            ft.Text(
-                                display_pct,
-                                size=12,
-                                weight=ft.FontWeight.W_700,
-                                color=prog_color,
-                            ),
+                            ft.Text(display_pct, size=12, weight=ft.FontWeight.W_700, color=prog_color),
                             ft.Container(
-                                width=48,
-                                height=4,
-                                border_radius=2,
-                                bgcolor=ft.Colors.GREY_200,
+                                width=48, height=4, border_radius=2, bgcolor=ft.Colors.GREY_200,
                                 content=ft.Container(
-                                    width=48 * progress_pct,
-                                    height=4,
-                                    border_radius=2,
-                                    bgcolor=prog_color,
+                                    width=48 * progress_ratio, # Draw the bar using the ratio
+                                    height=4, border_radius=2, bgcolor=prog_color,
                                 ),
                             ),
                         ],
                     ),
-                    # Message button — real
                     ft.IconButton(
-                        ft.Icons.SEND_ROUNDED,
-                        icon_size=16,
-                        icon_color=theme_color,
+                        ft.Icons.SEND_ROUNDED, icon_size=16, icon_color=theme_color,
                         tooltip=f"Message {full_name}",
                         on_click=lambda e, uid=user_id: page.run_task(_message, e, uid),
                     ),
                 ],
             ),
         )
-
     # ─────────────────────────────────────────────────────────────────────────
     # AVG PROGRESS STAT — computed from real enrollment progress values
+    # ─────────────────────────────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
+    # AVG PROGRESS STAT
     # ─────────────────────────────────────────────────────────────────────────
     def avg_progress_display(student_list: list) -> str:
         if not student_list:
@@ -359,11 +332,14 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
         values = []
         for s in student_list:
             try:
+                # Values are 0-100 floats
                 values.append(float(s.get("progress", 0.0) or 0.0))
             except (TypeError, ValueError):
                 values.append(0.0)
         avg = sum(values) / len(values)
-        return f"{int(avg * 100)}%"
+        
+        # Simply convert the average directly to an int
+        return f"{int(avg)}%"
 
     # ─────────────────────────────────────────────────────────────────────────
     # MAIN LAYOUT
@@ -450,7 +426,7 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
                                 controls=[
                                     ft.IconButton(
                                         ft.Icons.ARROW_BACK_ROUNDED,
-                                        icon_color=ft.Colors.WHITE,
+                                        icon_color=ft.Colors.ON_PRIMARY,
                                         icon_size=20,
                                         on_click=_go_back,
                                     ),
@@ -458,7 +434,7 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
                                         title,
                                         size=16,
                                         weight=ft.FontWeight.W_700,
-                                        color=ft.Colors.WHITE,
+                                        color=ft.Colors.ON_PRIMARY,
                                         expand=True,
                                         max_lines=1,
                                         overflow=ft.TextOverflow.ELLIPSIS,
@@ -509,27 +485,27 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
                                 ],
                             ),
 
-                            # ── Mock insight cards ─────────────────────────────
+                            # ── Real insight cards ─────────────────────────────
                             _section_label("INSIGHTS"),
                             ft.ResponsiveRow(
                                 run_spacing=10, spacing=10,
                                 controls=[
                                     insight_card(
-                                        ft.Icons.CHECK_CIRCLE_ROUNDED,
-                                        "Completion Rate",
-                                        "GET /courses/{id}/completion-stats",
+                                        ft.Icons.CHECK_CIRCLE_ROUNDED, 
+                                        "Completion Rate", 
+                                        f"{int(completion_stats.get('completion_rate', 0.0) * 100)}%"
                                     ),
                                     insight_card(
-                                        ft.Icons.WORKSPACE_PREMIUM_ROUNDED,
-                                        "Certificates Issued",
-                                        "GET /courses/{id}/certificates",
+                                        ft.Icons.WORKSPACE_PREMIUM_ROUNDED, 
+                                        "Certificates Issued", 
+                                        str(certificates_data.get("total_issued", 0))
                                     ),
                                 ],
                             ),
 
-                            # ── Weekly activity (mock) ─────────────────────────
+                            # ── Weekly activity (Real) ─────────────────────────
                             _section_label("ACTIVITY"),
-                            activity_panel(),
+                            activity_panel(weekly_activity),
 
                             # ── Student roster ─────────────────────────────────
                             ft.Row(
@@ -560,43 +536,38 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
     # ─────────────────────────────────────────────────────────────────────────
     # DATA FETCHER
     # ─────────────────────────────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
+    # DATA FETCHER (UPDATED)
+    # ─────────────────────────────────────────────────────────────────────────
     async def fetch_analytics_data():
         nonlocal theme_color, course_data, students, curriculum
+        nonlocal completion_stats, certificates_data, weekly_activity
 
         try:
-            all_courses, roster, course_curriculum, org_data = await asyncio.gather(
-                asyncio.wait_for(
-                    get_courses(token, params={"org": org_id}), timeout=15),
-                asyncio.wait_for(
-                    get_enrolled_students(token, course_id, None), timeout=15),
-                asyncio.wait_for(
-                    get_course_curriculum(token, course_id), timeout=15),
-                asyncio.wait_for(
-                    get_my_organisation(token), timeout=15),
+            (
+                all_courses, roster, course_curriculum, org_data,
+                comp_stats, certs, activity
+            ) = await asyncio.gather(
+                asyncio.wait_for(get_courses(token, params={"org": org_id}), timeout=15),
+                asyncio.wait_for(get_enrolled_students(token, course_id, None), timeout=15),
+                asyncio.wait_for(get_course_curriculum(token, course_id), timeout=15),
+                asyncio.wait_for(get_my_organisation(token), timeout=15),
+                asyncio.wait_for(get_completion_stats(token, course_id, None), timeout=15),
+                asyncio.wait_for(get_certificates_issued(token, course_id, None), timeout=15),
+                asyncio.wait_for(get_weekly_activity(token, course_id, None), timeout=15),
                 return_exceptions=True,
             )
 
             # Course metadata
             if isinstance(all_courses, list):
-                match = next(
-                    (c for c in all_courses if str(c.get("id")) == str(course_id)),
-                    None,
-                )
+                match = next((c for c in all_courses if str(c.get("id")) == str(course_id)), None)
                 course_data = match or {}
 
-            # Enrolled students — get_enrolled_students hits
-            # /courses/{course_id}/enrollments/org-students which returns
-            # rows joined from enrollments + user, so progress is included.
+            # Enrolled students
             if isinstance(roster, list):
                 students = roster
             elif isinstance(roster, dict) and "error" not in roster:
-                # Handle wrapped responses e.g. {"students": [...]}
-                students = (
-                    roster.get("students")
-                    or roster.get("results")
-                    or roster.get("data")
-                    or []
-                )
+                students = roster.get("students") or roster.get("results") or roster.get("data") or []
 
             # Curriculum
             if isinstance(course_curriculum, dict) and "error" not in course_curriculum:
@@ -606,13 +577,24 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
             if isinstance(org_data, dict):
                 theme_color = org_data.get("theme_color") or ft.Colors.PRIMARY
 
+            # NEW: Completion Stats
+            if isinstance(comp_stats, dict) and "error" not in comp_stats:
+                completion_stats = comp_stats
+
+            # NEW: Certificates
+            if isinstance(certs, dict) and "error" not in certs:
+                certificates_data = certs
+
+            # NEW: Weekly Activity
+            if isinstance(activity, list):
+                weekly_activity = activity
+
             content_socket.alignment = None
             content_socket.content   = build_main_layout()
             page.update()
 
         except asyncio.TimeoutError:
-            _show_load_error("Connection timed out.",
-                             ft.Icons.WIFI_OFF_ROUNDED, ft.Colors.ORANGE_400)
+            _show_load_error("Connection timed out.", ft.Icons.WIFI_OFF_ROUNDED, ft.Colors.ORANGE_400)
         except Exception as ex:
             _show_load_error(
                 f"Failed to load analytics ({type(ex).__name__}).",
@@ -635,7 +617,7 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
                 ft.ElevatedButton(
                     "Retry",
                     bgcolor=ft.Colors.PRIMARY,
-                    color=ft.Colors.WHITE,
+                    color=ft.Colors.ON_PRIMARY,
                     height=42,
                     style=ft.ButtonStyle(
                         shape=ft.RoundedRectangleBorder(radius=10), elevation=0,

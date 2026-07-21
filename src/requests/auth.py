@@ -61,16 +61,28 @@ async def signup_request(email: str, username: str, password: str, first_name: s
 
 async def get_current_user_request(token: str):
 
-    url = f"{api_url}/users/me" 
+    url = f"{api_url}/users/me"
     headers = {"Authorization": f"Bearer {token}"}
-    
+    limits = httpx.Timeout(15.0)
+
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=limits) as client:
             response = await client.get(url, headers=headers)
-            return response.status_code, response.json()
+            try:
+                return response.status_code, response.json()
+            except json.decoder.JSONDecodeError:
+                return response.status_code, {"detail": "Server returned an unexpected response."}
+
+    except httpx.ReadTimeout:
+        return 504, {"detail": "The server is taking too long to respond. Please try again."}
+
+    except httpx.RequestError as e:
+        print(f"Request Error: {e!r}")
+        return 503, {"detail": "Could not connect to the server. Check your internet connection."}
+
     except Exception as e:
-        print(f"Request Error: {e}")
-        return 500, {"detail": "Connection failed"}
+        print(f"Unexpected Error: {e!r}")
+        return 500, {"detail": "Something went wrong."}
     
 async def reset_request(token: str, payload: dict):
     payload = payload

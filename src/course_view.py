@@ -31,7 +31,7 @@ async def course_details_view(page: ft.Page, course_id: str, course_name: str):
         bgcolor=ft.Colors.PRIMARY,
         title=ft.Text(
             course_name,
-            color=ft.Colors.WHITE,
+            color=ft.Colors.ON_PRIMARY,
             weight=ft.FontWeight.W_700,
             size=17,
             max_lines=1,
@@ -39,7 +39,7 @@ async def course_details_view(page: ft.Page, course_id: str, course_name: str):
         ),
         leading=ft.IconButton(
             icon=ft.Icons.ARROW_BACK_ROUNDED,
-            icon_color=ft.Colors.WHITE,
+            icon_color=ft.Colors.ON_PRIMARY,
             on_click=lambda _: page.go("/courses"),
         ),
         elevation=0,
@@ -78,8 +78,8 @@ async def course_details_view(page: ft.Page, course_id: str, course_name: str):
             spacing=6,
             controls=[
                 ft.ProgressRing(width=14, height=14,
-                                color=ft.Colors.WHITE, stroke_width=2),
-                ft.Text("Please wait…", color=ft.Colors.WHITE,
+                                color=ft.Colors.ON_PRIMARY, stroke_width=2),
+                ft.Text("Please wait…", color=ft.Colors.ON_PRIMARY,
                         size=13, weight=ft.FontWeight.W_600),
             ],
         )
@@ -95,7 +95,7 @@ async def course_details_view(page: ft.Page, course_id: str, course_name: str):
                 e.control.disabled = False
                 e.control.content = ft.Text(
                     "Unenroll" if is_enrolling else "Enroll Now",
-                    color=ft.Colors.WHITE,
+                    color=ft.Colors.ON_PRIMARY,
                     size=14,
                     weight=ft.FontWeight.W_600,
                 )
@@ -105,7 +105,7 @@ async def course_details_view(page: ft.Page, course_id: str, course_name: str):
             e.control.disabled = False
             e.control.content = ft.Text(
                 "Timed out — tap to retry",
-                color=ft.Colors.WHITE, size=13,
+                color=ft.Colors.ON_PRIMARY, size=13,
             )
             page.update()
 
@@ -113,7 +113,7 @@ async def course_details_view(page: ft.Page, course_id: str, course_name: str):
             e.control.disabled = False
             e.control.content = ft.Text(
                 "Error — tap to retry",
-                color=ft.Colors.WHITE, size=13,
+                color=ft.Colors.ON_PRIMARY, size=13,
             )
             page.update()
 
@@ -156,7 +156,7 @@ async def course_details_view(page: ft.Page, course_id: str, course_name: str):
 
             # ── update appbar title ───────────────────────────────────────
             view.appbar.title = ft.Text(
-                name, color=ft.Colors.WHITE,
+                name, color=ft.Colors.ON_PRIMARY,
                 weight=ft.FontWeight.W_700, size=17,
                 max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
             )
@@ -247,7 +247,7 @@ async def course_details_view(page: ft.Page, course_id: str, course_name: str):
             border_radius=ft.BorderRadius.only(top_left=12, top_right=12),
             alignment=ft.Alignment.CENTER,
             content=ft.Icon(ft.Icons.MENU_BOOK_ROUNDED, size=44,
-                            color=ft.Colors.WHITE),
+                            color=ft.Colors.ON_PRIMARY),
         )
                 ),
             )
@@ -291,7 +291,7 @@ async def course_details_view(page: ft.Page, course_id: str, course_name: str):
             enrol_btn = ft.ElevatedButton(
                 content=ft.Text(
                     "Unenroll" if is_already_enrolled else "Enroll Now",
-                    color=ft.Colors.WHITE,
+                    color=ft.Colors.ON_PRIMARY,
                     size=14,
                     weight=ft.FontWeight.W_600,
                 ),
@@ -321,7 +321,7 @@ async def course_details_view(page: ft.Page, course_id: str, course_name: str):
                     padding=ft.padding.symmetric(horizontal=18, vertical=16),
                     shadow=ft.BoxShadow(
                         blur_radius=6,
-                        color=ft.Colors.with_opacity(0.05, ft.Colors.BLACK),
+                        color=ft.Colors.with_opacity(0.05, ft.Colors.ON_SURFACE),
                         offset=ft.Offset(0, 2),
                     ),
                     content=content,
@@ -373,7 +373,7 @@ async def course_details_view(page: ft.Page, course_id: str, course_name: str):
                                             ft.Text(
                                                 description,
                                                 size=13,
-                                                color=ft.Colors.GREY_700,
+                                                color=ft.Colors.ON_SURFACE,
                                                 selectable=True,
                                                 width=float("inf"),
                                             ),
@@ -450,7 +450,7 @@ async def course_details_view(page: ft.Page, course_id: str, course_name: str):
                 ft.ElevatedButton(
                     "Retry",
                     bgcolor=ft.Colors.PRIMARY,
-                    color=ft.Colors.WHITE,
+                    color=ft.Colors.ON_PRIMARY,
                     height=42,
                     style=ft.ButtonStyle(
                         shape=ft.RoundedRectangleBorder(radius=10),

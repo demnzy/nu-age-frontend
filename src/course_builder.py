@@ -1,4 +1,7 @@
+import asyncio
+import random
 import flet as ft
+from flet_video import Video, VideoMedia
 from src.components.bottom_appbar import get_bottom_appbar
 from src.requests.Courses import (
     upload_asset_background,
@@ -209,6 +212,459 @@ def validate_lesson(lesson: dict):
 
 
 # =========================================================
+# LESSON PREVIEW RENDERERS
+# (Mirrors the student-facing renderers, but reads straight off the
+#  in-memory lesson dict being edited — no DB fetch, no publish needed.)
+# =========================================================
+
+def preview_placeholder(message: str, icon):
+    return ft.Container(
+        padding=40,
+        border_radius=14,
+        border=ft.border.all(1, ft.Colors.OUTLINE_VARIANT),
+        bgcolor=ft.Colors.SURFACE,
+        alignment=ft.Alignment(0, 0),
+        content=ft.Column(
+            [
+                ft.Icon(icon, size=44, color=ft.Colors.OUTLINE),
+                ft.Text(message, color=ft.Colors.ON_SURFACE_VARIANT, text_align=ft.TextAlign.CENTER),
+            ],
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=10,
+        ),
+    )
+
+
+def render_preview_video_block(value, lesson):
+    if not str(value or "").strip():
+        return preview_placeholder("No video uploaded yet.", ft.Icons.VIDEOCAM_OFF_ROUNDED)
+
+    player = Video(
+        expand=True,
+        playlist=[VideoMedia(value)],
+        autoplay=False,
+        volume=100,
+        show_controls=True,
+    )
+
+    video_container = ft.Container(
+        aspect_ratio=16 / 9,
+        border_radius=12,
+        bgcolor=ft.Colors.ON_PRIMARY,
+        clip_behavior=ft.ClipBehavior.HARD_EDGE,
+        content=ft.Stack(
+            [
+                player,
+                ft.Container(
+                    content=ft.Text(
+                        lesson["content"].get("file_name", "Video Lesson"),
+                        color=ft.Colors.SURFACE,
+                        weight=ft.FontWeight.BOLD,
+                        size=16,
+                    ),
+                    padding=ft.padding.symmetric(horizontal=15, vertical=10),
+                    gradient=ft.LinearGradient(
+                        begin=ft.Alignment.TOP_CENTER,
+                        end=ft.Alignment.BOTTOM_CENTER,
+                        colors=[ft.Colors.ON_PRIMARY, ft.Colors.TRANSPARENT],
+                    ),
+                    left=0, right=0, top=0, height=60,
+                ),
+            ],
+            expand=True,
+        ),
+    )
+
+    return ft.ResponsiveRow(
+        alignment=ft.MainAxisAlignment.CENTER,
+        controls=[
+            ft.Container(
+                # xs=12 (100% on phones), md=10 (~83% tablets),
+                # lg=8 (~66% desktop), xl=7 (~58% ultra-wide)
+                col={"xs": 12, "md": 10, "lg": 8, "xl": 7},
+                content=video_container,
+            )
+        ],
+    )
+
+
+def render_preview_notes_block(value, lesson):
+    async def handle_link_tap(e):
+        await e.page.launch_url(e.data)
+
+    display_value = str(value or "").strip() or "_No notes added yet._"
+
+    return ft.Container(
+        padding=18,
+        border_radius=12,
+        bgcolor=ft.Colors.SURFACE,
+        border=ft.border.all(1, ft.Colors.with_opacity(0.06, ft.Colors.ON_PRIMARY)),
+        content=ft.Column(
+            [
+                ft.Text("Instructor Notes", weight=ft.FontWeight.BOLD, size=15),
+                ft.Markdown(
+                    display_value,
+                    selectable=False,
+                    extension_set=ft.MarkdownExtensionSet.GITHUB_FLAVORED,
+                    on_tap_link=handle_link_tap,
+                ),
+            ],
+            spacing=10,
+            horizontal_alignment=ft.CrossAxisAlignment.START,
+        ),
+    )
+
+
+def render_preview_document_block(value, lesson):
+    if not str(value or "").strip():
+        return preview_placeholder("No document uploaded yet.", ft.Icons.DESCRIPTION_OUTLINED)
+
+    file_name = lesson["content"].get("file_name", "Document")
+
+    async def handle_download(e):
+        await lesson["_page"].launch_url(value)
+
+    return ft.Container(
+        padding=40,
+        border_radius=14,
+        border=ft.border.all(1, ft.Colors.OUTLINE_VARIANT),
+        bgcolor=ft.Colors.SURFACE,
+        alignment=ft.Alignment(0, 0),
+        content=ft.Column(
+            [
+                ft.Icon(ft.Icons.PICTURE_AS_PDF_ROUNDED, size=60, color=ft.Colors.RED_500),
+                ft.Text(file_name, weight=ft.FontWeight.BOLD, size=18),
+                ft.ElevatedButton(
+                    content=ft.Text("Download Document"),
+                    icon=ft.Icons.DOWNLOAD,
+                    on_click=handle_download,
+                ),
+            ],
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=14,
+        ),
+    )
+
+
+def render_preview_text_block(value, lesson):
+    if not str(value or "").strip():
+        return preview_placeholder("No text added yet.", ft.Icons.NOTES_ROUNDED)
+
+    async def handle_link_tap(e):
+        await e.page.launch_url(e.data)
+
+    return ft.Container(
+        padding=24,
+        border_radius=14,
+        bgcolor=ft.Colors.SURFACE,
+        border=ft.border.all(1, ft.Colors.with_opacity(0.06, ft.Colors.ON_PRIMARY)),
+        content=ft.Markdown(
+            value,
+            selectable=True,
+            extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+            code_theme=ft.MarkdownCodeTheme.ATELIER_LAKESIDE_DARK,
+            code_style_sheet=ft.MarkdownStyleSheet(
+                code_text_style=ft.TextStyle(font_family="Roboto Mono", size=16),
+                codeblock_decoration=ft.BoxDecoration(
+                    bgcolor="#0662AD",
+                    border_radius=ft.border_radius.all(8),
+                ),
+            ),
+            on_tap_link=handle_link_tap,
+            md_style_sheet=ft.MarkdownStyleSheet(
+                text_alignment=ft.TextAlign.START,
+                p_text_style=ft.TextStyle(
+                    size=17,
+                    weight=ft.FontWeight.W_400,
+                    color=ft.Colors.ON_SURFACE,
+                ),
+                code_text_style=ft.TextStyle(
+                    size=16,
+                    weight=ft.FontWeight.NORMAL,
+                    font_family="monospace",
+                    color=ft.Colors.ON_SURFACE_VARIANT,
+                    bgcolor=ft.Colors.SCRIM,
+                ),
+            ),
+        ),
+    )
+
+
+def render_preview_audio_block(value, lesson):
+    if not str(value or "").strip():
+        return preview_placeholder("No audio uploaded yet.", ft.Icons.AUDIO_FILE_ROUNDED)
+
+    file_name = lesson["content"].get("file_name", "Audio Lesson")
+
+    async def handle_download(e):
+        await lesson["_page"].launch_url(value)
+
+    return ft.Container(
+        padding=40,
+        border_radius=14,
+        bgcolor=ft.Colors.SURFACE,
+        border=ft.border.all(1, ft.Colors.with_opacity(0.06, ft.Colors.ON_PRIMARY)),
+        alignment=ft.Alignment(0, 0),
+        content=ft.Column(
+            [
+                ft.Icon(ft.Icons.AUDIO_FILE_ROUNDED, size=56, color=ft.Colors.PRIMARY),
+                ft.Text(file_name, weight=ft.FontWeight.BOLD, size=18, text_align=ft.TextAlign.CENTER),
+                ft.ElevatedButton(
+                    "Download Audio",
+                    icon=ft.Icons.DOWNLOAD,
+                    on_click=handle_download,
+                ),
+            ],
+            spacing=14,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+    )
+
+
+CARD_PREVIEW_COLORS = [
+    ft.Colors.BLUE_50, ft.Colors.RED_50, ft.Colors.GREEN_50,
+    ft.Colors.AMBER_50, ft.Colors.PURPLE_50, ft.Colors.TEAL_50,
+]
+
+
+def render_preview_cards_block(value, lesson):
+    cards_list = [c for c in (value or []) if str(c).strip()]
+    if not cards_list:
+        return preview_placeholder("Add at least one flashcard to preview.", ft.Icons.VIEW_CAROUSEL_ROUNDED)
+
+    card_idx = [0]
+    card_bg_color = random.choice(CARD_PREVIEW_COLORS)
+
+    card_text = ft.Container(
+        alignment=ft.Alignment(0, 0),
+        bgcolor=card_bg_color,
+        padding=30,
+        border_radius=12,
+        content=ft.Markdown(
+            value=cards_list[0],
+            selectable=False,
+            extension_set=ft.MarkdownExtensionSet.GITHUB_FLAVORED,
+            md_style_sheet=ft.MarkdownStyleSheet(
+                text_alignment=ft.TextAlign.CENTER,
+                p_text_style=ft.TextStyle(size=22, weight=ft.FontWeight.W_600, color=ft.Colors.BLACK),
+            ),
+        ),
+    )
+    counter_text = ft.Text(f"1 / {len(cards_list)}", color=ft.Colors.BLACK, weight=ft.FontWeight.BOLD)
+
+    card_container = ft.Container(padding=40, border_radius=16, bgcolor=card_bg_color)
+
+    def update():
+        card_text.content.value = cards_list[card_idx[0]]
+        counter_text.value = f"{card_idx[0] + 1} / {len(cards_list)}"
+        card_container.bgcolor = random.choice(CARD_PREVIEW_COLORS)
+        card_text.bgcolor = card_container.bgcolor
+        lesson["_page"].update()
+
+    def go_back(e):
+        if card_idx[0] > 0:
+            card_idx[0] -= 1
+            update()
+
+    def go_forward(e):
+        if card_idx[0] < len(cards_list) - 1:
+            card_idx[0] += 1
+            update()
+
+    card_container.content = ft.Column(
+        [
+            ft.Container(card_text, expand=True, alignment=ft.Alignment(0, 0)),
+            ft.Row(
+                [
+                    ft.IconButton(ft.Icons.ARROW_BACK_IOS_ROUNDED, on_click=go_back, icon_color="BLACK"),
+                    counter_text,
+                    ft.IconButton(ft.Icons.ARROW_FORWARD_IOS_ROUNDED, on_click=go_forward, icon_color="BLACK"),
+                ],
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            ),
+        ]
+    )
+    return card_container
+
+
+PREVIEW_CONTENT_RENDERERS = {
+    "video_url": render_preview_video_block,
+    "accompanying_text": render_preview_notes_block,
+    "document_url": render_preview_document_block,
+    "text": render_preview_text_block,
+    "audio_path": render_preview_audio_block,
+    "cards": render_preview_cards_block,
+}
+
+
+def render_preview_scenario_ui(lesson: dict):
+    content = lesson.get("content", {})
+    scenario_text = str(content.get("scenario", "")).strip()
+    choices = [c for c in content.get("choices", []) if str(c.get("text", "")).strip()]
+
+    if not scenario_text or len(choices) < 2:
+        return preview_placeholder(
+            "Add scenario text and at least two choices to preview.", ft.Icons.CALL_SPLIT_ROUNDED
+        )
+
+    consequence_box = ft.Container(
+        padding=20,
+        border_radius=12,
+        bgcolor=ft.Colors.with_opacity(0.10, UI_ACCENT),
+        border=ft.border.all(1, ft.Colors.with_opacity(0.35, UI_ACCENT)),
+        visible=False,
+        content=ft.Column([
+            ft.Row([ft.Icon(ft.Icons.LIGHTBULB_CIRCLE, color=UI_ACCENT), ft.Text("Result", weight=ft.FontWeight.BOLD, color=UI_ACCENT)]),
+            ft.Markdown("", selectable=False, extension_set=ft.MarkdownExtensionSet.GITHUB_FLAVORED, md_style_sheet=ft.MarkdownStyleSheet(
+                p_text_style=ft.TextStyle(color=ft.Colors.ON_SURFACE),
+            ))
+        ])
+    )
+
+    buttons_col = ft.Column(spacing=10, horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
+
+    def handle_choice(idx, cons_text):
+        for i, btn in enumerate(buttons_col.controls):
+            if i == idx:
+                btn.bgcolor = UI_ACCENT
+                btn.color = ft.Colors.SURFACE
+            else:
+                btn.bgcolor = ft.Colors.TRANSPARENT
+                btn.color = UI_ACCENT
+        consequence_box.content.controls[1].value = cons_text
+        consequence_box.visible = True
+        lesson["_page"].update()
+
+    for idx, ch in enumerate(choices):
+        btn = ft.OutlinedButton(
+            content=ch.get("text", f"Option {idx+1}"),
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), padding=20),
+            on_click=lambda e, i=idx, c_t=ch.get("consequence", ""): handle_choice(i, c_t),
+        )
+        buttons_col.controls.append(btn)
+
+    return ft.Container(
+        padding=25,
+        border_radius=16,
+        bgcolor=ft.Colors.SURFACE,
+        border=ft.border.all(1, ft.Colors.with_opacity(0.06, ft.Colors.ON_PRIMARY)),
+        content=ft.Column(
+            [
+                ft.Row([
+                    ft.Icon(ft.Icons.CALL_SPLIT_ROUNDED, color=UI_ACCENT, size=28),
+                    ft.Text("Decision Matrix", weight=ft.FontWeight.BOLD, size=18, color=UI_ACCENT)
+                ]),
+                ft.Text(scenario_text, size=16, color=ft.Colors.ON_SURFACE),
+                ft.Divider(height=10, color=ft.Colors.OUTLINE_VARIANT),
+                ft.Text("What is the best course of action?", weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE_VARIANT),
+                buttons_col,
+                ft.Container(height=5),
+                consequence_box,
+            ],
+            spacing=10,
+        ),
+    )
+
+
+def render_preview_assessment_ui(lesson: dict):
+    content = lesson.get("content", {})
+    questions = [
+        q for q in content.get("questions", [])
+        if str(q.get("text", "")).strip() and len(q.get("options", [])) >= 2
+    ]
+
+    if not questions:
+        return preview_placeholder("Add at least one question (with 2+ options) to preview.", ft.Icons.QUIZ_ROUNDED)
+
+    question_cards = []
+    for q_idx, q in enumerate(questions):
+        options_data = q.get("options", [])
+        correct_count = sum(1 for opt in options_data if opt.get("is_correct"))
+        is_multi_select = correct_count > 1
+
+        q_text_str = f"Q{q_idx + 1}: {q.get('text', '')}"
+        if is_multi_select:
+            q_text_str += " (Select all that apply)"
+
+        q_text = ft.Markdown(
+            value=q_text_str,
+            selectable=True,
+            extension_set=ft.MarkdownExtensionSet.GITHUB_FLAVORED,
+            md_style_sheet=ft.MarkdownStyleSheet(
+                p_text_style=ft.TextStyle(size=15, color=ft.Colors.ON_SURFACE, weight=ft.FontWeight.W_500),
+            ),
+        )
+
+        if is_multi_select:
+            options_rows = [
+                ft.Row(
+                    [ft.Checkbox(value=False, data=opt.get("text", ""), fill_color="white", check_color=UI_ACCENT),
+                     ft.Text(opt.get("text", ""), expand=True, color=ft.Colors.ON_SURFACE)],
+                    vertical_alignment=ft.CrossAxisAlignment.START,
+                )
+                for opt in options_data
+            ]
+            options_ui = ft.Column(options_rows, spacing=10)
+        else:
+            options_ui = ft.RadioGroup(
+                content=ft.Column(
+                    [
+                        ft.Row(
+                            [ft.Radio(value=opt.get("text"), fill_color=UI_ACCENT),
+                             ft.Text(opt.get("text"), expand=True, color=ft.Colors.ON_SURFACE)],
+                            vertical_alignment=ft.CrossAxisAlignment.START,
+                        )
+                        for opt in options_data
+                    ],
+                    spacing=10,
+                )
+            )
+
+        question_cards.append(
+            ft.Container(
+                padding=25,
+                border_radius=16,
+                bgcolor=ft.Colors.SURFACE,
+                border=ft.border.all(1, ft.Colors.with_opacity(0.06, ft.Colors.ON_PRIMARY)),
+                content=ft.Column([
+                    ft.Container(content=q_text, expand=True),
+                    ft.Divider(height=1),
+                    options_ui,
+                ], spacing=15),
+            )
+        )
+
+    return ft.Container(
+        width=None,
+        padding=0,
+        content=ft.Column(question_cards, spacing=20, horizontal_alignment=ft.CrossAxisAlignment.STRETCH),
+    )
+
+
+def render_lesson_preview(lesson: dict, page: ft.Page):
+    lesson["_page"] = page
+    content = lesson.get("content", {})
+    blocks = []
+
+    for key, value in content.items():
+        if key in ["questions", "scenario", "choices", "prompt_text", "file_name"]:
+            continue
+        renderer = PREVIEW_CONTENT_RENDERERS.get(key)
+        if renderer:
+            blocks.append(renderer(value, lesson))
+
+    if lesson["type"] == "assessment":
+        blocks.append(render_preview_assessment_ui(lesson))
+    elif lesson["type"] == "scenario":
+        blocks.append(render_preview_scenario_ui(lesson))
+
+    if not blocks:
+        blocks.append(preview_placeholder("Nothing to preview yet — add some content first.", ft.Icons.INFO_OUTLINE_ROUNDED))
+
+    return ft.Column(blocks, spacing=20, horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
+
+
+# =========================================================
 # VIEW
 # =========================================================
 
@@ -270,7 +726,7 @@ async def course_builder_view(page: ft.Page, course_id: str):
 
     scrim = ft.Container(
         expand=True,
-        bgcolor=ft.Colors.with_opacity(0.35, ft.Colors.BLACK),
+        bgcolor=ft.Colors.with_opacity(0.35, ft.Colors.ON_SURFACE),
         visible=False,
         on_click=close_editor,
     )
@@ -286,7 +742,7 @@ async def course_builder_view(page: ft.Page, course_id: str):
         border=ft.border.only(left=ft.border.BorderSide(1, ft.Colors.OUTLINE_VARIANT)),
         shadow=ft.BoxShadow(
             blur_radius=18,
-            color=ft.Colors.with_opacity(0.18, ft.Colors.BLACK),
+            color=ft.Colors.with_opacity(0.18, ft.Colors.ON_SURFACE),
         ),
         content=ft.Column(
             [
@@ -319,6 +775,154 @@ async def course_builder_view(page: ft.Page, course_id: str):
         page.update()
 
     page.on_resize = on_resize
+
+    # -----------------------------------------------------
+    # Full-screen course preview (no DB fetch — renders `modules` live)
+    # -----------------------------------------------------
+    preview_title_text = ft.Text("Course Preview", size=18, weight=ft.FontWeight.BOLD)
+    preview_subtitle_text = ft.Text("", size=12, color=ft.Colors.ON_SURFACE_VARIANT)
+    preview_body_column = ft.Column([], spacing=20, horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
+
+    preview_loading_socket = ft.Container(
+        padding=60,
+        alignment=ft.Alignment(0, 0),
+        content=ft.Column(
+            [
+                ft.ProgressRing(color=UI_ACCENT, width=32, height=32, stroke_width=3),
+                ft.Text("Loading preview…", color=ft.Colors.ON_SURFACE_VARIANT),
+            ],
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=14,
+        ),
+    )
+
+    def close_preview(e=None):
+        preview_overlay.visible = False
+        page.update()
+
+    def build_course_preview_content():
+        blocks = []
+        total_lessons = sum(len(m.get("lessons", [])) for m in modules)
+
+        if not modules or total_lessons == 0:
+            blocks.append(
+                preview_placeholder(
+                    "Add a module and some lessons to see a course preview.",
+                    ft.Icons.MENU_BOOK_ROUNDED,
+                )
+            )
+            return blocks, total_lessons
+
+        for m_idx, m in enumerate(modules):
+            blocks.append(
+                ft.Row(
+                    [
+                        ft.Container(
+                            padding=ft.padding.symmetric(horizontal=10, vertical=4),
+                            border_radius=999,
+                            bgcolor=ft.Colors.with_opacity(0.10, UI_ACCENT),
+                            content=ft.Text(f"Module {m_idx + 1}", size=11, weight=ft.FontWeight.BOLD, color=UI_ACCENT),
+                        ),
+                        ft.Text(
+                            m.get("title", "Untitled Module"),
+                            size=20,
+                            weight=ft.FontWeight.BOLD,
+                            expand=True,
+                        ),
+                    ],
+                    spacing=10,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                )
+            )
+
+            lessons = m.get("lessons", [])
+            if not lessons:
+                blocks.append(preview_placeholder("This module has no lessons yet.", ft.Icons.PLAYLIST_ADD_ROUNDED))
+                continue
+
+            for l in lessons:
+                blocks.append(
+                    ft.Row(
+                        [
+                            ft.Icon(lesson_icon(l["type"]), color=lesson_color(l["type"]), size=20),
+                            ft.Text(
+                                l.get("title", "Untitled Lesson"),
+                                size=16,
+                                weight=ft.FontWeight.W_600,
+                                expand=True,
+                            ),
+                            lesson_badge(l["type"]),
+                        ],
+                        spacing=8,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    )
+                )
+                blocks.append(render_lesson_preview(l, page))
+                blocks.append(ft.Divider(height=1, color=ft.Colors.OUTLINE_VARIANT))
+
+        return blocks, total_lessons
+
+    async def open_preview(e=None):
+        # 1. Show the loading content socket immediately, then yield so the client paints it
+        preview_title_text.value = "Course Preview"
+        preview_subtitle_text.value = course_name
+        preview_body_column.controls = [preview_loading_socket]
+        preview_overlay.visible = True
+        page.update()
+        await asyncio.sleep(0.05)
+
+        # 2. Build the real content, then swap it into the socket
+        blocks, total_lessons = build_course_preview_content()
+        preview_subtitle_text.value = f"{course_name} · {len(modules)} module(s) · {total_lessons} lesson(s)"
+        preview_body_column.controls = blocks
+        page.update()
+
+    preview_overlay = ft.Container(
+        expand=True,
+        top=0, left=0, right=0, bottom=0,
+        visible=False,
+        bgcolor=ft.Colors.SURFACE_CONTAINER,
+        content=ft.Column(
+            [
+                ft.Container(
+                    padding=ft.padding.symmetric(horizontal=16, vertical=12),
+                    bgcolor=ft.Colors.SURFACE,
+                    border=ft.border.only(bottom=ft.border.BorderSide(1, ft.Colors.OUTLINE_VARIANT)),
+                    content=ft.Row(
+                        [
+                            ft.Row(
+                                [
+                                    ft.Icon(ft.Icons.VISIBILITY_ROUNDED, color=UI_ACCENT),
+                                    ft.Column(
+                                        [preview_title_text, preview_subtitle_text],
+                                        spacing=2,
+                                        expand=True,
+                                    ),
+                                ],
+                                spacing=10,
+                                expand=True,
+                            ),
+                            ft.IconButton(ft.Icons.CLOSE, on_click=close_preview),
+                        ],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        vertical_alignment=ft.CrossAxisAlignment.START,
+                    ),
+                ),
+                ft.Container(
+                    expand=True,
+                    padding=ft.padding.symmetric(horizontal=16, vertical=20),
+                    content=ft.Column(
+                        [preview_body_column],
+                        scroll=ft.ScrollMode.AUTO,
+                        horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+                        expand=True,
+                    ),
+                ),
+            ],
+            spacing=0,
+            expand=True,
+        ),
+    )
 
     # -----------------------------------------------------
     # UI helpers
@@ -366,7 +970,7 @@ async def course_builder_view(page: ft.Page, course_id: str):
                 ft.ElevatedButton(
                     "OK",
                     bgcolor=UI_ACCENT if success else ft.Colors.ERROR,
-                    color=ft.Colors.WHITE,
+                    color=ft.Colors.ON_PRIMARY,
                     on_click=close,
                 )
             ],
@@ -574,7 +1178,7 @@ async def course_builder_view(page: ft.Page, course_id: str):
             padding=16,
             border_radius=12,
             border=ft.border.all(1, ft.Colors.OUTLINE_VARIANT),
-            bgcolor=tint if tint else ft.Colors.WHITE,
+            bgcolor=tint if tint else ft.Colors.ON_PRIMARY,
             content=ft.Column([ft.Text(title, weight=ft.FontWeight.BOLD), child], spacing=10),
         )
 
@@ -803,7 +1407,7 @@ async def course_builder_view(page: ft.Page, course_id: str):
                         padding=12,
                         border_radius=10,
                         border=ft.border.all(1, ft.Colors.OUTLINE_VARIANT),
-                        bgcolor=ft.Colors.WHITE,
+                        bgcolor=ft.Colors.ON_PRIMARY,
                         content=ft.Column(
                             [
                                 ft.Row(
@@ -1014,7 +1618,7 @@ async def course_builder_view(page: ft.Page, course_id: str):
                         padding=12,
                         border_radius=12,
                         border=ft.border.all(1, ft.Colors.OUTLINE_VARIANT),
-                        bgcolor=ft.Colors.WHITE,
+                        bgcolor=ft.Colors.ON_PRIMARY,
                         content=ft.Column(
                             [
                                 ft.Row(
@@ -1100,25 +1704,25 @@ async def course_builder_view(page: ft.Page, course_id: str):
 
         # Strict by type
         if t == "video":
-            editor_content.controls.append(block_card("Video", video_block(content), tint=ft.Colors.BLUE_50))
+            editor_content.controls.append(block_card("Video", video_block(content), tint=ft.Colors.with_opacity(0.12, lesson_color(t))))
             if "accompanying_text" in content:
                 editor_content.controls.append(block_card("Notes", notes_block(content)))
         elif t == "audio":
-            editor_content.controls.append(block_card("Audio", audio_block(content), tint=ft.Colors.PINK_50))
+            editor_content.controls.append(block_card("Audio", audio_block(content), tint=ft.Colors.with_opacity(0.12, lesson_color(t))))
             if "accompanying_text" in content:
                 editor_content.controls.append(block_card("Notes", notes_block(content)))
         elif t == "document":
-            editor_content.controls.append(block_card("Document", document_block(content), tint=ft.Colors.TEAL_50))
+            editor_content.controls.append(block_card("Document", document_block(content), tint=ft.Colors.with_opacity(0.12, lesson_color(t))))
             if "accompanying_text" in content:
                 editor_content.controls.append(block_card("Notes", notes_block(content)))
         elif t == "text":
             editor_content.controls.append(block_card("Text", text_block(content)))
         elif t == "cards":
-            editor_content.controls.append(block_card("Flashcards", cards_block(content), tint=ft.Colors.PURPLE_50))
+            editor_content.controls.append(block_card("Flashcards", cards_block(content), tint=ft.Colors.with_opacity(0.12, lesson_color(t))))
         elif t == "assessment":
-            editor_content.controls.append(block_card("Assessment", assessment_block(content), tint=ft.Colors.ORANGE_50))
+            editor_content.controls.append(block_card("Assessment", assessment_block(content), tint=ft.Colors.with_opacity(0.12, lesson_color(t))))
         elif t == "scenario":
-            editor_content.controls.append(block_card("Decision Matrix", scenario_block(content), tint=ft.Colors.TEAL_50))
+            editor_content.controls.append(block_card("Decision Matrix", scenario_block(content), tint=ft.Colors.with_opacity(0.12, lesson_color(t))))
         # Optional blocks menu
         missing_optional = [k for k in OPTIONAL_KEYS.get(t, []) if k not in content]
         if missing_optional:
@@ -1153,7 +1757,7 @@ async def course_builder_view(page: ft.Page, course_id: str):
             ft.ElevatedButton(
                 "Done",
                 bgcolor=UI_ACCENT,
-                color=ft.Colors.WHITE,
+                color=ft.Colors.ON_PRIMARY,
                 height=48,
                 style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10)),
                 on_click=close_editor,
@@ -1198,7 +1802,7 @@ async def course_builder_view(page: ft.Page, course_id: str):
             content=title_field,
             actions=[
                 ft.TextButton("Cancel", on_click=close_modal),
-                ft.ElevatedButton("Add", bgcolor=UI_ACCENT, color=ft.Colors.WHITE, on_click=create_module),
+                ft.ElevatedButton("Add", bgcolor=UI_ACCENT, color=ft.Colors.ON_PRIMARY, on_click=create_module),
             ],
             actions_alignment=ft.MainAxisAlignment.END,
         )
@@ -1332,7 +1936,7 @@ async def course_builder_view(page: ft.Page, course_id: str):
         return ft.Container(
             padding=ft.padding.symmetric(horizontal=12, vertical=10),
             border_radius=12,
-            bgcolor=ft.Colors.WHITE,
+            bgcolor=ft.Colors.ON_PRIMARY,
             border=ft.border.all(1, ft.Colors.OUTLINE_VARIANT),
             content=content,
         )
@@ -1368,7 +1972,7 @@ async def course_builder_view(page: ft.Page, course_id: str):
                 content=title_field,
                 actions=[
                     ft.TextButton("Cancel", on_click=close_modal),
-                    ft.ElevatedButton("Save", bgcolor=UI_ACCENT, color=ft.Colors.WHITE, on_click=save),
+                    ft.ElevatedButton("Save", bgcolor=UI_ACCENT, color=ft.Colors.ON_PRIMARY, on_click=save),
                 ],
                 actions_alignment=ft.MainAxisAlignment.END,
             )
@@ -1467,7 +2071,7 @@ async def course_builder_view(page: ft.Page, course_id: str):
             "Publish Course",
             icon=ft.Icons.ROCKET_LAUNCH_ROUNDED,
             bgcolor=UI_ACCENT,
-            color=ft.Colors.WHITE,
+            color=ft.Colors.ON_PRIMARY,
             height=44,
             style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10)),
             on_click=lambda e: page.run_task(publish_course),
@@ -1514,7 +2118,7 @@ async def course_builder_view(page: ft.Page, course_id: str):
             "Generate",
             icon=ft.Icons.AUTO_AWESOME_ROUNDED,
             bgcolor=UI_ACCENT,
-            color=ft.Colors.WHITE,
+            color=ft.Colors.ON_PRIMARY,
         )
 
         def close_dialog(ev=None):
@@ -1650,39 +2254,23 @@ async def course_builder_view(page: ft.Page, course_id: str):
         )
 
         ai_draft_btn = build_ai_draft_button()
+        preview_btn = ft.OutlinedButton(
+            "Preview",
+            icon=ft.Icons.VISIBILITY_ROUNDED,
+            height=44,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10)),
+            on_click=lambda e: page.run_task(open_preview, e),
+        )
         publish_btn = build_publish_button()
 
-        if is_mobile(page):
-            header_content = ft.Column(
-                [
-                    back_and_title,
-                    ft.Column(
-                        [
-                            adaptive_action_button(ai_draft_btn),
-                            adaptive_action_button(add_module_btn),
-                            adaptive_action_button(publish_btn),
-                        ],
-                        spacing=10,
-                    ),
-                ],
-                spacing=12,
-            )
-        else:
-            header_content = ft.Row(
-                [
-                    ft.Container(content=back_and_title, expand=True),
-                    ft.Row(
-                        [
-                            ai_draft_btn,
-                            add_module_btn,
-                            publish_btn,
-                        ],
-                        spacing=10,
-                    ),
-                ],
-                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            )
+        header_content = ft.Row(
+            [back_and_title, ai_draft_btn, preview_btn, add_module_btn],
+            spacing=14,
+            run_spacing=10,
+            wrap=True,
+            alignment=ft.MainAxisAlignment.START,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        )
 
         curriculum_column.controls.append(
             ft.Container(
@@ -1697,13 +2285,21 @@ async def course_builder_view(page: ft.Page, course_id: str):
         for idx, m in enumerate(modules):
             curriculum_column.controls.append(build_module_block(m, idx))
 
+        # Publish sits at the bottom, right-aligned, and naturally pushes further
+        # down the page as more modules are appended above it.
+        curriculum_column.controls.append(
+            ft.Container(
+                padding=ft.padding.symmetric(horizontal=4, vertical=20),
+                content=ft.Row([publish_btn], alignment=ft.MainAxisAlignment.END),
+            )
+        )
+
         page.update()
 
     refresh_curriculum()
 
     return ft.View(
         route=f"/courses/{course_id}/build",
-        bottom_appbar=app_bar,
         bgcolor=ft.Colors.SURFACE_CONTAINER,
         padding=0,
         controls=[
@@ -1714,6 +2310,7 @@ async def course_builder_view(page: ft.Page, course_id: str):
                         ft.Container(expand=True, padding=16, content=curriculum_column),
                         scrim,
                         editor_drawer,
+                        preview_overlay,
                     ],
                     expand=True,
                 ),

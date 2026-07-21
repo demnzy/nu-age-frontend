@@ -2,8 +2,6 @@
 
 import asyncio
 from datetime import datetime, timedelta, timezone
-
-from certifi import contents
 import flet as ft
 from src.components.bottom_appbar import get_bottom_appbar
 from src.requests.organisations import revoke_invitation, get_pending_invitations, send_org_invite, get_my_organisation
@@ -14,8 +12,8 @@ _INPUT = {
     "focused_border_color": ft.Colors.PRIMARY,
     "cursor_color": ft.Colors.PRIMARY,
     "border_radius": 10,
-    "width": float("inf"),
     "text_size": 13,
+    "width": float("inf"),
     "content_padding": ft.padding.symmetric(horizontal=14, vertical=12),
 }
 
@@ -106,8 +104,8 @@ async def invite_members_view(page: ft.Page, org_id: str):
             menu_style=ft.MenuStyle(bgcolor=theme_color),
             menu_width= 60,
             text_size=13,
+            color=ft.Colors.BLACK,
             content_padding=ft.padding.symmetric(horizontal=14, vertical=12),
-            width=float("inf"),
             options=[
                 ft.DropdownOption(key="STUDENT", text="Student"),
                 ft.DropdownOption(key="TEACHER", text="Teacher"),
@@ -342,6 +340,8 @@ async def invite_members_view(page: ft.Page, org_id: str):
         # ── Body Assembly ─────────────────────────────────────────────────────
         body = ft.Column(
             spacing=0,
+            expand= True,
+            scroll = ft.ScrollMode.AUTO,
             controls=[
                 # ── header bar ─────────────────────────────────────
                 ft.Container(
@@ -529,11 +529,10 @@ async def invite_members_view(page: ft.Page, org_id: str):
 
     # ── page layout ───────────────────────────────────────────────────────────
     return ft.View(
-        route=f"organisations/{org_id}/invite-members",
+        route=f"/organisations/{org_id}/invite-members",
         bottom_appbar=app_bar,
         bgcolor=ft.Colors.SURFACE_CONTAINER,
         padding=0,
-        scroll=ft.ScrollMode.AUTO,
         controls=[
             ft.SafeArea(
                 expand=True,

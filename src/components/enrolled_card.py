@@ -41,7 +41,7 @@ def get_enrolled_card(
             border_radius=ft.BorderRadius.only(top_left=12, top_right=12),
             alignment=ft.Alignment.CENTER,
             content=ft.Icon(ft.Icons.MENU_BOOK_ROUNDED, size=44,
-                            color=ft.Colors.WHITE),
+                            color=ft.Colors.ON_PRIMARY),
         )
 
     # ── meta row helper ───────────────────────────────────────────────────────
@@ -64,12 +64,12 @@ def get_enrolled_card(
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 controls=[
                     ft.Text("Progress", size=10,
-                            color=ft.Colors.BLACK, weight=ft.FontWeight.W_500),
+                            color=ft.Colors.ON_SURFACE, weight=ft.FontWeight.W_500),
                     ft.Text(
                         "Completed ✓" if percentage >= 100 else f"{percentage}%",
                         size=11,
                         weight=ft.FontWeight.W_700,
-                        color=progress_color if percentage >= 100 else ft.Colors.BLACK,
+                        color=progress_color if percentage >= 100 else ft.Colors.ON_SURFACE,
                     ),
                 ],
             ),
@@ -96,7 +96,7 @@ def get_enrolled_card(
         clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
         shadow=ft.BoxShadow(
             blur_radius=8,
-            color=ft.Colors.with_opacity(0.08, ft.Colors.BLACK),
+            color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
             offset=ft.Offset(0, 3),
         ),
         ink=True,
@@ -116,7 +116,7 @@ def get_enrolled_card(
                             # Category pill
                             ft.Container(
                             padding=ft.padding.symmetric(horizontal=8, vertical=3),
-                            bgcolor=ft.Colors.GREY_100,
+                            bgcolor=ft.Colors.SURFACE,
                             border_radius=10,
                             content=ft.Text(
                                 course_category or "General",

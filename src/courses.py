@@ -75,7 +75,7 @@ async def courses_view(page: ft.Page):
                         content=ft.Column(
                             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                             controls=[
-                                ft.Icon(ft.Icons.SEARCH_OFF_ROUNDED, size=50, color=ft.Colors.BLACK_12),
+                                ft.Icon(ft.Icons.SEARCH_OFF_ROUNDED, size=50, color=ft.Colors.ON_SURFACE),
                                 ft.Text(
                                     "Try a different Search",
                                     size=16,
@@ -95,7 +95,7 @@ async def courses_view(page: ft.Page):
     # 2. The UI Control
     
     search_anchor = ft.SearchBar(
-        bar_bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST, # Themed equivalent of White
+        bar_bgcolor=ft.Colors.ON_PRIMARY, # Themed equivalent of White
         bar_hint_text="Search courses or categories...",
         bar_leading=ft.Icon(ft.Icons.SEARCH, color=ft.Colors.PRIMARY), # Themed equivalent of #009787
         
@@ -353,7 +353,7 @@ async def courses_view(page: ft.Page):
                         content=ft.Column(
                             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                             controls=[
-                                ft.Icon(ft.Icons.SEARCH_OFF_ROUNDED, size=50, color=ft.Colors.BLACK_12),
+                                ft.Icon(ft.Icons.SEARCH_OFF_ROUNDED, size=50, color=ft.Colors.ON_SURFACE),
                                 ft.Text(
                                     "No available courses found",
                                     size=16,
@@ -437,6 +437,7 @@ async def courses_view(page: ft.Page):
         bottom_appbar=App_bar,
         # 1. Important: Ensure the view padding doesn't interfere
         padding=0, 
+        bgcolor=ft.Colors.ON_PRIMARY,
 
         controls=[
             ft.SafeArea(

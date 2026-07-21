@@ -125,7 +125,7 @@ async def course_settings_view(page: ft.Page, course_id: str, org_id: str) -> ft
 
     def show_toast(message: str, color=ft.Colors.GREEN_700):
         snack = ft.SnackBar(
-            content=ft.Text(message, color=ft.Colors.WHITE),
+            content=ft.Text(message, color=ft.Colors.ON_PRIMARY),
             bgcolor=color,
             duration=3000,
         )
@@ -319,15 +319,15 @@ async def course_settings_view(page: ft.Page, course_id: str, org_id: str) -> ft
 
         master_checkbox = ft.Checkbox(
             label="Select / Deselect All",
-            fill_color={"selected": ft.Colors.PRIMARY, "": ft.Colors.WHITE},
-            check_color=ft.Colors.WHITE,
+            fill_color={"selected": ft.Colors.PRIMARY, "": ft.Colors.ON_PRIMARY},
+            check_color=ft.Colors.ON_PRIMARY,
             on_change=toggle_all,
         )
 
         action_btn = ft.ElevatedButton(
             "Save Changes",
             bgcolor=ft.Colors.PRIMARY,
-            color=ft.Colors.WHITE,
+            color=ft.Colors.ON_PRIMARY,
             disabled=True,
             style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
         )
@@ -450,9 +450,9 @@ async def course_settings_view(page: ft.Page, course_id: str, org_id: str) -> ft
             except Exception as ex:
                 _log_error("get_enrolled_students", ex)
                 students = None
-
+            
             loading_ring.visible = False
-
+            students = students.get("students", []) if isinstance(students, dict) else students
             if students is None:
                 # API error
                 error_state.visible = True
@@ -473,8 +473,8 @@ async def course_settings_view(page: ft.Page, course_id: str, org_id: str) -> ft
 
                     cb = ft.Checkbox(
                         value=is_enrolled,
-                        fill_color={"selected": ft.Colors.PRIMARY, "": ft.Colors.WHITE},
-                        check_color=ft.Colors.WHITE,
+                        fill_color={"selected": ft.Colors.PRIMARY, "": ft.Colors.ON_PRIMARY},
+                        check_color=ft.Colors.ON_PRIMARY,
                     )
                     student_checkboxes[s_id] = cb
 
@@ -487,7 +487,7 @@ async def course_settings_view(page: ft.Page, course_id: str, org_id: str) -> ft
                                     expand=True,
                                     spacing=2,
                                     controls=[
-                                        ft.Text(student.get("name", "Unknown"), size=14,
+                                        ft.Text(f'{student.get("first_name", "Unknown")} {student.get("last_name", "Unknown")}', size=14,
                                                 weight=ft.FontWeight.W_600,
                                                 color=ft.Colors.ON_SURFACE),
                                         ft.Text(student.get("email", "—"), size=12,
@@ -592,7 +592,7 @@ async def course_settings_view(page: ft.Page, course_id: str, org_id: str) -> ft
                 ft.ElevatedButton(
                     "Yes, Delete Everything",
                     bgcolor=ft.Colors.RED_700,
-                    color=ft.Colors.WHITE,
+                    color=ft.Colors.ON_PRIMARY,
                     style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
                     on_click=confirm_delete,
                 ),
@@ -669,14 +669,14 @@ async def course_settings_view(page: ft.Page, course_id: str, org_id: str) -> ft
                 controls=[
                     ft.IconButton(
                         ft.Icons.ARROW_BACK_ROUNDED,
-                        icon_color=ft.Colors.WHITE,
+                        icon_color=ft.Colors.ON_PRIMARY,
                         on_click=lambda _: page.go("/organisations"),
                     ),
                     ft.Text(
                         "Course Settings",
                         size=20,
                         weight=ft.FontWeight.BOLD,
-                        color=ft.Colors.WHITE,
+                        color=ft.Colors.ON_PRIMARY,
                     ),
                     ft.Container(width=40),  # balance the back button
                 ],
@@ -741,7 +741,6 @@ def _error_view(course_id: str, message: str) -> ft.View:
                 alignment=ft.Alignment(0, 0),
                 content=ft.Column(
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                    mainAxisAlignment=ft.MainAxisAlignment.CENTER,
                     controls=[
                         ft.Icon(ft.Icons.ERROR_OUTLINE_ROUNDED,
                                 size=52, color=ft.Colors.ERROR),

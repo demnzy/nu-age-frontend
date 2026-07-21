@@ -27,11 +27,11 @@ async def chat_view(page: ft.Page) -> ft.View:
     # ==========================================
     UI_ACCENT        = ft.Colors.PRIMARY          # brand primary (your colour)
     HEADER_BG        = ft.Colors.PRIMARY          # panel top-bar background
-    CHAT_WALL_BG     = "#ECE5DD"                  # WA-style warm parchment wallpaper
-    BUBBLE_IN_BG     = ft.Colors.WHITE            # incoming bubble
+    CHAT_WALL_BG     = ft.Colors.SCRIM                # WA-style warm parchment wallpaper
+    BUBBLE_IN_BG     = ft.Colors.ON_PRIMARY          # incoming bubble
     BUBBLE_OUT_BG    = UI_ACCENT                  # outgoing bubble = brand colour
-    LIST_BG          = ft.Colors.WHITE
-    INPUT_BAR_BG     = ft.Colors.WHITE
+    LIST_BG          = ft.Colors.ON_PRIMARY
+    INPUT_BAR_BG     = ft.Colors.ON_PRIMARY
     DIVIDER_COLOR    = "#E0E0E0"
     ONLINE_DOT       = "#25D366"                  # WhatsApp green online dot
     UNREAD_BADGE_BG  = "#25D366"
@@ -110,9 +110,12 @@ async def chat_view(page: ft.Page) -> ft.View:
     def format_message_time(iso_string):
         if not iso_string: return ""
         try:
+            # Removed '.now' to correctly call the class method
             dt = datetime.fromisoformat(iso_string.replace('Z', '+00:00'))
             return dt.strftime("%I:%M %p").lstrip("0")
-        except Exception:
+        except Exception as e:
+            # Pro-tip: It helps to print the exception while debugging so it doesn't fail silently!
+            print(f"Time parsing error: {e}") 
             return ""
 
     def get_day_label(iso_string):
@@ -139,7 +142,6 @@ async def chat_view(page: ft.Page) -> ft.View:
             page.update()
             return
             
-        print(f"[DEBUG] Dispatching text to websocket: {text}")
         
         msg_input.value = ""
         msg_input.hint_text = "Message"
@@ -167,12 +169,12 @@ async def chat_view(page: ft.Page) -> ft.View:
         expand=True,
         border_radius=24,
         filled=True,
-        bgcolor=ft.Colors.WHITE,
+        bgcolor=ft.Colors.ON_PRIMARY,
         border_color=ft.Colors.TRANSPARENT,
         focused_border_color=ft.Colors.TRANSPARENT,
         content_padding=ft.Padding(left=18, right=18, top=10, bottom=10),
         text_size=15,
-        hint_style=ft.TextStyle(color=ft.Colors.BLACK38, size=15),
+        hint_style=ft.TextStyle(color=ft.Colors.ON_SURFACE, size=15),
         shift_enter=True,
         on_change=on_input_change,
         on_submit=send_text_message
@@ -190,11 +192,11 @@ async def chat_view(page: ft.Page) -> ft.View:
         expand=True,
         content_padding=ft.Padding(left=10, right=10, top=0, bottom=0),
         filled=True,
-        bgcolor="#F0F2F5",
+        bgcolor=ft.Colors.ON_PRIMARY,
         border_color=ft.Colors.TRANSPARENT,
         focused_border_color=ft.Colors.TRANSPARENT,
         text_size=14,
-        hint_style=ft.TextStyle(color=ft.Colors.BLACK38, size=14),
+        hint_style=ft.TextStyle(color=ft.Colors.ON_SURFACE, size=14),
         on_change=on_search_changed,
         on_submit=lambda e: render_chat_list()
     )
@@ -210,9 +212,9 @@ async def chat_view(page: ft.Page) -> ft.View:
 
         base_avatar = ft.CircleAvatar(
             content=(
-                ft.Icon(ft.Icons.GROUP_ROUNDED, color=ft.Colors.WHITE, size=radius - 4)
+                ft.Icon(ft.Icons.GROUP_ROUNDED, color=ft.Colors.ON_PRIMARY, size=radius - 4)
                 if is_group
-                else ft.Text(initials, size=radius * 0.55, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE)
+                else ft.Text(initials, size=radius * 0.55, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_PRIMARY)
             ),
             bgcolor=UI_ACCENT if is_group else ft.Colors.with_opacity(0.7, UI_ACCENT),
             radius=radius
@@ -223,7 +225,7 @@ async def chat_view(page: ft.Page) -> ft.View:
             status_dot = ft.Container(
                 width=dot_size, height=dot_size,
                 bgcolor=ONLINE_DOT if is_online else ft.Colors.GREY_400,
-                border=ft.border.all(2, ft.Colors.WHITE),
+                border=ft.border.all(2, ft.Colors.PRIMARY),
                 shape=ft.BoxShape.CIRCLE
             )
             return ft.Stack(
@@ -249,10 +251,10 @@ async def chat_view(page: ft.Page) -> ft.View:
                     padding=ft.Padding(left=30, right=30, top=60, bottom=40),
                     alignment=ft.Alignment(0, 0),
                     content=ft.Column([
-                        ft.Icon(ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED, size=52, color=ft.Colors.BLACK12),
+                        ft.Icon(ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED, size=52, color=ft.Colors.ON_SURFACE),
                         ft.Container(height=8),
                         ft.Text(empty_label, color=ft.Colors.ON_SURFACE_VARIANT, weight=ft.FontWeight.W_600, size=15),
-                        ft.Text(empty_sub, size=12, color=ft.Colors.BLACK38, text_align=ft.TextAlign.CENTER),
+                        ft.Text(empty_sub, size=12, color=ft.Colors.ON_SURFACE, text_align=ft.TextAlign.CENTER),
                     ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
                 )
             )
@@ -269,7 +271,7 @@ async def chat_view(page: ft.Page) -> ft.View:
                     unread_badge = ft.Container(
                         content=ft.Text(
                             str(unread) if unread < 100 else "99+",
-                            size=11, color=ft.Colors.WHITE, weight=ft.FontWeight.BOLD
+                            size=11, color=ft.Colors.ON_PRIMARY, weight=ft.FontWeight.BOLD
                         ),
                         bgcolor=UNREAD_BADGE_BG,
                         border_radius=12,
@@ -289,14 +291,14 @@ async def chat_view(page: ft.Page) -> ft.View:
                     # REMOVED: [SYSTEM] tag replacing. Backend uses pure text now.
                     preview_ui = ft.Text(
                         chat.get("last_msg", ""),
-                        size=13, color=ft.Colors.BLACK54, expand=True,
+                        size=13, color=ft.Colors.ON_SURFACE, expand=True,
                         max_lines=1, overflow=ft.TextOverflow.ELLIPSIS
                     )
 
                 time_txt = ft.Text(
                     format_message_time(chat.get("time", "")),
                     size=11,
-                    color=UNREAD_BADGE_BG if unread > 0 else ft.Colors.BLACK38,
+                    color=UNREAD_BADGE_BG if unread > 0 else ft.Colors.ON_SURFACE,
                     weight=ft.FontWeight.W_600 if unread > 0 else ft.FontWeight.NORMAL
                 )
 
@@ -350,13 +352,13 @@ async def chat_view(page: ft.Page) -> ft.View:
                     content=ft.Column([
                         ft.Row([
                             ft.Text("Nu Chat", size=22, weight=ft.FontWeight.BOLD,
-                                    color=ft.Colors.WHITE, expand=True),
+                                    color=ft.Colors.ON_PRIMARY, expand=True),
                         ]),
                         ft.Container(height=10),
                         ft.Row([
                             ft.Container(
                                 expand=True,
-                                bgcolor="#FFFFFF",
+                                bgcolor=ft.Colors.ON_PRIMARY,
                                 border_radius=10,
                                 content=search_field
                             )
@@ -411,7 +413,7 @@ async def chat_view(page: ft.Page) -> ft.View:
                     "Delete",
                     style=ft.ButtonStyle(
                         bgcolor=ft.Colors.RED_400,
-                        color=ft.Colors.WHITE,
+                        color=ft.Colors.ON_PRIMARY,
                         shape=ft.RoundedRectangleBorder(radius=8)
                     ),
                     on_click=execute_delete
@@ -432,13 +434,13 @@ async def chat_view(page: ft.Page) -> ft.View:
             controls=[
                 ft.Container(
                     content=ft.Text(label, size=12, weight=ft.FontWeight.W_500, color=ft.Colors.ON_SURFACE),
-                    bgcolor=ft.Colors.WHITE,
+                    bgcolor=ft.Colors.ON_PRIMARY,
                     border_radius=8,
                     padding=ft.Padding(left=12, right=12, top=6, bottom=6),
-                    shadow=ft.BoxShadow(blur_radius=8, color=ft.Colors.with_opacity(0.18, ft.Colors.BLACK), offset=ft.Offset(0, 2))
+                    shadow=ft.BoxShadow(blur_radius=8, color=ft.Colors.with_opacity(0.18, ft.Colors.ON_SURFACE), offset=ft.Offset(0, 2))
                 ),
                 ft.FloatingActionButton(
-                    content=ft.Icon(icon, color=ft.Colors.WHITE, size=18),
+                    content=ft.Icon(icon, color=ft.Colors.ON_PRIMARY, size=18),
                     bgcolor=UI_ACCENT,
                     width=42, height=42,
                     on_click=on_click_fn,
@@ -461,7 +463,7 @@ async def chat_view(page: ft.Page) -> ft.View:
         main_fab = ft.FloatingActionButton(
             content=ft.Icon(
                 ft.Icons.CLOSE if fab_open[0] else ft.Icons.EDIT_ROUNDED,
-                color=ft.Colors.WHITE, size=22
+                color=ft.Colors.ON_PRIMARY, size=22
             ),
             bgcolor=UI_ACCENT,
             on_click=toggle_fab,
@@ -493,12 +495,12 @@ async def chat_view(page: ft.Page) -> ft.View:
                 alignment=ft.MainAxisAlignment.CENTER,
                 controls=[
                     ft.Container(
-                        content=ft.Text(msg.get("content", ""), size=11, color=ft.Colors.BLACK54, weight=ft.FontWeight.W_500),
+                        content=ft.Text(msg.get("content", ""), size=11, color=ft.Colors.BLACK, weight=ft.FontWeight.W_500),
                         bgcolor=SYSTEM_BUBBLE_BG,
                         padding=ft.Padding(14, 5, 14, 5),
                         border_radius=10,
                         margin=ft.Margin(top=6, bottom=6, left=0, right=0),
-                        shadow=ft.BoxShadow(blur_radius=2, color=ft.Colors.with_opacity(0.08, ft.Colors.BLACK), offset=ft.Offset(0, 1))
+                        shadow=ft.BoxShadow(blur_radius=2, color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE), offset=ft.Offset(0, 1))
                     )
                 ]
             )
@@ -512,13 +514,13 @@ async def chat_view(page: ft.Page) -> ft.View:
         if is_me:
             radius = ft.BorderRadius(top_left=12, top_right=12, bottom_left=12, bottom_right=2)
             bg         = BUBBLE_OUT_BG
-            text_color = ft.Colors.WHITE
-            ts_color   = ft.Colors.with_opacity(0.7, ft.Colors.WHITE)
+            text_color = ft.Colors.ON_PRIMARY
+            ts_color   = ft.Colors.with_opacity(0.7, ft.Colors.ON_PRIMARY)
         else:
             radius = ft.BorderRadius(top_left=2, top_right=12, bottom_left=12, bottom_right=12)
             bg         = BUBBLE_IN_BG
             text_color = ft.Colors.ON_SURFACE
-            ts_color   = ft.Colors.BLACK38
+            ts_color   = ft.Colors.BLACK
 
         raw_content = msg.get("content", "")
         raw_ts      = msg.get("created_at", "")
@@ -544,7 +546,7 @@ async def chat_view(page: ft.Page) -> ft.View:
             padding=ft.Padding(left=12, right=12, top=8, bottom=6),
             shadow=ft.BoxShadow(
                 blur_radius=4,
-                color=ft.Colors.with_opacity(0.10, ft.Colors.BLACK),
+                color=ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE),
                 offset=ft.Offset(0, 1)
             ),
             content=ft.Column([
@@ -565,7 +567,7 @@ async def chat_view(page: ft.Page) -> ft.View:
         else:
             sender_initials = "".join([t[0] for t in sender_name.split()[:2]]).upper()
             sender_avatar   = ft.CircleAvatar(
-                content=ft.Text(sender_initials, size=10, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+                content=ft.Text(sender_initials, size=10, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_PRIMARY),
                 bgcolor=ft.Colors.with_opacity(0.75, UI_ACCENT),
                 radius=14
             )
@@ -625,7 +627,7 @@ async def chat_view(page: ft.Page) -> ft.View:
                 chat_type   = chat_info.get("type", "direct")
                 if chat_type == "direct":
                     status_text.value = "online" if is_online else "Offline"
-                    status_text.color = ONLINE_DOT if is_online else ft.Colors.with_opacity(0.6, ft.Colors.WHITE)
+                    status_text.color = ONLINE_DOT if is_online else ft.Colors.with_opacity(0.6, ft.Colors.ON_PRIMARY)
                 else:
                     status_text.value = ""
                 page.update()
@@ -671,7 +673,7 @@ async def chat_view(page: ft.Page) -> ft.View:
 
             back_btn = ft.IconButton(
                 ft.Icons.ARROW_BACK_ROUNDED,
-                icon_color=ft.Colors.WHITE,
+                icon_color=ft.Colors.ON_PRIMARY,
                 icon_size=22,
                 on_click=lambda e: page.run_task(close_chat_mobile),
                 visible=not is_desktop[0],
@@ -687,7 +689,7 @@ async def chat_view(page: ft.Page) -> ft.View:
                 header_actions.append(
                     ft.IconButton(
                         ft.Icons.PERSON_ADD_ALT_1_ROUNDED,
-                        icon_color=ft.Colors.WHITE,
+                        icon_color=ft.Colors.ON_PRIMARY,
                         icon_size=22,
                         tooltip="Add members",
                         on_click=lambda e: open_add_member_modal(chat_id)
@@ -697,7 +699,7 @@ async def chat_view(page: ft.Page) -> ft.View:
                 header_actions.append(
                     ft.PopupMenuButton(
                         icon=ft.Icons.MORE_VERT_ROUNDED,
-                        icon_color=ft.Colors.WHITE,
+                        icon_color=ft.Colors.ON_PRIMARY,
                         items=[
                             ft.PopupMenuItem(
                                 content="Leave Group",
@@ -712,8 +714,8 @@ async def chat_view(page: ft.Page) -> ft.View:
                 back_btn,
                 get_avatar(_chat_name, _chat_type, _chat_online, radius=20),
                 ft.Column([
-                    ft.Text(_chat_name, weight=ft.FontWeight.BOLD, size=15, color=ft.Colors.WHITE),
-                    ft.Text("Connecting…", size=11, color=ft.Colors.with_opacity(0.8, ft.Colors.WHITE))
+                    ft.Text(_chat_name, weight=ft.FontWeight.BOLD, size=15, color=ft.Colors.ON_PRIMARY),
+                    ft.Text("Connecting…", size=11, color=ft.Colors.with_opacity(0.8, ft.Colors.ON_PRIMARY))
                 ], spacing=1, expand=True),
                 *header_actions
             ]
@@ -734,7 +736,7 @@ async def chat_view(page: ft.Page) -> ft.View:
                     padding=ft.Padding(left=6, right=12, top=8, bottom=8),
                     shadow=ft.BoxShadow(
                         blur_radius=6,
-                        color=ft.Colors.with_opacity(0.2, ft.Colors.BLACK),
+                        color=ft.Colors.with_opacity(0.2, ft.Colors.ON_SURFACE),
                         offset=ft.Offset(0, 2)
                     ),
                     content=active_chat_header
@@ -752,7 +754,7 @@ async def chat_view(page: ft.Page) -> ft.View:
                     content=ft.Row([
                         ft.Container(
                             expand=True,
-                            bgcolor=ft.Colors.WHITE,
+                            bgcolor=ft.Colors.ON_PRIMARY,
                             border_radius=24,
                             border=ft.border.all(1, DIVIDER_COLOR),
                             padding=ft.Padding(left=4, right=4, top=2, bottom=2),
@@ -766,12 +768,12 @@ async def chat_view(page: ft.Page) -> ft.View:
                             alignment=ft.Alignment(0, 0),
                             shadow=ft.BoxShadow(
                                 blur_radius=4,
-                                color=ft.Colors.with_opacity(0.25, ft.Colors.BLACK),
+                                color=ft.Colors.with_opacity(0.25, ft.Colors.ON_SURFACE),
                                 offset=ft.Offset(0, 2)
                             ),
                             content=ft.IconButton(
                                 icon=ft.Icons.SEND_ROUNDED,
-                                icon_color=ft.Colors.WHITE,
+                                icon_color=ft.Colors.ON_PRIMARY,
                                 icon_size=20,
                                 on_click=send_text_message,
                                 style=ft.ButtonStyle(padding=0)
@@ -805,13 +807,13 @@ async def chat_view(page: ft.Page) -> ft.View:
                     msg_date = get_day_label(msg.get("created_at"))
                     if msg_date and msg_date != current_date_label:
                         date_pill = ft.Container(
-                            content=ft.Text(msg_date, size=11, color=ft.Colors.BLACK54,
+                            content=ft.Text(msg_date, size=11, color=ft.Colors.BLACK,
                                             weight=ft.FontWeight.W_500),
                             bgcolor="#D1F2EA",
                             padding=ft.Padding(14, 5, 14, 5),
                             border_radius=10,
                             margin=ft.Margin(top=8, bottom=8, left=0, right=0),
-                            shadow=ft.BoxShadow(blur_radius=2, color=ft.Colors.with_opacity(0.08, ft.Colors.BLACK), offset=ft.Offset(0, 1))
+                            shadow=ft.BoxShadow(blur_radius=2, color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE), offset=ft.Offset(0, 1))
                         )
                         messages_listview.controls.append(
                             ft.Row([date_pill], alignment=ft.MainAxisAlignment.CENTER)
@@ -828,7 +830,7 @@ async def chat_view(page: ft.Page) -> ft.View:
                         content=ft.Column([
                             ft.Container(
                                 content=ft.Text("Say Hello!", size=14,
-                                                color=ft.Colors.BLACK54, weight=ft.FontWeight.W_500),
+                                                color=ft.Colors.ON_SURFACE54, weight=ft.FontWeight.W_500),
                                 bgcolor="#D1F2EA",
                                 padding=ft.Padding(18, 8, 18, 8),
                                 border_radius=12
@@ -845,10 +847,10 @@ async def chat_view(page: ft.Page) -> ft.View:
                     _chat_type  = chat_info.get("type", "direct")
                     if _chat_type == "direct":
                         online_text  = "online" if _is_online else "Offline"
-                        online_color = ONLINE_DOT if _is_online else ft.Colors.with_opacity(0.6, ft.Colors.WHITE)
+                        online_color = ONLINE_DOT if _is_online else ft.Colors.with_opacity(0.6, ft.Colors.ON_PRIMARY)
                     else:
                         online_text  = ""
-                        online_color = ft.Colors.with_opacity(0.6, ft.Colors.WHITE)
+                        online_color = ft.Colors.with_opacity(0.6, ft.Colors.ON_PRIMARY)
                     status_col.controls[1].value = online_text
                     status_col.controls[1].color = online_color
             page.update()
@@ -881,10 +883,10 @@ async def chat_view(page: ft.Page) -> ft.View:
                             _chat_type = chat_info.get("type", "direct")
                             if _chat_type == "direct":
                                 online_text  = "online" if is_online else "Offline"
-                                online_color = ONLINE_DOT if is_online else ft.Colors.with_opacity(0.6, ft.Colors.WHITE)
+                                online_color = ONLINE_DOT if is_online else ft.Colors.with_opacity(0.6, ft.Colors.ON_PRIMARY)
                             else:
                                 online_text  = ""
-                                online_color = ft.Colors.with_opacity(0.6, ft.Colors.WHITE)
+                                online_color = ft.Colors.with_opacity(0.6, ft.Colors.ON_PRIMARY)
                             status_col.controls[1].value = online_text
                             status_col.controls[1].color = online_color
                     page.update()
@@ -984,7 +986,7 @@ async def chat_view(page: ft.Page) -> ft.View:
             actions=[
                 ft.TextButton("Cancel", style=ft.ButtonStyle(color=ft.Colors.ON_SURFACE_VARIANT),
                               on_click=lambda e: (setattr(dlg, "open", False), page.update())),
-                ft.FilledButton("Leave", style=ft.ButtonStyle(bgcolor=ft.Colors.RED_400, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8)),
+                ft.FilledButton("Leave", style=ft.ButtonStyle(bgcolor=ft.Colors.RED_400, color=ft.Colors.ON_PRIMARY, shape=ft.RoundedRectangleBorder(radius=8)),
                                 on_click=execute_leave)
             ],
             actions_alignment=ft.MainAxisAlignment.END,
@@ -1001,7 +1003,7 @@ async def chat_view(page: ft.Page) -> ft.View:
             hint_text="Search people…",
             border_radius=10,
             filled=True,
-            bgcolor="#F0F2F5",
+            bgcolor=ft.Colors.ON_PRIMARY,
             border_color=ft.Colors.TRANSPARENT,
             focused_border_color=ft.Colors.TRANSPARENT,
             content_padding=ft.Padding(left=10, right=10, top=8, bottom=8),
@@ -1040,13 +1042,13 @@ async def chat_view(page: ft.Page) -> ft.View:
                         on_click=lambda e, fid=uid: handle_user_dm(fid, dlg),
                         content=ft.Row([
                             ft.CircleAvatar(
-                                content=ft.Text(initials, size=12, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+                                content=ft.Text(initials, size=12, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_PRIMARY),
                                 bgcolor=UI_ACCENT, radius=20
                             ),
                             ft.Container(width=12),
                             ft.Column([
                                 ft.Text(display_name, weight=ft.FontWeight.W_600, size=14),
-                                ft.Text(u.get("email", ""), size=12, color=ft.Colors.BLACK38)
+                                ft.Text(u.get("email", ""), size=12, color=ft.Colors.ON_SURFACE38)
                             ], spacing=2, tight=True, expand=True)
                         ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=0)
                     )
@@ -1163,7 +1165,7 @@ async def chat_view(page: ft.Page) -> ft.View:
 
                     initials = "".join([t[0] for t in display_name.split()[:2]]).upper()
                     avatar   = ft.CircleAvatar(
-                        content=ft.Text(initials, size=10, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+                        content=ft.Text(initials, size=10, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_PRIMARY),
                         bgcolor=UI_ACCENT, radius=16
                     )
                     row = ft.Container(
@@ -1191,7 +1193,7 @@ async def chat_view(page: ft.Page) -> ft.View:
             "Add to Group",
             style=ft.ButtonStyle(
                 bgcolor=UI_ACCENT,
-                color=ft.Colors.WHITE,
+                color=ft.Colors.ON_PRIMARY,
                 shape=ft.RoundedRectangleBorder(radius=8)
             )
         )
@@ -1200,7 +1202,7 @@ async def chat_view(page: ft.Page) -> ft.View:
             selected_ids = [cb.data for cb in checkboxes if cb.value]
             if not selected_ids: return
             add_btn.disabled = True
-            add_btn.content  = ft.ProgressRing(width=16, height=16, color=ft.Colors.WHITE, stroke_width=2)
+            add_btn.content  = ft.ProgressRing(width=16, height=16, color=ft.Colors.ON_PRIMARY, stroke_width=2)
             page.update()
             try:
                 await add_group_members(token, channel_id, selected_ids)
@@ -1279,7 +1281,7 @@ async def chat_view(page: ft.Page) -> ft.View:
 
                         initials = "".join([t[0] for t in display_name.split()[:2]]).upper()
                         avatar   = ft.CircleAvatar(
-                            content=ft.Text(initials, size=10, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+                            content=ft.Text(initials, size=10, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_PRIMARY),
                             bgcolor=UI_ACCENT, radius=16
                         )
                         row = ft.Container(
@@ -1299,7 +1301,7 @@ async def chat_view(page: ft.Page) -> ft.View:
             "Create Group",
             style=ft.ButtonStyle(
                 bgcolor=UI_ACCENT,
-                color=ft.Colors.WHITE,
+                color=ft.Colors.ON_PRIMARY,
                 shape=ft.RoundedRectangleBorder(radius=8)
             )
         )
@@ -1311,7 +1313,7 @@ async def chat_view(page: ft.Page) -> ft.View:
                 return
             selected_ids       = [cb.data for cb in checkboxes if cb.value]
             create_btn.disabled = True
-            create_btn.content  = ft.ProgressRing(width=16, height=16, color=ft.Colors.WHITE, stroke_width=2)
+            create_btn.content  = ft.ProgressRing(width=16, height=16, color=ft.Colors.ON_PRIMARY, stroke_width=2)
             page.update()
             try:
                 res = await create_group_channel(
@@ -1384,18 +1386,18 @@ async def chat_view(page: ft.Page) -> ft.View:
             content=ft.Column([
                 ft.Container(
                     content=ft.Column([
-                        ft.Icon(ft.Icons.FORUM_OUTLINED, size=72, color=ft.Colors.with_opacity(0.18, ft.Colors.BLACK)),
+                        ft.Icon(ft.Icons.FORUM_OUTLINED, size=72, color=ft.Colors.with_opacity(0.18, ft.Colors.ON_SURFACE)),
                         ft.Container(height=12),
                         ft.Text("Nu Chat", size=26, weight=ft.FontWeight.BOLD,
                                 color=ft.Colors.with_opacity(0.5, ft.Colors.ON_SURFACE)),
                         ft.Container(height=4),
                         ft.Text("Select a conversation to start messaging.",
-                                size=13, color=ft.Colors.BLACK38, text_align=ft.TextAlign.CENTER),
+                                size=13, color=ft.Colors.ON_SURFACE, text_align=ft.TextAlign.CENTER),
                         ft.Container(height=20),
                         ft.Container(
                             content=ft.Row([
-                                ft.Icon(ft.Icons.LOCK_OUTLINE_ROUNDED, size=12, color=ft.Colors.BLACK26),
-                                ft.Text("Secured", size=11, color=ft.Colors.BLACK38)
+                                ft.Icon(ft.Icons.LOCK_OUTLINE_ROUNDED, size=12, color=ft.Colors.ON_SURFACE),
+                                ft.Text("Secured", size=11, color=ft.Colors.ON_SURFACE)
                             ], spacing=4, alignment=ft.MainAxisAlignment.CENTER)
                         )
                     ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER)

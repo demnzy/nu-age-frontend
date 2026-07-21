@@ -113,13 +113,13 @@ async def dashboard_view(page: ft.Page):
             quick_tile(
                 ft.Icons.LIBRARY_BOOKS_ROUNDED,
                 "Courses", "Browse library",
-                ft.Colors.INDIGO_400, ft.Colors.SURFACE,
+                ft.Colors.INDIGO_300, ft.Colors.SURFACE,
                 "/courses",
             ),
             quick_tile(
                 ft.Icons.PEOPLE_ALT_ROUNDED,
                 "Network", "Connect & study",
-                ft.Colors.TEAL_500, ft.Colors.SURFACE,
+                ft.Colors.TEAL_400, ft.Colors.SURFACE,
                 "/network",
             ),
         ],
@@ -165,7 +165,7 @@ async def dashboard_view(page: ft.Page):
                 controls=[
                     ft.Container(
                         width=48, height=48,
-                        bgcolor=ft.Colors.GREY_100,
+                        bgcolor=ft.Colors.SURFACE,
                         border_radius=24,
                         border=ft.border.all(1, ft.Colors.GREY_300),
                         alignment=ft.Alignment.CENTER,
@@ -177,7 +177,10 @@ async def dashboard_view(page: ft.Page):
                     ft.Text("Add", size=10, color=ft.Colors.PRIMARY),
                 ],
             ),
-            *[friend_avatar(friend["name"]) for friend in friends],
+            *[
+    friend_avatar(friend["name"] if isinstance(friend["name"], str) else "unknown")
+    for friend in friends
+],
         ],
     )
 
@@ -272,24 +275,24 @@ async def dashboard_view(page: ft.Page):
                             "Quick Quiz",
                             "Test what you know",
                             "/self-study",
-                            ft.Colors.PURPLE,
                             ft.Colors.PURPLE_400,
+                            ft.Colors.PURPLE_300,
                         ),
                         study_mode_tile(
                             ft.Icons.HISTORY_EDU_ROUNDED,
                             "Exam Prep",
                             "Revise & practice",
                             "/self-study",
-                            ft.Colors.ORANGE,
                             ft.Colors.ORANGE_400,
+                            ft.Colors.ORANGE_300,
                         ),
                         study_mode_tile(
                             ft.Icons.LIGHTBULB_OUTLINE_ROUNDED,
                             "Flashcards",
                             "Spaced repetition",
                             "/self-study",
-                            ft.Colors.TEAL,
-                            ft.Colors.TEAL_200,
+                            ft.Colors.TEAL_400,
+                            ft.Colors.TEAL_300,
                         ),
                     ],
                 ),
@@ -515,7 +518,7 @@ async def dashboard_view(page: ft.Page):
     return ft.View(
         route="/dashboard",
         bottom_appbar=app_bar,
-        bgcolor=ft.Colors.SURFACE,
+        bgcolor=ft.Colors.ON_PRIMARY,
         padding=0,
         controls=[
             ft.SafeArea(

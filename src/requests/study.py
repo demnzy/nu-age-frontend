@@ -2,11 +2,14 @@ import httpx
 import typing
 api_url = "https://api.nu-age.name.ng"
 
-async def get_due_cards(token: str) -> list:
+async def get_due_cards(token: str, material_ids: typing.Optional[list] = None) -> list:
     url = f"{api_url}/study/cards/due"
     headers = {"Authorization": f"Bearer {token}"}
+    params = {}
+    if material_ids:
+        params["material_ids"] = ",".join(material_ids)
     async with httpx.AsyncClient() as client:
-        response = await client.get(url, headers=headers)
+        response = await client.get(url, headers=headers, params=params)
         response.raise_for_status()
         return response.json()
 

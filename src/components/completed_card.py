@@ -3,10 +3,10 @@ import flet as ft
 def get_completed_card(course_name,course_id, on_review_click, on_stats_click):
 
     # ── Palette (uses your PRIMARY throughout) ────────────────────────────────
-    CARD_BG      = ft.Colors.WHITE
-    BORDER_COLOR = ft.Colors.with_opacity(0.09, ft.Colors.BLACK)
+    CARD_BG      = ft.Colors.ON_PRIMARY
+    BORDER_COLOR = ft.Colors.with_opacity(0.09, ft.Colors.ON_SURFACE)
     BADGE_BG     = ft.Colors.with_opacity(0.08, ft.Colors.PRIMARY)
-    TITLE_COLOR  = "#1A1D23"
+    TITLE_COLOR  = ft.Colors.ON_SURFACE
 
     # ── Hover animation ───────────────────────────────────────────────────────
     def on_hover(e):
@@ -16,7 +16,7 @@ def get_completed_card(course_name,course_id, on_review_click, on_stats_click):
             blur_radius   = 22 if is_hovering else 8,
             spread_radius = 0,
             color         = ft.Colors.with_opacity(
-                0.14 if is_hovering else 0.07, ft.Colors.BLACK
+                0.14 if is_hovering else 0.07, ft.Colors.ON_SURFACE
             ),
             offset=ft.Offset(0, 8 if is_hovering else 2),
         )
@@ -90,7 +90,7 @@ def get_completed_card(course_name,course_id, on_review_click, on_stats_click):
     progress_bar = ft.ProgressBar(
         value=1.0,
         color=ft.Colors.PRIMARY,
-        bgcolor=ft.Colors.with_opacity(0.10, ft.Colors.BLACK),
+        bgcolor=ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE),
         height=5,
         border_radius=3,
     )
@@ -171,7 +171,7 @@ def get_completed_card(course_name,course_id, on_review_click, on_stats_click):
         shadow=ft.BoxShadow(
             blur_radius=8,
             spread_radius=0,
-            color=ft.Colors.with_opacity(0.07, ft.Colors.BLACK),
+            color=ft.Colors.with_opacity(0.07, ft.Colors.ON_SURFACE),
             offset=ft.Offset(0, 2),
         ),
         clip_behavior=ft.ClipBehavior.ANTI_ALIAS,

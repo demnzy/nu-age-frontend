@@ -221,3 +221,20 @@ async def leave_group_channel(token: str, channel_id: str):
         )
         response.raise_for_status()
         return response.json()
+    
+async def start_direct_message(token: str, target_user_id: str, params: dict | None = None): 
+    url = f"{api_url}/chat/dms/{target_user_id}" 
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, headers=headers, params=params)
+            if response.status_code == 200:
+                return response.json()
+            elif response.status_code == 401:
+                print("Unauthorized access. Please log in again.")
+                return {"error": "unauthorized"}
+            else:
+                return {"error": "server_fail"}
+    except Exception as e:
+        print(f"Request Error: {e}")
+        return {"error": "Connection failed"}

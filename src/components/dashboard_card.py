@@ -131,7 +131,7 @@ def get_continue_learning_card(course_name, progress, course_id, page: ft.Page):
     card = ft.Container(
         width=200,
         height=160,
-        bgcolor=ft.Colors.ON_PRIMARY,
+        bgcolor=ft.Colors.SURFACE,
         border_radius=12,
         clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
         scale=1,

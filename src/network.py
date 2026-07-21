@@ -19,6 +19,23 @@ from src.requests.networks import (
 # ─────────────────────────────────────────────────────────────────────────────
 # SHARED HELPERS
 # ─────────────────────────────────────────────────────────────────────────────
+def _is_mounted(control: ft.Control) -> bool:
+    """
+    Safe replacement for `control.page` truthy-checks.
+
+    In current Flet versions, accessing `.page` on a Control that hasn't
+    been added to the page yet doesn't return None — it *raises*
+    RuntimeError("Control must be added to the page first"). Any
+    `if some_control.page:` guard is therefore a landmine until that
+    control has been mounted at least once. This helper swallows that
+    specific case and just reports False.
+    """
+    try:
+        return control.page is not None
+    except RuntimeError:
+        return False
+
+
 _AVATAR_COLORS = [
     ft.Colors.BLUE_200, ft.Colors.TEAL_200, ft.Colors.PURPLE_200,
     ft.Colors.ORANGE_200, ft.Colors.GREEN_200, ft.Colors.PINK_200,
@@ -99,7 +116,7 @@ def _empty_state(icon, title: str, subtitle: str,
             ft.Container(height=4),
             ft.ElevatedButton(
                 action_label, bgcolor=ft.Colors.PRIMARY,
-                color=ft.Colors.WHITE, height=42,
+                color=ft.Colors.ON_PRIMARY, height=42,
                 style=ft.ButtonStyle(
                     shape=ft.RoundedRectangleBorder(radius=10), elevation=0),
                 on_click=lambda _: on_action(),
@@ -154,11 +171,11 @@ async def network_view(page: ft.Page):
     # ── appbar ────────────────────────────────────────────────────────────────
     app_bar = ft.AppBar(
         bgcolor=ft.Colors.PRIMARY,
-        title=ft.Text("Network", color=ft.Colors.WHITE,
+        title=ft.Text("Network", color=ft.Colors.ON_PRIMARY,
                       weight=ft.FontWeight.W_700, size=17),
         leading=ft.IconButton(
             icon=ft.Icons.ARROW_BACK_ROUNDED,
-            icon_color=ft.Colors.WHITE,
+            icon_color=ft.Colors.ON_PRIMARY,
             on_click=lambda _: page.go("/dashboard"),
         ),
         elevation=0,
@@ -169,9 +186,9 @@ async def network_view(page: ft.Page):
 
     seg_row = ft.Container(
         margin=ft.margin.symmetric(horizontal=16, vertical=10),
-        bgcolor=ft.Colors.GREY_100,
+        bgcolor=ft.Colors.ON_PRIMARY,
         border_radius=12,
-        padding=ft.padding.all(4),
+        padding=ft.Padding.all(4),
         content=ft.Row(spacing=0, controls=[]),
     )
 
@@ -200,7 +217,7 @@ async def network_view(page: ft.Page):
                         ft.Text(
                             label, size=13,
                             weight=ft.FontWeight.W_600 if is_active else ft.FontWeight.W_500,
-                            color=ft.Colors.WHITE if is_active else ft.Colors.GREY_500,
+                            color=ft.Colors.ON_PRIMARY if is_active else ft.Colors.GREY_500,
                         ),
                         ft.Container(
                             width=7, height=7,
@@ -214,7 +231,7 @@ async def network_view(page: ft.Page):
 
         seg_row.content.controls = [_pill(l, i) for i, l in enumerate(seg_labels)]
         # Only push an update if the control is already mounted on the page
-        if do_update and seg_row.page:
+        if do_update and _is_mounted(seg_row):
             seg_row.update()
 
     # ── tab switcher ──────────────────────────────────────────────────────────
@@ -224,7 +241,7 @@ async def network_view(page: ft.Page):
 
         # Show spinner immediately — yield so Flet can repaint before we await
         content_socket.content = _loading_spinner("Syncing network…")
-        if content_socket.page:
+        if _is_mounted(content_socket):
             content_socket.update()
         await asyncio.sleep(0)          # ← critical: let the event loop flush the paint
 
@@ -236,7 +253,7 @@ async def network_view(page: ft.Page):
             await show_discover()
 
         # Final repaint after content is set
-        if page.views and content_socket.page:
+        if page.views and _is_mounted(content_socket):
             page.update()
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -281,7 +298,7 @@ async def network_view(page: ft.Page):
             border=ft.border.all(1, ft.Colors.GREY_200),
             shadow=ft.BoxShadow(
                 blur_radius=12,
-                color=ft.Colors.with_opacity(0.08, ft.Colors.BLACK),
+                color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
                 offset=ft.Offset(0, 3),
             ),
             clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
@@ -302,7 +319,7 @@ async def network_view(page: ft.Page):
                     ft.Container(
                         content=ft.Container(
                             content=_avatar(user, radius=26),
-                            border=ft.border.all(3, ft.Colors.WHITE),
+                            border=ft.border.all(3, ft.Colors.ON_PRIMARY),
                             border_radius=32,
                         ),
                         margin=ft.margin.only(top=-30),
@@ -351,12 +368,12 @@ async def network_view(page: ft.Page):
                                     ft.Icons.INSIGHTS_ROUNDED,
                                     icon_color=ft.Colors.PRIMARY,
                                     icon_size=18,
-                                    tooltip="View Stats",
+                                    tooltip="View Profile",
                                     on_click=lambda _, u=uid: page.go(f"/member/{u}"),
                                 ),
                                 ft.PopupMenuButton(
                                     icon=ft.Icons.MORE_VERT_ROUNDED,
-                                    icon_color=ft.Colors.BLACK,
+                                    icon_color=ft.Colors.ON_SURFACE,
                                     icon_size=18,
                                     tooltip="More options",
                                     items=[
@@ -413,7 +430,7 @@ async def network_view(page: ft.Page):
             border_radius=10,
             border_color=ft.Colors.GREY_300,
             focused_border_color=ft.Colors.PRIMARY,
-            fill_color=ft.Colors.GREY_50,
+            fill_color=ft.Colors.ON_PRIMARY,
             filled=True,
             expand=True,
             height=44,
@@ -534,7 +551,7 @@ async def network_view(page: ft.Page):
     bgcolor=ft.Colors.SURFACE,
     border_radius=16,
     border=ft.border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.PRIMARY)),
-    padding=ft.padding.all(0),
+    padding=ft.Padding.all(0),
     shadow=ft.BoxShadow(
         blur_radius=16,
         spread_radius=0,
@@ -562,7 +579,7 @@ async def network_view(page: ft.Page):
                     controls=[
                         # Avatar with primary glow ring
                         ft.Container(
-                            padding=ft.padding.all(2),
+                            padding=ft.Padding.all(2),
                             border_radius=99,
                             gradient=ft.LinearGradient(
                                 begin=ft.Alignment(-1, -1),
@@ -570,7 +587,7 @@ async def network_view(page: ft.Page):
                                 colors=[ft.Colors.PRIMARY, ft.Colors.with_opacity(0.3, ft.Colors.PRIMARY)],
                             ),
                             content=ft.Container(
-                                padding=ft.padding.all(2),
+                                padding=ft.Padding.all(2),
                                 bgcolor=ft.Colors.SURFACE,
                                 border_radius=99,
                                 content=_avatar(user, radius=22),
@@ -635,13 +652,13 @@ async def network_view(page: ft.Page):
                                             content=ft.ElevatedButton(
                                                 "Accept",
                                                 bgcolor=ft.Colors.TRANSPARENT,
-                                                color=ft.Colors.WHITE,
+                                                color=ft.Colors.ON_PRIMARY,
                                                 style=ft.ButtonStyle(
                                                     shape=ft.RoundedRectangleBorder(radius=10),
                                                     elevation=0,
                                                     shadow_color=ft.Colors.TRANSPARENT,
                                                     padding=ft.padding.symmetric(horizontal=12, vertical=0),
-                                                    overlay_color=ft.Colors.with_opacity(0.1, ft.Colors.WHITE),
+                                                    overlay_color=ft.Colors.with_opacity(0.1, ft.Colors.ON_PRIMARY),
                                                 ),
                                                 on_click=lambda e: page.run_task(on_accept, e),
                                             ),
@@ -678,7 +695,7 @@ async def network_view(page: ft.Page):
             async def on_cancel(e):
                 btn_ref.current.disabled = True
                 btn_ref.current.text = "Canceling…"
-                if btn_ref.current.page:
+                if _is_mounted(btn_ref.current):
                     btn_ref.current.update()
                 try:
                     await cancel_outgoing_request(token, req["id"])
@@ -689,7 +706,7 @@ async def network_view(page: ft.Page):
                 except Exception:
                     btn_ref.current.disabled = False
                     btn_ref.current.text = "Cancel"
-                    if btn_ref.current.page:
+                    if _is_mounted(btn_ref.current):
                         btn_ref.current.update()
 
             return ft.Container(
@@ -697,7 +714,7 @@ async def network_view(page: ft.Page):
     bgcolor=ft.Colors.SURFACE,
     border_radius=14,
     border=ft.border.all(1, ft.Colors.with_opacity(0.07, ft.Colors.PRIMARY)),
-    padding=ft.padding.all(0),
+    padding=ft.Padding.all(0),
     shadow=ft.BoxShadow(
         blur_radius=10,
         spread_radius=0,
@@ -730,10 +747,10 @@ async def network_view(page: ft.Page):
                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
                             controls=[
                                 ft.Container(
-                                    padding=ft.padding.all(2),
+                                    padding=ft.Padding.all(2),
                                     border_radius=101,
                                     content=ft.Container(
-                                        padding=ft.padding.all(2),
+                                        padding=ft.Padding.all(2),
                                         bgcolor=ft.Colors.SURFACE,
                                         border_radius=99,
                                         content=_avatar(user, radius=18),
@@ -897,7 +914,7 @@ async def network_view(page: ft.Page):
                     requested["v"]         = False
                     btn.current.bgcolor    = ft.Colors.PRIMARY
                     btn_text.current.value = "Add Friend"
-                    btn_text.current.color = ft.Colors.WHITE
+                    btn_text.current.color = ft.Colors.ON_PRIMARY
                     if page.views:
                         page.update()
 
@@ -908,7 +925,7 @@ async def network_view(page: ft.Page):
     border=ft.border.all(1, ft.Colors.GREY_200),
     shadow=ft.BoxShadow(
         blur_radius=12,
-        color=ft.Colors.with_opacity(0.08, ft.Colors.BLACK),
+        color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
         offset=ft.Offset(0, 3),
     ),
     clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
@@ -961,7 +978,7 @@ async def network_view(page: ft.Page):
                                 _org_pill(org),
                                 ft.Container(
                                     padding=ft.padding.symmetric(horizontal=6, vertical=3),
-                                    bgcolor=ft.Colors.ORANGE_50 if streak > 0 else ft.Colors.GREY_100,
+                                    bgcolor=ft.Colors.SURFACE,
                                     border_radius=99,
                                     content=ft.Row(
                                         tight=True, spacing=3,
@@ -981,7 +998,7 @@ async def network_view(page: ft.Page):
                         ft.ElevatedButton(
                             ref=btn,
                             content=ft.Text(ref=btn_text, value="Add Friend",
-                                            size=11, color=ft.Colors.WHITE,
+                                            size=11, color=ft.Colors.ON_PRIMARY,
                                             weight=ft.FontWeight.W_600),
                             bgcolor=ft.Colors.PRIMARY,
                             expand=True,
@@ -1096,10 +1113,17 @@ async def network_view(page: ft.Page):
     )
 
     # Kick off data load AFTER the view is appended to page.views by the caller.
-    # A single sleep(0) yields control so route_change can finish appending the
-    # view before switch_tab tries to call page.update() on mounted controls.
+    # A bare `sleep(0)` only yields once — it does NOT guarantee the router
+    # has finished appending `view` to page.views and Flet has mounted
+    # seg_row/content_socket by the time we resume. That's a race: it
+    # usually wins, but not always, which is exactly the intermittent
+    # "Control must be added to the page first" crash. Poll instead, with
+    # a sane timeout so we never hang forever if something else is wrong.
     async def _boot():
-        await asyncio.sleep(0)
+        for _ in range(200):  # ~2s worst case at 10ms steps
+            if _is_mounted(seg_row):
+                break
+            await asyncio.sleep(0.01)
         await switch_tab(0)
 
     page.run_task(_boot)

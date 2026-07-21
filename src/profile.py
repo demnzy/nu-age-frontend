@@ -19,8 +19,8 @@ async def profile_view(page: ft.Page):
     initials = "".join([n[0] for n in full_name.split()[:2]]).upper() if full_name else "?"
 
     # ── Palette ───────────────────────────────────────────────────────────────
-    PAGE_BG       = ft.Colors.SURFACE     # Adapts to your dark/light background
-    CARD_BG       = ft.Colors.ON_PRIMARY           # Pulls #FAFAFA in Light, #121212 in Dark
+    PAGE_BG       = ft.Colors.ON_PRIMARY    # Adapts to your dark/light background
+    CARD_BG       = ft.Colors.SURFACE         # Pulls #FAFAFA in Light, #121212 in Dark
     LABEL_COLOR   = ft.Colors.ON_SURFACE_VARIANT # Native muted text color
     VALUE_COLOR   = ft.Colors.ON_SURFACE        # Pulls #1A1A1A in Light, #E8E8E8 in Dark
     DIVIDER_CLR   = ft.Colors.OUTLINE_VARIANT   # Native subtle divider color

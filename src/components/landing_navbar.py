@@ -15,6 +15,6 @@ def get_landing_appbar(page: ft.Page):
                 on_click=lambda e: page.go("/signup")
             ),
         ],
-        bgcolor=ft.Colors.GREY_100, # Themed equivalent of white
+        bgcolor=ft.Colors.ON_PRIMARY, # Themed equivalent of white
         toolbar_height=50
     )
