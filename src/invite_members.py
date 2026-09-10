@@ -268,6 +268,14 @@ async def invite_members_view(page: ft.Page, org_id: str):
                 page.update()
                 return
 
+            # check if inviting org's own email
+            org_email = (org_data.get("email") or "").strip().lower()
+            if org_email and email.lower() == org_email:
+                error_text.value   = "You cannot invite the organization's own email address."
+                error_text.visible = True
+                page.update()
+                return
+
             # check duplicate
             if any(i.get("email", "").lower() == email.lower() for i in pending):
                 error_text.value   = "An invite has already been sent to this address."
@@ -322,9 +330,12 @@ async def invite_members_view(page: ft.Page, org_id: str):
                         duration=3000,
                     ))
 
-            # THE FIX 3: Proper Python exception syntax!
+            # THE FIX 3: Clean error text display!
             except Exception as ex: 
-                error_text.value   = f"Error: {str(ex)}"
+                err_str = str(ex).strip()
+                if err_str.startswith("Error:"):
+                    err_str = err_str[6:].strip()
+                error_text.value   = err_str
                 error_text.visible = True
 
             finally:

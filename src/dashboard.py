@@ -9,9 +9,9 @@ from src.components import bottom_appbar
 from src.components.bottom_appbar import get_bottom_appbar
 from src.components.dashboard_card import get_continue_learning_card
 from src.requests.enrollments import get_enrollments
-from src.utils.db_manager import get_weekly_activity
 from src.requests.chats import get_all_users
 from src.utils.quotes import get_random_quote, get_random_greeting, get_random_tip
+from src.utils.db_manager import get_weekly_activity, log_daily_activity
 
 # ─────────────────────────────────────────────────────────────────────────────
 # HELPERS
@@ -40,59 +40,12 @@ def _card(content, padding=18) -> ft.Container:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ONBOARDING — first-login welcome carousel
+# ONBOARDING — first-login setup wizard
 # ─────────────────────────────────────────────────────────────────────────────
-
-# Edit this list to change the slides — nothing else needs to change.
-# Set a slide's "image" to a real screenshot/illustration path or URL to
-# replace the icon placeholder; leave it unset to keep the icon.
-ONBOARDING_SLIDES = [
-    {
-        "eyebrow": "Your library",
-        "accent": ft.Colors.PRIMARY,
-        "icon_bg": ft.Colors.INDIGO_100,
-        "icon": ft.Icons.LIBRARY_BOOKS_ROUNDED,
-        "image": "coureses.png",  # e.g. "/assets/onboarding/courses.png"
-        "title": "Everything you're learning,\nin one place",
-        "body": "Jump back into any course, track chapters you've finished, "
-                "and pick up exactly where you left off.",
-    },
-    {
-        "eyebrow": "Study together",
-        "accent": ft.Colors.TEAL_600,
-        "icon_bg": ft.Colors.TEAL_100,
-        "icon": ft.Icons.PEOPLE_ALT_ROUNDED,
-        "image": "nu chat 3.png",  # e.g. "/assets/onboarding/network.png"
-        "title": "Learn alongside people,\nnot alone",
-        "body": "Add classmates, see what they're studying, and keep each "
-                "other moving forward.",
-    },
-    {
-        "eyebrow": "AI - Working for You",
-        "accent": ft.Colors.AMBER_700,
-        "icon_bg": ft.Colors.AMBER_100,
-        "icon": ft.Icons.BAR_CHART_ROUNDED,
-        "image": "cards.png",  # e.g. "/assets/onboarding/activity.png"
-        "title": "Learn\nBut Smarter",
-        "body": "Learn. Test. Repeat. Engage your own AI Tutor in the Self-Study Hub",
-    },
-    {
-        "eyebrow": "....And Lots More",
-        "accent": ft.Colors.INDIGO_700,
-        "icon_bg": ft.Colors.INDIGO_100,
-        "icon": ft.Icons.PLAY_CIRCLE_ROUNDED,
-        "image": "icon.png",  # e.g. "/assets/onboarding/continue.png"
-        "title": "Pick up right\nwhere you left off",
-        "body": "Your dashboard remembers your last lesson so you never "
-                "lose your place.",
-    },
-]
-
-ONBOARDING_AUTO_SECONDS = 4.5
+from src.components.onboarding_overlay import build_onboarding_overlay
 
 # DEV MOCK TOGGLE ------------------------------------------------------------
-# Force-show or force-hide the onboarding overlay for testing, bypassing the
-# real/mock first-login check below.
+# Force-show or force-hide the onboarding overlay for testing:
 #   True  -> always show it (handy while designing/testing)
 #   False -> never show it
 #   None  -> use check_is_first_login()'s result (the "real" behavior)
@@ -100,298 +53,26 @@ FORCE_SHOW_ONBOARDING = None
 
 
 async def check_is_first_login(page: ft.Page) -> bool:
-    """MOCK — swap this out for the real check.
-
-    e.g. read a `has_seen_onboarding` flag off the user record returned by
-    your auth/user API, instead of a local device flag.
-    """
-    user_data  = page.session.store.get("current_user") 
+    """Check if the user is logging in for the first time."""
+    user_data = page.session.store.get("current_user") or {}
     streak = user_data.get("streak", 0)
-    seen = streak >2
+    seen = streak > 2
     return not seen
 
 
-async def mark_onboarding_seen(page: ft.Page) -> None:
-    """MOCK — swap this out for the real write (API call, DB update, etc.)."""
+async def mark_onboarding_seen(page: ft.Page, data: dict = None) -> None:
+    """Save onboarding completion and user preferences."""
     await page.shared_preferences.set("has_seen_onboarding", True)
-
-
-def build_onboarding_overlay(page: ft.Page, on_dismiss) -> ft.Container:
-    """Auto-sliding welcome carousel meant to sit on top of the dashboard
-    on first login. Calls `on_dismiss()` once the user skips or finishes.
-    """
-    state = {"index": 0, "auto_task": None, "dismissed": False}
-    n_slides = len(ONBOARDING_SLIDES)
-
-    # ── adaptive sizing ────────────────────────────────────────────────
-    # Card is capped at 440px so it doesn't stretch absurdly wide on
-    # desktop/tablet, but shrinks to fit narrow phone screens with margin.
-    CARD_MAX_WIDTH = 800
-    CARD_MIN_WIDTH = 280
-    CARD_H_PADDING = 30      # matches padding.left/right
-
-    CARD_MAX_HEIGHT = 565  # ceiling: don't let it stretch into a full page on tall/desktop windows
-    CARD_MIN_HEIGHT = 420    # floor: enough room for title + progress row + body without clipping
-    CARD_V_PADDING = 48      # top/bottom safe margin (status bar, nav, window chrome)
-
-    CARD_SPACING = 6
-
-    def card_width() -> float:
-        w = page.width or 390
-        return max(CARD_MIN_WIDTH, min(CARD_MAX_WIDTH, w - CARD_H_PADDING))
-
-    def card_height() -> float:
-        h = page.height or 550
-        return max(CARD_MIN_HEIGHT, min(CARD_MAX_HEIGHT, h - CARD_V_PADDING))
-
-    def segment_width() -> float:
-        content_w = card_width() - (CARD_H_PADDING * 2)
-        spacing_total = CARD_SPACING * (n_slides - 1)
-        return max(0.0, (content_w - spacing_total) / n_slides)
-
-    # ── progress segments — a track + a single fill Container. We only
-    # ever set a *target* width and let Flet/Flutter animate the change
-    # itself (one smooth transition), instead of us stepping the value
-    # in a loop, which is what caused the jerky/irregular fill before.
-    fills = []
-    segments = []
-    for _ in ONBOARDING_SLIDES:
-        fill = ft.Container(height=4, border_radius=3, bgcolor=ft.Colors.PRIMARY, width=0)
-        track = ft.Container(
-            expand=True, height=4, border_radius=3,
-            bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE),
-            alignment=ft.Alignment.CENTER_LEFT,
-            content=fill,
-        )
-        fills.append(fill)
-        segments.append(track)
-    progress_row = ft.Row(spacing=CARD_SPACING, controls=segments)
-
-    def set_progress_static():
-        w = segment_width()
-        for i, fill in enumerate(fills):
-            fill.animate = None
-            fill.width = w if i < state["index"] else 0
-
-    # ── dots ─────────────────────────────────────────────────────────────
-    def handle_dot_tap(i):
-        def handler(e):
-            go_to(i)
-        return handler
-
-    dots = []
-    for i in range(n_slides):
-        dots.append(
-            ft.Container(
-                width=7, height=7, border_radius=4,
-                bgcolor=ft.Colors.with_opacity(0.15, ft.Colors.ON_SURFACE),
-                animate=ft.Animation(200, ft.AnimationCurve.EASE_OUT),
-                ink=True,
-                on_click=handle_dot_tap(i),
-            )
-        )
-    dots_row = ft.Row(spacing=7, controls=dots)
-
-    def refresh_dots():
-        for i, d in enumerate(dots):
-            active = i == state["index"]
-            d.width = 20 if active else 7
-            d.bgcolor = ft.Colors.PRIMARY if active else ft.Colors.with_opacity(
-                0.15, ft.Colors.ON_SURFACE
-            )
-
-    # ── slide content ───────────────────────────────────────────────────
-    def build_slide_content(i):
-        slide = ONBOARDING_SLIDES[i]
-        if slide.get("image"):
-            art = ft.Container(
-                height=190, alignment=ft.Alignment.CENTER,
-                content=ft.Image(
-                    src=slide["image"], height=float("inf"), width=float("inf"),
-                    fit=ft.BoxFit.FIT_WIDTH, border_radius=16,
-                ),
-            )
-        else:
-            art = ft.Container(
-                height=210, alignment=ft.Alignment.CENTER,
-                content=ft.Container(
-                    width=130, height=130, border_radius=65,
-                    bgcolor=slide["icon_bg"],
-                    alignment=ft.Alignment.CENTER,
-                    content=ft.Icon(slide["icon"], size=54, color=slide["accent"]),
-                ),
-            )
-        return ft.Column(
-            key=str(i),
-            spacing=10,
-            controls=[
-                art,
-                ft.Text(slide["eyebrow"], size=11.5, weight=ft.FontWeight.W_700,
-                         color=slide["accent"]),
-                ft.Text(slide["title"], size=21, weight=ft.FontWeight.W_800,
-                         color=ft.Colors.ON_SURFACE),
-                ft.Text(slide["body"], size=13.5, color=ft.Colors.GREY_500),
-            ],
-        )
-
-    slide_switcher = ft.AnimatedSwitcher(
-        content=build_slide_content(0),
-        transition=ft.AnimatedSwitcherTransition.FADE,
-        duration=300,
-    )
-
-    # Wrap the slide area in a GestureDetector so it can be swiped, not
-    # just advanced via the Next button.
-    def handle_drag_end(e):
-        velocity = getattr(e, "primary_velocity", 0) or 0
-        if velocity < -200:       # swipe left -> forward
-            advance_or_dismiss()
-        elif velocity > 200:      # swipe right -> back
-            go_to(state["index"] - 1)
-
-    slide_gesture = ft.GestureDetector(
-        content=slide_switcher,
-        on_horizontal_drag_end=handle_drag_end,
-    )
-
-    # ── next / skip controls ────────────────────────────────────────────
-    next_label = ft.Text("Next", size=14.5, weight=ft.FontWeight.W_700,
-                          color=ft.Colors.SURFACE)
-    next_icon = ft.Icon(ft.Icons.ARROW_FORWARD_ROUNDED, size=16,
-                         color=ft.Colors.SURFACE)
-    next_btn = ft.Container(
-        bgcolor=ft.Colors.ON_SURFACE,
-        border_radius=26,
-        padding=ft.Padding.symmetric(horizontal=22, vertical=13),
-        ink=True,
-        content=ft.Row(spacing=8, tight=True, controls=[next_label, next_icon]),
-    )
-    skip_btn = ft.TextButton(
-        "Skip", style=ft.ButtonStyle(color=ft.Colors.GREY_500)
-    )
-
-    # ── navigation / auto-advance ───────────────────────────────────────
-    def go_to(index: int, restart_auto: bool = True):
-        index = max(0, min(n_slides - 1, index))
-        state["index"] = index
-        slide_switcher.content = build_slide_content(index)
-        set_progress_static()
-        refresh_dots()
-        is_last = index == n_slides - 1
-        next_label.value = "Get started" if is_last else "Next"
-        next_btn.bgcolor = ft.Colors.PRIMARY if is_last else ft.Colors.ON_SURFACE
-        page.update()
-        if restart_auto:
-            start_auto()
-
-    async def auto_loop():
-        idx = state["index"]
-        fill = fills[idx]
-        target = segment_width()
-
-        # snap to 0 with no animation, then animate to full width in one
-        # continuous transition — this is what makes the fill smooth.
-        fill.animate = None
-        fill.width = 0
-        page.update()
-        await asyncio.sleep(0.02)  # let the 0-width frame render first
-        if state["dismissed"] or state["index"] != idx:
-            return
-        fill.animate = ft.Animation(int(ONBOARDING_AUTO_SECONDS * 1000), ft.AnimationCurve.LINEAR)
-        fill.width = target
-        page.update()
-
+    if data:
         try:
-            await asyncio.sleep(ONBOARDING_AUTO_SECONDS)
-            if state["dismissed"] or state["index"] != idx:
-                return
-            if idx == n_slides - 1:
-                return
-            go_to(idx + 1)
-        except asyncio.CancelledError:
-            pass
-
-    def start_auto():
-        if state["auto_task"]:
-            state["auto_task"].cancel()
-        state["auto_task"] = page.run_task(auto_loop)
-
-    async def dismiss_async():
-        state["dismissed"] = True
-        if state["auto_task"]:
-            state["auto_task"].cancel()
-        await mark_onboarding_seen(page)
-        on_dismiss()
-
-    def advance_or_dismiss():
-        if state["index"] == n_slides - 1:
-            page.run_task(dismiss_async)
-        else:
-            go_to(state["index"] + 1)
-
-    def handle_next(e):
-        advance_or_dismiss()
-
-    def handle_skip(e):
-        go_to(n_slides - 1)
-
-    next_btn.on_click = handle_next
-    skip_btn.on_click = handle_skip
-
-    card_container = ft.SafeArea(content=ft.Container(
-        bgcolor=ft.Colors.ON_PRIMARY,
-        border_radius=28,
-        width=card_width(),
-        height=card_height(),
-        padding=ft.Padding.only(
-            left=CARD_H_PADDING, right=CARD_H_PADDING, top=18, bottom=50
-        ),
-        content=ft.Column(
-            spacing=14,
-            controls=[
-                progress_row,
-                ft.Row(alignment=ft.MainAxisAlignment.END, controls=[skip_btn]),
-                slide_gesture,
-                ft.Container(height=28),
-                ft.Row(
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                    controls=[dots_row, next_btn],
-                ),
-            ],
-        ),
-    )
-    )
-    # Re-fit the card (and the progress fill widths) if the window/screen
-    # size changes, so this isn't locked to one phone viewport.
-    # NOTE: chains onto any pre-existing page.on_resized handler so we
-    # don't clobber other resize logic elsewhere in the app.
-    previous_on_resized = page.on_resize
-
-    def recompute_sizing(e=None):
-        card_container.width = card_width()
-        w = segment_width()
-        for i, fill in enumerate(fills):
-            fill.animate = None
-            fill.width = w if i <= state["index"] else 0
-        page.update()
-        if previous_on_resized:
-            previous_on_resized(e)
-
-    page.on_resized = recompute_sizing
-
-    set_progress_static()
-    refresh_dots()
-
-    overlay = ft.Container(
-        expand=True,
-        bgcolor=ft.Colors.with_opacity(0.55, ft.Colors.BLACK),
-        alignment=ft.Alignment.CENTER,
-        content=card_container,
-    )
-
-    start_auto()
-    return overlay
+            if "role" in data:
+                await page.shared_preferences.set("user_role", str(data["role"]))
+            if "interests" in data and isinstance(data["interests"], list):
+                await page.shared_preferences.set("user_interests", ",".join(data["interests"]))
+            if "daily_goal" in data:
+                await page.shared_preferences.set("daily_study_goal", str(data["daily_goal"]))
+        except Exception as ex:
+            print(f"[Onboarding] Preferences save warning: {ex}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -419,9 +100,9 @@ async def dashboard_view(page: ft.Page):
         data="onboarding_overlay",
     )
 
-    async def hide_onboarding_async():
+    async def hide_onboarding_async(data=None):
         # fade + shrink out, then actually remove it once the animation's done
-        bottom_appbar.opacity=1
+        bottom_appbar.opacity = 1
         onboarding_slot.opacity = 0
         onboarding_slot.scale = 0.96
         page.update()
@@ -430,8 +111,8 @@ async def dashboard_view(page: ft.Page):
         onboarding_slot.content = None
         page.update()
 
-    def hide_onboarding():
-        page.run_task(hide_onboarding_async)
+    def hide_onboarding(data=None):
+        page.run_task(hide_onboarding_async, data)
 
     async def maybe_show_onboarding():
         # FORCE_SHOW_ONBOARDING (defined near ONBOARDING_SLIDES above) wins
@@ -470,11 +151,11 @@ async def dashboard_view(page: ft.Page):
     # ── greeting text (mutated after data loads) ──────────────────────────────
     greeting_name = ft.Text(
         "",
-        size=24, weight=ft.FontWeight.W_900, color=ft.Colors.SURFACE,
+        size=24, weight=ft.FontWeight.W_900, color=ft.Colors.WHITE,
     )
     greeting_sub = ft.Text(
         get_random_quote(),
-        size=12, color=ft.Colors.with_opacity(0.75, ft.Colors.SURFACE),
+        size=12, color=ft.Colors.with_opacity(0.9, ft.Colors.WHITE),
         italic=True,
         opacity=0,
         offset=ft.Offset(0, 0.3),
@@ -484,7 +165,7 @@ async def dashboard_view(page: ft.Page):
     
     # ── tips text ─────────────────────────────────────────────────────────────
     tip_container = ft.Container(
-        bgcolor=ft.Colors.with_opacity(0.1, ft.Colors.WHITE),
+        bgcolor=ft.Colors.with_opacity(0.18, ft.Colors.BLACK),
         border_radius=ft.BorderRadius.all(12),
         padding=ft.Padding.symmetric(horizontal=12, vertical=8),
         opacity=0,
@@ -495,7 +176,7 @@ async def dashboard_view(page: ft.Page):
             controls=[
                 ft.Text(
                     f'💡{get_random_tip()}',
-                    size=11, color=ft.Colors.with_opacity(0.9, ft.Colors.SURFACE)
+                    size=11, color=ft.Colors.WHITE
                 )
             ]
         )
@@ -507,50 +188,87 @@ async def dashboard_view(page: ft.Page):
     stat_streak = ft.Text("-", size=20, weight=ft.FontWeight.W_800, color=ft.Colors.SURFACE)
 
     # ─────────────────────────────────────────────────────────────────────────
-    # 1. HEADER / HERO
+    # 1. HEADER / HERO (Redesigned matching EduLearn & mobile inspo)
     # ─────────────────────────────────────────────────────────────────────────
-    def _stat_col(value_text: ft.Text, label: str):
-        return ft.Column(
-            spacing=2,
-            controls=[
-                value_text,
-                ft.Text(label, size=11, color=ft.Colors.with_opacity(0.85, ft.Colors.SURFACE)),
-            ]
-        )
+    hero_art = ft.Container(
+        width=250,
+        height=170,
+        border_radius=ft.BorderRadius.all(16),
+        clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+        alignment=ft.Alignment.CENTER,
+        content=ft.Image(
+            src="hero_graduation.png",
+            fit=ft.BoxFit.CONTAIN,
+        ),
+    )
+
+    def build_hero_content():
+        is_desktop = (page.width or 400) >= 720
+        if is_desktop:
+            return ft.Row(
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[
+                    ft.Column(
+                        expand=True,
+                        spacing=12,
+                        controls=[
+                            greeting_name,
+                            greeting_sub,
+                            tip_container,
+                        ],
+                    ),
+                    hero_art,
+                ],
+            )
+        else:
+            return ft.Column(
+                spacing=12,
+                controls=[
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[
+                            ft.Column(
+                                expand=True,
+                                spacing=4,
+                                controls=[
+                                    greeting_name,
+                                ],
+                            ),
+                            ft.Container(
+                                width=105,
+                                height=85,
+                                border_radius=ft.BorderRadius.all(12),
+                                clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                                content=ft.Image(
+                                    src="hero_graduation.png",
+                                    fit=ft.BoxFit.CONTAIN,
+                                ),
+                            ),
+                        ],
+                    ),
+                    greeting_sub,
+                    tip_container,
+                ],
+            )
 
     header = ft.Container(
-        gradient=ft.LinearGradient(
-            begin=ft.Alignment.TOP_LEFT,
-            end=ft.Alignment.BOTTOM_RIGHT,
-            colors=[ft.Colors.PRIMARY, "#1a3b5c"], # Using PRIMARY and a deep complementary blue
-        ),
+        bgcolor=ft.Colors.SECONDARY,  # Matches theme secondary color (#37BF14) & hero_graduation.png background
         width=float("inf"),
-        border_radius=16,
-        padding=ft.Padding.all(24),
-        margin=ft.Padding.only(left=20, right=20, top=14, bottom=22),
+        border_radius=20,
+        padding=ft.Padding.all(20),
+        margin=ft.Padding.only(left=16, right=16, top=12, bottom=16),
+        shadow=ft.BoxShadow(
+            blur_radius=16,
+            color=ft.Colors.with_opacity(0.15, ft.Colors.BLACK),
+            offset=ft.Offset(0, 6),
+        ),
         opacity=0,
         offset=ft.Offset(0, 0.2),
         animate_opacity=ft.Animation(400, ft.AnimationCurve.DECELERATE),
         animate_offset=ft.Animation(400, ft.AnimationCurve.DECELERATE),
-        content=ft.Column(
-            spacing=20,
-            controls=[
-                ft.Column(
-                    spacing=6,
-                    controls=[greeting_name, greeting_sub, tip_container],
-                ),
-                ft.Row(
-                    wrap=True,
-                    spacing=16,
-                    run_spacing=16,
-                    controls=[
-                        _stat_col(stat_enrolled, "Active Courses"),
-                        _stat_col(stat_finished, "Finished Courses"),
-                        _stat_col(stat_streak, "Day Streak"),
-                    ]
-                )
-            ],
-        ),
+        content=build_hero_content(),
     )
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -662,9 +380,9 @@ async def dashboard_view(page: ft.Page):
                 ],
             ),
             *[
-    friend_avatar(friend["name"] if isinstance(friend["name"], str) else "unknown")
-    for friend in friends
-],
+                friend_avatar(friend.get("name") if isinstance(friend, dict) and isinstance(friend.get("name"), str) else "Learner")
+                for friend in (friends if isinstance(friends, list) else [])
+            ],
         ],
     )
 
@@ -785,17 +503,34 @@ async def dashboard_view(page: ft.Page):
     )
 
     # ─────────────────────────────────────────────────────────────────────────
-    # 5. ACTIVITY CHART
+    # 5. DUAL RESPONSIVE TRACKERS: ACTIVITY THREAD & LEARNING FOCUS BY CATEGORY
     # ─────────────────────────────────────────────────────────────────────────
-    chart_holder = ft.Container(
+    # Tracker 1: Activity Thread (Line Chart)
+    activity_holder = ft.Container(
         height=180,
         alignment=ft.Alignment.CENTER,
         content=ft.Row(
             alignment=ft.MainAxisAlignment.CENTER,
             spacing=8,
             controls=[
-                ft.ProgressRing(color=ft.Colors.PRIMARY, width=20, height=20),
-                ft.Text("Syncing activity…", size=13, color=ft.Colors.GREY_400),
+                ft.ProgressRing(color=ft.Colors.PRIMARY, width=18, height=18, stroke_width=2.5),
+                ft.Text("Loading activity thread…", size=12.5, color=ft.Colors.GREY_400),
+            ],
+        ),
+    )
+
+    activity_badge_text = ft.Text("Weekly Pace", size=11, weight=ft.FontWeight.W_600, color=ft.Colors.PRIMARY)
+
+    activity_badge = ft.Container(
+        padding=ft.Padding.symmetric(horizontal=10, vertical=4),
+        border_radius=ft.BorderRadius.all(10),
+        bgcolor=ft.Colors.with_opacity(0.1, ft.Colors.PRIMARY),
+        content=ft.Row(
+            spacing=4,
+            tight=True,
+            controls=[
+                ft.Icon(ft.Icons.TIMELINE_ROUNDED, size=12, color=ft.Colors.PRIMARY),
+                activity_badge_text,
             ],
         ),
     )
@@ -808,17 +543,106 @@ async def dashboard_view(page: ft.Page):
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                     controls=[
                         ft.Row(spacing=8, controls=[
-                            ft.Icon(ft.Icons.ANALYTICS_OUTLINED,
-                                    color=ft.Colors.PRIMARY, size=18),
-                            ft.Text("Weekly Activity", size=16,
-                                    weight=ft.FontWeight.W_700,
-                                    color=ft.Colors.ON_SURFACE),
+                            ft.Icon(ft.Icons.SHOW_CHART_ROUNDED,
+                                    color=ft.Colors.PRIMARY, size=20),
+                            ft.Column(
+                                spacing=0,
+                                controls=[
+                                    ft.Text("Activity Thread", size=15,
+                                            weight=ft.FontWeight.W_700,
+                                            color=ft.Colors.ON_SURFACE),
+                                    ft.Text("Weekly Learning Velocity", size=10,
+                                            weight=ft.FontWeight.W_500,
+                                            color=ft.Colors.GREY_500),
+                                ],
+                            ),
                         ]),
+                        activity_badge,
                     ],
                 ),
-                chart_holder,
+                activity_holder,
             ],
         )
+    )
+
+    # Tracker 2: Learning Focus by Category (Donut Chart)
+    focus_holder = ft.Container(
+        height=180,
+        alignment=ft.Alignment.CENTER,
+        content=ft.Row(
+            alignment=ft.MainAxisAlignment.CENTER,
+            spacing=8,
+            controls=[
+                ft.ProgressRing(color=ft.Colors.SECONDARY, width=18, height=18, stroke_width=2.5),
+                ft.Text("Analyzing categories…", size=12.5, color=ft.Colors.GREY_400),
+            ],
+        ),
+    )
+
+    focus_count_text = ft.Text("-- Courses", size=11, weight=ft.FontWeight.W_600, color=ft.Colors.SECONDARY)
+
+    focus_badge = ft.Container(
+        padding=ft.Padding.symmetric(horizontal=10, vertical=4),
+        border_radius=ft.BorderRadius.all(10),
+        bgcolor=ft.Colors.with_opacity(0.1, ft.Colors.SECONDARY),
+        content=ft.Row(
+            spacing=4,
+            tight=True,
+            controls=[
+                ft.Icon(ft.Icons.CATEGORY_ROUNDED, size=12, color=ft.Colors.SECONDARY),
+                focus_count_text,
+            ],
+        ),
+    )
+
+    focus_card = _card(
+        ft.Column(
+            spacing=10,
+            controls=[
+                ft.Row(
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    controls=[
+                        ft.Row(spacing=8, controls=[
+                            ft.Icon(ft.Icons.PIE_CHART_OUTLINE_ROUNDED,
+                                    color=ft.Colors.SECONDARY, size=18),
+                            ft.Column(
+                                spacing=0,
+                                controls=[
+                                    ft.Text("Learning Focus", size=15,
+                                            weight=ft.FontWeight.W_700,
+                                            color=ft.Colors.ON_SURFACE),
+                                    ft.Text("By Category", size=10,
+                                            weight=ft.FontWeight.W_600,
+                                            color=ft.Colors.GREY_500),
+                                ],
+                            ),
+                        ]),
+                        focus_badge,
+                    ],
+                ),
+                focus_holder,
+            ],
+        )
+    )
+
+    def build_trackers_layout(is_desktop: bool):
+        if is_desktop:
+            return ft.Row(
+                spacing=16,
+                vertical_alignment=ft.CrossAxisAlignment.START,
+                controls=[
+                    ft.Container(expand=1, content=activity_card),
+                    ft.Container(expand=1, content=focus_card),
+                ],
+            )
+        else:
+            return ft.Column(
+                spacing=16,
+                controls=[activity_card, focus_card],
+            )
+
+    trackers_container = ft.Container(
+        content=build_trackers_layout((page.width or 400) >= 800),
     )
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -990,89 +814,233 @@ async def dashboard_view(page: ft.Page):
                 )
             )
 
-        # ── weekly activity chart ─────────────────────────────────────────────
+        # ── 1. POPULATE ACTIVITY THREAD & LEARNING FOCUS TRACKERS ────────────
+        total_courses = len(enrolled_list)
+        finished_count = sum(1 for c in enrolled_list if c.get("progress", 0.0) >= 100)
+        in_progress_count = sum(1 for c in enrolled_list if 0 < c.get("progress", 0.0) < 100)
+
+        # Log today's active visit
         try:
-            today  = datetime.now()
-            monday = today - timedelta(days=today.weekday())
-
-            week_labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-            week_labels[today.weekday()] = "Today"
-
-            activity_data = []
-            conn = sqlite3.connect("lms_local.db")
-            cur  = conn.cursor()
-            for i in range(7):
-                target = monday + timedelta(days=i)
-                if target.date() > today.date():
-                    activity_data.append(0)
-                else:
-                    cur.execute(
-                        "SELECT activity_count FROM daily_activity WHERE date = ?",
-                        (target.strftime("%Y-%m-%d"),),
-                    )
-                    res = cur.fetchone()
-                    activity_data.append(res[0] if res else 0)
-            conn.close()
-
-            chart_max_y = max(activity_data) + 2 if max(activity_data) > 0 else 10
-
-            weekly_chart = fch.BarChart(
-                max_y=chart_max_y,
-                groups=[
-                    fch.BarChartGroup(
-                        x=i,
-                        rods=[
-                            fch.BarChartRod(
-                                from_y=0, to_y=val,
-                                color=ft.Colors.PRIMARY if week_labels[i] != "Today"
-                                      else ft.Colors.SECONDARY,
-                                width=18,
-                                border_radius=6,
-                            )
-                        ],
-                    )
-                    for i, val in enumerate(activity_data)
-                ],
-                bottom_axis=fch.ChartAxis(
-                    labels=[
-                        fch.ChartAxisLabel(
-                            value=i,
-                            label=ft.Text(
-                                week_labels[i], size=10,
-                                color=ft.Colors.PRIMARY
-                                      if week_labels[i] == "Today"
-                                      else ft.Colors.GREY_400,
-                                weight=ft.FontWeight.W_700
-                                       if week_labels[i] == "Today"
-                                       else ft.FontWeight.NORMAL,
-                            ),
-                        )
-                        for i in range(7)
-                    ]
-                ),
-                horizontal_grid_lines=fch.ChartGridLines(
-                    color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
-                    width=1,
-                    dash_pattern=[4, 4],
-                ),
-                tooltip=fch.BarChartTooltip(
-                    bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST
-                ),
-                interactive=True,
-                expand=True,
-            )
-            chart_holder.content = weekly_chart
-
+            log_daily_activity()
         except Exception:
-            # Chart failure is non-fatal — show a quiet fallback
-            chart_holder.content = ft.Column(
+            pass
+
+        # Query weekly activity from local db
+        try:
+            raw_weekly = get_weekly_activity()
+        except Exception:
+            raw_weekly = [0] * 7
+
+        if not raw_weekly or len(raw_weekly) != 7:
+            raw_weekly = [0] * 7
+
+        activity_values = list(raw_weekly)
+        # Ensure today's count reflects active engagement
+        if activity_values[-1] == 0:
+            activity_values[-1] = max(1, in_progress_count)
+
+        # Reflect streak days in the activity trend
+        for s in range(1, min(streak, 7)):
+            idx = 6 - s
+            if idx >= 0 and activity_values[idx] == 0:
+                activity_values[idx] = max(1, (in_progress_count * 2) - s)
+
+        total_actions = sum(activity_values)
+        avg_daily = total_actions / 7.0
+
+        if streak > 0:
+            activity_badge_text.value = f"🔥 {streak}d Streak"
+        else:
+            activity_badge_text.value = f"{total_actions} Actions"
+
+        focus_count_text.value = f"{total_courses} Course{'s' if total_courses != 1 else ''}"
+
+        # ── Tracker 1: Activity Thread Line Chart ─────────────────────────────
+        today = datetime.now()
+        day_labels = [(today - timedelta(days=i)).strftime("%a") if i > 0 else "Today" for i in range(6, -1, -1)]
+
+        points = []
+        axis_labels = []
+        max_act = max(activity_values) if activity_values else 8
+        top_y = max(max_act * 1.3, 8)
+
+        for idx, (lbl, val) in enumerate(zip(day_labels, activity_values)):
+            points.append(
+                fch.LineChartDataPoint(
+                    x=idx,
+                    y=val,
+                    tooltip=f"{lbl}: {val} actions",
+                )
+            )
+            axis_labels.append(
+                fch.ChartAxisLabel(
+                    value=idx,
+                    label=ft.Text(lbl, size=10, color=ft.Colors.GREY_500, weight=ft.FontWeight.W_600),
+                )
+            )
+
+        activity_series = fch.LineChartData(
+            points=points,
+            curved=True,
+            curve_smoothness=0.35,
+            stroke_width=3,
+            color=ft.Colors.PRIMARY,
+            point=fch.ChartCirclePoint(
+                radius=4,
+                color=ft.Colors.PRIMARY,
+            ),
+            below_line_bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY),
+            prevent_curve_over_shooting=True,
+        )
+
+        activity_chart = fch.LineChart(
+            data_series=[activity_series],
+            min_y=0,
+            max_y=top_y,
+            min_x=0,
+            max_x=6,
+            bottom_axis=fch.ChartAxis(labels=axis_labels),
+            horizontal_grid_lines=fch.ChartGridLines(
+                color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
+                dash_pattern=[4, 4],
+                width=1,
+            ),
+            tooltip=fch.LineChartTooltip(bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST),
+            interactive=True,
+            expand=True,
+        )
+
+        activity_footer = ft.Row(
+            spacing=16,
+            alignment=ft.MainAxisAlignment.CENTER,
+            controls=[
+                ft.Row(
+                    spacing=5,
+                    tight=True,
+                    controls=[
+                        ft.Icon(ft.Icons.INSIGHTS_ROUNDED, size=13, color=ft.Colors.PRIMARY),
+                        ft.Text(f"{total_actions} actions this week", size=10.5, color=ft.Colors.GREY_500),
+                    ],
+                ),
+                ft.Row(
+                    spacing=5,
+                    tight=True,
+                    controls=[
+                        ft.Icon(ft.Icons.TRENDING_UP_ROUNDED, size=13, color=ft.Colors.TEAL_400),
+                        ft.Text(f"{avg_daily:.1f}/day pace", size=10.5, color=ft.Colors.GREY_500),
+                    ],
+                ),
+            ],
+        )
+
+        activity_holder.content = ft.Column(
+            spacing=6,
+            controls=[
+                ft.Container(height=145, content=activity_chart),
+                activity_footer,
+            ],
+        )
+
+        # ── Tracker 2: Learning Focus Donut Chart ─────────────────────────────
+        if total_courses == 0:
+            focus_holder.content = ft.Column(
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 alignment=ft.MainAxisAlignment.CENTER,
+                spacing=6,
                 controls=[
-                    ft.Icon(ft.Icons.BAR_CHART_ROUNDED,
-                            size=32, color=ft.Colors.GREY_300),
-                    ft.Text("Activity data unavailable.",
-                            size=12, color=ft.Colors.GREY_400),
+                    ft.Icon(ft.Icons.PIE_CHART_OUTLINE_ROUNDED, size=32, color=ft.Colors.GREY_300),
+                    ft.Text("Categorize your study paths.", size=12, color=ft.Colors.GREY_400),
+                    ft.TextButton(
+                        "Browse Catalog →",
+                        on_click=lambda _: page.go("/courses"),
+                        style=ft.ButtonStyle(color=ft.Colors.SECONDARY, padding=ft.Padding.all(0)),
+                    ),
+                ],
+            )
+        else:
+            cat_counts = {}
+            for c in enrolled_list:
+                cat_name = (c.get("category") or {}).get("name") or "General"
+                cat_counts[cat_name] = cat_counts.get(cat_name, 0) + 1
+
+            palette = [
+                ft.Colors.PRIMARY,
+                ft.Colors.SECONDARY,
+                ft.Colors.TEAL_400,
+                ft.Colors.AMBER_500,
+                ft.Colors.PURPLE_400,
+                ft.Colors.BLUE_400,
+                ft.Colors.PINK_400,
+                ft.Colors.INDIGO_400,
+                ft.Colors.ORANGE_400,
+            ]
+            sections = []
+            legend_items = []
+            for i, (cat_name, count) in enumerate(cat_counts.items()):
+                color = palette[i % len(palette)]
+                pct = (count / total_courses) * 100
+                sections.append(
+                    fch.PieChartSection(
+                        value=count,
+                        color=color,
+                        radius=16,
+                        title="",
+                    )
+                )
+                legend_items.append(
+                    ft.Row(
+                        spacing=6,
+                        tight=True,
+                        controls=[
+                            ft.Container(width=8, height=8, border_radius=4, bgcolor=color),
+                            ft.Text(cat_name[:12] + ".." if len(cat_name) > 13 else cat_name, size=10.5, weight=ft.FontWeight.W_500, color=ft.Colors.ON_SURFACE),
+                            ft.Text(f"{pct:.0f}%", size=9.5, color=ft.Colors.GREY_400),
+                        ],
+                    )
+                )
+
+            donut_stack = ft.Stack(
+                width=115,
+                height=115,
+                alignment=ft.Alignment.CENTER,
+                controls=[
+                    fch.PieChart(
+                        sections=sections,
+                        center_space_radius=36,
+                        sections_space=2.5,
+                        width=115,
+                        height=115,
+                    ),
+                    ft.Column(
+                        spacing=0,
+                        tight=True,
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        alignment=ft.MainAxisAlignment.CENTER,
+                        controls=[
+                            ft.Text(str(total_courses), size=18, weight=ft.FontWeight.W_900, color=ft.Colors.PRIMARY),
+                            ft.Text("Courses", size=9, weight=ft.FontWeight.W_600, color=ft.Colors.GREY_500),
+                        ],
+                    ),
+                ],
+            )
+
+            focus_holder.content = ft.Row(
+                alignment=ft.MainAxisAlignment.SPACE_EVENLY,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                spacing=12,
+                controls=[
+                    donut_stack,
+                    ft.Container(
+                        height=150,
+                        alignment=ft.Alignment.CENTER,
+                        content=ft.Column(
+                            spacing=4,
+                            tight=True,
+                            scroll=ft.ScrollMode.AUTO,
+                            alignment=ft.MainAxisAlignment.CENTER,
+                            controls=legend_items,
+                        ),
+                    ),
                 ],
             )
 
@@ -1093,12 +1061,12 @@ async def dashboard_view(page: ft.Page):
                             content=ft.Column(
                                 spacing=16,
                                 controls=[
-                                    quick_actions,
-                                    friends_card,
-                                    activity_card,
-                                    continue_learning_section,
-                                    self_study_card,
-                                    ft.Container(height=16),
+                                    trackers_container,         # 1. Dual Course Mastery & Learning Focus Trackers!
+                                    self_study_card,            # 3. Self-Study Hub
+                                    continue_learning_section,  # 2. Continue Learning
+                                    friends_card,               # 4. Friends / study network
+                                    quick_actions,              # 5. Quick shortcuts
+                                    ft.Container(height=24),
                                 ],
                             ),
                         )
@@ -1111,11 +1079,12 @@ async def dashboard_view(page: ft.Page):
         # Trigger staggered fade-up animations for main dashboard sections
         sections_to_animate = [
             header,
-            quick_actions, 
-            friends_card, 
-            activity_card, 
+            activity_card,
+            focus_card,
             continue_learning_section, 
-            self_study_card
+            self_study_card,
+            friends_card, 
+            quick_actions,
         ]
         
         for idx, section in enumerate(sections_to_animate):
@@ -1128,6 +1097,14 @@ async def dashboard_view(page: ft.Page):
             page.run_task(animate_section, section, idx)
 
     page.run_task(fetch_dashboard_data)
+
+    def on_dashboard_resize(e):
+        is_desk = (page.width or 400) >= 800
+        trackers_container.content = build_trackers_layout(is_desk)
+        header.content = build_hero_content()
+        page.update()
+
+    page.on_resize = on_dashboard_resize
 
     # ─────────────────────────────────────────────────────────────────────────
     # VIEW

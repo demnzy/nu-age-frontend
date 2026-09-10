@@ -265,3 +265,22 @@ async def get_enrolled_org_students(token: str, course_id: str, params: dict | N
     except Exception as e:
         print(f"Unexpected Error: {e}")
         return {"error": "Connection failed"}
+
+
+async def remove_organisation_member(token: str, org_id: str, user_id: str) -> dict:
+    url = f"{api_url}/organisations/{org_id}/members/{user_id}"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
+            response = await client.delete(url, headers=headers)
+            if response.status_code == 200:
+                return response.json()
+            else:
+                try:
+                    error_detail = response.json().get("detail", f"HTTP {response.status_code}")
+                except Exception:
+                    error_detail = f"HTTP {response.status_code}: {response.text}"
+                return {"error": error_detail}
+    except Exception as e:
+        print(f"remove_organisation_member error: {e}")
+        return {"error": str(e)}

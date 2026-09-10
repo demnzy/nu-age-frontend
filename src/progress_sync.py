@@ -33,6 +33,9 @@ class SyncResult:
 
 async def sync_offline_progress(page: ft.Page, result: SyncResult = None) -> SyncResult:
     result = result or SyncResult()
+    if getattr(page, "web", False):
+        result.status = "nothing_to_sync"
+        return result
     db = get_local_db(page)
 
     rows = db.execute(
@@ -126,8 +129,13 @@ async def sync_offline_progress(page: ft.Page, result: SyncResult = None) -> Syn
 
 
 async def has_unsynced_progress(page: ft.Page) -> bool:
-    db = get_local_db(page)
-    row = db.execute(
-        "SELECT 1 FROM lesson_progress WHERE synced_at IS NULL LIMIT 1"
-    ).fetchone()
-    return row is not None
+    if getattr(page, "web", False):
+        return False
+    try:
+        db = get_local_db(page)
+        row = db.execute(
+            "SELECT 1 FROM lesson_progress WHERE synced_at IS NULL LIMIT 1"
+        ).fetchone()
+        return row is not None
+    except Exception:
+        return False

@@ -161,7 +161,7 @@ async def course_learner_view(
 
     menu_button = ft.IconButton(
         icon=ft.Icons.MENU_ROUNDED,
-        icon_color=ft.Colors.SURFACE,
+        icon_color=ft.Colors.PRIMARY,
         on_click=toggle_sidebar,
         tooltip="Course Menu",
         visible=False,
@@ -244,18 +244,9 @@ async def course_learner_view(
                     bgcolor=UI_ACCENT,
                     content=ft.Column(
                         [
-                            ft.Row(
-                                [
-                                    sidebar_course_title,
-                                ],
-                                spacing=8,
-                            ),
-                            ft.Container(height=8),
                             sidebar_progress_bar,
-                            ft.Container(height=4),
                             sidebar_progress_label,
                         ],
-                        spacing=0,
                     ),
                 ),
                 ft.Container(
@@ -272,18 +263,18 @@ async def course_learner_view(
         "Loading Course...",
         size=18,
         weight=ft.FontWeight.BOLD,
-        color=ft.Colors.SURFACE,
+        color=ft.Colors.PRIMARY,
     )
 
     page_appbar = ft.AppBar(
         leading=ft.IconButton(
             ft.Icons.ARROW_BACK_ROUNDED,
-            icon_color=ft.Colors.SURFACE,
+            icon_color=ft.Colors.PRIMARY,
             on_click=lambda _: page.go(back_target),
         ),
         title=appbar_title,
         center_title=False,
-        bgcolor=UI_ACCENT,
+        bgcolor=ft.Colors.ON_PRIMARY,
         actions=[menu_button],
     )
 

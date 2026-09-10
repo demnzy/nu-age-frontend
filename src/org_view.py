@@ -9,6 +9,7 @@ from src.requests.organisations import (
     get_organisation_members,
     get_joined_organisations,  
     get_organisation_courses,
+    remove_organisation_member,
 )
 from src.requests.playlists import get_org_playlists
 
@@ -116,6 +117,7 @@ async def organisations_view(page: ft.Page):
 
         # ── stat card ─────────────────────────────────────────────────────────
         def stat_card(icon_name, title, value, bg_color):
+            val_control = value if isinstance(value, ft.Control) else ft.Text(str(value), size=22, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE)
             return ft.Container(
                 bgcolor=bg_color,
                 padding=ft.Padding.symmetric(horizontal=16, vertical=14),
@@ -133,7 +135,7 @@ async def organisations_view(page: ft.Page):
                             spacing=2,
                             expand=True,
                             controls=[
-                                ft.Text(str(value), size=22, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE),
+                                val_control,
                                 ft.Text(title, size=11, color=ft.Colors.with_opacity(0.85, ft.Colors.WHITE), weight=ft.FontWeight.W_500),
                             ],
                         ),
@@ -147,16 +149,161 @@ async def organisations_view(page: ft.Page):
                 ),
             )
 
+        owner_id = str(org_data.get("owner_id", ""))
+        member_stat_text = ft.Text(str(stats["members"]), size=22, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE)
+        members_column = ft.Column(spacing=4)
+
         # ── member row ────────────────────────────────────────────────────────
         def build_member_row(member: dict):
-            user_id= member.get("id")
-            member_role = member.get("role", "STUDENT").upper()
+            user_id = str(member.get("id", ""))
+            first_name = member.get("first_name", "")
+            last_name = member.get("last_name", "")
+            member_name = f"{first_name} {last_name}".strip() or "Member"
+            member_email = member.get("email", "")
+            is_owner = (user_id == owner_id)
+            member_role = "OWNER" if is_owner else member.get("role", "STUDENT").upper()
             badge_map = {
+                "OWNER":   (ft.Colors.PURPLE_50, ft.Colors.PURPLE_800),
                 "ADMIN":   (ft.Colors.BLUE_50,   ft.Colors.BLUE_800),
                 "TEACHER": (ft.Colors.ORANGE_50, ft.Colors.ORANGE_800),
             }
             badge_bg, badge_fg = badge_map.get(member_role, (ft.Colors.GREY_100, ft.Colors.GREY_800))
             initials = f'{member.get("first_name","?")[0]}{member.get("last_name","?")[0]}'.upper()
+
+            menu_items = [
+                ft.PopupMenuItem(
+                    content=ft.Text("View Profile", size=13),
+                    icon=ft.Icons.PERSON_SEARCH_ROUNDED,
+                    on_click=lambda _, uid=user_id: page.go(f"/member/{uid}"),
+                ),
+            ]
+
+            # Only allow removing regular members (cannot remove the organization owner)
+            if not is_owner:
+                def confirm_remove_member(e, uid=user_id, name=member_name, email=member_email):
+                    def close_dialog(ev=None):
+                        dialog.open = False
+                        page.update()
+
+                    def on_dialog_dismiss(ev=None):
+                        try:
+                            if dialog in page.overlay:
+                                page.overlay.remove(dialog)
+                        except Exception:
+                            pass
+
+                    async def do_remove(ev=None):
+                        confirm_btn.disabled = True
+                        confirm_btn.text = "Removing…"
+                        page.update()
+
+                        try:
+                            auth_tok = token or await page.shared_preferences.get("auth_token")
+                            res = await remove_organisation_member(auth_tok, org_id, uid)
+                        except Exception as ex:
+                            res = {"error": str(ex)}
+                        finally:
+                            close_dialog()
+
+                        if isinstance(res, dict) and "error" in res:
+                            err_msg = res["error"]
+                            err_snack = ft.SnackBar(
+                                content=ft.Text(f"Could not remove member: {err_msg}", color=ft.Colors.WHITE),
+                                bgcolor=ft.Colors.RED_700,
+                                duration=4000,
+                            )
+                            try:
+                                page.overlay.append(err_snack)
+                                err_snack.open = True
+                                page.update()
+                            except Exception:
+                                pass
+                        else:
+                            nonlocal members
+                            members = [m for m in members if str(m.get("id", "")) != uid]
+                            stats["members"] = max(0, len(members))
+                            refresh_members_ui()
+
+                            success_snack = ft.SnackBar(
+                                content=ft.Row(
+                                    spacing=8,
+                                    controls=[
+                                        ft.Icon(ft.Icons.CHECK_CIRCLE_OUTLINE_ROUNDED, color=ft.Colors.WHITE, size=18),
+                                        ft.Text(f"{name} was removed from {org_name}.", color=ft.Colors.WHITE, size=13),
+                                    ],
+                                ),
+                                bgcolor=ft.Colors.GREEN_700,
+                                duration=3000,
+                            )
+                            try:
+                                page.overlay.append(success_snack)
+                                success_snack.open = True
+                                page.update()
+                            except Exception:
+                                pass
+
+                    confirm_btn = ft.TextButton(
+                        "Remove",
+                        style=ft.ButtonStyle(color=ft.Colors.RED_600),
+                        on_click=do_remove,
+                    )
+                    cancel_btn = ft.TextButton(
+                        "Cancel",
+                        on_click=close_dialog,
+                    )
+
+                    dialog = ft.AlertDialog(
+                        modal=True,
+                        on_dismiss=on_dialog_dismiss,
+                        bgcolor=ft.Colors.SURFACE,
+                        shape=ft.RoundedRectangleBorder(radius=16),
+                        title=ft.Row(
+                            spacing=8,
+                            controls=[
+                                ft.Icon(ft.Icons.WARNING_ROUNDED, color=ft.Colors.RED_500, size=22),
+                                ft.Text("Remove Member", weight=ft.FontWeight.W_700, size=16),
+                            ],
+                        ),
+                        content=ft.Container(
+                            width=360,
+                            content=ft.Column(
+                                tight=True,
+                                spacing=8,
+                                controls=[
+                                    ft.Text(
+                                        f"Are you sure you want to remove {name} from {org_name}?",
+                                        size=13,
+                                        color=ft.Colors.ON_SURFACE,
+                                    ),
+                                    ft.Text(
+                                        f"Email: {email}",
+                                        size=12,
+                                        color=ft.Colors.GREY_500,
+                                    ),
+                                    ft.Container(height=4),
+                                    ft.Text(
+                                        "They will immediately lose access to all courses and private resources in this organization.",
+                                        size=12,
+                                        color=ft.Colors.RED_700,
+                                    ),
+                                ],
+                            ),
+                        ),
+                        actions=[cancel_btn, confirm_btn],
+                        actions_alignment=ft.MainAxisAlignment.END,
+                    )
+
+                    page.overlay.append(dialog)
+                    dialog.open = True
+                    page.update()
+
+                menu_items.append(
+                    ft.PopupMenuItem(
+                        content=ft.Text("Remove Member", size=13, color=ft.Colors.RED_600),
+                        icon=ft.Icons.PERSON_REMOVE_OUTLINED,
+                        on_click=confirm_remove_member,
+                    )
+                )
 
             return ft.Container(
                 padding=ft.Padding.symmetric(vertical=8, horizontal=4),
@@ -178,11 +325,11 @@ async def organisations_view(page: ft.Page):
                                     spacing=1,
                                     controls=[
                                         ft.Text(
-                                            f'{member.get("first_name","")} {member.get("last_name","")}',
+                                            member_name,
                                             size=12, weight=ft.FontWeight.W_600,
                                             color=ft.Colors.ON_SURFACE,
                                         ),
-                                        ft.Text(member.get("email", ""), size=11, color=ft.Colors.GREY_500),
+                                        ft.Text(member_email, size=11, color=ft.Colors.GREY_500),
                                     ],
                                 ),
                             ],
@@ -199,16 +346,24 @@ async def organisations_view(page: ft.Page):
                                 ft.PopupMenuButton(
                                     icon=ft.Icons.MORE_VERT_ROUNDED,
                                     icon_color=ft.Colors.GREY_400,
-                                    items=[
-                                        ft.PopupMenuItem(content=ft.Text("View Profile", size=13), icon=ft.Icons.PERSON_SEARCH_ROUNDED, on_click=lambda _, user_id=user_id: page.go(f"/member/{user_id}")),
-                                        ft.PopupMenuItem(content=ft.Text("Remove Member", size=13), icon=ft.Icons.PERSON_REMOVE_OUTLINED),
-                                    ],
+                                    items=menu_items,
                                 ),
                             ],
                         ),
                     ],
                 ),
             )
+
+        def refresh_members_ui():
+            members_column.controls = (
+                [build_member_row(m) for m in members]
+                if members
+                else [ft.Text("No members yet.", color=ft.Colors.GREY_400, size=13)]
+            )
+            member_stat_text.value = str(len(members))
+            page.update()
+
+        refresh_members_ui()
 
         # ── course row ────────────────────────────────────────────────────────
         def build_course_row(course: dict):
@@ -417,7 +572,7 @@ async def organisations_view(page: ft.Page):
                             ft.ResponsiveRow(
                                 run_spacing=12,
                                 controls=[
-                                    stat_card(ft.Icons.GROUPS_ROUNDED,          "Members",  stats["members"],  ft.Colors.ORANGE_400),
+                                    stat_card(ft.Icons.GROUPS_ROUNDED,          "Members",  member_stat_text,  ft.Colors.ORANGE_400),
                                     stat_card(ft.Icons.LIBRARY_BOOKS_ROUNDED,   "Courses",  stats["courses"],  ft.Colors.INDIGO_400),
                                     stat_card(ft.Icons.BADGE_ROUNDED,           "Staff",    stats["staff"],    ft.Colors.CYAN_500),
                                     stat_card(ft.Icons.SCHOOL_OUTLINED,         "Students", stats["students"], ft.Colors.BLUE_ACCENT_400),
@@ -430,12 +585,7 @@ async def organisations_view(page: ft.Page):
                                 controls=[
                                     dashboard_section(
                                         title="Members",
-                                        list_content=ft.Column(
-                                            spacing=4,
-                                            controls=[build_member_row(m) for m in members]
-                                            if members
-                                            else [ft.Text("No members yet.", color=ft.Colors.GREY_400, size=13)],
-                                        ),
+                                        list_content=members_column,
                                         manage_route=f"/organisations/{org_id}/invite-members",
                                     ),
                                     dashboard_section(

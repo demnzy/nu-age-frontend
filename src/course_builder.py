@@ -2128,8 +2128,6 @@ async def course_builder_view(page: ft.Page, course_id: str):
             hint_text="e.g. Introduction to Financial Accounting",
             autofocus=True,
             width=float("inf"),
-            
-            # THE FIX: Enable multi-line wrapping and scrolling
             multiline=True,
             min_lines=1,  # Starts out looking like a normal 1-line field
             max_lines=3,  # Stops growing after 3 lines and activates the vertical scrollbar!
@@ -2138,13 +2136,81 @@ async def course_builder_view(page: ft.Page, course_id: str):
             label="Target Audience / Context",
             hint_text="e.g. 200-level Business Administration students with no prior accounting background",
             width=float("inf"),
-            
-            # THE FIX: Enable multi-line wrapping and scrolling
             multiline=True,
             min_lines=1,  # Starts out looking like a normal 1-line field
             max_lines=3,  # Stops growing after 3 lines and activates the vertical scrollbar!
         )
+        
         status_text = ft.Text("", size=12, color=ft.Colors.ON_SURFACE_VARIANT)
+        
+        selected_reference_files = []
+        files_chips = ft.Row(wrap=True, spacing=5, run_spacing=5)
+        
+        def render_file_chips():
+            files_chips.controls.clear()
+            for f in selected_reference_files:
+                files_chips.controls.append(
+                    ft.Chip(
+                        label=ft.Text(f["name"], size=12),
+                        on_delete=lambda e, fname=f["name"]: remove_file(fname),
+                        bgcolor=ft.Colors.ON_INVERSE_SURFACE
+                    )
+                )
+            if len(selected_reference_files) >= 15:
+                attach_btn.disabled = True
+            else:
+                attach_btn.disabled = False
+            page.update()
+
+        def remove_file(name):
+            nonlocal selected_reference_files
+            selected_reference_files = [f for f in selected_reference_files if f["name"] != name]
+            render_file_chips()
+
+        async def pick_files_handler(ev):
+            if len(selected_reference_files) >= 15:
+                return
+            ev.control.disabled = True
+            page.update()
+            try:
+                files = await ft.FilePicker().pick_files(
+                    allow_multiple=True,
+                    allowed_extensions=["md", "txt"]
+                )
+                if files:
+                    for f in files:
+                        if len(selected_reference_files) >= 15:
+                            break
+                        if not any(existing["name"] == f.name for existing in selected_reference_files):
+                            content = ""
+                            if getattr(f, "path", None):
+                                try:
+                                    with open(f.path, 'r', encoding='utf-8', errors='replace') as file_obj:
+                                        content = file_obj.read()
+                                except Exception as e:
+                                    content = f"[Could not read file: {e}]"
+                            elif getattr(f, "bytes", None):
+                                content = f.bytes.decode("utf-8", errors="replace")
+                                
+                            selected_reference_files.append({
+                                "name": f.name,
+                                "content": content
+                            })
+                render_file_chips()
+            except Exception as ex:
+                status_text.value = f"Error picking files: {ex}"
+                status_text.color = ft.Colors.ERROR
+                page.update()
+            finally:
+                ev.control.disabled = False
+                page.update()
+
+        attach_btn = ft.ElevatedButton(
+            "Attach Reference Files (.md, .txt)",
+            icon=ft.Icons.ATTACH_FILE_ROUNDED,
+            on_click=lambda e: page.run_task(pick_files_handler, e)
+        )
+
         generate_btn = ft.ElevatedButton(
             "Generate",
             icon=ft.Icons.AUTO_AWESOME_ROUNDED,
@@ -2165,8 +2231,8 @@ async def course_builder_view(page: ft.Page, course_id: str):
                 status_text.color = ft.Colors.ERROR
                 page.update()
                 return
-            if not context:
-                status_text.value = "Context is required."
+            if not context and not selected_reference_files:
+                status_text.value = "Context or attached files are required."
                 status_text.color = ft.Colors.ERROR
                 page.update()
                 return
@@ -2176,7 +2242,13 @@ async def course_builder_view(page: ft.Page, course_id: str):
             status_text.color = ft.Colors.ORANGE_700
             page.update()
 
-            result = await generate_course_draft(token=token, topic=topic, context=context)
+            final_context = context
+            if selected_reference_files:
+                final_context += "\n\n=== ATTACHED REFERENCE FILES ===\n"
+                for f in selected_reference_files:
+                    final_context += f"\n--- {f['name']} ---\n{f['content']}\n"
+
+            result = await generate_course_draft(token=token, topic=topic, context=final_context)
 
             if result.get("error") == "forbidden":
                 status_text.value = "You don't have permission to generate courses."
@@ -2221,6 +2293,7 @@ async def course_builder_view(page: ft.Page, course_id: str):
                 spacing=8,
             ),
             content=ft.Container(
+                width=500,
                 content=ft.Column(
                     [
                         ft.Text(
@@ -2230,6 +2303,8 @@ async def course_builder_view(page: ft.Page, course_id: str):
                         ),
                         topic_field,
                         context_field,
+                        attach_btn,
+                        files_chips,
                         status_text,
                     ],
                     spacing=14,

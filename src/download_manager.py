@@ -77,6 +77,10 @@ async def download_course(page: ft.Page, course_id: str, progress: DownloadProgr
     describe what partially failed.
     """
     progress = progress or DownloadProgress()
+    if getattr(page, "web", False):
+        progress.status = "error"
+        progress.error_message = "Offline downloads are not supported on web."
+        return False
     token = await page.shared_preferences.get("auth_token")
 
     if not token:
@@ -284,11 +288,16 @@ async def delete_downloaded_course(page: ft.Page, course_id: str):
 
 
 def is_course_downloaded(page: ft.Page, course_id: str) -> bool:
-    db = get_local_db(page)
-    row = db.execute(
-        "SELECT 1 FROM downloaded_courses WHERE id = ?", (course_id,)
-    ).fetchone()
-    return row is not None
+    if page is not None and getattr(page, "web", False):
+        return False
+    try:
+        db = get_local_db(page)
+        row = db.execute(
+            "SELECT 1 FROM downloaded_courses WHERE id = ?", (course_id,)
+        ).fetchone()
+        return row is not None
+    except Exception:
+        return False
 
 
 # ── internal helpers ────────────────────────────────────────────────
@@ -300,7 +309,13 @@ async def init_download_manager(page: ft.Page):
     preventing issues on mobile where os.getcwd() is read-only.
     """
     global _platform_storage_dir
-    _platform_storage_dir = await page.storage_paths.get_application_support_directory()
+    if getattr(page, "web", False):
+        _platform_storage_dir = None
+        return
+    try:
+        _platform_storage_dir = await page.storage_paths.get_application_support_directory()
+    except Exception:
+        _platform_storage_dir = None
 
 def _course_assets_root() -> str:
     """Parent folder holding every course's assets subfolder. This is

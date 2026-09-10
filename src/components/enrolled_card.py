@@ -29,12 +29,15 @@ def get_enrolled_card(
     # at the moment the card is built. Correct even if a download for this
     # exact course finished from a different screen (e.g. offline_courses_view)
     # since the last time this card was rendered.
-    already_downloaded = is_course_downloaded(page, course_id)
+    is_web = getattr(page, "web", False)
+    already_downloaded = False if is_web else is_course_downloaded(page, course_id)
 
     def _get_downloaded_size_label() -> str:
         # Pulls the real total_size_bytes column written by download_manager
         # at the end of a successful download — surfaced here so the DB
         # isn't just a yes/no flag, the actual stored size is visible too.
+        if is_web:
+            return ""
         from src.local_db import get_local_db
         db = get_local_db(page)
         row = db.execute(
@@ -76,6 +79,7 @@ def get_enrolled_card(
         bgcolor=ft.Colors.PRIMARY,
         alignment=ft.Alignment.CENTER,
         ink=True,
+        visible=not is_web,
         shadow=ft.BoxShadow(
             blur_radius=6,
             spread_radius=0.5,
@@ -203,6 +207,7 @@ def get_enrolled_card(
             ft.Container(
                 top=6,
                 right=6,
+                visible=not is_web,
                 content=download_icon_button,
             ),
         ],

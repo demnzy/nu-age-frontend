@@ -172,8 +172,9 @@ async def try_refresh_token(page: ft.Page) -> bool:
 async def main(page: ft.Page):
     from src.local_db import init_local_db
     from src.download_manager import init_download_manager
-    await init_local_db(page)
-    await init_download_manager(page)
+    if not getattr(page, "web", False):
+        await init_local_db(page)
+        await init_download_manager(page)
 
     async def keep_alive():
         while True:
@@ -1396,12 +1397,15 @@ async def main(page: ft.Page):
         previous_view = page.views[-1] if page.views else None
         previous_route = previous_view.route if previous_view is not None else None
 
-        troute = ft.TemplateRoute(page.route)
+        clean_route = (page.route or "").split("?")[0]
+        troute = ft.TemplateRoute(clean_route)
 
         def is_public_route(route):
             return route in ["/", "/login", "/signup"] or route.startswith("/accept-invite/")
 
         def is_offline_capable_route(route):
+            if getattr(page, "web", False):
+                return False
             # Routes reachable without a network call succeeding, even
             # though they still need to know "which user" (so NOT lumped
             # in with is_public_route, which is for pre-login routes).
@@ -1412,7 +1416,12 @@ async def main(page: ft.Page):
             return route == "/offline"
 
         async def is_route_for_downloaded_course(route):
-            troute_check = ft.TemplateRoute(route)
+            if getattr(page, "web", False):
+                return False
+            c_route = (route or "").split("?")[0]
+            troute_check = ft.TemplateRoute(c_route)
+            if troute_check.match("/courses/:course_id/offline"):
+                return is_course_downloaded(page, troute_check.course_id)
             if troute_check.match("/courses/:course_id/view"):
                 return is_course_downloaded(page, troute_check.course_id)
             return False
@@ -1523,7 +1532,7 @@ async def main(page: ft.Page):
                 show_error_dialog(
                     copy["snack_message"],
                     icon=copy["icon"],
-                    offer_offline=(kind == "connectivity"),
+                    offer_offline=(kind == "connectivity" and not getattr(page, "web", False)),
                 )
             else:
                 await show_session_expired_dialog(
@@ -1893,73 +1902,46 @@ async def main(page: ft.Page):
         elif troute.match("/courses/:course_id/manage"):
             # Extracts the ID from the URL and passes it to the view
             await load_view_and_report(course_builder_view(page, troute.course_id), page.route, active_skeleton, active_shimmer_task)
+        elif troute.match("/courses/:course_id/offline"):
+            if getattr(page, "web", False):
+                page.go(f"/courses/{troute.course_id}/view")
+                return
+            # Explicit offline course learner view: strictly offline, zero network probe
+            course_id_param = troute.course_id
+            await load_view_and_report(
+                offline_course_learner_view(page, course_id_param, back_target="/offline"),
+                page.route, active_skeleton, active_shimmer_task
+            )
         elif troute.match("/courses/:course_id/view"):
             # Decide online vs offline engine for this course.
-            #
-            # IMPORTANT: token PRESENCE is not the same as being ONLINE.
-            # A refresh token can sit on disk for weeks — it says nothing
-            # about whether the network is actually reachable right now.
-            # The original version of this check used "no token" as a
-            # stand-in for "offline", which meant: logged in + data
-            # switched off + course downloaded => still routed to the
-            # ONLINE engine (since a token existed), which then failed to
-            # reach the API and showed "loading failed" even though a
-            # perfectly good offline copy was sitting right there.
-            #
-            # Fix: if a token exists, ATTEMPT the online engine first (so
-            # a real session still gets fresh content/progress as before)
-            # but if it fails to load AND the course is downloaded, fall
-            # back to the offline engine directly — rather than reporting
-            # a generic connectivity error with no recovery. If there's no
-            # token at all, go straight to offline (unchanged from before).
             course_id_param = troute.course_id
             current_token = await page.shared_preferences.get("auth_token")
             course_downloaded = is_course_downloaded(page, course_id_param)
 
-            # Semantic back-navigation: the course view's own back arrow
-            # used to hardcode page.go("/courses"), which is a protected
-            # route requiring a token. Opening a downloaded course FROM
-            # /offline (no token, by design) then tapping back sent you
-            # to a route that immediately bounced you to login — you
-            # never actually got "back" anywhere. back_target threads
-            # through where we actually came from (previous_route, the
-            # view that was on screen right before this navigation
-            # started) so the arrow returns you there instead — /offline
-            # if that's where you came from, /courses otherwise. Falls
-            # back to "/courses" if there's no usable previous_route
-            # (e.g. this course was the very first view of the session,
-            # opened via a deep link).
+            # Check if strictly coming from offline view or requested as offline
+            is_from_offline_view = (
+                (previous_route == "/offline")
+                or (page.route and ("/offline" in page.route or "offline=true" in page.route))
+            )
+
+            # Semantic back-navigation:
             valid_back_targets = ("/offline", "/courses", "/dashboard", "/network", "/self-study", "/organisations")
-            if previous_route and (previous_route in valid_back_targets or previous_route.startswith("/playlists/") or previous_route.startswith("/organisations/")):
+            if is_from_offline_view:
+                back_target = "/offline"
+            elif previous_route and (previous_route in valid_back_targets or previous_route.startswith("/playlists/") or previous_route.startswith("/organisations/")):
                 back_target = previous_route
             else:
                 back_target = "/courses"
 
-            if not current_token and course_downloaded:
+            # STRICT OFFLINE LOADING for /view route:
+            if (is_from_offline_view or not current_token) and course_downloaded:
                 await load_view_and_report(
-                    offline_course_learner_view(page, course_id_param, back_target=back_target),
+                    offline_course_learner_view(page, course_id_param, back_target="/offline"),
                     page.route, active_skeleton, active_shimmer_task
                 )
             elif current_token and course_downloaded:
-                # Have a token AND a local copy. Token PRESENCE alone
-                # doesn't mean we're online (it can sit on disk for weeks
-                # regardless of current connectivity), so probe with a
-                # real request rather than trusting the token's existence.
-                #
-                # NOTE: course_learner_view can't be used for this probe —
-                # it fires its data fetch via page.run_task (fire-and-
-                # forget) and returns its ft.View shell immediately
-                # regardless of whether that fetch later succeeds or
-                # fails, so awaiting it never raises and never signals
-                # failure; a connectivity problem would only show up later
-                # as a silent "Failed to load course data" message inside
-                # the view we'd have already committed to. get_current_-
-                # user_request is used instead purely as a connectivity
-                # probe — its actual response isn't used, we already have
-                # a valid current_user from the outer auth gate — because
-                # unlike course_learner_view it genuinely raises/returns a
-                # failure status synchronously, which is what we need to
-                # make this decision correctly.
+                # Normal browsing from online catalog (/courses, /dashboard):
+                # Probe network to decide if we can load fresh online course or fall back to offline
                 try:
                     probe_status, _ = await get_current_user_request(current_token)
                     online_reachable = probe_status == 200
@@ -1972,22 +1954,6 @@ async def main(page: ft.Page):
                         page.route, active_skeleton, active_shimmer_task
                     )
                 else:
-                    # BUG FIX: back_target was computed from previous_route
-                    # BEFORE we knew connectivity had actually failed. If
-                    # the user opened this course from /courses (the normal
-                    # case when online), back_target would be "/courses" —
-                    # but we just proved /courses is unreachable right now
-                    # (that's WHY we're in this else branch). Sending the
-                    # back arrow there guarantees an immediate repeat
-                    # failure: /courses is a protected route requiring a
-                    # network round-trip, which fails again, shows the
-                    # connectivity SnackBar again, and since that SnackBar
-                    # path doesn't reliably restore a working view, the UI
-                    # can end up stuck with no responsive control. Once
-                    # we've fallen back to the offline engine due to a
-                    # failed probe, /offline is the only destination we've
-                    # actually confirmed is reachable — use it regardless
-                    # of where the user technically came from.
                     await load_view_and_report(
                         offline_course_learner_view(page, course_id_param, back_target="/offline"),
                         page.route, active_skeleton, active_shimmer_task
@@ -2000,6 +1966,9 @@ async def main(page: ft.Page):
                     page.route, active_skeleton, active_shimmer_task
                 )
         elif troute.match("/offline"):
+            if getattr(page, "web", False):
+                page.go("/courses")
+                return
             await load_view_and_report(offline_courses_view(page), page.route, active_skeleton, active_shimmer_task)
         elif troute.match("/member/:user_id"):
             # Extracts the ID from the URL and passes it to the view
@@ -2137,7 +2106,8 @@ async def main(page: ft.Page):
             # job itself just leaves rows unsynced for next time), so this
             # never interrupts the resume flow with an error.
             try:
-                await sync_offline_progress(page)
+                if not getattr(page, "web", False):
+                    await sync_offline_progress(page)
             except Exception:
                 pass
         finally:

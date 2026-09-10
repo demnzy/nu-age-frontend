@@ -44,18 +44,9 @@ async def offline_courses_view(page: ft.Page) -> ft.View:
         return f"{mb:.1f} MB" if mb >= 1 else f"{size_bytes // 1024} KB"
 
     async def handle_open_course(e, course_id: str):
-        # Routed through your existing router — main.py's route_change
-        # decides online vs offline course_page based on connectivity +
-        # download state (see routing wiring). This screen just navigates;
-        # it doesn't decide which engine renders it.
-        # NOTE: must match the router's actual pattern, "/courses/:id/view"
-        # — NOT "/learn". A mismatch here means TemplateRoute.match() never
-        # fires in route_change's dispatch, the route falls through to
-        # whatever the default/catch-all case is, and since is_route_for_-
-        # downloaded_course() also only recognizes "/view", the no-token
-        # exemption never applies either — which is what sent you to login
-        # even though the course was downloaded and reachable offline.
-        page.go(f"/courses/{course_id}/view")
+        # Explicitly route to offline course view so main.py strictly loads
+        # the offline SQLite-backed engine without probing or attempting network
+        page.go(f"/courses/{course_id}/offline")
 
     async def handle_delete_course(e, course_id: str):
         async def confirm_delete(e):

@@ -38,59 +38,70 @@ def member_invite_view(page: ft.Page, token: str):
     )
 
     # ── Asynchronous Lifecycle Engine ──────────────────────────────────────────
-    # ── Asynchronous Lifecycle Engine ──────────────────────────────────────────
-    async def process_invitation_lifecycle():
-        await asyncio.sleep(1.0) # Brief animation buffer
+    session_key = f"invite_task_{token}"
+    if page.session.store.get(session_key):
+        # Already processing or processed in this session
+        pass
+    else:
+        page.session.store.set(session_key, True)
 
-        try:
-            # ── 1. Hit the Backend via Helper Function ────────────────────────
-            data = await process_invite_token(token)
-            
-            # Check if our helper function caught an error
-            if "error" in data:
-                raise Exception(data["error"])
-                
-            # ── Scenario A: User Exists and was added to Org ──────────────────
-            if data.get("status") in ["success", "already_member"]:
-                status_ring.visible = False
-                status_icon.icon = ft.Icons.CHECK_CIRCLE_ROUNDED
-                status_icon.color = ft.Colors.GREEN_600
-                status_icon.visible = True
-                
-                status_title.value = "Joined Successfully!"
-                status_subtitle.value = "Your account is linked to the organization. Redirecting to Login..."
-                page.update()
-                
-                await asyncio.sleep(2.0)
-                page.go("/login")
-                
-            # ── Scenario B: User Needs to Sign Up ─────────────────────────────
-            elif data.get("status") == "needs_signup":
-                status_ring.visible = False
-                status_icon.icon = ft.Icons.GROUP_ADD_ROUNDED
-                status_icon.color = ft.Colors.AMBER_600
-                status_icon.visible = True
-                
-                status_title.value = "Account Required"
-                status_subtitle.value = "Valid organization found! Let's get your profile set up..."
-                page.update()
-                
-                await asyncio.sleep(2.0)
-                
-                # Pass the token into the signup route so the backend doesn't forget them
-                page.go(f"/signup?invite_token={token}")
+        async def process_invitation_lifecycle():
+            await asyncio.sleep(0.5) # Brief animation buffer
 
-        except Exception as ex:
-            # Fallback Error State UI
-            status_ring.visible = False
-            status_icon.icon = ft.Icons.GPP_BAD_ROUNDED
-            status_icon.color = ft.Colors.RED_600
-            status_icon.visible = True
-            status_title.value = "Invitation Invalid"
-            status_subtitle.value = f"The security token is broken or expired. Reason: {str(ex)}"
-            page.update()
-    # Trigger processing sequence safely in the background
-    page.run_task(process_invitation_lifecycle)
+            try:
+                # ── 1. Hit the Backend via Helper Function ────────────────────────
+                data = await process_invite_token(token)
+                
+                # Check if our helper function caught an error
+                if "error" in data:
+                    raise Exception(data["error"])
+                    
+                # ── Scenario A: User Exists and was added to Org ──────────────────
+                if data.get("status") in ["success", "already_member"]:
+                    status_ring.visible = False
+                    status_icon.icon = ft.Icons.CHECK_CIRCLE_ROUNDED
+                    status_icon.color = ft.Colors.GREEN_600
+                    status_icon.visible = True
+                    
+                    org_name = data.get("org_name", "the organization")
+                    status_title.value = "Joined Successfully!"
+                    status_subtitle.value = f"Your account is linked to {org_name}. Redirecting..."
+                    page.update()
+                    
+                    await asyncio.sleep(2.0)
+                    saved_token = await page.shared_preferences.get("auth_token")
+                    if saved_token:
+                        page.go("/dashboard")
+                    else:
+                        page.go("/login")
+                    
+                # ── Scenario B: User Needs to Sign Up ─────────────────────────────
+                elif data.get("status") == "needs_signup":
+                    status_ring.visible = False
+                    status_icon.icon = ft.Icons.GROUP_ADD_ROUNDED
+                    status_icon.color = ft.Colors.AMBER_600
+                    status_icon.visible = True
+                    
+                    org_name = data.get("org_name", "an organization")
+                    status_title.value = "Account Required"
+                    status_subtitle.value = f"You've been invited to join {org_name}! Let's get your profile set up..."
+                    page.update()
+                    
+                    await asyncio.sleep(2.0)
+                    page.go("/signup")
+
+            except Exception as ex:
+                # Fallback Error State UI
+                status_ring.visible = False
+                status_icon.icon = ft.Icons.GPP_BAD_ROUNDED
+                status_icon.color = ft.Colors.RED_600
+                status_icon.visible = True
+                status_title.value = "Invitation Invalid"
+                status_subtitle.value = f"The security token is broken or expired. Reason: {str(ex)}"
+                page.update()
+
+        # Trigger processing sequence safely in the background
+        page.run_task(process_invitation_lifecycle)
 
     # ── Component Layout Construction ─────────────────────────────────────────
     invite_card = ft.Container(

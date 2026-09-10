@@ -38,7 +38,13 @@ async def init_local_db(page: ft.Page):
     storage paths, preventing issues on mobile where os.getcwd() is read-only.
     """
     global _platform_storage_dir
-    _platform_storage_dir = await page.storage_paths.get_application_support_directory()
+    if getattr(page, "web", False):
+        _platform_storage_dir = None
+        return
+    try:
+        _platform_storage_dir = await page.storage_paths.get_application_support_directory()
+    except Exception:
+        _platform_storage_dir = None
 
 
 def get_local_db(page: ft.Page = None) -> sqlite3.Connection:
@@ -185,6 +191,8 @@ def has_any_downloaded_courses(page: ft.Page = None) -> bool:
     Login.py's connectivity-error dialogs, so both dead ends stay in sync
     without duplicating the query in two files.
     """
+    if page is not None and getattr(page, "web", False):
+        return False
     try:
         db = get_local_db(page)
         row = db.execute("SELECT 1 FROM downloaded_courses LIMIT 1").fetchone()
@@ -196,6 +204,8 @@ def has_any_downloaded_courses(page: ft.Page = None) -> bool:
 # ── Chat Caching Helpers ──────────────────────────────────────────────
 
 def get_cached_chat_channels(page: ft.Page = None):
+    if page is not None and getattr(page, "web", False):
+        return []
     try:
         db = get_local_db(page)
         db.row_factory = sqlite3.Row
@@ -206,6 +216,8 @@ def get_cached_chat_channels(page: ft.Page = None):
         return []
 
 def upsert_chat_channels(page: ft.Page, channels: list):
+    if page is not None and getattr(page, "web", False):
+        return
     try:
         db = get_local_db(page)
         with db:
@@ -224,6 +236,8 @@ def upsert_chat_channels(page: ft.Page, channels: list):
         print(f"[CACHE ERROR] upsert_chat_channels failed: {e}")
 
 def get_cached_messages(page: ft.Page, channel_id: str):
+    if page is not None and getattr(page, "web", False):
+        return []
     try:
         db = get_local_db(page)
         db.row_factory = sqlite3.Row
@@ -249,6 +263,8 @@ def get_cached_messages(page: ft.Page, channel_id: str):
         return []
 
 def upsert_chat_messages(page: ft.Page, messages: list):
+    if page is not None and getattr(page, "web", False):
+        return
     try:
         db = get_local_db(page)
         with db:
