@@ -271,236 +271,263 @@ async def dashboard_view(page: ft.Page):
         content=build_hero_content(),
     )
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # 2. QUICK-ACTION TILES
-    # ─────────────────────────────────────────────────────────────────────────
-    def quick_tile(icon, label, sublabel, bg, fg, route):
-        return ft.Container(
-            expand=True,
-            bgcolor=bg,
-            border_radius=14,
-            padding=ft.Padding.symmetric(horizontal=14, vertical=14),
-            ink=True,
-            on_click=lambda _, r=route: page.go(r),
-            shadow=ft.BoxShadow(
-                blur_radius=6,
-                color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
-                offset=ft.Offset(0, 3),
-            ),
-            content=ft.Column(
-                spacing=6,
-                controls=[
-                    ft.Container(
-                        width=38, height=38,
-                        bgcolor=ft.Colors.with_opacity(0.18, ft.Colors.SURFACE),
-                        border_radius=10,
-                        alignment=ft.Alignment.CENTER,
-                        content=ft.Icon(icon, color=ft.Colors.SURFACE, size=20),
-                    ),
-                    ft.Text(label, size=13, weight=ft.FontWeight.W_700,
-                            color=ft.Colors.SURFACE),
-                    ft.Text(sublabel, size=10,
-                            color=ft.Colors.with_opacity(0.8, ft.Colors.SURFACE)),
-                ],
-            ),
-        )
 
-    quick_actions = ft.Row(
-        spacing=12,
-        opacity=0,
-        offset=ft.Offset(0, 0.2),
-        animate_opacity=ft.Animation(400, ft.AnimationCurve.DECELERATE),
-        animate_offset=ft.Animation(400, ft.AnimationCurve.DECELERATE),
-        controls=[
-            quick_tile(
-                ft.Icons.LIBRARY_BOOKS_ROUNDED,
-                "Courses", "Browse library",
-                ft.Colors.INDIGO_300, ft.Colors.SURFACE,
-                "/courses",
-            ),
-            quick_tile(
-                ft.Icons.PEOPLE_ALT_ROUNDED,
-                "Network", "Connect & study",
-                ft.Colors.TEAL_400, ft.Colors.SURFACE,
-                "/network",
-            ),
-        ],
-    )
-
-    # ─────────────────────────────────────────────────────────────────────────
-    # 3. FRIENDS SECTION
-    # ─────────────────────────────────────────────────────────────────────────
-    def friend_avatar(name: str, ):
-        initials = "".join(p[0].upper() for p in name.split()[:2])
-        return ft.Column(
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            spacing=4,
-            controls=[
-                ft.Stack(
-                    controls=[
-                        ft.CircleAvatar(
-                            content=ft.Text(initials, size=13,
-                                            weight=ft.FontWeight.W_700),
-                            bgcolor=ft.Colors.PRIMARY_CONTAINER,
-                            color=ft.Colors.ON_PRIMARY_CONTAINER,
-                            radius=24,
-                        )
-                    ],
-                ),
-                ft.Text(name.split()[0], size=10, color=ft.Colors.GREY_600,
-                        max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
-            ],
-        )
-
-    # placeholder friends — replace with real API data
-    token = await page.shared_preferences.get("auth_token")
-    friends = await get_all_users(token)
-
-    friends_row = ft.Row(
-        scroll=ft.ScrollMode.AUTO,
-        spacing=16,
-        controls=[
-            # Add-friend button
-            ft.Column(
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                spacing=4,
-                controls=[
-                    ft.Container(
-                        width=48, height=48,
-                        bgcolor=ft.Colors.SURFACE,
-                        border_radius=24,
-                        border=ft.Border.all(1, ft.Colors.GREY_300),
-                        alignment=ft.Alignment.CENTER,
-                        ink=True,
-                        on_click=lambda _: page.go("/network"),
-                        content=ft.Icon(ft.Icons.PERSON_ADD_ALT_1_ROUNDED,
-                                        color=ft.Colors.PRIMARY, size=20),
-                    ),
-                    ft.Text("Add", size=10, color=ft.Colors.PRIMARY),
-                ],
-            ),
-            *[
-                friend_avatar(friend.get("name") if isinstance(friend, dict) and isinstance(friend.get("name"), str) else "Learner")
-                for friend in (friends if isinstance(friends, list) else [])
-            ],
-        ],
-    )
-
-    friends_card = _card(
-        ft.Column(
-            spacing=12,
-            controls=[
-                ft.Row(
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                    controls=[
-                        ft.Row(spacing=8, controls=[
-                            ft.Icon(ft.Icons.PEOPLE_ALT_ROUNDED,
-                                    color=ft.Colors.TEAL_500, size=18),
-                            ft.Text("Friends", size=16,
-                                    weight=ft.FontWeight.W_700,
-                                    color=ft.Colors.ON_SURFACE),
-                        ]),
-                        ft.TextButton(
-                            "See All",
-                            on_click=lambda _: page.go("/network"),
-                            style=ft.ButtonStyle(
-                                color=ft.Colors.PRIMARY,
-                                padding=ft.Padding.all(0),
-                            ),
-                        ),
-                    ],
-                ),
-                friends_row,
-            ],
-        )
-    )
 
     # ─────────────────────────────────────────────────────────────────────────
     # 4. SELF-STUDY SECTION
     # ─────────────────────────────────────────────────────────────────────────
-    def study_mode_tile(icon, title, desc, route, bg, fg):
+    def _feature_pill(icon, label):
         return ft.Container(
-            expand=True,
-            bgcolor=bg,
-            border_radius=14,
-            padding=ft.Padding.symmetric(horizontal=14, vertical=14),
-            ink=True,
-            on_click=lambda _, r=route: page.go(r),
-            border=ft.Border.all(1, ft.Colors.OUTLINE),
-            content=ft.Column(
-                spacing=6,
+            padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+            border_radius=8,
+            bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
+            content=ft.Row(
+                spacing=4,
+                tight=True,
                 controls=[
-                    ft.Container(
-                        width=36, height=36,
-                        bgcolor=fg,
-                        border_radius=10,
-                        alignment=ft.Alignment.CENTER,
-                        content=ft.Icon(icon, size=18, color=ft.Colors.SURFACE),
-                    ),
-                    ft.Text(title, size=11, weight=ft.FontWeight.W_700,
-                            color=ft.Colors.SURFACE),
-                    ft.Text(desc, size=10, color=ft.Colors.SURFACE,
-                            max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
+                    ft.Icon(icon, size=13, color=ft.Colors.PRIMARY),
+                    ft.Text(label, size=11, weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE),
                 ],
             ),
         )
 
-    self_study_card = _card(
-        ft.Column(
-            spacing=12,
+    def build_self_study_content(is_desktop: bool):
+        art_container = ft.Container(
+            width=175 if is_desktop else 95,
+            height=145 if is_desktop else 90,
+            alignment=ft.Alignment.CENTER,
+            content=ft.Image(
+                src="study_hub.png",
+                fit=ft.BoxFit.CONTAIN,
+            ),
+        )
+
+        title = ft.Text("Self-Study Hub", size=19 if is_desktop else 17, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE)
+
+        desc = ft.Text(
+            "Turn your materials into interactive flashcards, adaptive quizzes, and timed exam simulators with smart spaced repetition.",
+            size=12 if is_desktop else 11.5,
+            color=ft.Colors.GREY_600,
+            max_lines=3,
+            overflow=ft.TextOverflow.ELLIPSIS,
+        )
+
+        feature_pills = ft.Row(
+            spacing=8,
+            wrap=True,
             controls=[
-                ft.Row(
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                    controls=[
-                        ft.Row(spacing=8, controls=[
-                            ft.Icon(ft.Icons.SELF_IMPROVEMENT_ROUNDED,
-                                    color=ft.Colors.PURPLE_400, size=18),
-                            ft.Text("Self-Study", size=16,
-                                    weight=ft.FontWeight.W_700,
-                                    color=ft.Colors.ON_SURFACE),
-                        ]),
-                        ft.TextButton(
-                            "Explore",
-                            on_click=lambda _: page.go("/self-study"),
-                            style=ft.ButtonStyle(
-                                color=ft.Colors.PRIMARY,
-                                padding=ft.Padding.all(0),
-                            ),
-                        ),
-                    ],
-                ),
-                ft.Row(
-                    spacing=10,
-                    controls=[
-                        study_mode_tile(
-                            ft.Icons.QUIZ_ROUNDED,
-                            "Quick Quiz",
-                            "Test what you know",
-                            "/self-study",
-                            ft.Colors.PURPLE_400,
-                            ft.Colors.PURPLE_300,
-                        ),
-                        study_mode_tile(
-                            ft.Icons.HISTORY_EDU_ROUNDED,
-                            "Exam Prep",
-                            "Revise & practice",
-                            "/self-study",
-                            ft.Colors.ORANGE_400,
-                            ft.Colors.ORANGE_300,
-                        ),
-                        study_mode_tile(
-                            ft.Icons.LIGHTBULB_OUTLINE_ROUNDED,
-                            "Flashcards",
-                            "Spaced repetition",
-                            "/self-study",
-                            ft.Colors.TEAL_400,
-                            ft.Colors.TEAL_300,
-                        ),
-                    ],
-                ),
+                _feature_pill(ft.Icons.STYLE_ROUNDED, "Flashcards"),
+                _feature_pill(ft.Icons.QUIZ_ROUNDED, "Quick Quiz"),
+                _feature_pill(ft.Icons.TIMER_ROUNDED, "Exam Simulator"),
+                _feature_pill(ft.Icons.PSYCHOLOGY_ROUNDED, "AI Notes"),
             ],
         )
+
+        cta_btn = ft.ElevatedButton(
+            content=ft.Row(
+                spacing=6,
+                tight=True,
+                controls=[
+                    ft.Text("Launch Study Hub", size=12.5, weight=ft.FontWeight.W_700),
+                    ft.Icon(ft.Icons.ARROW_FORWARD_ROUNDED, size=15),
+                ],
+            ),
+            bgcolor=ft.Colors.PRIMARY,
+            color=ft.Colors.ON_PRIMARY,
+            height=38,
+            style=ft.ButtonStyle(
+                shape=ft.RoundedRectangleBorder(radius=10),
+                elevation=0,
+                padding=ft.Padding.symmetric(horizontal=16, vertical=8),
+            ),
+            on_click=lambda _: page.go("/self-study"),
+        )
+
+        if is_desktop:
+            left_col = ft.Column(
+                expand=True,
+                spacing=10,
+                alignment=ft.MainAxisAlignment.CENTER,
+                controls=[
+                    ft.Row(
+                        spacing=8,
+                        tight=True,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[title],
+                    ),
+                    desc,
+                    feature_pills,
+                    ft.Container(height=4),
+                    ft.Row(
+                        spacing=12,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[
+                            cta_btn,
+                        ],
+                    ),
+                ],
+            )
+            return ft.Row(
+                spacing=16,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                controls=[
+                    left_col,
+                    art_container,
+                ],
+            )
+        else:
+            return ft.Column(
+                spacing=10,
+                controls=[
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[
+                            ft.Column(
+                                expand=True,
+                                spacing=4,
+                                controls=[title],
+                            ),
+                            art_container,
+                        ],
+                    ),
+                    desc,
+                    feature_pills,
+                    ft.Container(height=2),
+                    ft.Row([cta_btn]),
+                ],
+            )
+
+    self_study_card = _card(
+        content=build_self_study_content((page.width or 400) >= 800),
+        padding=18,
     )
+    self_study_card.on_click = lambda _: page.go("/self-study")
+    self_study_card.ink = True
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # 3. STANDALONE STUDENT NETWORK SHOWCASE
+    # ─────────────────────────────────────────────────────────────────────────
+    def build_network_content(is_desktop: bool):
+        art_container = ft.Container(
+            width=175 if is_desktop else 105,
+            height=145 if is_desktop else 95,
+            alignment=ft.Alignment.CENTER,
+            content=ft.Image(
+                src="student_network.png",
+                fit=ft.BoxFit.CONTAIN,
+            ),
+        )
+
+        title = ft.Text(
+            "Student Network",
+            size=19 if is_desktop else 17,
+            weight=ft.FontWeight.W_800,
+            color=ft.Colors.ON_SURFACE,
+        )
+
+        desc = ft.Text(
+            "Connect with peers, collaborate with study buddies, discover learners in your organization, and grow together.",
+            size=12 if is_desktop else 11.5,
+            color=ft.Colors.GREY_600,
+            max_lines=3,
+            overflow=ft.TextOverflow.ELLIPSIS,
+        )
+
+        feature_pills = ft.Row(
+            spacing=8,
+            wrap=True,
+            controls=[
+                _feature_pill(ft.Icons.PEOPLE_ALT_ROUNDED, "Study Buddies"),
+                _feature_pill(ft.Icons.PERSON_SEARCH_ROUNDED, "Peer Discovery"),
+                _feature_pill(ft.Icons.GROUPS_ROUNDED, "Study Groups"),
+                _feature_pill(ft.Icons.CORPORATE_FARE_ROUNDED, "Organization"),
+            ],
+        )
+
+        cta_btn = ft.ElevatedButton(
+            content=ft.Row(
+                spacing=6,
+                tight=True,
+                controls=[
+                    ft.Text("Explore Network", size=12.5, weight=ft.FontWeight.W_700),
+                    ft.Icon(ft.Icons.ARROW_FORWARD_ROUNDED, size=15),
+                ],
+            ),
+            bgcolor=ft.Colors.PRIMARY,
+            color=ft.Colors.ON_PRIMARY,
+            height=38,
+            style=ft.ButtonStyle(
+                shape=ft.RoundedRectangleBorder(radius=10),
+                elevation=0,
+                padding=ft.Padding.symmetric(horizontal=16, vertical=8),
+            ),
+            on_click=lambda _: page.go("/network"),
+        )
+
+        if is_desktop:
+            left_col = ft.Column(
+                expand=True,
+                spacing=10,
+                alignment=ft.MainAxisAlignment.CENTER,
+                controls=[
+                    ft.Row(
+                        spacing=8,
+                        tight=True,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[title],
+                    ),
+                    desc,
+                    feature_pills,
+                    ft.Container(height=4),
+                    ft.Row(
+                        spacing=12,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[
+                            cta_btn,
+                        ],
+                    ),
+                ],
+            )
+            return ft.Row(
+                spacing=16,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                controls=[
+                    left_col,
+                    art_container,
+                ],
+            )
+        else:
+            return ft.Column(
+                spacing=10,
+                controls=[
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[
+                            ft.Column(
+                                expand=True,
+                                spacing=4,
+                                controls=[title],
+                            ),
+                            art_container,
+                        ],
+                    ),
+                    desc,
+                    feature_pills,
+                    ft.Container(height=2),
+                    ft.Row([cta_btn]),
+                ],
+            )
+
+    network_card = _card(
+        content=build_network_content((page.width or 400) >= 800),
+        padding=18,
+    )
+    network_card.on_click = lambda _: page.go("/network")
+    network_card.ink = True
 
     # ─────────────────────────────────────────────────────────────────────────
     # 5. DUAL RESPONSIVE TRACKERS: ACTIVITY THREAD & LEARNING FOCUS BY CATEGORY
@@ -753,7 +780,13 @@ async def dashboard_view(page: ft.Page):
                 course_id   = course.get("id")
                 course_name = course.get("name", "Untitled Course")
                 progress    = course.get("progress", 0.0)
-                card        = get_continue_learning_card(course_name, progress, course_id, page)
+                card        = get_continue_learning_card(
+                    course_name=course_name,
+                    progress=progress,
+                    course_id=course_id,
+                    page=page,
+                    course_dict=course,
+                )
                 card.on_click = lambda e, cid=course_id: page.go(f"/courses/{cid}/view")
                 enrolled_cards.append(card)
 
@@ -1061,11 +1094,10 @@ async def dashboard_view(page: ft.Page):
                             content=ft.Column(
                                 spacing=16,
                                 controls=[
-                                    trackers_container,         # 1. Dual Course Mastery & Learning Focus Trackers!
-                                    self_study_card,            # 3. Self-Study Hub
-                                    continue_learning_section,  # 2. Continue Learning
-                                    friends_card,               # 4. Friends / study network
-                                    quick_actions,              # 5. Quick shortcuts
+                                    trackers_container,         # 1. Dual Course Mastery & Learning Focus Trackers
+                                    self_study_card,            # 2. Self-Study Hub
+                                    network_card,               # 3. Standalone Student Network Showcase
+                                    continue_learning_section,  # 4. Continue Learning Course Cards
                                     ft.Container(height=24),
                                 ],
                             ),
@@ -1081,10 +1113,9 @@ async def dashboard_view(page: ft.Page):
             header,
             activity_card,
             focus_card,
-            continue_learning_section, 
             self_study_card,
-            friends_card, 
-            quick_actions,
+            network_card,
+            continue_learning_section,
         ]
         
         for idx, section in enumerate(sections_to_animate):
@@ -1102,6 +1133,8 @@ async def dashboard_view(page: ft.Page):
         is_desk = (page.width or 400) >= 800
         trackers_container.content = build_trackers_layout(is_desk)
         header.content = build_hero_content()
+        self_study_card.content = build_self_study_content(is_desk)
+        network_card.content = build_network_content(is_desk)
         page.update()
 
     page.on_resize = on_dashboard_resize
