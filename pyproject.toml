@@ -10,13 +10,16 @@ authors = [
 dependencies = [
     "certifi>=2026.2.25",
     "charset-normalizer>=3.4.7",
+    "fastapi>=0.115.0",
     "flet>=0.84.0",
     "flet-charts>=0.84.0",
     "flet-video>=0.84.0",
+    "flet-web>=0.84.0",
     "httpx>=0.28.1",
     "idna>=3.11",
     "requests>=2.33.1",
     "urllib3>=2.6.3",
+    "uvicorn>=0.30.0",
     "websockets>=16.0",
 ]
 
