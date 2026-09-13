@@ -523,7 +523,7 @@ async def get_certificates_issued(token: str, course_id: str, params: dict | Non
 async def rate_course(token: str, course_id: str, rating: float):
     url = f"{api_url}/courses/{course_id}/rate"
     headers = {"Authorization": f"Bearer {token}"}
-    payload = {"rating": rating}
+    payload = {"rating": float(rating)}
     try:
         async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
             response = await client.post(url, headers=headers, json=payload)
@@ -532,9 +532,15 @@ async def rate_course(token: str, course_id: str, rating: float):
             elif response.status_code == 401:
                 return {"error": "unauthorized"}
             elif response.status_code in [400, 403, 404]:
-                return {"error": response.json().get("detail", "Error submitting rating")}
+                try:
+                    return {"error": response.json().get("detail", "Error submitting rating")}
+                except Exception:
+                    return {"error": response.text or "Error submitting rating"}
             else:
-                return {"error": "server_fail"}
+                try:
+                    return {"error": response.json().get("detail", f"Server error ({response.status_code})")}
+                except Exception:
+                    return {"error": f"Server error ({response.status_code})"}
     except Exception as e:
         print(f"Unexpected Error in rate_course: {e}")
         return {"error": "Connection failed"}

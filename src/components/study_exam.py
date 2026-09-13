@@ -33,6 +33,7 @@ def build_exam(
     on_restart,
     on_lock=None,
     haptics: "ui.Haptics | None" = None,
+    on_register_submit=None,
 ):
     """
     Returns a Control for the exam.
@@ -372,6 +373,7 @@ def build_exam(
 
         blocks = [
             ft.Container(
+                alignment=ft.Alignment.CENTER,
                 padding=ft.Padding.symmetric(horizontal=18, vertical=22),
                 border_radius=ui.RADIUS_LG,
                 gradient=ft.LinearGradient(
@@ -386,16 +388,23 @@ def build_exam(
                     controls=[
                         ft.Icon(ft.Icons.FACT_CHECK_ROUNDED, size=34,
                                 color=ft.Colors.PRIMARY),
-                        ft.Text("Before you submit", size=19,
-                                weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
+                        ft.Text(
+                            "Before you submit",
+                            size=19,
+                            weight=ft.FontWeight.W_800,
+                            color=ft.Colors.ON_SURFACE,
+                            text_align=ft.TextAlign.CENTER,
+                        ),
                         ft.Text(
                             "Check anything you left blank or flagged.\n"
                             "You can't change answers after submitting.",
-                            size=12, color=ui.muted(0.65),
+                            size=12,
+                            color=ui.muted(0.65),
                             text_align=ft.TextAlign.CENTER,
                         ),
                         ft.Row(
                             spacing=8,
+                            wrap=True,
                             alignment=ft.MainAxisAlignment.CENTER,
                             controls=[
                                 ui.pill(f"{len(state['answers'])} answered", ui.C_CORRECT,
@@ -472,7 +481,11 @@ def build_exam(
                             ),
                             content=ft.Container(
                                 width=None if compact else 640,
-                                content=ft.Column(spacing=16, controls=blocks),
+                                content=ft.Column(
+                                    spacing=16,
+                                    horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+                                    controls=blocks,
+                                ),
                             ),
                         )
                     ],
@@ -541,6 +554,9 @@ def build_exam(
         else:
             root.content = results
         page.update()
+
+    if on_register_submit:
+        on_register_submit(_submit)
 
     # ── sticky top bar ───────────────────────────────────────────────────
     sticky_bar = ft.Container(

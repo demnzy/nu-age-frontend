@@ -1,200 +1,280 @@
+"""
+Modern Completed Course Card for Nu-Age LMS.
+Displays finished curriculum achievements with 100% progress indicator,
+course thumbnail/avatar, verified completion badges, and dual actions
+(Review Course and My Stats/Certificate), matching the modern card design system.
+"""
+
+from typing import Any, Callable, Dict, Optional
 import flet as ft
+from src.components.course_card_theme import (
+    get_card_palette,
+    get_course_module_meta,
+    build_course_avatar,
+)
 
-def get_completed_card(course_name,course_id, on_review_click, on_stats_click):
 
-    # ── Palette (uses your PRIMARY throughout) ────────────────────────────────
-    CARD_BG      = ft.Colors.ON_PRIMARY
-    BORDER_COLOR = ft.Colors.with_opacity(0.09, ft.Colors.ON_SURFACE)
-    BADGE_BG     = ft.Colors.with_opacity(0.08, ft.Colors.PRIMARY)
-    TITLE_COLOR  = ft.Colors.ON_SURFACE
+def get_completed_card(
+    course_name: str,
+    course_id: str,
+    on_review_click: Callable[[str], Any],
+    on_stats_click: Callable[[str], Any],
+    page: Optional[ft.Page] = None,
+    image_url: Optional[str] = None,
+    category: Optional[str] = None,
+    author: Optional[str] = None,
+    rating: Optional[float] = None,
+    completed_at: Optional[str] = None,
+    course_dict: Optional[Dict[str, Any]] = None,
+    **kwargs,
+) -> ft.Container:
+    """
+    Renders a modern, responsive card for completed courses with full theme adaptability.
+    Supports both legacy arguments and modern rich course metadata.
+    """
+    c_dict = course_dict or {}
+    c_img = image_url or c_dict.get("image_url")
+    c_cat = category or (c_dict.get("category", {}) if isinstance(c_dict.get("category"), dict) else {}).get("name") or "Course"
+    
+    # Author resolution
+    if not author:
+        admin = c_dict.get("admin") or {}
+        if isinstance(admin, dict):
+            first = admin.get("first_name", "")
+            last = admin.get("last_name", "")
+            author = f"{first} {last}".strip() or "Course Instructor"
+        else:
+            author = "Course Instructor"
 
-    # ── Hover animation ───────────────────────────────────────────────────────
-    def on_hover(e):
-        is_hovering = e.data == "true"
-        card.scale  = 1.03 if is_hovering else 1.0
-        card.shadow = ft.BoxShadow(
-            blur_radius   = 22 if is_hovering else 8,
-            spread_radius = 0,
-            color         = ft.Colors.with_opacity(
-                0.14 if is_hovering else 0.07, ft.Colors.ON_SURFACE
-            ),
-            offset=ft.Offset(0, 8 if is_hovering else 2),
-        )
-        card.update()
+    # Theme and palette
+    is_dark = getattr(page, "theme_mode", None) == ft.ThemeMode.DARK if page else False
+    palette = get_card_palette(c_cat, course_name, is_dark=is_dark)
 
-    # ── Accent strip (top edge, primary colour) ───────────────────────────────
-    accent_strip = ft.Container(
-        height=4,
-        bgcolor=ft.Colors.PRIMARY,
-        border_radius=ft.BorderRadius(
-            top_left=14, top_right=14, bottom_left=0, bottom_right=0
-        ),
+    # Modules metadata
+    modules_data = c_dict.get("modules")
+    total_modules, _, time_str = get_course_module_meta(
+        modules_data, seed_key=course_id or course_name, progress=100.0
     )
 
-    # ── Trophy icon badge (Udemy / Coursera convention for completed) ─────────
-    icon_badge = ft.Container(
-        width=42,
-        height=42,
-        border_radius=21,
-        bgcolor=BADGE_BG,
-        content=ft.Icon(
-            ft.Icons.EMOJI_EVENTS_ROUNDED,   # trophy — universal "completed" signal
-            size=22,
-            color=ft.Colors.PRIMARY,
-        ),
-        alignment=ft.Alignment(0, 0),
-    )
-
-    # ── Completion badge (CHECK_CIRCLE — LMS industry standard) ───────────────
+    # ── 1. Top Badges Row ─────────────────────────────────────────────────────
     completion_badge = ft.Container(
-        padding=ft.Padding.symmetric(horizontal=9, vertical=4),
-        bgcolor=BADGE_BG,
-        border_radius=20,
+        padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+        border_radius=ft.BorderRadius.all(12),
+        bgcolor=ft.Colors.with_opacity(0.15, ft.Colors.GREEN_600 if not is_dark else ft.Colors.GREEN_400),
         content=ft.Row(
-            spacing=5,
+            spacing=4,
             tight=True,
             controls=[
                 ft.Icon(
                     ft.Icons.CHECK_CIRCLE_ROUNDED,
-                    size=11,
-                    color=ft.Colors.PRIMARY,
+                    size=12,
+                    color=ft.Colors.GREEN_700 if not is_dark else ft.Colors.GREEN_400,
                 ),
                 ft.Text(
-                    "Completed",
+                    "100% Completed",
                     size=10,
-                    weight=ft.FontWeight.W_700,
-                    color=ft.Colors.PRIMARY,
+                    weight=ft.FontWeight.W_800,
+                    color=ft.Colors.GREEN_700 if not is_dark else ft.Colors.GREEN_400,
                 ),
             ],
         ),
     )
 
-    # ── Header row ────────────────────────────────────────────────────────────
-    header_row = ft.Row(
+    category_pill = ft.Container(
+        padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+        border_radius=ft.BorderRadius.all(12),
+        bgcolor=palette["badge_bg"],
+        content=ft.Text(
+            c_cat.upper(),
+            size=9.5,
+            weight=ft.FontWeight.W_800,
+            color=palette["accent"],
+        ),
+    )
+
+    badge_row = ft.Row(
         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
         vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        controls=[icon_badge, completion_badge],
+        controls=[category_pill, completion_badge],
     )
 
-    # ── Course title ──────────────────────────────────────────────────────────
-    title = ft.Text(
-        course_name,
-        size=13,
-        weight=ft.FontWeight.W_700,
-        max_lines=2,
-        overflow=ft.TextOverflow.ELLIPSIS,
-        color=TITLE_COLOR,
+    # ── 2. Header Content (Title + Avatar) ────────────────────────────────────
+    avatar_widget = build_course_avatar(c_img, palette, size=74)
+
+    left_info = ft.Column(
+        expand=True,
+        spacing=6,
+        controls=[
+            badge_row,
+            ft.Text(
+                course_name,
+                size=15,
+                weight=ft.FontWeight.W_800,
+                color=ft.Colors.ON_SURFACE,
+                max_lines=2,
+                overflow=ft.TextOverflow.ELLIPSIS,
+            ),
+            ft.Row(
+                spacing=5,
+                tight=True,
+                controls=[
+                    ft.Icon(ft.Icons.PERSON_OUTLINED, size=13, color=ft.Colors.ON_SURFACE_VARIANT),
+                    ft.Text(
+                        author,
+                        size=11,
+                        color=ft.Colors.ON_SURFACE_VARIANT,
+                        weight=ft.FontWeight.W_500,
+                        max_lines=1,
+                        overflow=ft.TextOverflow.ELLIPSIS,
+                    ),
+                ],
+            ),
+        ],
     )
 
-    # ── Full progress bar (100 %) ─────────────────────────────────────────────
+    top_content = ft.Row(
+        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+        vertical_alignment=ft.CrossAxisAlignment.START,
+        spacing=12,
+        controls=[
+            left_info,
+            avatar_widget,
+        ],
+    )
+
+    # ── 3. Meta and Progress Section ──────────────────────────────────────────
+    meta_row = ft.Row(
+        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        controls=[
+            ft.Row(
+                spacing=4,
+                tight=True,
+                controls=[
+                    ft.Icon(ft.Icons.AUTO_STORIES_ROUNDED, size=12, color=ft.Colors.ON_SURFACE_VARIANT),
+                    ft.Text(
+                        f"{total_modules} modules · {time_str}",
+                        size=11,
+                        color=ft.Colors.ON_SURFACE_VARIANT,
+                        weight=ft.FontWeight.W_500,
+                    ),
+                ],
+            ),
+            ft.Row(
+                spacing=4,
+                tight=True,
+                controls=[
+                    ft.Icon(ft.Icons.EMOJI_EVENTS_ROUNDED, size=13, color=ft.Colors.AMBER_600),
+                    ft.Text(
+                        "Certified",
+                        size=11,
+                        weight=ft.FontWeight.BOLD,
+                        color=ft.Colors.AMBER_700 if not is_dark else ft.Colors.AMBER_400,
+                    ),
+                ],
+            ),
+        ],
+    )
+
     progress_bar = ft.ProgressBar(
         value=1.0,
-        color=ft.Colors.PRIMARY,
-        bgcolor=ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE),
         height=5,
-        border_radius=3,
+        color=ft.Colors.GREEN_600 if not is_dark else ft.Colors.GREEN_400,
+        bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE),
+        border_radius=ft.BorderRadius.all(2.5),
     )
 
-    # ── CTA 1: Review Course — filled primary ─────────────────────────────────
-    review_btn = ft.Container(
-        height=34,
-        border_radius=8,
-        bgcolor=ft.Colors.PRIMARY,
-        alignment=ft.Alignment(0, 0),
-        on_click=lambda e: on_review_click(course_id),
+    # ── 4. Action Buttons ─────────────────────────────────────────────────────
+    def _call_handler(fn):
+        if not fn:
+            return
+        try:
+            fn(course_id)
+        except TypeError:
+            try:
+                fn(None, course_id)
+            except TypeError:
+                try:
+                    fn(None)
+                except TypeError:
+                    fn()
+
+    review_button = ft.ElevatedButton(
         content=ft.Row(
-            alignment=ft.MainAxisAlignment.CENTER,
             spacing=6,
+            tight=True,
+            alignment=ft.MainAxisAlignment.CENTER,
             controls=[
-                ft.Icon(ft.Icons.PLAY_CIRCLE_OUTLINE_ROUNDED, size=15, color=ft.Colors.WHITE),
-                ft.Text(
-                    "Review Course",
-                    size=12,
-                    weight=ft.FontWeight.W_600,
-                    color=ft.Colors.WHITE,
-                ),
+                ft.Icon(ft.Icons.PLAY_ARROW_ROUNDED, size=16, color=ft.Colors.ON_PRIMARY),
+                ft.Text("Review Course", size=12, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_PRIMARY),
             ],
         ),
+        bgcolor=ft.Colors.PRIMARY,
+        height=36,
+        expand=True,
+        style=ft.ButtonStyle(
+            shape=ft.RoundedRectangleBorder(radius=9),
+            elevation=0,
+        ),
+        on_click=lambda e: _call_handler(on_review_click),
     )
 
-    # ── CTA 2: My Stats — ghost outlined ─────────────────────────────────────
-    stats_btn = ft.Container(
-        height=34,
-        border_radius=8,
-        border=ft.Border.all(1.5, ft.Colors.PRIMARY),
-        alignment=ft.Alignment(0, 0),
-        on_click=lambda e: on_stats_click(course_id),
+    stats_button = ft.OutlinedButton(
         content=ft.Row(
-            alignment=ft.MainAxisAlignment.CENTER,
             spacing=6,
+            tight=True,
+            alignment=ft.MainAxisAlignment.CENTER,
             controls=[
                 ft.Icon(ft.Icons.INSIGHTS_ROUNDED, size=15, color=ft.Colors.PRIMARY),
-                ft.Text(
-                    "My Stats",
-                    size=12,
-                    weight=ft.FontWeight.W_600,
-                    color=ft.Colors.PRIMARY,
-                ),
+                ft.Text("My Stats", size=12, weight=ft.FontWeight.W_600, color=ft.Colors.PRIMARY),
             ],
         ),
+        height=36,
+        expand=True,
+        style=ft.ButtonStyle(
+            shape=ft.RoundedRectangleBorder(radius=9),
+            side=ft.BorderSide(1, ft.Colors.with_opacity(0.25, ft.Colors.PRIMARY)),
+        ),
+        on_click=lambda e: _call_handler(on_stats_click),
     )
 
-    # ── Footer ────────────────────────────────────────────────────────────────
-    footer = ft.Column(
+    actions_row = ft.Row(
         spacing=8,
-        controls=[progress_bar, review_btn, stats_btn],
+        controls=[review_button, stats_button],
     )
 
-    # ── Card body ─────────────────────────────────────────────────────────────
-    card_body = ft.Container(
-        padding=ft.Padding.only(left=14, right=14, top=12, bottom=14),
-        content=ft.Column(
-            spacing=10,
-            controls=[
-                header_row,
-                title,
-                ft.Container(expand=True),
-                footer,
-            ],
-        ),
-    )
-
+    # ── 5. Hover Handlers & Card Container ────────────────────────────────────
     def handle_hover(e):
-        e.control.scale = 1.05 if e.data == "true" else 1.0
-        e.control.shadow = ft.BoxShadow(
-            blur_radius=16 if e.data == "true" else 8,
-            color=ft.Colors.with_opacity(0.12 if e.data == "true" else 0.08, ft.Colors.ON_SURFACE),
-            offset=ft.Offset(0, 8) if e.data == "true" else ft.Offset(0, 3),
+        is_hovering = e.data == "true"
+        card.scale = 1.02 if is_hovering else 1.0
+        card.shadow = ft.BoxShadow(
+            blur_radius=18 if is_hovering else 8,
+            color=ft.Colors.with_opacity(0.12 if is_hovering else 0.05, ft.Colors.BLACK),
+            offset=ft.Offset(0, 6 if is_hovering else 2),
         )
-        if on_hover:
-            on_hover(e)
-        e.control.update()
+        card.update()
 
-    # ── Outer card ────────────────────────────────────────────────────────────
     card = ft.Container(
-        width=200,
-        height=230,
-        bgcolor=CARD_BG,
-        border_radius=14,
-        scale=1.0,
-        animate_scale=ft.Animation(300, ft.AnimationCurve.DECELERATE),
-        border=ft.Border.all(1, BORDER_COLOR),
+        bgcolor=ft.Colors.SURFACE,
+        border_radius=ft.BorderRadius.all(18),
+        border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+        padding=ft.Padding.all(16),
         shadow=ft.BoxShadow(
             blur_radius=8,
-            spread_radius=0,
-            color=ft.Colors.with_opacity(0.07, ft.Colors.ON_SURFACE),
+            color=ft.Colors.with_opacity(0.05, ft.Colors.BLACK),
             offset=ft.Offset(0, 2),
         ),
-        clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+        scale=1.0,
+        animate_scale=ft.Animation(250, ft.AnimationCurve.DECELERATE),
         on_hover=handle_hover,
-        ink=True,
-        opacity=0,
-        offset=ft.Offset(0, 0.1),
-        animate_opacity=300,
-        animate_offset=ft.Animation(400, ft.AnimationCurve.DECELERATE),
         content=ft.Column(
-            spacing=0,
-            controls=[accent_strip, card_body],
+            spacing=14,
+            controls=[
+                top_content,
+                meta_row,
+                progress_bar,
+                actions_row,
+            ],
         ),
     )
 

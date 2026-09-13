@@ -125,13 +125,18 @@ async def get_universities():
     
 async def get_member_profile(token: str, identifier: str):
     """Fetches a specific user's public profile data."""
-    async with httpx.AsyncClient(verify=ssl_context) as client:
-        response = await client.get(
-            f"{api_url}/users/one?identifier={identifier}", # Assuming your router prefix is /users
-            headers={"Authorization": f"Bearer {token}"}
-        )
-        response.raise_for_status()
-        return response.json()
+    try:
+        async with httpx.AsyncClient(verify=ssl_context, timeout=10.0) as client:
+            response = await client.get(
+                f"{api_url}/users/one?identifier={identifier}",
+                headers={"Authorization": f"Bearer {token}"}
+            )
+            if response.status_code == 200:
+                return response.json()
+            return {"error": response.json().get("detail", "User not found")}
+    except Exception as e:
+        print(f"Request Error in get_member_profile: {e}")
+        return {"error": "Connection failed"}
 
 async def verify_email_request(email: str, code: str):
     # Adjust your base URL if it is different

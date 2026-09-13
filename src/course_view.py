@@ -1,65 +1,87 @@
 import asyncio
-
+import urllib.parse
 import flet as ft
-from src.requests.Courses import get_courses
+from src.requests.Courses import get_courses, get_course_curriculum
 from src.requests.enrollments import get_enrollments, enrol_user
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# VIEW
+# VIEW: Modern Sleek Course Details View
 # ─────────────────────────────────────────────────────────────────────────────
 async def course_details_view(page: ft.Page, course_id: str, back_target: str = "/courses"):
     # ── content socket ────────────────────────────────────────────────────────
     content_socket = ft.Container(
         expand=True,
-        padding=ft.Padding.only(top=24),
+        padding=ft.Padding.only(top=32),
         alignment=ft.Alignment.CENTER,
         content=ft.Column(
             alignment=ft.MainAxisAlignment.CENTER,
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            spacing=10,
+            spacing=12,
             controls=[
-                ft.ProgressRing(color=ft.Colors.PRIMARY, width=36, height=36),
-                ft.Text("Loading course details…", size=13, color=ft.Colors.GREY_500),
+                ft.ProgressRing(color=ft.Colors.PRIMARY, width=36, height=36, stroke_width=3),
+                ft.Text("Loading course details…", size=13, color=ft.Colors.ON_SURFACE_VARIANT, weight=ft.FontWeight.W_500),
             ],
         ),
     )
+
+    # ── share handler ─────────────────────────────────────────────────────────
+    course_title_holder = {"name": "Course"}
+
+    async def open_whatsapp_share(e):
+        c_title = course_title_holder.get("name") or "this course"
+        message = f"""Hey! Check out the course "{c_title}" on Nu-Age! 🚀
+
+It comes with interactive modules, flashcards, quizzes, and an AI tutor!
+
+Check it out 👉 : nu-age.com.ng"""
+        encoded_message = urllib.parse.quote(message)
+        await page.launch_url(f"https://wa.me/?text={encoded_message}")
 
     # ── app bar ───────────────────────────────────────────────────────────────
     app_bar = ft.AppBar(
         bgcolor=ft.Colors.SURFACE,
         title=ft.Text(
-            "Course Details",
+            "Course Overview",
             color=ft.Colors.ON_SURFACE,
             weight=ft.FontWeight.W_700,
-            size=17,
+            size=16,
             max_lines=1,
             overflow=ft.TextOverflow.ELLIPSIS,
         ),
         leading=ft.IconButton(
             icon=ft.Icons.ARROW_BACK_ROUNDED,
             icon_color=ft.Colors.ON_SURFACE,
-            on_click=lambda _: page.go(back_target), 
+            tooltip="Back",
+            on_click=lambda _: page.go(back_target),
         ),
+        actions=[
+            ft.IconButton(
+                icon=ft.Icons.SHARE_OUTLINED,
+                icon_color=ft.Colors.ON_SURFACE,
+                tooltip="Share Course via WhatsApp",
+                on_click=open_whatsapp_share,
+            ),
+            ft.Container(width=8),
+        ],
         elevation=0,
     )
 
-    # ── enrol handler (defined early so load_course_info can close over it) ──
-    async def handle_enrol_click(e, is_enrolling: bool):
+    # ── enrol handler ─────────────────────────────────────────────────────────
+    async def handle_enrol_click(e):
         if e.control.disabled:
             return
 
         token = await page.shared_preferences.get("auth_token")
         e.control.disabled = True
+        orig_content = e.control.content
         e.control.content = ft.Row(
             alignment=ft.MainAxisAlignment.CENTER,
             tight=True,
-            spacing=6,
+            spacing=8,
             controls=[
-                ft.ProgressRing(width=14, height=14,
-                                color=ft.Colors.ON_PRIMARY, stroke_width=2),
-                ft.Text("Please wait…", color=ft.Colors.ON_PRIMARY,
-                        size=13, weight=ft.FontWeight.W_600),
+                ft.ProgressRing(width=16, height=16, color=ft.Colors.ON_PRIMARY, stroke_width=2),
+                ft.Text("Enrolling…", color=ft.Colors.ON_PRIMARY, size=13, weight=ft.FontWeight.W_600),
             ],
         )
         page.update()
@@ -69,31 +91,26 @@ async def course_details_view(page: ft.Page, course_id: str, back_target: str = 
                 enrol_user(token, course_id, None), timeout=15
             )
             if status == 200:
-                 page.go(f"/courses/{course_id}/view")
+                page.go(f"/courses/{course_id}/view")
             else:
                 e.control.disabled = False
-                e.control.content = ft.Text(
-                    "Unenroll" if is_enrolling else "Enroll Now",
-                    color=ft.Colors.ON_PRIMARY,
-                    size=14,
-                    weight=ft.FontWeight.W_600,
-                )
+                e.control.content = orig_content
                 page.update()
+                page.show_dialog(
+                    ft.SnackBar(
+                        content=ft.Text("Failed to enroll. Please try again.", color=ft.Colors.WHITE),
+                        bgcolor=ft.Colors.ERROR,
+                    )
+                )
 
         except asyncio.TimeoutError:
             e.control.disabled = False
-            e.control.content = ft.Text(
-                "Timed out — tap to retry",
-                color=ft.Colors.ON_PRIMARY, size=13,
-            )
+            e.control.content = ft.Text("Timed out — tap to retry", color=ft.Colors.ON_PRIMARY, size=13)
             page.update()
 
-        except Exception:
+        except Exception as ex:
             e.control.disabled = False
-            e.control.content = ft.Text(
-                "Error — tap to retry",
-                color=ft.Colors.ON_PRIMARY, size=13,
-            )
+            e.control.content = ft.Text("Error — tap to retry", color=ft.Colors.ON_PRIMARY, size=13)
             page.update()
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -103,348 +120,693 @@ async def course_details_view(page: ft.Page, course_id: str, back_target: str = 
         token = await page.shared_preferences.get("auth_token")
 
         try:
-            course_list, enrolled_list = await asyncio.gather(
+            course_list, enrolled_list, curriculum_res = await asyncio.gather(
                 asyncio.wait_for(get_courses(token, params={"id": cid}), timeout=15),
-                asyncio.wait_for(get_enrollments(token, None),           timeout=15),
+                asyncio.wait_for(get_enrollments(token, None), timeout=15),
+                asyncio.wait_for(get_course_curriculum(token, cid), timeout=15),
                 return_exceptions=True,
             )
 
-            # ── handle individual failures ─────────────────────────────────
             if isinstance(course_list, Exception) or not course_list:
                 _show_error("Course not found or failed to load.")
                 return
 
             if isinstance(enrolled_list, Exception):
-                enrolled_list = []  # non-fatal — degrade gracefully
+                enrolled_list = []
 
-            # ── parse data ────────────────────────────────────────────────
             course_data = course_list[0]
-            name        = course_data.get("name", "Untitled Course")
-            image_url   = course_data.get("image_url")
+            name = course_data.get("name", "Untitled Course")
+            course_title_holder["name"] = name
+            image_url = course_data.get("image_url")
             description = course_data.get("description", "No description provided.")
-            objectives  = course_data.get("objectives", [])
-            category    = (course_data.get("category") or {}).get("name", "Uncategorised")
-            admin       = course_data.get("admin") or {}
-            author      = f'{admin.get("first_name","Unknown")} {admin.get("last_name","Instructor")}'.strip()
-            enrolled_count = len(course_data.get("Students", []))
+            objectives = course_data.get("objectives", [])
+            category = (course_data.get("category") or {}).get("name", "General")
+            admin = course_data.get("admin") or {}
+            first_name = admin.get("first_name", "")
+            last_name = admin.get("last_name", "")
+            author = f"{first_name} {last_name}".strip() or "Course Instructor"
+            students_list = course_data.get("Students", [])
+            enrolled_count = len(students_list) if isinstance(students_list, list) else 0
             is_public_val = str(course_data.get("public", "false")).lower()
             is_supervised = course_data.get("supervised", False)
-            rating = round(course_data.get("rating", 3.5),1)
-            print(rating)
+            rating = round(float(course_data.get("rating") or 4.8), 1)
+            org_name = (course_data.get("organisation") or {}).get("name", "Independent")
 
-            enrolled_ids       = [c.get("id") for c in (enrolled_list or [])]
-            is_already_enrolled = cid in enrolled_ids
+            enrolled_ids = [str(c.get("id")) for c in (enrolled_list or [])]
+            is_already_enrolled = str(cid) in enrolled_ids
 
-            # ── update appbar title ───────────────────────────────────────
-            view.appbar.title = ft.Text(
-                name, color=ft.Colors.ON_SURFACE,
-                weight=ft.FontWeight.W_700, size=17,
-                max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
+            # Eagerly load curriculum modules with their nested lessons
+            modules = []
+            if isinstance(curriculum_res, dict) and "modules" in curriculum_res and isinstance(curriculum_res["modules"], list):
+                modules = curriculum_res["modules"]
+            elif isinstance(course_data.get("modules"), list):
+                modules = course_data.get("modules")
+
+            # Calculate syllabus statistics
+            total_modules = len(modules)
+            total_lessons = sum(len(m.get("lessons", [])) for m in modules) if modules else 0
+            est_hours = round(total_lessons * 0.5, 1) if total_lessons > 0 else (round(total_modules * 1.5, 1) if total_modules > 0 else 2.0)
+
+            # Update AppBar title
+            app_bar.title = ft.Text(
+                name,
+                color=ft.Colors.ON_SURFACE,
+                weight=ft.FontWeight.W_700,
+                size=16,
+                max_lines=1,
+                overflow=ft.TextOverflow.ELLIPSIS,
             )
 
-            # ── helpers ───────────────────────────────────────────────────
-            def pill(label, bg, fg):
+            # ── Helpers ───────────────────────────────────────────────────────
+            def pill_badge(text: str, icon=None, bg=None, fg=None):
+                controls = []
+                if icon:
+                    controls.append(ft.Icon(icon, size=12, color=fg or ft.Colors.PRIMARY))
+                controls.append(ft.Text(text, size=11, color=fg or ft.Colors.PRIMARY, weight=ft.FontWeight.W_600))
                 return ft.Container(
-                    padding=ft.Padding.symmetric(horizontal=9, vertical=3),
-                    bgcolor=bg, border_radius=10,
-                    content=ft.Text(label, size=10, color=fg,
-                                    weight=ft.FontWeight.W_600),
+                    padding=ft.Padding.symmetric(horizontal=10, vertical=5),
+                    border_radius=ft.BorderRadius.all(8),
+                    bgcolor=bg or ft.Colors.with_opacity(0.08, ft.Colors.PRIMARY),
+                    content=ft.Row(controls, tight=True, spacing=5),
                 )
 
-            def section_label(text: str) -> ft.Text:
-                return ft.Text(text, size=11, weight=ft.FontWeight.W_600,
-                               color=ft.Colors.GREY_500)
-
-            def info_row(icon, label, value):
-                return ft.Row(
-                    spacing=10,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                    controls=[
-                        ft.Container(
-                            width=34, height=34,
-                            border_radius=8,
-                            alignment=ft.Alignment.CENTER,
-                            content=ft.Icon(icon, size=16,
-                                            color=ft.Colors.PRIMARY),
-                        ),
-                        ft.Column(
-                            spacing=1,
-                            controls=[
-                                ft.Text(label, size=10, color=ft.Colors.GREY_400,
-                                        weight=ft.FontWeight.W_500),
-                                ft.Text(value, size=13, color=ft.Colors.ON_SURFACE,
-                                        weight=ft.FontWeight.W_600),
-                            ],
-                        ),
-                    ],
+            def meta_stat_item(icon, label, value):
+                return ft.Container(
+                    padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+                    border_radius=ft.BorderRadius.all(10),
+                    bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
+                    border=ft.Border.all(1, ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE)),
+                    content=ft.Row(
+                        spacing=8,
+                        tight=True,
+                        controls=[
+                            ft.Icon(icon, size=16, color=ft.Colors.PRIMARY),
+                            ft.Column(
+                                spacing=1,
+                                tight=True,
+                                controls=[
+                                    ft.Text(label, size=10, color=ft.Colors.ON_SURFACE_VARIANT, weight=ft.FontWeight.W_500),
+                                    ft.Text(value, size=12, color=ft.Colors.ON_SURFACE, weight=ft.FontWeight.BOLD),
+                                ],
+                            ),
+                        ],
+                    ),
                 )
 
-            def bullet_item(text: str):
-                return ft.Row(
-                    spacing=10,
-                    vertical_alignment=ft.CrossAxisAlignment.START,
-                    controls=[
-                        ft.Container(
-                            width=6, height=6,
-                            margin=ft.Margin.only(top=6),
-                            bgcolor=ft.Colors.PRIMARY,
-                            border_radius=3,
-                        ),
-                        ft.Text(text, size=13, color=ft.Colors.ON_SURFACE,
-                                expand=True),
-                    ],
-                )
+            def lesson_type_icon(ltype: str):
+                icons = {
+                    "video": (ft.Icons.PLAY_CIRCLE_OUTLINE_ROUNDED, ft.Colors.BLUE_600),
+                    "text": (ft.Icons.MY_LIBRARY_BOOKS_OUTLINED, ft.Colors.GREEN_600),
+                    "cards": (ft.Icons.STYLE_ROUNDED, ft.Colors.PURPLE_600),
+                    "assessment": (ft.Icons.QUIZ_ROUNDED, ft.Colors.AMBER_600),
+                    "document": (ft.Icons.PICTURE_AS_PDF_ROUNDED, ft.Colors.RED_600),
+                    "audio": (ft.Icons.HEADPHONES_ROUNDED, ft.Colors.TEAL_600),
+                }
+                return icons.get(ltype.lower(), (ft.Icons.ARTICLE_ROUNDED, ft.Colors.PRIMARY))
 
-            # ── status badges ─────────────────────────────────────────────
-            badges = ft.Row(
+            # ── 1. Hero Canvas ────────────────────────────────────────────────
+            badges_row = ft.Row(
+                wrap=True,
                 spacing=8,
+                run_spacing=6,
                 controls=[
-                    pill("Public", ft.Colors.GREEN_50, ft.Colors.GREEN_700) if is_public_val == "true" else (
-                        pill("Organization", ft.Colors.BLUE_50, ft.Colors.BLUE_700) if is_public_val == "organisation" else
-                        pill("Draft", ft.Colors.GREY_100, ft.Colors.GREY_600)
-                    ),
-                    pill(
-                        "Instructor-Led" if is_supervised else "Self-Paced",
-                        ft.Colors.BLUE_50 if is_supervised else ft.Colors.PURPLE_50,
-                        ft.Colors.BLUE_700 if is_supervised else ft.Colors.PURPLE_700,
-                    ),
+                    pill_badge(category, icon=ft.Icons.CATEGORY_ROUNDED,
+                               bg=ft.Colors.with_opacity(0.1, ft.Colors.PRIMARY), fg=ft.Colors.PRIMARY),
+                    pill_badge("Instructor-Led" if is_supervised else "Self-Paced",
+                               icon=ft.Icons.SCHOOL_ROUNDED if is_supervised else ft.Icons.AUTO_STORIES_ROUNDED,
+                               bg=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE), fg=ft.Colors.ON_SURFACE),
+                    pill_badge("Organisation" if is_public_val == "organisation" else "Public",
+                               icon=ft.Icons.BUSINESS_ROUNDED if is_public_val == "organisation" else ft.Icons.PUBLIC_ROUNDED,
+                               bg=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE), fg=ft.Colors.ON_SURFACE),
                 ],
             )
 
-            # ── objectives ────────────────────────────────────────────────
-            obj_controls = (
-                [bullet_item(o) for o in objectives]
-                if objectives
-                else [bullet_item(f"Gain knowledge in {name}")]
-            )
+            # Rating stars
+            full_stars = int(rating)
+            star_icons = [
+                ft.Icon(ft.Icons.STAR_ROUNDED, color=ft.Colors.AMBER_400, size=16)
+                for _ in range(min(5, full_stars))
+            ]
 
-            # ── enrol button ──────────────────────────────────────────────
-            enrol_btn = ft.ElevatedButton(
-                content=ft.Text(
-                    "Unenroll" if is_already_enrolled else "Get Enrolled now " if not is_already_enrolled else "Enroll Now",
-                    color=ft.Colors.ON_PRIMARY,
-                    size=14,
-                    weight=ft.FontWeight.W_600,
-                ),
-                bgcolor=(
-                    ft.Colors.RED_600
-                    if is_already_enrolled
-                    else ft.Colors.ORANGE_700 # Matched from design
-                ),
-                height=48,
-                style=ft.ButtonStyle(
-                    shape=ft.RoundedRectangleBorder(radius=24),
-                    elevation=0,
-                    padding=ft.Padding.symmetric(horizontal=24, vertical=0)
-                ),
-                on_click=lambda e: page.run_task(
-                    handle_enrol_click, e, is_already_enrolled
-                ),
-            )
-
-            # ── card wrapper ──────────────────────────────────────────────
-            def card(content):
-                return ft.Container(
-                    width=float("inf"),
-                    bgcolor=ft.Colors.SURFACE,
-                    border_radius=14,
-                    border=ft.Border.all(1, ft.Colors.GREY_200),
-                    padding=ft.Padding.symmetric(horizontal=18, vertical=16),
-                    shadow=ft.BoxShadow(
-                        blur_radius=6,
-                        color=ft.Colors.with_opacity(0.05, ft.Colors.ON_SURFACE),
-                        offset=ft.Offset(0, 2),
-                    ),
-                    content=content,
-                )
-
-            # ── 1. Hero Banner ─────────────────────────────────────────────
-            def build_star_row(rating: float, max_stars: int = 5):
-                full = int(rating)
-                frac = rating - full
-                half = 1 if frac > 0.5 else 0
-                empty = max_stars - full - half
-
-                stars = (
-                    [ft.Icon(ft.Icons.STAR_ROUNDED, color=ft.Colors.AMBER_400, size=20) for _ in range(full)]
-                    + ([ft.Icon(ft.Icons.STAR_HALF_ROUNDED, color=ft.Colors.AMBER_400, size=20)] if half else [])
-                    + [ft.Icon(ft.Icons.STAR_BORDER_ROUNDED, color=ft.Colors.AMBER_400, size=20) for _ in range(empty)]
-                )
-
-                return ft.Row(
-                    spacing=4,
-                    controls=stars + [ft.Text(f"({rating})", color=ft.Colors.WHITE70, size=14, weight=ft.FontWeight.W_600)]
-    )
-            hero_left = ft.Column(
-                expand=True,
-                spacing=24,
-                alignment=ft.MainAxisAlignment.CENTER,
+            hero_stats_strip = ft.Row(
+                wrap=True,
+                spacing=8,
+                run_spacing=8,
                 controls=[
-                    badges,
+                    meta_stat_item(ft.Icons.STAR_ROUNDED, "Rating", f"{rating} ★"),
+                    meta_stat_item(ft.Icons.PEOPLE_ALT_OUTLINED, "Learners", f"{enrolled_count} Enrolled"),
+                    meta_stat_item(ft.Icons.TIMELAPSE_ROUNDED, "Duration", f"~{est_hours} Hours"),
+                    meta_stat_item(ft.Icons.LAYERS_OUTLINED, "Curriculum", f"{total_modules} M • {total_lessons} L"),
+                    meta_stat_item(ft.Icons.WORKSPACE_PREMIUM_OUTLINED, "Certificate", "Included"),
+                ],
+            )
+
+            hero_left = ft.Column(
+                spacing=16,
+                controls=[
+                    badges_row,
                     ft.Text(
                         name,
-                        size=30,
+                        size=28,
                         weight=ft.FontWeight.W_800,
-                        color=ft.Colors.WHITE,
+                        color=ft.Colors.ON_SURFACE,
                     ),
                     ft.Text(
                         description,
-                        size=15,
-                        color=ft.Colors.WHITE70,
-                        max_lines=4,
+                        size=14,
+                        color=ft.Colors.ON_SURFACE_VARIANT,
+                        max_lines=3,
                         overflow=ft.TextOverflow.ELLIPSIS,
                     ),
-                    ft.Row(
-                        spacing=24,
-                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                        wrap=True,
-                        controls=[
-                            enrol_btn,
-                                build_star_row(rating)
-                        ]
-                    )
-                ]
+                    hero_stats_strip,
+                ],
             )
 
-            hero_right = ft.Container(
-                border_radius=16,
+            # Hero Image / Thumbnail Frame
+            hero_image_content = ft.Container(
+                border_radius=ft.BorderRadius.all(16),
                 clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-                shadow=ft.BoxShadow(blur_radius=24, color=ft.Colors.with_opacity(0.4, ft.Colors.BLACK), offset=ft.Offset(0, 12)),
-                content=ft.Image(
-                    src=image_url if image_url else "assets/placeholder.png",
-                    fit=ft.BoxFit.COVER,
-                    width=float("inf"),
-                    height=250,
-                )
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)),
+                shadow=ft.BoxShadow(
+                    blur_radius=16,
+                    color=ft.Colors.with_opacity(0.08, ft.Colors.BLACK),
+                    offset=ft.Offset(0, 4),
+                ),
+                content=ft.Stack(
+                    controls=[
+                        ft.Image(
+                            src=image_url if image_url else "assets/placeholder.png",
+                            fit=ft.BoxFit.COVER,
+                            width=float("inf"),
+                            height=220,
+                        ),
+                        # Enrolled Banner Overlay
+                        ft.Container(
+                            top=12,
+                            right=12,
+                            visible=is_already_enrolled,
+                            padding=ft.Padding.symmetric(horizontal=10, vertical=5),
+                            border_radius=ft.BorderRadius.all(20),
+                            bgcolor=ft.Colors.PRIMARY,
+                            content=ft.Row(
+                                tight=True,
+                                spacing=4,
+                                controls=[
+                                    ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED, color=ft.Colors.ON_PRIMARY, size=13),
+                                    ft.Text("Enrolled", color=ft.Colors.ON_PRIMARY, size=11, weight=ft.FontWeight.BOLD),
+                                ],
+                            ),
+                        ),
+                    ]
+                ),
             )
 
-            hero_section = ft.Container(
-                bgcolor=ft.Colors.PRIMARY, # Deep premium navy background matching the design
-                padding=ft.Padding.symmetric(horizontal=48, vertical=64),
-                border_radius=25,
+            hero_card = ft.Container(
+                bgcolor=ft.Colors.SURFACE,
+                border_radius=ft.BorderRadius.all(20),
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                padding=ft.Padding.all(24),
+                margin=ft.Margin.only(bottom=24),
                 content=ft.ResponsiveRow(
                     columns=12,
-                    spacing=48,
-                    run_spacing=48,
+                    spacing=24,
+                    run_spacing=24,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     controls=[
                         ft.Container(content=hero_left, col={"xs": 12, "md": 7}),
-                        ft.Container(content=hero_right, col={"xs": 12, "md": 5})
-                    ]
-                )
+                        ft.Container(content=hero_image_content, col={"xs": 12, "md": 5}),
+                    ],
+                ),
             )
 
-            # ── 2. Bottom Content ──────────────────────────────────────────
-            modules = course_data.get("modules", [])
-            module_previews = []
+            # ── 2. What You'll Learn ──────────────────────────────────────────
+            def objective_chip(obj_text: str):
+                return ft.Container(
+                    col={"xs": 12, "sm": 6},
+                    padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+                    border_radius=ft.BorderRadius.all(10),
+                    bgcolor=ft.Colors.with_opacity(0.03, ft.Colors.ON_SURFACE),
+                    border=ft.Border.all(1, ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE)),
+                    content=ft.Row(
+                        spacing=10,
+                        vertical_alignment=ft.CrossAxisAlignment.START,
+                        controls=[
+                            ft.Container(
+                                width=20,
+                                height=20,
+                                border_radius=ft.BorderRadius.all(10),
+                                bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY),
+                                alignment=ft.Alignment.CENTER,
+                                content=ft.Icon(ft.Icons.CHECK_ROUNDED, size=13, color=ft.Colors.PRIMARY),
+                            ),
+                            ft.Text(obj_text, size=13, color=ft.Colors.ON_SURFACE, expand=True, weight=ft.FontWeight.W_500),
+                        ],
+                    ),
+                )
+
+            effective_objectives = objectives if objectives else [f"Master key principles and practical concepts in {name}"]
+            objectives_grid = ft.ResponsiveRow(
+                columns=12,
+                spacing=10,
+                run_spacing=10,
+                controls=[objective_chip(obj) for obj in effective_objectives],
+            )
+
+            what_you_learn_card = ft.Container(
+                bgcolor=ft.Colors.SURFACE,
+                border_radius=ft.BorderRadius.all(16),
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                padding=ft.Padding.all(20),
+                content=ft.Column(
+                    spacing=16,
+                    controls=[
+                        ft.Row(
+                            spacing=10,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            controls=[
+                                ft.Icon(ft.Icons.CHECK_CIRCLE_OUTLINE_ROUNDED, color=ft.Colors.PRIMARY, size=20),
+                                ft.Text("What You'll Learn", size=17, weight=ft.FontWeight.W_700, color=ft.Colors.ON_SURFACE),
+                            ],
+                        ),
+                        objectives_grid,
+                    ],
+                ),
+            )
+
+            # ── 3. Interactive Curriculum Accordions ──────────────────────────
+            module_accordion_items = []
             if modules:
                 for idx, mod in enumerate(modules, 1):
                     mod_title = mod.get("title", f"Module {idx}")
-                    module_previews.append(
-                        ft.Container(
-                            padding=ft.Padding.symmetric(vertical=16, horizontal=20),
-                            border_radius=12,
-                            border=ft.Border.all(1, ft.Colors.GREY_200),
-                            bgcolor=ft.Colors.SURFACE,
-                            content=ft.Row(
-                                spacing=16,
-                                controls=[
-                                    ft.Container(
-                                        width=32, height=32,
-                                        alignment=ft.Alignment.CENTER,
-                                        bgcolor=ft.Colors.BLUE_50,
-                                        border_radius=16,
-                                        content=ft.Text(str(idx), size=14, color=ft.Colors.BLUE_700, weight=ft.FontWeight.W_700)
-                                    ),
-                                    ft.Text(mod_title, size=15, weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE, expand=True),
-                                    ft.Icon(ft.Icons.KEYBOARD_ARROW_DOWN_ROUNDED, color=ft.Colors.GREY_400)
-                                ]
+                    mod_lessons = mod.get("lessons", [])
+                    num_lessons = len(mod_lessons)
+
+                    lessons_list_col = ft.Column(spacing=6)
+                    for l_idx, lesson in enumerate(mod_lessons, 1):
+                        l_title = lesson.get("title", f"Lesson {l_idx}")
+                        l_type = lesson.get("type") or lesson.get("lesson_type") or "text"
+                        l_icon, l_color = lesson_type_icon(l_type)
+                        l_completed = lesson.get("is_completed", False)
+
+                        badge_controls = []
+                        if l_completed:
+                            badge_controls.append(
+                                ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED, size=15, color=ft.Colors.GREEN_600)
+                            )
+                        badge_controls.append(
+                            ft.Container(
+                                padding=ft.Padding.symmetric(horizontal=8, vertical=2),
+                                border_radius=ft.BorderRadius.all(6),
+                                bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
+                                content=ft.Text(l_type.upper(), size=9, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE_VARIANT),
                             )
                         )
+
+                        def make_lesson_click(enrolled):
+                            def on_click(_):
+                                if enrolled:
+                                    page.go(f"/courses/{course_id}/view")
+                                else:
+                                    page.show_dialog(
+                                        ft.SnackBar(
+                                            content=ft.Text("Enroll in this course to start learning!"),
+                                            bgcolor=ft.Colors.PRIMARY,
+                                            duration=ft.Duration(milliseconds=2000),
+                                        )
+                                    )
+                            return on_click
+
+                        lesson_row = ft.Container(
+                            padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+                            border_radius=ft.BorderRadius.all(8),
+                            bgcolor=ft.Colors.with_opacity(0.025, ft.Colors.ON_SURFACE),
+                            ink=True,
+                            on_click=make_lesson_click(is_already_enrolled),
+                            content=ft.Row(
+                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                controls=[
+                                    ft.Row(
+                                        spacing=10,
+                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                        expand=True,
+                                        controls=[
+                                            ft.Icon(l_icon, size=16, color=l_color),
+                                            ft.Text(f"{l_idx}. {l_title}", size=13, color=ft.Colors.ON_SURFACE, expand=True),
+                                        ],
+                                    ),
+                                    ft.Row(
+                                        spacing=6,
+                                        tight=True,
+                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                        controls=badge_controls,
+                                    ),
+                                ],
+                            ),
+                        )
+                        lessons_list_col.controls.append(lesson_row)
+
+                    if not mod_lessons:
+                        lessons_list_col.controls.append(
+                            ft.Container(
+                                padding=ft.Padding.all(12),
+                                alignment=ft.Alignment.CENTER_LEFT,
+                                content=ft.Text("No lessons listed in this module yet.", size=12, color=ft.Colors.ON_SURFACE_VARIANT),
+                            )
+                        )
+
+                    lessons_container = ft.Container(
+                        content=lessons_list_col,
+                        visible=(idx == 1),  # Expand first module by default
+                        padding=ft.Padding.only(top=10, bottom=4, left=4, right=4),
                     )
+
+                    chevron_icon = ft.Icon(
+                        ft.Icons.KEYBOARD_ARROW_UP_ROUNDED if idx == 1 else ft.Icons.KEYBOARD_ARROW_DOWN_ROUNDED,
+                        size=20,
+                        color=ft.Colors.ON_SURFACE_VARIANT,
+                    )
+
+                    def make_toggle(container_ctrl, chevron_ctrl):
+                        def toggle_module(e):
+                            container_ctrl.visible = not container_ctrl.visible
+                            chevron_ctrl.icon = (
+                                ft.Icons.KEYBOARD_ARROW_UP_ROUNDED
+                                if container_ctrl.visible
+                                else ft.Icons.KEYBOARD_ARROW_DOWN_ROUNDED
+                            )
+                            page.update()
+                        return toggle_module
+
+                    header_btn = ft.Container(
+                        ink=True,
+                        border_radius=ft.BorderRadius.all(10),
+                        padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+                        on_click=make_toggle(lessons_container, chevron_icon),
+                        content=ft.Row(
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            controls=[
+                                ft.Row(
+                                    spacing=12,
+                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                    expand=True,
+                                    controls=[
+                                        ft.Container(
+                                            width=28,
+                                            height=28,
+                                            alignment=ft.Alignment.CENTER,
+                                            border_radius=ft.BorderRadius.all(6),
+                                            bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.PRIMARY),
+                                            content=ft.Text(f"{idx:02d}", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.PRIMARY),
+                                        ),
+                                        ft.Column(
+                                            spacing=2,
+                                            tight=True,
+                                            expand=True,
+                                            controls=[
+                                                ft.Text(mod_title, size=14, weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE),
+                                                ft.Text(f"{num_lessons} lesson{'s' if num_lessons != 1 else ''}", size=11, color=ft.Colors.ON_SURFACE_VARIANT),
+                                            ],
+                                        ),
+                                    ],
+                                ),
+                                chevron_icon,
+                            ],
+                        ),
+                    )
+
+                    module_card = ft.Container(
+                        border_radius=ft.BorderRadius.all(12),
+                        border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                        bgcolor=ft.Colors.SURFACE,
+                        padding=ft.Padding.all(6),
+                        content=ft.Column(
+                            spacing=0,
+                            controls=[header_btn, lessons_container],
+                        ),
+                    )
+                    module_accordion_items.append(module_card)
             else:
-                module_previews.append(
+                module_accordion_items.append(
                     ft.Container(
                         padding=ft.Padding.all(24),
                         alignment=ft.Alignment.CENTER,
-                        content=ft.Text("No modules available for preview.", color=ft.Colors.GREY_500, size=14)
+                        content=ft.Text("No curriculum modules available yet.", color=ft.Colors.ON_SURFACE_VARIANT, size=13),
                     )
                 )
 
-            main_content = ft.Column(
-                spacing=48,
-                controls=[
-                    # Overview
-                    ft.Column(
-                        spacing=16,
-                        controls=[
-                            ft.Text("Course Overview", size=24, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
-                            ft.Text(description, size=15, color=ft.Colors.ON_SURFACE_VARIANT, selectable=True, weight=ft.FontWeight.W_400)
-                        ]
-                    ),
-                    # Objectives
-                    ft.Column(
-                        spacing=16,
-                        controls=[
-                            ft.Text("What you will learn", size=24, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
-                            ft.Column(spacing=12, controls=obj_controls)
-                        ]
-                    )
-                ]
-            )
-
-            org_name = (course_data.get("organisation") or {}).get("name", "Independent")
-            
-            sidebar_content = ft.Column(
-                spacing=32,
-                controls=[
-                    # Modules Outline
-                    ft.Column(
-                        spacing=16,
-                        controls=[
-                            ft.Text("Course Modules", size=20, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
-                            ft.Column(spacing=12, controls=module_previews)
-                        ]
-                    ),
-                    # Meta Info
-                    card(
-                        ft.Column(
-                            spacing=16,
-                            controls=[
-                                ft.Text("Course Details", size=16, weight=ft.FontWeight.W_700),
-                                info_row(ft.Icons.PERSON_OUTLINE_ROUNDED, "Instructor", author),
-                                info_row(ft.Icons.BUSINESS_ROUNDED, "Organisation", org_name),
-                                info_row(ft.Icons.CATEGORY_OUTLINED, "Category", category)
-                            ]
-                        )
-                    )
-                ]
-            )
-
-            bottom_section = ft.Container(
-                padding=ft.Padding.symmetric(horizontal=48, vertical=48),
-                content=ft.ResponsiveRow(
-                    columns=12,
-                    spacing=48,
-                    run_spacing=48,
+            curriculum_section = ft.Container(
+                bgcolor=ft.Colors.SURFACE,
+                border_radius=ft.BorderRadius.all(16),
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                padding=ft.Padding.all(20),
+                content=ft.Column(
+                    spacing=16,
                     controls=[
-                        ft.Container(content=main_content, col={"xs": 12, "md": 7}),
-                        ft.Container(content=sidebar_content, col={"xs": 12, "md": 5})
-                    ]
-                )
+                        ft.Row(
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            controls=[
+                                ft.Row(
+                                    spacing=10,
+                                    controls=[
+                                        ft.Icon(ft.Icons.PLAYLIST_PLAY_ROUNDED, color=ft.Colors.PRIMARY, size=22),
+                                        ft.Text("Course Syllabus", size=17, weight=ft.FontWeight.W_700, color=ft.Colors.ON_SURFACE),
+                                    ],
+                                ),
+                                ft.Text(
+                                    f"{total_modules} Modules • {total_lessons} Lessons",
+                                    size=12,
+                                    weight=ft.FontWeight.W_600,
+                                    color=ft.Colors.ON_SURFACE_VARIANT,
+                                ),
+                            ],
+                        ),
+                        ft.Column(spacing=8, controls=module_accordion_items),
+                    ],
+                ),
             )
 
-            real_content = ft.Column(
-                spacing=0,
+            # ── 4. Detailed Description & Instructor ──────────────────────────
+            about_card = ft.Container(
+                bgcolor=ft.Colors.SURFACE,
+                border_radius=ft.BorderRadius.all(16),
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                padding=ft.Padding.all(20),
+                content=ft.Column(
+                    spacing=12,
+                    controls=[
+                        ft.Row(
+                            spacing=10,
+                            controls=[
+                                ft.Icon(ft.Icons.DESCRIPTION_OUTLINED, color=ft.Colors.PRIMARY, size=20),
+                                ft.Text("Course Overview", size=17, weight=ft.FontWeight.W_700, color=ft.Colors.ON_SURFACE),
+                            ],
+                        ),
+                        ft.Text(
+                            description,
+                            size=14,
+                            color=ft.Colors.ON_SURFACE_VARIANT,
+                            selectable=True,
+                        ),
+                    ],
+                ),
+            )
+
+            # Instructor Card
+            instructor_initials = "".join([part[0].upper() for part in author.split() if part])[:2] or "IN"
+            instructor_card = ft.Container(
+                bgcolor=ft.Colors.SURFACE,
+                border_radius=ft.BorderRadius.all(16),
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                padding=ft.Padding.all(20),
+                content=ft.Column(
+                    spacing=14,
+                    controls=[
+                        ft.Text("Instructor & Organisation", size=15, weight=ft.FontWeight.W_700, color=ft.Colors.ON_SURFACE),
+                        ft.Row(
+                            spacing=14,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            controls=[
+                                ft.Container(
+                                    width=48,
+                                    height=48,
+                                    border_radius=ft.BorderRadius.all(24),
+                                    bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY),
+                                    alignment=ft.Alignment.CENTER,
+                                    content=ft.Text(instructor_initials, size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.PRIMARY),
+                                ),
+                                ft.Column(
+                                    spacing=2,
+                                    tight=True,
+                                    expand=True,
+                                    controls=[
+                                        ft.Text(author, size=15, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
+                                        ft.Text(f"Verified Instructor • {org_name}", size=12, color=ft.Colors.ON_SURFACE_VARIANT),
+                                    ],
+                                ),
+                            ],
+                        ),
+                    ],
+                ),
+            )
+
+            left_column_content = ft.Column(
+                spacing=20,
                 controls=[
-                    hero_section,
-                    bottom_section
-                ]
+                    what_you_learn_card,
+                    curriculum_section,
+                    about_card,
+                    instructor_card,
+                ],
+            )
+
+            # ── 5. Sticky Enrollment Card (Sidebar on desktop) ────────────────
+            enrol_action_btn = ft.ElevatedButton(
+                content=ft.Row(
+                    alignment=ft.MainAxisAlignment.CENTER,
+                    tight=True,
+                    spacing=8,
+                    controls=[
+                        ft.Icon(
+                            ft.Icons.PLAY_ARROW_ROUNDED if is_already_enrolled else ft.Icons.ROCKET_LAUNCH_ROUNDED,
+                            size=18,
+                            color=ft.Colors.ON_PRIMARY,
+                        ),
+                        ft.Text(
+                            "Continue Learning" if is_already_enrolled else "Enroll in Course",
+                            size=15,
+                            weight=ft.FontWeight.W_700,
+                            color=ft.Colors.ON_PRIMARY,
+                        ),
+                    ],
+                ),
+                bgcolor=ft.Colors.PRIMARY,
+                height=50,
+                style=ft.ButtonStyle(
+                    shape=ft.RoundedRectangleBorder(radius=12),
+                    elevation=2,
+                ),
+                on_click=(
+                    (lambda _: page.go(f"/courses/{course_id}/view"))
+                    if is_already_enrolled
+                    else handle_enrol_click
+                ),
+            )
+
+            enrollment_status_banner = ft.Container(
+                padding=ft.Padding.symmetric(horizontal=14, vertical=10),
+                border_radius=ft.BorderRadius.all(10),
+                bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.PRIMARY if is_already_enrolled else ft.Colors.ON_SURFACE),
+                content=ft.Row(
+                    spacing=8,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[
+                        ft.Icon(
+                            ft.Icons.CHECK_CIRCLE_ROUNDED if is_already_enrolled else ft.Icons.LOCK_OPEN_ROUNDED,
+                            size=16,
+                            color=ft.Colors.PRIMARY if is_already_enrolled else ft.Colors.ON_SURFACE_VARIANT,
+                        ),
+                        ft.Text(
+                            "You are currently enrolled" if is_already_enrolled else "Free & Open Enrollment",
+                            size=12,
+                            weight=ft.FontWeight.W_600,
+                            color=ft.Colors.PRIMARY if is_already_enrolled else ft.Colors.ON_SURFACE,
+                        ),
+                    ],
+                ),
+            )
+
+            def check_perk(text: str):
+                return ft.Row(
+                    spacing=8,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[
+                        ft.Icon(ft.Icons.CHECK_ROUNDED, size=15, color=ft.Colors.PRIMARY),
+                        ft.Text(text, size=12, color=ft.Colors.ON_SURFACE),
+                    ],
+                )
+
+            sidebar_enrol_card = ft.Container(
+                bgcolor=ft.Colors.SURFACE,
+                border_radius=ft.BorderRadius.all(18),
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)),
+                shadow=ft.BoxShadow(
+                    blur_radius=16,
+                    color=ft.Colors.with_opacity(0.06, ft.Colors.BLACK),
+                    offset=ft.Offset(0, 4),
+                ),
+                padding=ft.Padding.all(22),
+                content=ft.Column(
+                    spacing=16,
+                    controls=[
+                        enrollment_status_banner,
+                        enrol_action_btn,
+                        ft.OutlinedButton(
+                            content=ft.Row(
+                                alignment=ft.MainAxisAlignment.CENTER,
+                                tight=True,
+                                spacing=8,
+                                controls=[
+                                    ft.Icon(ft.Icons.SHARE_ROUNDED, size=16, color=ft.Colors.PRIMARY),
+                                    ft.Text("Share on WhatsApp", size=13, weight=ft.FontWeight.W_600, color=ft.Colors.PRIMARY),
+                                ],
+                            ),
+                            height=44,
+                            style=ft.ButtonStyle(
+                                shape=ft.RoundedRectangleBorder(radius=12),
+                                side=ft.BorderSide(1, ft.Colors.with_opacity(0.18, ft.Colors.PRIMARY)),
+                            ),
+                            on_click=open_whatsapp_share,
+                        ),
+                        ft.Divider(height=1, color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                        ft.Text("This course includes:", size=13, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
+                        check_perk(f"{total_modules} Interactive study modules"),
+                        check_perk(f"{total_lessons} Bite-sized learning lessons"),
+                        check_perk("Practice flashcards & exam simulators"),
+                        check_perk("Full access on mobile & desktop"),
+                        check_perk("Official completion certificate"),
+                        ft.Divider(height=1, color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                        # Organisation Info
+                        ft.Row(
+                            spacing=8,
+                            controls=[
+                                ft.Icon(ft.Icons.BUSINESS_ROUNDED, size=15, color=ft.Colors.ON_SURFACE_VARIANT),
+                                ft.Text(f"Offered by {org_name}", size=12, color=ft.Colors.ON_SURFACE_VARIANT, weight=ft.FontWeight.W_500),
+                            ],
+                        ),
+                    ],
+                ),
+            )
+
+            # ── 6. Assemble Responsive Grid ───────────────────────────────────
+            responsive_grid = ft.ResponsiveRow(
+                columns=12,
+                spacing=24,
+                run_spacing=24,
+                controls=[
+                    ft.Container(content=left_column_content, col={"xs": 12, "md": 7, "lg": 8}),
+                    ft.Container(content=sidebar_enrol_card, col={"xs": 12, "md": 5, "lg": 4}),
+                ],
+            )
+
+            main_container = ft.Container(
+                padding=ft.Padding.symmetric(horizontal=20, vertical=16),
+                alignment=ft.Alignment.TOP_CENTER,
+                content=ft.Column(
+                    spacing=0,
+                    controls=[
+                        hero_card,
+                        responsive_grid,
+                        ft.Container(height=32),
+                    ],
+                ),
             )
 
             content_socket.alignment = None
-            content_socket.padding   = 0
-            content_socket.content   = real_content
+            content_socket.padding = 0
+            content_socket.content = main_container
             page.update()
 
         except asyncio.TimeoutError:
@@ -462,20 +824,16 @@ async def course_details_view(page: ft.Page, course_id: str, back_target: str = 
             )
 
     # ── error helper ──────────────────────────────────────────────────────────
-    def _show_error(message: str,
-                    icon=ft.Icons.ERROR_OUTLINE_ROUNDED,
-                    color=ft.Colors.RED_400):
+    def _show_error(message: str, icon=ft.Icons.ERROR_OUTLINE_ROUNDED, color=ft.Colors.RED_400):
         content_socket.alignment = ft.Alignment.CENTER
         content_socket.content = ft.Column(
             alignment=ft.MainAxisAlignment.CENTER,
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            spacing=10,
+            spacing=12,
             controls=[
                 ft.Icon(icon, size=48, color=color),
-                ft.Text("Couldn't load course", size=16,
-                        weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE),
-                ft.Text(message, size=13, color=ft.Colors.GREY_500,
-                        text_align=ft.TextAlign.CENTER),
+                ft.Text("Couldn't load course", size=16, weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE),
+                ft.Text(message, size=13, color=ft.Colors.ON_SURFACE_VARIANT, text_align=ft.TextAlign.CENTER),
                 ft.Container(height=4),
                 ft.ElevatedButton(
                     "Retry",

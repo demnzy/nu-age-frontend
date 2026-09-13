@@ -247,7 +247,7 @@ def build_flashcard_session(
         return handler
 
     # ── grading controls ─────────────────────────────────────────────────
-    def _grade_button(label: str, sub: str, color, quality: int, bucket: str, key: str):
+    def _grade_button(label: str, sub: str, color, quality: int, bucket: str):
         return ft.Container(
             expand=True,
             height=62,
@@ -265,8 +265,7 @@ def build_flashcard_session(
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 controls=[
                     ft.Text(label, size=11, weight=ft.FontWeight.W_800, color=color),
-                    ft.Text(sub, size=9, color=ui.muted(0.50)),
-                    ft.Text(key, size=8, weight=ft.FontWeight.W_700, color=ui.muted(0.35)),
+                    ft.Text(sub, size=9, color=ui.muted(0.50))
                 ],
             ),
         )
@@ -275,10 +274,10 @@ def build_flashcard_session(
         spacing=8,
         visible=False,
         controls=[
-            _grade_button("Again", "Forgot", ui.C_WRONG, ui.GRADE_AGAIN, "again", "1"),
-            _grade_button("Hard", "Struggled", ui.C_WARN, ui.GRADE_HARD, "hard", "2"),
-            _grade_button("Good", "Recalled", ui.C_CORRECT_SOFT, ui.GRADE_GOOD, "good", "3"),
-            _grade_button("Easy", "Instant", ui.C_CORRECT, ui.GRADE_EASY, "easy", "4"),
+            _grade_button("Again", "Forgot", ui.C_WRONG, ui.GRADE_AGAIN, "again",),
+            _grade_button("Hard", "Struggled", ui.C_WARN, ui.GRADE_HARD, "hard", ),
+            _grade_button("Good", "Recalled", ui.C_CORRECT_SOFT, ui.GRADE_GOOD, "good"),
+            _grade_button("Easy", "Instant", ui.C_CORRECT, ui.GRADE_EASY, "easy"),
         ],
     )
 
