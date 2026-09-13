@@ -1551,13 +1551,18 @@ try:
     # 3. Mount Flet FastAPI app
     flet_app = flet_fastapi.app(main, assets_dir=absolute_assets_path, session_timeout_seconds=86400)
     app.mount("/", flet_app)
-except Exception:
+except Exception as ex:
+    import traceback
+    traceback.print_exc()
+    print(f"CRITICAL: Failed to initialize FastAPI ASGI app in main.py: {ex}", flush=True)
     app = None
 
 
 if __name__ == "__main__":
     # If running inside Coolify or standalone production container without Flet CLI:
     if os.environ.get("COOLIFY_CONTAINER") or (os.environ.get("PORT") and not os.environ.get("FLET_SERVER_PORT")):
+        if app is None:
+            raise RuntimeError("Cannot start uvicorn: FastAPI app failed to initialize (see traceback above).")
         import uvicorn
         port = int(os.environ.get("PORT", 8000))
         uvicorn.run(app, host="0.0.0.0", port=port)
