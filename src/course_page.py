@@ -3109,12 +3109,12 @@ async def course_learner_view(
                                                 on_click=close_and_retry,
                                             ) if not passed else ft.Container(),
                                             ft.FilledButton(
-                                                "Retry Assessment",
+                                                "Retry",
                                                 icon=ft.Icons.REPLAY_ROUNDED,
                                                 style=ft.ButtonStyle(
                                                     bgcolor=UI_ACCENT,
                                                     shape=ft.RoundedRectangleBorder(radius=8),
-                                                    padding=ft.Padding.symmetric(horizontal=18, vertical=10),
+                                                    padding=ft.Padding.symmetric(horizontal=15, vertical=10),
                                                 ),
                                                 on_click=close_and_retry,
                                             ) if not passed else ft.FilledButton(
