@@ -5,19 +5,22 @@ description = ""
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [
-    { name = "Oluwatobiloba Davies", email = "daviestobi3@gmail.com" }
+    { name = "Oluwatobiloba Davies", email = "daviestobi3@gmail.com" },
 ]
 dependencies = [
-    "flet>=0.84.0",
-    "flet-video>=0.84.0",
-    "flet-charts>=0.84.0",
-    "httpx>=0.28.1",
-    "requests>=2.33.1",
-    "websockets>=16.0",
     "certifi>=2026.2.25",
     "charset-normalizer>=3.4.7",
+    "fastapi>=0.115.0",
+    "flet>=0.84.0",
+    "flet-charts>=0.84.0",
+    "flet-video>=0.84.0",
+    "flet-web>=0.84.0",
+    "httpx>=0.28.1",
     "idna>=3.11",
+    "requests>=2.33.1",
     "urllib3>=2.6.3",
+    "uvicorn>=0.30.0",
+    "websockets>=16.0",
 ]
 
 [dependency-groups]
@@ -44,7 +47,11 @@ splash_android_dark = "assets/splash_android_dark.png"
 
 [tool.flet.splash]
 android_gravity = "fill"  # position of splash image: center, fill, etc.
-hide_animation = true       # hides the Flet spinner/logo during Python startup
+hide_animation = true     # hides the Flet spinner/logo during Python startup
+
+[tool.flet.android.signing]
+key_alias = "upload"
+key_store = "upload-keystore.jks"
 
 [tool.flet.android]
 permissions = [

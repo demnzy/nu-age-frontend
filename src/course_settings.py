@@ -1,133 +1,67 @@
+import asyncio
 import flet as ft
-
 from src.components.bottom_appbar import get_bottom_appbar
 from src.requests.Courses import get_categories, get_courses, update_course_settings, delete_course
-from src.requests.organisations import get_organisation_members
-from src.requests.enrollments import bulk_enrol_students, bulk_unenrol_students, get_enrolled_students
+from src.requests.organisations import get_organisation_members, get_enrolled_org_students, get_my_organisation
+from src.requests.enrollments import bulk_enrol_students, bulk_unenrol_students
 
 
-# =========================================================
-# SECTION 1: CONSTANTS
-# =========================================================
-_BORDER_RADIUS = 12
-_SECTION_SPACING = 20
-_INPUT_STYLE = {
-    "border_color": ft.Colors.OUTLINE_VARIANT,
-    "focused_border_color": ft.Colors.PRIMARY,
-    "border_radius": _BORDER_RADIUS,
-}
+# ═══════════════════════════════════════════════════════════════════════════════
+# MODERN COURSE SETTINGS (SLEEK, UNCLUTTERED & INTUITIVE)
+# ═══════════════════════════════════════════════════════════════════════════════
 
-
-# =========================================================
-# SECTION 2: MAIN VIEW FUNCTION
-# =========================================================
-async def course_settings_view(page: ft.Page, course_id: str, org_id: str) -> ft.View:
-
-    # ── Auth token ────────────────────────────────────────────────────────────
-    try:
-        token = await page.shared_preferences.get("auth_token")
-        if not token:
-            raise ValueError("Missing auth token")
-    except Exception:
-        return _error_view(course_id, "Authentication failed. Please log in again.")
-
-    # =========================================================
-    # SECTION 3: API WRAPPERS (with error handling)
-    # =========================================================
-    async def _get_categories() -> list:
-        try:
-            result = await get_categories(token, None)
-            return result or []
-        except Exception as ex:
-            _log_error("get_categories", ex)
-            return []
-
-    async def _get_teachers() -> list:
-        try:
-            result = await get_organisation_members(token, id=org_id, teachers=True)
-            print(result)
-            return result or []
-        except Exception as ex:
-            _log_error("get_teachers", ex)
-            return []
-
-    async def _get_org_students() -> list:
-        try:
-            result = await get_organisation_members(token, id=org_id, students=True)
-            return result or []
-        except Exception as ex:
-            _log_error("get_org_students", ex)
-            return []
-
-    async def _save_setting(key: str, value) -> bool:
-        try:
-            value = None if value in ["None", "none", "false", "null"] else value
-            await update_course_settings(token, course_id, {key: value})
-            return True  # ← if no exception, it succeeded
-        except Exception as ex:
-            _log_error(f"save_setting:{key}", ex)
-            return False
-
-    async def _enroll_students(student_ids: list) -> tuple[bool, str]:
-        try:
-            await bulk_enrol_students(
-                token, course_id,
-                payload={"student_ids": student_ids},
-                params={}
-            )
-            return True, f"Enrolled {len(student_ids)}"
-        except Exception as ex:
-            _log_error("enroll_students", ex)
-            return False, "Enrollment failed. Please try again."
-
-    async def _unenroll_students(student_ids: list) -> tuple[bool, str]:
-        try:
-            await bulk_unenrol_students(
-                token, course_id,
-                payload={"student_ids": student_ids},
-                params={}
-            )
-            return True, f"Removed {len(student_ids)}"
-        except Exception as ex:
-            _log_error("unenroll_students", ex)
-            return False, "Unenrollment failed. Please try again."
-
-    async def _delete_course() -> bool:
-        try:
-            await delete_course(token, course_id)
-            return True  # ← same logic
-        except Exception as ex:
-            _log_error("delete_course", ex)
-            return False
-
-    # ── Fetch core course data ────────────────────────────────────────────────
-    try:
-        raw = await get_courses(token, params={"id": course_id})
-        course_data = raw[0] if raw else None
-    except Exception as ex:
-        _log_error("get_courses", ex)
-        course_data = None
-
-    if not course_data:
-        return _error_view(course_id, "Course not found or could not be loaded.")
-
-    # =========================================================
-    # SECTION 4: SHARED UI HELPERS
-    # =========================================================
-    bottom_bar = get_bottom_appbar(page)
-
-    # Lazy-load socket — shown while background data loads
-    content_socket = ft.Container(
-        expand=True,
-        alignment=ft.Alignment(0, 0),
-        content=ft.ProgressRing(color=ft.Colors.PRIMARY),
+def _pill(label: str, bg, fg, icon=None) -> ft.Container:
+    controls = []
+    if icon:
+        controls.append(ft.Icon(icon, size=11, color=fg))
+    controls.append(ft.Text(label, size=10, color=fg, weight=ft.FontWeight.BOLD))
+    return ft.Container(
+        padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+        bgcolor=bg,
+        border_radius=8,
+        content=ft.Row(controls, spacing=4, tight=True),
     )
 
+
+def _card_header(title: str, subtitle: str = None, action: ft.Control = None) -> ft.Row:
+    text_col = ft.Column([
+        ft.Text(title, size=15, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
+    ], spacing=2, expand=True)
+    if subtitle:
+        text_col.controls.append(
+            ft.Text(subtitle, size=11, color=ft.Colors.ON_SURFACE_VARIANT)
+        )
+    controls = [text_col]
+    if action:
+        controls.append(action)
+    return ft.Row(controls, alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+
+
+async def course_settings_view(page: ft.Page, course_id: str, org_id: str = None) -> ft.View:
+    app_bar = get_bottom_appbar(page)
+    token = await page.shared_preferences.get("auth_token")
+    if not token:
+        return _error_view(course_id, "Authentication failed. Please log in again.")
+
+    effective_org_id = org_id or (page.session.store.get("current_org_id") if page.session and page.session.store else None) or ""
+
+    def _go_back(e=None):
+        if len(page.views) > 1:
+            page.views.pop()
+            page.update()
+        elif hasattr(page, "on_view_pop") and callable(page.on_view_pop):
+            page.on_view_pop(None)
+        else:
+            page.go(f"/organisations/{effective_org_id}" if effective_org_id else "/organisations")
+
+    theme_color = ft.Colors.INDIGO_600
+
+    # ── Toast Helpers ─────────────────────────────────────────────────────────
     def show_toast(message: str, color=ft.Colors.GREEN_700):
         snack = ft.SnackBar(
-            content=ft.Text(message, color=ft.Colors.ON_PRIMARY),
+            content=ft.Text(message, color=ft.Colors.WHITE, size=12, weight=ft.FontWeight.W_500),
             bgcolor=color,
-            duration=3000,
+            duration=2800,
         )
         page.overlay.append(snack)
         snack.open = True
@@ -136,588 +70,762 @@ async def course_settings_view(page: ft.Page, course_id: str, org_id: str) -> ft
     def show_error_toast(message: str):
         show_toast(message, color=ft.Colors.RED_700)
 
-    def _save_btn(on_click_fn) -> ft.ElevatedButton:
-        """Factory for uniform Save buttons."""
-        return ft.ElevatedButton(
-            content=ft.Text("Save", color=ft.Colors.ON_PRIMARY, weight=ft.FontWeight.W_600),
-            bgcolor=ft.Colors.PRIMARY,
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
-            on_click=on_click_fn,
-        )
-
-    def _set_btn_loading(btn: ft.ElevatedButton):
-        btn.disabled = True
-        btn.content = ft.ProgressRing(width=16, height=16, color=ft.Colors.ON_PRIMARY)
-        page.update()
-
-    def _set_btn_done(btn: ft.ElevatedButton, label="Save"):
-        btn.disabled = False
-        btn.content = ft.Text(label, color=ft.Colors.ON_PRIMARY, weight=ft.FontWeight.W_600)
-        page.update()
-
-    def create_section(
-        title: str,
-        description: str,
-        content: ft.Control,
-        is_danger: bool = False,
-    ) -> ft.Container:
-        title_color    = ft.Colors.RED_700 if is_danger else ft.Colors.ON_SURFACE
-        border_color   = ft.Colors.RED_200 if is_danger else ft.Colors.OUTLINE_VARIANT
-        return ft.Container(
-            bgcolor=ft.Colors.SURFACE,
-            border_radius=15,
-            padding=20,
-            border=ft.Border.all(1, border_color),
-            content=ft.Column(
-                spacing=15,
-                controls=[
-                    ft.Column(
-                        spacing=4,
-                        controls=[
-                            ft.Text(title, size=16, weight=ft.FontWeight.W_700, color=title_color),
-                            ft.Text(description, size=13, color=ft.Colors.ON_SURFACE_VARIANT),
-                        ],
-                    ),
-                    ft.Divider(height=1, color=ft.Colors.OUTLINE_VARIANT),
-                    content,
-                ],
-            ),
-        )
-
-    # =========================================================
-    # SECTION 5: GENERAL SETTINGS
-    # =========================================================
-    name_input = ft.TextField(
-        value=course_data.get("name", ""),
-        label="Course Name",
+    # ── Centered Loading Socket ───────────────────────────────────────────────
+    content_socket = ft.Container(
         expand=True,
-        **_INPUT_STYLE,
-    )
-    category_dropdown = ft.Dropdown(
-        label="Category",
-        value=course_data.get("category", {}).get("name"),
-        expand=True,
-        **_INPUT_STYLE,
-    )
-
-    async def save_name(e):
-        btn = e.control
-        name = name_input.value.strip()
-        if not name:
-            show_error_toast("Course name cannot be empty.")
-            return
-        _set_btn_loading(btn)
-        ok = await _save_setting("name", name)
-        _set_btn_done(btn)
-        show_toast("Course name updated.") if ok else show_error_toast("Failed to update course name.")
-
-    async def save_category(e):
-        btn = e.control
-        if not category_dropdown.value:
-            show_error_toast("Please select a category.")
-            return
-        _set_btn_loading(btn)
-        ok = await _save_setting("category", category_dropdown.value)
-        _set_btn_done(btn)
-        show_toast("Category updated.") if ok else show_error_toast("Failed to update category.")
-
-    save_name_btn     = _save_btn(lambda e: page.run_task(save_name, e))
-    save_category_btn = _save_btn(lambda e: page.run_task(save_category, e))
-
-    general_section = create_section(
-        title="General Information",
-        description="Update the foundational details of this course.",
+        alignment=ft.Alignment.CENTER,
         content=ft.Column(
-            spacing=15,
+            alignment=ft.MainAxisAlignment.CENTER,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             controls=[
-                ft.Row([name_input, save_name_btn]),
-                ft.Row([category_dropdown, save_category_btn]),
+                ft.ProgressRing(color=ft.Colors.PRIMARY, width=44, height=44, stroke_width=3.5),
+                ft.Container(height=16),
+                ft.Text("Loading Course Configuration…", size=13, weight=ft.FontWeight.W_500, color=ft.Colors.ON_SURFACE_VARIANT),
             ],
         ),
     )
 
-    # =========================================================
-    # SECTION 6: ACCESS CONTROLS
-    # =========================================================
-    public_radio = ft.RadioGroup(
-        value=course_data.get("public"),
-        content=ft.Row(
-            wrap=True,
-            controls=[
-                ft.Radio(value=False,          label="Private",      fill_color=ft.Colors.PRIMARY),
-                ft.Radio(value="organization", label="Organization", fill_color=ft.Colors.PRIMARY),
-                ft.Radio(value=True,           label="Public",       fill_color=ft.Colors.PRIMARY),
-            ],
-        ),
-    )
-
-    teacher_dropdown = ft.Dropdown(
-        label="Assigned Instructor",
-        value=course_data.get("teacher_id"),
-        expand=True,
-        **_INPUT_STYLE,
-    )
-
-    async def save_public(e):
-        btn = e.control
-        _set_btn_loading(btn)
-        ok = await _save_setting("public", public_radio.value)
-        _set_btn_done(btn)
-        show_toast("Visibility updated.") if ok else show_error_toast("Failed to update visibility.")
-
-    async def save_teacher(e):
-        btn = e.control
-        if not teacher_dropdown.value:
-            show_error_toast("Please select an instructor.")
-            return
-        _set_btn_loading(btn)
-        ok = await _save_setting("teacher_id", teacher_dropdown.value)
-        _set_btn_done(btn)
-        show_toast("Instructor reassigned.") if ok else show_error_toast("Failed to reassign instructor.")
-
-    save_public_btn  = _save_btn(lambda e: page.run_task(save_public, e))
-    save_teacher_btn = _save_btn(lambda e: page.run_task(save_teacher, e))
-
-    access_section = create_section(
-        title="Access & Instructors",
-        description="Control who can view this course and who is managing it.",
-        content=ft.Column(
-            spacing=20,
-            controls=[
-                ft.Row(
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                    controls=[
-                        ft.Column(
-                            expand=True,
-                            spacing=4,
-                            controls=[
-                                ft.Text("Course Visibility", weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE),
-                                public_radio,
-                            ],
-                        ),
-                        save_public_btn,
-                    ],
-                ),
-                ft.Row([teacher_dropdown, save_teacher_btn]),
-            ],
-        ),
-    )
-
-    # =========================================================
-    # SECTION 7: ENROLLMENT MANAGER
-    # =========================================================
-    def open_enrollment_manager(e):
-        enrollment_list_view = ft.ListView(spacing=5, expand=True)
-        student_checkboxes: dict = {}
-        initial_states: dict     = {}
-
-        # ── Select-all checkbox ───────────────────────────────────────────────
-        def toggle_all(e):
-            for cb in student_checkboxes.values():
-                cb.value = master_checkbox.value
-            page.update()
-
-        master_checkbox = ft.Checkbox(
-            label="Select / Deselect All",
-            fill_color={"selected": ft.Colors.PRIMARY, "": ft.Colors.ON_PRIMARY},
-            check_color=ft.Colors.ON_PRIMARY,
-            on_change=toggle_all,
-        )
-
-        action_btn = ft.ElevatedButton(
-            "Save Changes",
-            bgcolor=ft.Colors.PRIMARY,
-            color=ft.Colors.ON_PRIMARY,
-            disabled=True,
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
-        )
-        loading_ring    = ft.Container(
-            content=ft.ProgressRing(color=ft.Colors.PRIMARY),
-            alignment=ft.Alignment(0, 0),
-            expand=True,
-            padding=20,
-        )
-        empty_state     = ft.Container(
-            visible=False,
-            alignment=ft.Alignment(0, 0),
-            expand=True,
-            content=ft.Column(
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                controls=[
-                    ft.Icon(ft.Icons.PEOPLE_ROUNDED, size=40, color=ft.Colors.ON_SURFACE_VARIANT),
-                    ft.Text("No students found.", color=ft.Colors.ON_SURFACE_VARIANT, size=13),
-                ],
-            ),
-        )
-        error_state     = ft.Container(
-            visible=False,
-            alignment=ft.Alignment(0, 0),
-            expand=True,
-            content=ft.Column(
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                controls=[
-                    ft.Icon(ft.Icons.ERROR_OUTLINE_ROUNDED, size=40, color=ft.Colors.ERROR),
-                    ft.Text("Failed to load students.", color=ft.Colors.ERROR, size=13),
-                ],
-            ),
-        )
-        content_wrapper = ft.Column(
-            visible=False,
-            expand=True,
-            controls=[
-                master_checkbox,
-                ft.Divider(height=1, color=ft.Colors.OUTLINE_VARIANT),
-                enrollment_list_view,
-            ],
-        )
-
-        def close_modal(e=None):
-            dlg.open = False
-            page.update()
-
-        async def execute_enrollment(e):
-            btn = e.control
-            btn.disabled = True
-            btn.text = "Saving…"
-            page.update()
-
-            to_enroll   = []
-            to_unenroll = []
-
-            for s_id, cb in student_checkboxes.items():
-                was_enrolled = initial_states.get(s_id, False)
-                is_now       = cb.value
-                if is_now and not was_enrolled:
-                    to_enroll.append(s_id)
-                elif not is_now and was_enrolled:
-                    to_unenroll.append(s_id)
-
-            if not to_enroll and not to_unenroll:
-                show_toast("No changes to save.")
-                close_modal()
-                return
-
-            msgs   = []
-            errors = []
-
-            if to_enroll:
-                ok, msg = await _enroll_students(to_enroll)
-                (msgs if ok else errors).append(msg)
-
-            if to_unenroll:
-                ok, msg = await _unenroll_students(to_unenroll)
-                (msgs if ok else errors).append(msg)
-
-            close_modal()
-            if msgs:
-                show_toast(" · ".join(msgs))
-            if errors:
-                show_error_toast(" · ".join(errors))
-
-        dlg = ft.AlertDialog(
-            modal=True,
-            bgcolor=ft.Colors.SURFACE,
-            title=ft.Row(
-                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                controls=[
-                    ft.Text("Manage Enrollments", weight=ft.FontWeight.BOLD,
-                            color=ft.Colors.ON_SURFACE, size=18, expand=True),
-                    ft.IconButton(ft.Icons.CLOSE_ROUNDED, on_click=close_modal),
-                ],
-            ),
-            content=ft.Container(
-                width=340,
-                height=420,
-                content=ft.Column(
-                    expand=True,
-                    controls=[loading_ring, empty_state, error_state, content_wrapper],
-                ),
-            ),
-            actions=[
-                ft.TextButton("Cancel", on_click=close_modal),
-                action_btn,
-            ],
-            actions_alignment=ft.MainAxisAlignment.END,
-        )
-
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
-
-        async def fetch_and_populate():
-            try:
-                students = await get_enrolled_students(token, course_id, params={})
-            except Exception as ex:
-                _log_error("get_enrolled_students", ex)
-                students = None
-            
-            loading_ring.visible = False
-            students = students.get("students", []) if isinstance(students, dict) else students
-            if students is None:
-                # API error
-                error_state.visible = True
-                page.update()
-                return
-
-            if not students:
-                # No students in org
-                empty_state.visible = True
-                page.update()
-                return
-
-            for student in students:
-                try:
-                    is_enrolled = student.get("is_enrolled", False)
-                    s_id        = student["id"]
-                    initial_states[s_id] = is_enrolled
-
-                    cb = ft.Checkbox(
-                        value=is_enrolled,
-                        fill_color={"selected": ft.Colors.PRIMARY, "": ft.Colors.ON_PRIMARY},
-                        check_color=ft.Colors.ON_PRIMARY,
-                    )
-                    student_checkboxes[s_id] = cb
-
-                    enrollment_list_view.controls.append(
-                        ft.Container(
-                            padding=ft.Padding.symmetric(vertical=5),
-                            content=ft.Row([
-                                cb,
-                                ft.Column(
-                                    expand=True,
-                                    spacing=2,
-                                    controls=[
-                                        ft.Text(f'{student.get("first_name", "Unknown")} {student.get("last_name", "Unknown")}', size=14,
-                                                weight=ft.FontWeight.W_600,
-                                                color=ft.Colors.ON_SURFACE),
-                                        ft.Text(student.get("email", "—"), size=12,
-                                                color=ft.Colors.ON_SURFACE_VARIANT),
-                                    ],
-                                ),
-                            ]),
-                        )
-                    )
-                except (KeyError, TypeError) as ex:
-                    _log_error(f"render_student_row:{student}", ex)
-                    continue
-
-            content_wrapper.visible = True
-            action_btn.disabled     = False
-            action_btn.on_click     = execute_enrollment
-            page.update()
-
-        page.run_task(fetch_and_populate)
-
-    enrollment_section = create_section(
-        title="Student Enrollments",
-        description="Batch enroll or remove students from your organisation.",
-        content=ft.ElevatedButton(
-            "Open Enrollment Manager",
-            width=float("inf"),
-            icon=ft.Icons.PEOPLE_ALT_ROUNDED,
-            icon_color=ft.Colors.ON_SURFACE,
-            color=ft.Colors.ON_SURFACE,
-            bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
-            on_click=open_enrollment_manager,
-        ),
-    )
-
-    # =========================================================
-    # SECTION 8: DANGER ZONE
-    # =========================================================
-    def open_delete_modal(e):
-        def close_delete_modal(e=None):
-            dlg_delete.open = False
-            page.update()
-
-        async def confirm_delete(e):
-            btn = e.control
-            btn.disabled = True
-            btn.text = "Deleting…"
-            page.update()
-
-            ok = await _delete_course()
-            close_delete_modal()
-
-            if ok:
-                show_toast("Course deleted.", ft.Colors.RED_700)
-                page.go("/organisations")
-            else:
-                show_error_toast("Failed to delete course. Please try again.")
-
-        dlg_delete = ft.AlertDialog(
-            modal=True,
-            bgcolor=ft.Colors.SURFACE,
-            title=ft.Row(
-                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                controls=[
-                    ft.Text("Delete Course", color=ft.Colors.RED_700,
-                            weight=ft.FontWeight.BOLD, expand=True),
-                    ft.IconButton(ft.Icons.CLOSE_ROUNDED, on_click=close_delete_modal),
-                ],
-            ),
-            content=ft.Container(
-                width=340,
-                content=ft.Column(
-                    spacing=12,
-                    controls=[
-                        ft.Text(
-                            "Are you absolutely sure? This action cannot be undone.",
-                            color=ft.Colors.ON_SURFACE,
-                        ),
-                        ft.Container(
-                            bgcolor=ft.Colors.RED_50,
-                            border_radius=8,
-                            padding=ft.Padding.all(10),
-                            content=ft.Row(
-                                spacing=8,
-                                controls=[
-                                    ft.Icon(ft.Icons.WARNING_AMBER_ROUNDED,
-                                            color=ft.Colors.RED_700, size=18),
-                                    ft.Text(
-                                        "All modules, question banks and student records will be permanently wiped.",
-                                        size=12,
-                                        color=ft.Colors.RED_700,
-                                        expand=True,
-                                    ),
-                                ],
-                            ),
-                        ),
-                    ],
-                ),
-            ),
-            actions=[
-                ft.TextButton("Cancel", on_click=close_delete_modal),
-                ft.ElevatedButton(
-                    "Yes, Delete Everything",
-                    bgcolor=ft.Colors.RED_700,
-                    color=ft.Colors.ON_PRIMARY,
-                    style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
-                    on_click=confirm_delete,
-                ),
-            ],
-            actions_alignment=ft.MainAxisAlignment.END,
-        )
-
-        page.overlay.append(dlg_delete)
-        dlg_delete.open = True
-        page.update()
-
-    danger_section = create_section(
-        title="Danger Zone",
-        description="Irreversible actions regarding this course.",
-        is_danger=True,
-        content=ft.ElevatedButton(
-            "Delete Course",
-            width=float("inf"),
-            icon=ft.Icons.DELETE_FOREVER_ROUNDED,
-            icon_color=ft.Colors.RED_700,
-            bgcolor=ft.Colors.RED_50,
-            color=ft.Colors.RED_700,
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
-            on_click=open_delete_modal,
-        ),
-    )
-
-    # =========================================================
-    # SECTION 9: DATA FETCH & LAYOUT ASSEMBLY
-    # =========================================================
-    async def load_initial_data():
+    # ── Fetch Initial Data ───────────────────────────────────────────────────
+    async def load_all_data():
+        nonlocal theme_color
         try:
-            categories, teachers = await _parallel_fetch(
-                _get_categories(),
-                _get_teachers(),
+            # Parallel fetch course data, categories, teachers, and org profile
+            raw_courses_task = get_courses(token, params={"id": course_id})
+            categories_task = get_categories(token, None)
+            teachers_task = get_organisation_members(token, id=effective_org_id, teachers=True) if effective_org_id else asyncio.sleep(0, result=[])
+            org_task = get_my_organisation(token) if effective_org_id else asyncio.sleep(0, result={})
+
+            raw_courses, categories, teachers, org_data = await asyncio.gather(
+                raw_courses_task, categories_task, teachers_task, org_task, return_exceptions=True
             )
+
+            course_data = None
+            if isinstance(raw_courses, list) and raw_courses:
+                course_data = raw_courses[0]
+            elif isinstance(raw_courses, dict) and "id" in raw_courses:
+                course_data = raw_courses
+
+            if not course_data or (isinstance(course_data, dict) and "error" in course_data):
+                content_socket.content = _build_error_widget("Course not found or could not be loaded.")
+                page.update()
+                return
+
+            if isinstance(org_data, dict) and org_data.get("theme_color"):
+                theme_color = org_data.get("theme_color")
+
+            cat_list = categories if isinstance(categories, list) else []
+            teacher_list = teachers if isinstance(teachers, list) else []
+
+            content_socket.alignment = None
+            content_socket.content = build_settings_ui(course_data, cat_list, teacher_list)
+            page.update()
+
         except Exception as ex:
-            _log_error("load_initial_data", ex)
-            categories, teachers = [], []
+            content_socket.content = _build_error_widget(f"Failed to load course settings: {ex}")
+            page.update()
 
-        # Populate dropdowns (gracefully handle empty lists)
-        if categories:
-            category_dropdown.options = [ft.dropdown.Option(c["name"]) for c in categories]
-        else:
-            category_dropdown.hint_text = "No categories available"
-            category_dropdown.disabled  = True
-
-        if teachers:
-            teacher_dropdown.options = [
-                ft.dropdown.Option(
-                    key=t["id"],
-                    text=f"{t.get('first_name', '')} {t.get('last_name', '')}".strip().capitalize()
-                    or "Unnamed",
-                )
-                for t in teachers
-            ]
-            teacher_dropdown.options.insert(
-                0, ft.dropdown.Option(key="none", text="None (Unassigned)")
-            )
-        else:
-            teacher_dropdown.hint_text = "No instructors available"
-            teacher_dropdown.disabled  = True
-
-        # ── Header ───────────────────────────────────────────────────────────
-        header = ft.Container(
-            bgcolor=ft.Colors.PRIMARY,
-            height=85,
-            border_radius=ft.BorderRadius(
-                top_left=0, top_right=0, bottom_left=30, bottom_right=30
-            ),
-            padding=ft.Padding(top=10, left=15, right=25, bottom=15),
-            content=ft.Row(
-                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+    def _build_error_widget(msg: str):
+        return ft.Container(
+            padding=32,
+            alignment=ft.Alignment.CENTER,
+            content=ft.Column(
+                alignment=ft.MainAxisAlignment.CENTER,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                spacing=12,
                 controls=[
-                    ft.IconButton(
-                        ft.Icons.ARROW_BACK_ROUNDED,
-                        icon_color=ft.Colors.ON_PRIMARY,
+                    ft.Icon(ft.Icons.ERROR_OUTLINE_ROUNDED, size=48, color=ft.Colors.RED_400),
+                    ft.Text("Configuration Unavailable", size=17, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
+                    ft.Text(msg, size=12, color=ft.Colors.ON_SURFACE_VARIANT, text_align=ft.TextAlign.CENTER),
+                    ft.Container(height=8),
+                    ft.FilledButton(
+                        "Return to Dashboard",
+                        icon=ft.Icons.ARROW_BACK_ROUNDED,
                         on_click=lambda _: page.go("/organisations"),
                     ),
-                    ft.Text(
-                        "Course Settings",
-                        size=20,
-                        weight=ft.FontWeight.BOLD,
-                        color=ft.Colors.ON_PRIMARY,
-                    ),
-                    ft.Container(width=40),  # balance the back button
                 ],
             ),
         )
 
-        final_layout = ft.Column(
-            expand=True,
-            spacing=0,
-            controls=[
-                header,
+    # ── UI Builder ───────────────────────────────────────────────────────────
+    def build_settings_ui(course_data: dict, categories: list, teachers: list):
+        course_name = course_data.get("name") or "Untitled Course"
+        course_desc = course_data.get("description") or ""
+        current_cat = course_data.get("category", {}).get("name") if isinstance(course_data.get("category"), dict) else (course_data.get("category") or "")
+        current_teacher_id = course_data.get("teacher_id")
+
+        # Normalize public visibility value
+        raw_pub = str(course_data.get("public", "false")).lower()
+        if raw_pub in ["true", "public"]:
+            current_visibility = "public"
+        elif raw_pub in ["organisation", "campus", "organization"]:
+            current_visibility = "organisation"
+        else:
+            current_visibility = "false"
+
+        # ── HERO HEADER CARD ─────────────────────────────────────────────────
+        pub_badge = (
+            _pill("PUBLIC", ft.Colors.GREEN_700, ft.Colors.WHITE, ft.Icons.PUBLIC_ROUNDED)
+            if current_visibility == "public"
+            else (
+                _pill("CAMPUS", ft.Colors.BLUE_700, ft.Colors.WHITE, ft.Icons.LOCK_ROUNDED)
+                if current_visibility == "organisation"
+                else _pill("DRAFT", ft.Colors.GREY_700, ft.Colors.WHITE, ft.Icons.EDIT_NOTE_ROUNDED)
+            )
+        )
+
+        hero_card = ft.Container(
+            margin=ft.Margin.symmetric(horizontal=16, vertical=8),
+            border_radius=16,
+            bgcolor=ft.Colors.SURFACE,
+            border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+            shadow=ft.BoxShadow(blur_radius=10, color=ft.Colors.with_opacity(0.05, ft.Colors.BLACK), offset=ft.Offset(0, 2)),
+            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+            content=ft.Column([
+                # Gradient Bar
                 ft.Container(
-                    expand=True,
-                    padding=ft.Padding.all(20),
-                    content=ft.Column(
-                        scroll=ft.ScrollMode.AUTO,
-                        spacing=_SECTION_SPACING,
-                        controls=[
-                            general_section,
-                            access_section,
-                            enrollment_section,
-                            danger_section,
-                            ft.Container(height=20),
-                        ],
+                    gradient=ft.LinearGradient(
+                        begin=ft.Alignment(-1, -1),
+                        end=ft.Alignment(1, 1),
+                        colors=[theme_color, ft.Colors.PRIMARY],
+                    ),
+                    padding=ft.Padding.only(top=10, left=12, right=12, bottom=12),
+                    content=ft.Row([
+                        ft.Row([
+                            ft.IconButton(
+                                ft.Icons.ARROW_BACK_ROUNDED,
+                                icon_color=ft.Colors.WHITE,
+                                icon_size=18,
+                                tooltip="Back",
+                                on_click=_go_back,
+                            ),
+                            ft.Text("Course Configuration & Settings", size=13, weight=ft.FontWeight.W_600, color=ft.Colors.WHITE),
+                        ], spacing=4),
+                        ft.Row([
+                            ft.IconButton(
+                                ft.Icons.BAR_CHART_ROUNDED,
+                                icon_color=ft.Colors.WHITE,
+                                icon_size=17,
+                                tooltip="Analytics Telemetry",
+                                on_click=lambda _: page.go(f"/organisations/{effective_org_id}/courses/{course_id}/analytics" if effective_org_id else f"/courses/{course_id}/analytics"),
+                            ),
+                            ft.IconButton(
+                                ft.Icons.SCHOOL_ROUNDED,
+                                icon_color=ft.Colors.WHITE,
+                                icon_size=17,
+                                tooltip="Curriculum Builder",
+                                on_click=lambda _: page.go(f"/courses/{course_id}/manage"),
+                            ),
+                            ft.IconButton(
+                                ft.Icons.VISIBILITY_OUTLINED,
+                                icon_color=ft.Colors.WHITE,
+                                icon_size=17,
+                                tooltip="Preview Course",
+                                on_click=lambda _: page.go(f"/courses/{course_id}/view"),
+                            ),
+                        ], spacing=2),
+                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                ),
+                # Breadcrumb & Info Body
+                ft.Container(
+                    padding=ft.Padding.all(16),
+                    content=ft.Column([
+                        ft.Row([
+                            ft.Icon(ft.Icons.HOME_ROUNDED, size=12, color=ft.Colors.ON_SURFACE_VARIANT),
+                            ft.Text("Academy", size=11, color=ft.Colors.ON_SURFACE_VARIANT),
+                            ft.Icon(ft.Icons.CHEVRON_RIGHT_ROUNDED, size=12, color=ft.Colors.ON_SURFACE_VARIANT),
+                            ft.Text("Courses", size=11, color=ft.Colors.ON_SURFACE_VARIANT),
+                            ft.Icon(ft.Icons.CHEVRON_RIGHT_ROUNDED, size=12, color=ft.Colors.ON_SURFACE_VARIANT),
+                            ft.Text(course_name, size=11, weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                        ], spacing=4, wrap=True),
+                        ft.Text(course_name, size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
+                        ft.Row([
+                            pub_badge,
+                            ft.Row([
+                                ft.Icon(ft.Icons.CATEGORY_ROUNDED, size=12, color=ft.Colors.ON_SURFACE_VARIANT),
+                                ft.Text(current_cat or "Uncategorized", size=11, color=ft.Colors.ON_SURFACE_VARIANT, weight=ft.FontWeight.W_500),
+                            ], spacing=4),
+                        ], spacing=8),
+                    ], spacing=6),
+                ),
+            ], spacing=0),
+        )
+
+        # ── CARD 1: GENERAL INFORMATION ───────────────────────────────────────
+        name_input = ft.TextField(
+            value=course_name,
+            label="Course Title",
+            hint_text="e.g. Distributed Systems Architecture",
+            prefix_icon=ft.Icons.TITLE_ROUNDED,
+            border_radius=10,
+            border_color=ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE),
+            focused_border_color=theme_color,
+            dense=True,
+            expand=True,
+        )
+
+        desc_input = ft.TextField(
+            value=course_desc,
+            label="Course Summary & Description",
+            hint_text="Provide a clear, pedagogical overview of the syllabus and learning objectives…",
+            prefix_icon=ft.Icons.DESCRIPTION_OUTLINED,
+            multiline=True,
+            min_lines=2,
+            max_lines=4,
+            border_radius=10,
+            border_color=ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE),
+            focused_border_color=theme_color,
+            dense=True,
+            expand=True,
+        )
+
+        cat_options = [ft.dropdown.Option(c["name"]) for c in categories if isinstance(c, dict) and "name" in c]
+        category_dropdown = ft.Dropdown(
+            label="Curriculum Category",
+            value=current_cat if any(opt.key == current_cat for opt in cat_options) else (cat_options[0].key if cat_options else None),
+            options=cat_options,
+            leading_icon=ft.Icons.LABEL_OUTLINE_ROUNDED,
+            border_radius=10,
+            border_color=ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE),
+            focused_border_color=theme_color,
+            dense=True,
+            expand=True,
+        )
+
+        save_general_btn = ft.FilledButton(
+            "Save Changes",
+            icon=ft.Icons.CHECK_ROUNDED,
+            style=ft.ButtonStyle(
+                bgcolor=theme_color,
+                shape=ft.RoundedRectangleBorder(radius=8),
+                padding=ft.Padding.symmetric(horizontal=14, vertical=8),
+            ),
+        )
+
+        async def on_save_general(e):
+            save_general_btn.disabled = True
+            save_general_btn.text = "Saving…"
+            page.update()
+
+            title_val = name_input.value.strip()
+            if not title_val:
+                show_error_toast("Course title cannot be empty.")
+                save_general_btn.disabled = False
+                save_general_btn.text = "Save Changes"
+                page.update()
+                return
+
+            try:
+                p1 = update_course_settings(token, course_id, {"name": title_val})
+                p2 = update_course_settings(token, course_id, {"description": desc_input.value.strip()})
+                p3 = update_course_settings(token, course_id, {"category": category_dropdown.value}) if category_dropdown.value else asyncio.sleep(0)
+                await asyncio.gather(p1, p2, p3)
+                show_toast("Course details successfully updated.")
+            except Exception as ex:
+                show_error_toast(f"Failed to update course: {ex}")
+            finally:
+                save_general_btn.disabled = False
+                save_general_btn.text = "Save Changes"
+                page.update()
+
+        save_general_btn.on_click = lambda e: page.run_task(on_save_general, e)
+
+        general_card = ft.Container(
+            margin=ft.Margin.symmetric(horizontal=16, vertical=6),
+            bgcolor=ft.Colors.SURFACE,
+            border_radius=14,
+            border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+            padding=ft.Padding.all(16),
+            content=ft.Column([
+                _card_header(
+                    "General Information",
+                    "Foundational details and syllabus metadata",
+                    save_general_btn,
+                ),
+                ft.Container(height=10),
+                name_input,
+                ft.Container(height=4),
+                desc_input,
+                ft.Container(height=4),
+                category_dropdown,
+            ], spacing=6),
+        )
+
+        # ── CARD 2: ACCESS & GOVERNANCE ───────────────────────────────────────
+        selected_visibility = current_visibility
+
+        def build_visibility_option(key: str, title: str, subtitle: str, icon):
+            is_active = (selected_visibility == key)
+            border_col = theme_color if is_active else ft.Colors.with_opacity(0.1, ft.Colors.ON_SURFACE)
+            bg_col = ft.Colors.with_opacity(0.08, theme_color) if is_active else ft.Colors.with_opacity(0.02, ft.Colors.ON_SURFACE)
+
+            def select_opt(e):
+                nonlocal selected_visibility
+                selected_visibility = key
+                access_card.content.controls[2] = render_visibility_row()
+                page.update()
+
+            return ft.Container(
+                expand=True,
+                bgcolor=bg_col,
+                border_radius=10,
+                border=ft.Border.all(1.5 if is_active else 1, border_col),
+                padding=ft.Padding.all(12),
+                ink=True,
+                on_click=select_opt,
+                content=ft.Row([
+                    ft.Container(
+                        width=32, height=32, border_radius=16,
+                        bgcolor=ft.Colors.with_opacity(0.12, theme_color if is_active else ft.Colors.ON_SURFACE),
+                        alignment=ft.Alignment.CENTER,
+                        content=ft.Icon(icon, size=16, color=theme_color if is_active else ft.Colors.ON_SURFACE_VARIANT),
+                    ),
+                    ft.Column([
+                        ft.Row([
+                            ft.Text(title, size=12, weight=ft.FontWeight.BOLD, color=theme_color if is_active else ft.Colors.ON_SURFACE),
+                            ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED, size=14, color=theme_color) if is_active else ft.Container(),
+                        ], spacing=4),
+                        ft.Text(subtitle, size=10, color=ft.Colors.ON_SURFACE_VARIANT, max_lines=2),
+                    ], spacing=2, expand=True),
+                ], spacing=10),
+            )
+
+        def render_visibility_row():
+            return ft.ResponsiveRow([
+                ft.Container(content=build_visibility_option("false", "Draft / Private", "Visible only to course authors & admins", ft.Icons.EDIT_NOTE_ROUNDED), col={"xs": 12, "md": 4}),
+                ft.Container(content=build_visibility_option("organisation", "Campus Track", "Restricted to verified organisation members", ft.Icons.LOCK_ROUNDED), col={"xs": 12, "md": 4}),
+                ft.Container(content=build_visibility_option("public", "Public Track", "Discoverable and open across Nu-Age", ft.Icons.PUBLIC_ROUNDED), col={"xs": 12, "md": 4}),
+            ], spacing=8, run_spacing=8)
+
+        # Teacher dropdown
+        teacher_options = [
+            ft.dropdown.Option(
+                key=t["id"],
+                text=f"{t.get('first_name', '')} {t.get('last_name', '')}".strip() or t.get("email", "Faculty"),
+            )
+            for t in teachers if isinstance(t, dict) and "id" in t
+        ]
+        teacher_options.insert(0, ft.dropdown.Option(key="none", text="None (Unassigned)"))
+
+        teacher_dropdown = ft.Dropdown(
+            label="Assigned Lead Instructor",
+            value=current_teacher_id if any(opt.key == current_teacher_id for opt in teacher_options) else "none",
+            options=teacher_options,
+            leading_icon=ft.Icons.PERSON_ROUNDED,
+            border_radius=10,
+            border_color=ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE),
+            focused_border_color=theme_color,
+            dense=True,
+            expand=True,
+        )
+
+        save_access_btn = ft.FilledButton(
+            "Save Access",
+            icon=ft.Icons.CHECK_ROUNDED,
+            style=ft.ButtonStyle(
+                bgcolor=theme_color,
+                shape=ft.RoundedRectangleBorder(radius=8),
+                padding=ft.Padding.symmetric(horizontal=14, vertical=8),
+            ),
+        )
+
+        async def on_save_access(e):
+            save_access_btn.disabled = True
+            save_access_btn.text = "Saving…"
+            page.update()
+
+            try:
+                t_val = teacher_dropdown.value if teacher_dropdown.value != "none" else None
+                p1 = update_course_settings(token, course_id, {"public": selected_visibility})
+                p2 = update_course_settings(token, course_id, {"teacher_id": t_val})
+                await asyncio.gather(p1, p2)
+                show_toast("Access & Instructor governance saved.")
+            except Exception as ex:
+                show_error_toast(f"Failed to update access: {ex}")
+            finally:
+                save_access_btn.disabled = False
+                save_access_btn.text = "Save Access"
+                page.update()
+
+        save_access_btn.on_click = lambda e: page.run_task(on_save_access, e)
+
+        access_card = ft.Container(
+            margin=ft.Margin.symmetric(horizontal=16, vertical=6),
+            bgcolor=ft.Colors.SURFACE,
+            border_radius=14,
+            border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+            padding=ft.Padding.all(16),
+            content=ft.Column([
+                _card_header(
+                    "Access & Governance",
+                    "Configure course discoverability and faculty leadership",
+                    save_access_btn,
+                ),
+                ft.Container(height=6),
+                render_visibility_row(),
+                ft.Container(height=10),
+                teacher_dropdown,
+            ], spacing=6),
+        )
+
+        # ── CARD 3: STUDENT ENROLLMENT MANAGER ────────────────────────────────
+        def open_enrollment_dialog(e):
+            search_field = ft.TextField(
+                hint_text="Search students by name or email…",
+                prefix_icon=ft.Icons.SEARCH_ROUNDED,
+                dense=True,
+                border_radius=10,
+                border_color=ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE),
+                focused_border_color=theme_color,
+                expand=True,
+            )
+
+            student_rows_container = ft.Column(spacing=4, scroll=ft.ScrollMode.AUTO)
+            student_checkboxes: dict = {}
+            initial_states: dict = {}
+            all_students_cache: list = []
+
+            modal_loader = ft.Container(
+                alignment=ft.Alignment.CENTER,
+                padding=24,
+                content=ft.ProgressRing(color=theme_color, width=32, height=32),
+            )
+
+            def close_dialog(ev=None):
+                enroll_dlg.open = False
+                page.update()
+
+            def update_rendered_students():
+                q = search_field.value.strip().lower()
+                student_rows_container.controls.clear()
+
+                filtered = [
+                    s for s in all_students_cache
+                    if not q or (q in (s.get("name") or "").lower() or q in (s.get("email") or "").lower())
+                ]
+
+                if not filtered:
+                    student_rows_container.controls.append(
+                        ft.Container(
+                            padding=24,
+                            alignment=ft.Alignment.CENTER,
+                            content=ft.Column([
+                                ft.Icon(ft.Icons.PEOPLE_OUTLINE_ROUNDED, size=32, color=ft.Colors.ON_SURFACE_VARIANT),
+                                ft.Text("No students match your search.", size=12, color=ft.Colors.ON_SURFACE_VARIANT),
+                            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=6),
+                        )
+                    )
+                else:
+                    for s in filtered:
+                        s_id = s.get("id")
+                        cb = student_checkboxes.get(s_id)
+                        name_str = s.get("name") or "Unnamed Student"
+                        email_str = s.get("email") or ""
+                        initials = "".join([part[0].upper() for part in name_str.split()[:2]]) or "S"
+
+                        student_rows_container.controls.append(
+                            ft.Container(
+                                padding=ft.Padding.symmetric(horizontal=10, vertical=6),
+                                border_radius=8,
+                                bgcolor=ft.Colors.with_opacity(0.03, ft.Colors.ON_SURFACE),
+                                content=ft.Row([
+                                    cb,
+                                    ft.CircleAvatar(
+                                        radius=14,
+                                        bgcolor=ft.Colors.with_opacity(0.12, theme_color),
+                                        content=ft.Text(initials, size=10, weight=ft.FontWeight.BOLD, color=theme_color),
+                                    ),
+                                    ft.Column([
+                                        ft.Text(name_str, size=12, weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE),
+                                        ft.Text(email_str, size=10, color=ft.Colors.ON_SURFACE_VARIANT),
+                                    ], spacing=1, expand=True),
+                                ], spacing=10),
+                            )
+                        )
+                page.update()
+
+            search_field.on_change = lambda _: update_rendered_students()
+
+            # Select / Deselect All
+            def toggle_all(ev):
+                all_checked = all(cb.value for cb in student_checkboxes.values())
+                target_state = not all_checked
+                for cb in student_checkboxes.values():
+                    cb.value = target_state
+                page.update()
+
+            toggle_all_btn = ft.TextButton(
+                "Toggle All",
+                icon=ft.Icons.SELECT_ALL_ROUNDED,
+                on_click=toggle_all,
+            )
+
+            confirm_btn = ft.FilledButton(
+                "Apply Changes",
+                style=ft.ButtonStyle(bgcolor=theme_color, shape=ft.RoundedRectangleBorder(radius=8)),
+            )
+
+            async def save_enrollments(ev):
+                confirm_btn.disabled = True
+                confirm_btn.text = "Saving…"
+                page.update()
+
+                to_enroll = []
+                to_unenroll = []
+                for s_id, cb in student_checkboxes.items():
+                    was_enrolled = initial_states.get(s_id, False)
+                    is_now = cb.value
+                    if is_now and not was_enrolled:
+                        to_enroll.append(s_id)
+                    elif not is_now and was_enrolled:
+                        to_unenroll.append(s_id)
+
+                if not to_enroll and not to_unenroll:
+                    show_toast("No enrollment modifications were made.")
+                    close_dialog()
+                    return
+
+                msgs = []
+                if to_enroll:
+                    try:
+                        await bulk_enrol_students(token, course_id, payload={"student_ids": to_enroll}, params={})
+                        msgs.append(f"Enrolled {len(to_enroll)} students")
+                    except Exception as ex:
+                        show_error_toast(f"Enroll error: {ex}")
+
+                if to_unenroll:
+                    try:
+                        await bulk_unenrol_students(token, course_id, payload={"student_ids": to_unenroll}, params={})
+                        msgs.append(f"Unenrolled {len(to_unenroll)} students")
+                    except Exception as ex:
+                        show_error_toast(f"Unenroll error: {ex}")
+
+                close_dialog()
+                if msgs:
+                    show_toast(" · ".join(msgs))
+
+            confirm_btn.on_click = lambda ev: page.run_task(save_enrollments, ev)
+
+            enroll_dlg = ft.AlertDialog(
+                modal=True,
+                bgcolor=ft.Colors.SURFACE,
+                shape=ft.RoundedRectangleBorder(radius=16),
+                title=ft.Row([
+                    ft.Row([
+                        ft.Icon(ft.Icons.PEOPLE_ROUNDED, size=20, color=theme_color),
+                        ft.Text("Manage Course Cohort", size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
+                    ], spacing=8),
+                    ft.IconButton(ft.Icons.CLOSE_ROUNDED, icon_size=18, on_click=close_dialog),
+                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                content=ft.Container(
+                    width=460,
+                    height=440,
+                    content=ft.Column([
+                        ft.Row([search_field, toggle_all_btn], spacing=8),
+                        ft.Divider(height=1, color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                        ft.Container(expand=True, content=modal_loader),
+                    ], spacing=8),
+                ),
+                actions=[
+                    ft.TextButton("Cancel", on_click=close_dialog),
+                    confirm_btn,
+                ],
+            )
+
+            page.overlay.append(enroll_dlg)
+            enroll_dlg.open = True
+            page.update()
+
+            async def fetch_dialog_students():
+                try:
+                    res = await get_enrolled_org_students(token, course_id, params={})
+                    st_list = res.get("students", []) if isinstance(res, dict) else (res if isinstance(res, list) else [])
+                    all_students_cache.extend(st_list)
+
+                    for s in st_list:
+                        s_id = s.get("id")
+                        is_en = bool(s.get("is_enrolled", False))
+                        initial_states[s_id] = is_en
+                        student_checkboxes[s_id] = ft.Checkbox(
+                            value=is_en,
+                            fill_color={"selected": theme_color, "": ft.Colors.TRANSPARENT},
+                            check_color=ft.Colors.WHITE,
+                        )
+
+                    enroll_dlg.content.content.controls[2] = ft.Container(expand=True, content=student_rows_container)
+                    update_rendered_students()
+                except Exception as ex:
+                    enroll_dlg.content.content.controls[2] = ft.Container(
+                        alignment=ft.Alignment.CENTER,
+                        content=ft.Text(f"Failed to fetch students: {ex}", size=12, color=ft.Colors.RED_400),
+                    )
+                    page.update()
+
+            page.run_task(fetch_dialog_students)
+
+        enroll_card = ft.Container(
+            margin=ft.Margin.symmetric(horizontal=16, vertical=6),
+            bgcolor=ft.Colors.SURFACE,
+            border_radius=14,
+            border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+            padding=ft.Padding.all(16),
+            content=ft.Column([
+                _card_header(
+                    "Student Cohort & Enrollments",
+                    "Batch enroll or remove academy students from this course",
+                ),
+                ft.Container(height=6),
+                ft.Container(
+                    padding=ft.Padding.all(12),
+                    border_radius=10,
+                    bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
+                    content=ft.Row([
+                        ft.Icon(ft.Icons.PEOPLE_ALT_ROUNDED, size=24, color=theme_color),
+                        ft.Column([
+                            ft.Text("Enrolled Student Registry", size=13, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
+                            ft.Text("Search and toggle member access across your academy directory.", size=11, color=ft.Colors.ON_SURFACE_VARIANT),
+                        ], spacing=2, expand=True),
+                        ft.FilledButton(
+                            "Manage Roster",
+                            icon=ft.Icons.EDIT_ROUNDED,
+                            style=ft.ButtonStyle(
+                                bgcolor=theme_color,
+                                shape=ft.RoundedRectangleBorder(radius=8),
+                                padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+                            ),
+                            on_click=open_enrollment_dialog,
+                        ),
+                    ], spacing=12),
+                ),
+            ], spacing=6),
+        )
+
+        # ── CARD 4: DANGER ZONE ───────────────────────────────────────────────
+        def open_delete_modal(e):
+            def close_del(ev=None):
+                del_dlg.open = False
+                page.update()
+
+            async def confirm_delete_action(ev):
+                del_btn.disabled = True
+                del_btn.text = "Deleting…"
+                page.update()
+                try:
+                    await delete_course(token, course_id)
+                    close_del()
+                    show_toast("Course permanently deleted.", ft.Colors.RED_700)
+                    page.go(f"/organisations/{effective_org_id}" if effective_org_id else "/organisations")
+                except Exception as ex:
+                    show_error_toast(f"Failed to delete course: {ex}")
+                    del_btn.disabled = False
+                    del_btn.text = "Yes, Permanently Delete"
+                    page.update()
+
+            del_btn = ft.ElevatedButton(
+                "Yes, Permanently Delete",
+                bgcolor=ft.Colors.RED_700,
+                color=ft.Colors.WHITE,
+                style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
+                on_click=lambda ev: page.run_task(confirm_delete_action, ev),
+            )
+
+            del_dlg = ft.AlertDialog(
+                modal=True,
+                bgcolor=ft.Colors.SURFACE,
+                shape=ft.RoundedRectangleBorder(radius=16),
+                title=ft.Row([
+                    ft.Row([
+                        ft.Icon(ft.Icons.WARNING_ROUNDED, size=20, color=ft.Colors.RED_600),
+                        ft.Text("Delete Course", size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.RED_600),
+                    ], spacing=8),
+                    ft.IconButton(ft.Icons.CLOSE_ROUNDED, icon_size=18, on_click=close_del),
+                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                content=ft.Container(
+                    width=380,
+                    content=ft.Column([
+                        ft.Text("Are you sure you want to delete this course? This action is irreversible.", size=13, color=ft.Colors.ON_SURFACE),
+                        ft.Container(
+                            padding=ft.Padding.all(10),
+                            border_radius=8,
+                            bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.RED_400),
+                            content=ft.Text(
+                                "All curriculum modules, lessons, questions, and learner progress records will be completely removed.",
+                                size=11, color=ft.Colors.RED_700, weight=ft.FontWeight.W_500,
+                            ),
+                        ),
+                    ], spacing=10),
+                ),
+                actions=[
+                    ft.TextButton("Cancel", on_click=close_del),
+                    del_btn,
+                ],
+            )
+
+            page.overlay.append(del_dlg)
+            del_dlg.open = True
+            page.update()
+
+        danger_card = ft.Container(
+            margin=ft.Margin.symmetric(horizontal=16, vertical=6),
+            bgcolor=ft.Colors.SURFACE,
+            border_radius=14,
+            border=ft.Border.all(1, ft.Colors.with_opacity(0.3, ft.Colors.RED_400)),
+            padding=ft.Padding.all(16),
+            content=ft.Column([
+                _card_header(
+                    "Danger Zone",
+                    "Irreversible destruction of curriculum content and student records",
+                ),
+                ft.Container(height=6),
+                ft.Row([
+                    ft.Column([
+                        ft.Text("Permanently Remove Course", size=13, weight=ft.FontWeight.BOLD, color=ft.Colors.RED_700),
+                        ft.Text("Once deleted, this curriculum and all student grade history cannot be recovered.", size=11, color=ft.Colors.ON_SURFACE_VARIANT),
+                    ], spacing=2, expand=True),
+                    ft.OutlinedButton(
+                        "Delete Course",
+                        icon=ft.Icons.DELETE_FOREVER_ROUNDED,
+                        style=ft.ButtonStyle(
+                            color=ft.Colors.RED_700,
+                            side=ft.BorderSide(1, ft.Colors.RED_400),
+                            shape=ft.RoundedRectangleBorder(radius=8),
+                            padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+                        ),
+                        on_click=open_delete_modal,
+                    ),
+                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            ], spacing=6),
+        )
+
+        return ft.Column(
+            expand=True,
+            scroll=ft.ScrollMode.AUTO,
+            controls=[
+                hero_card,
+                ft.Container(
+                    alignment=ft.Alignment.CENTER,
+                    content=ft.Container(
+                        width=860,
+                        content=ft.Column([
+                            general_card,
+                            access_card,
+                            enroll_card,
+                            danger_card,
+                            ft.Container(height=32),
+                        ], spacing=4),
                     ),
                 ),
             ],
+            spacing=0,
         )
 
-        # Hot-swap loading socket → real UI
-        content_socket.alignment = None
-        content_socket.content   = final_layout
-        page.update()
+    page.run_task(load_all_data)
 
-    page.run_task(load_initial_data)
+    target_route = f"/organisations/{effective_org_id}/courses/{course_id}/settings" if effective_org_id else f"/courses/{course_id}/settings"
 
     return ft.View(
-        route=f"/organisations/{org_id}/courses/{course_id}/settings",
-        bgcolor=ft.Colors.SURFACE_CONTAINER,
+        route=target_route,
         padding=0,
-        bottom_appbar=bottom_bar,
+        bottom_appbar=app_bar,
         controls=[
             ft.SafeArea(
                 expand=True,
@@ -727,38 +835,25 @@ async def course_settings_view(page: ft.Page, course_id: str, org_id: str) -> ft
     )
 
 
-# =========================================================
-# SECTION 10: UTILITIES
-# =========================================================
 def _error_view(course_id: str, message: str) -> ft.View:
-    """Full-screen error fallback view."""
     return ft.View(
         route=f"/courses/{course_id}/settings",
-        bgcolor=ft.Colors.SURFACE_CONTAINER,
+        padding=0,
         controls=[
-            ft.Container(
+            ft.SafeArea(
                 expand=True,
-                alignment=ft.Alignment(0, 0),
-                content=ft.Column(
-                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                    controls=[
-                        ft.Icon(ft.Icons.ERROR_OUTLINE_ROUNDED,
-                                size=52, color=ft.Colors.ERROR),
-                        ft.Text(message, color=ft.Colors.ERROR, size=16,
-                                text_align=ft.TextAlign.CENTER),
-                    ],
+                content=ft.Container(
+                    alignment=ft.Alignment.CENTER,
+                    content=ft.Column(
+                        alignment=ft.MainAxisAlignment.CENTER,
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        spacing=12,
+                        controls=[
+                            ft.Icon(ft.Icons.ERROR_OUTLINE_ROUNDED, size=52, color=ft.Colors.RED_400),
+                            ft.Text(message, size=15, weight=ft.FontWeight.W_500, color=ft.Colors.ON_SURFACE),
+                        ],
+                    ),
                 ),
             )
         ],
     )
-
-
-def _log_error(context: str, ex: Exception):
-    """Centralised error logger — swap for Sentry / logging as needed."""
-    print(f"[ERROR] [{context}] {type(ex).__name__}: {ex}")
-
-
-async def _parallel_fetch(*coros):
-    """Run multiple coroutines concurrently and return their results."""
-    import asyncio
-    return await asyncio.gather(*coros, return_exceptions=False)

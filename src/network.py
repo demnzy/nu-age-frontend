@@ -2,7 +2,8 @@
 network_view.py
 ──────────────────────────────────────────────────────────────────────────────
 Nu-age Network  —  My Network · Requests · Discover
-Social + LMS standard implementation.
+Clean iOS-inspired friends cards, horizontal active friends row,
+pill actions, and modern underline tab switching.
 ──────────────────────────────────────────────────────────────────────────────
 """
 
@@ -22,13 +23,7 @@ from src.requests.networks import (
 def _is_mounted(control: ft.Control) -> bool:
     """
     Safe replacement for `control.page` truthy-checks.
-
-    In current Flet versions, accessing `.page` on a Control that hasn't
-    been added to the page yet doesn't return None — it *raises*
-    RuntimeError("Control must be added to the page first"). Any
-    `if some_control.page:` guard is therefore a landmine until that
-    control has been mounted at least once. This helper swallows that
-    specific case and just reports False.
+    Swallows RuntimeError("Control must be added to the page first") and reports False.
     """
     try:
         return control.page is not None
@@ -37,8 +32,12 @@ def _is_mounted(control: ft.Control) -> bool:
 
 
 _AVATAR_COLORS = [
-    ft.Colors.BLUE_200, ft.Colors.TEAL_200, ft.Colors.PURPLE_200,
-    ft.Colors.ORANGE_200, ft.Colors.GREEN_200, ft.Colors.PINK_200,
+    "#EBF4FF", "#E6FFFA", "#F3E8FF",
+    "#FFEDD5", "#DCFCE7", "#FCE7F3",
+]
+_AVATAR_TEXT_COLORS = [
+    "#2563EB", "#0D9488", "#7C3AED",
+    "#EA580C", "#16A34A", "#DB2777",
 ]
 
 def _initials(first: str, last: str) -> str:
@@ -47,16 +46,33 @@ def _initials(first: str, last: str) -> str:
 def _avatar_color(name: str) -> str:
     return _AVATAR_COLORS[hash(name) % len(_AVATAR_COLORS)]
 
+def _avatar_text_color(name: str) -> str:
+    return _AVATAR_TEXT_COLORS[hash(name) % len(_AVATAR_TEXT_COLORS)]
+
 def _avatar(user: dict, radius: int = 24) -> ft.CircleAvatar:
     first = user.get("first_name") or "?"
     last  = user.get("last_name")  or "?"
-    name  = f"{first} {last}"
+    name  = f"{first} {last}".strip()
+    img_url = (
+        user.get("avatar") or
+        user.get("profile_picture") or
+        user.get("picture") or
+        user.get("photo") or
+        user.get("image") or
+        user.get("profile_image")
+    )
+    if img_url and isinstance(img_url, str) and img_url.startswith("http"):
+        return ft.CircleAvatar(
+            foreground_image_src=img_url,
+            radius=radius,
+            bgcolor=_avatar_color(name),
+        )
     return ft.CircleAvatar(
         content=ft.Text(
             _initials(first, last),
             size=radius * 0.55,
             weight=ft.FontWeight.W_700,
-            color=ft.Colors.GREY_800,
+            color=_avatar_text_color(name),
         ),
         bgcolor=_avatar_color(name),
         radius=radius,
@@ -64,39 +80,38 @@ def _avatar(user: dict, radius: int = 24) -> ft.CircleAvatar:
 
 def _org_pill(label: str) -> ft.Container:
     return ft.Container(
-        visible=bool(label), # THE MAGIC: Completely collapses if label is None or empty
-        padding=ft.Padding.symmetric(horizontal=8, vertical=3),
-        bgcolor=ft.Colors.PRIMARY_CONTAINER,
+        visible=bool(label),
+        padding=ft.Padding.symmetric(horizontal=8, vertical=2),
+        bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.PRIMARY),
         border_radius=99,
         content=ft.Text(
-            label if label else "", size=9, color=ft.Colors.PRIMARY,
+            label if label else "",
+            size=9.5,
+            color=ft.Colors.PRIMARY,
             weight=ft.FontWeight.W_600,
-            max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
+            max_lines=1,
+            overflow=ft.TextOverflow.ELLIPSIS,
         ),
     )
 
 def _section_label(text: str) -> ft.Container:
     return ft.Container(
-        margin=ft.Margin.only(bottom=4),
+        margin=ft.Margin.only(bottom=2),
         content=ft.Row(
-            spacing=10,
+            spacing=8,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
             controls=[
                 ft.Container(
                     width=3,
-                    height=16,
+                    height=14,
                     border_radius=2,
-                    gradient=ft.LinearGradient(
-                        begin=ft.Alignment(0, -1),
-                        end=ft.Alignment(0, 1),
-                        colors=[ft.Colors.PRIMARY, ft.Colors.with_opacity(0.4, ft.Colors.PRIMARY)],
-                    ),
+                    bgcolor=ft.Colors.PRIMARY,
                 ),
                 ft.Text(
                     text,
-                    size=14,
+                    size=13,
                     weight=ft.FontWeight.W_700,
-                    color=ft.Colors.PRIMARY,
+                    color=ft.Colors.ON_SURFACE,
                 ),
             ],
         ),
@@ -105,20 +120,32 @@ def _section_label(text: str) -> ft.Container:
 def _empty_state(icon, title: str, subtitle: str,
                  action_label: str = None, on_action=None) -> ft.Container:
     controls = [
-        ft.Icon(icon, size=56, color=ft.Colors.GREY_300),
-        ft.Text(title, size=17, weight=ft.FontWeight.W_700,
-                color=ft.Colors.GREY_700, text_align=ft.TextAlign.CENTER),
-        ft.Text(subtitle, size=13, color=ft.Colors.GREY_400,
+        ft.Container(
+            width=64,
+            height=64,
+            border_radius=32,
+            bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.PRIMARY),
+            alignment=ft.Alignment.CENTER,
+            content=ft.Icon(icon, size=32, color=ft.Colors.PRIMARY),
+        ),
+        ft.Container(height=4),
+        ft.Text(title, size=16, weight=ft.FontWeight.W_700,
+                color=ft.Colors.ON_SURFACE, text_align=ft.TextAlign.CENTER),
+        ft.Text(subtitle, size=12.5, color=ft.Colors.GREY_500,
                 text_align=ft.TextAlign.CENTER),
     ]
     if action_label and on_action:
         controls += [
-            ft.Container(height=4),
+            ft.Container(height=6),
             ft.ElevatedButton(
-                action_label, bgcolor=ft.Colors.PRIMARY,
-                color=ft.Colors.ON_PRIMARY, height=42,
+                action_label,
+                bgcolor=ft.Colors.PRIMARY,
+                color=ft.Colors.ON_PRIMARY,
+                height=36,
                 style=ft.ButtonStyle(
-                    shape=ft.RoundedRectangleBorder(radius=10), elevation=0),
+                    shape=ft.RoundedRectangleBorder(radius=20),
+                    elevation=0,
+                ),
                 on_click=lambda _: on_action(),
             ),
         ]
@@ -129,7 +156,7 @@ def _empty_state(icon, title: str, subtitle: str,
         content=ft.Column(
             tight=True,
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            spacing=10,
+            spacing=8,
             controls=controls,
         ),
     )
@@ -163,74 +190,68 @@ async def network_view(page: ft.Page):
     # Shared mutable state — safe to read/write across tabs
     state = {
         "pending_count": 0,
-        # Accumulates user dicts for requests successfully sent in Discover.
-        # show_requests() drains this and renders them.
         "pending_sent": [],
+        "friends_count": 0,
     }
 
-    # ── appbar ────────────────────────────────────────────────────────────────
-    app_bar = ft.AppBar(
-        bgcolor=ft.Colors.PRIMARY,
-        title=ft.Text("Network", color=ft.Colors.ON_PRIMARY,
-                      weight=ft.FontWeight.W_700, size=17),
-        leading=ft.IconButton(
-            icon=ft.Icons.ARROW_BACK_ROUNDED,
-            icon_color=ft.Colors.ON_PRIMARY,
-            on_click=lambda _: page.go("/dashboard"),
-        ),
-        elevation=0,
-    )
+    header_subtitle_ref = ft.Ref[ft.Text]()
 
-    # ── segmented control ─────────────────────────────────────────────────────
+    # ── segmented control (clean underline/pill style matching reference) ──────
     seg_labels = ["My Network", "Requests", "Discover"]
 
     seg_row = ft.Container(
-        margin=ft.Margin.symmetric(horizontal=16, vertical=10),
-        bgcolor=ft.Colors.ON_PRIMARY,
-        border_radius=12,
-        padding=ft.Padding.all(4),
-        content=ft.Row(spacing=0, controls=[]),
+        margin=ft.Margin.only(top=4, bottom=4),
+        content=ft.Row(
+            spacing=16,
+            alignment=ft.MainAxisAlignment.START,
+            controls=[],
+        ),
     )
 
     def _rebuild_seg(do_update: bool = True):
-        """Rebuild the tab pills. Only calls .update() when the control is on-page."""
-        def _pill(label: str, idx: int) -> ft.Container:
+        """Rebuild the tab text buttons with underline active indicator."""
+        def _tab_pill(label: str, idx: int) -> ft.Container:
             is_active = active_tab["index"] == idx
             return ft.Container(
-                expand=True, height=36, border_radius=10,
-                bgcolor=ft.Colors.PRIMARY if is_active else ft.Colors.TRANSPARENT,
+                padding=ft.Padding.only(left=2, right=2, top=4, bottom=4),
                 ink=True,
-                # Always use page.run_task — switch_tab is a coroutine
                 on_click=lambda _, i=idx: page.run_task(switch_tab, i),
-                shadow=(
-                    ft.BoxShadow(
-                        blur_radius=6,
-                        color=ft.Colors.with_opacity(0.18, ft.Colors.PRIMARY),
-                        offset=ft.Offset(0, 2),
-                    ) if is_active else None
-                ),
-                alignment=ft.Alignment.CENTER,
-                content=ft.Row(
-                    alignment=ft.MainAxisAlignment.CENTER,
-                    spacing=6, tight=True,
+                content=ft.Column(
+                    spacing=5,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                     controls=[
-                        ft.Text(
-                            label, size=13,
-                            weight=ft.FontWeight.W_600 if is_active else ft.FontWeight.W_500,
-                            color=ft.Colors.ON_PRIMARY if is_active else ft.Colors.GREY_500,
+                        ft.Row(
+                            spacing=6,
+                            tight=True,
+                            alignment=ft.MainAxisAlignment.CENTER,
+                            controls=[
+                                ft.Text(
+                                    label,
+                                    size=13.5,
+                                    weight=ft.FontWeight.W_700 if is_active else ft.FontWeight.W_500,
+                                    color=ft.Colors.ON_SURFACE if is_active else ft.Colors.GREY_400,
+                                ),
+                                ft.Container(
+                                    width=7,
+                                    height=7,
+                                    bgcolor=ft.Colors.ERROR,
+                                    border_radius=4,
+                                    visible=(idx == 1 and state["pending_count"] > 0 and not is_active),
+                                ),
+                            ],
                         ),
+                        # Blue underline bar matching reference UI
                         ft.Container(
-                            width=7, height=7,
-                            bgcolor=ft.Colors.ERROR,
-                            border_radius=4,
-                            visible=(idx == 1 and state["pending_count"] > 0 and not is_active),
+                            height=3,
+                            width=32 if is_active else 0,
+                            border_radius=2,
+                            bgcolor=ft.Colors.PRIMARY if is_active else ft.Colors.TRANSPARENT,
                         ),
                     ],
                 ),
             )
 
-        seg_row.content.controls = [_pill(l, i) for i, l in enumerate(seg_labels)]
-        # Only push an update if the control is already mounted on the page
+        seg_row.content.controls = [_tab_pill(l, i) for i, l in enumerate(seg_labels)]
         if do_update and _is_mounted(seg_row):
             seg_row.update()
 
@@ -243,7 +264,7 @@ async def network_view(page: ft.Page):
         content_socket.content = _loading_spinner("Syncing network…")
         if _is_mounted(content_socket):
             content_socket.update()
-        await asyncio.sleep(0)          # ← critical: let the event loop flush the paint
+        await asyncio.sleep(0)
 
         if idx == 0:
             await show_network()
@@ -252,7 +273,6 @@ async def network_view(page: ft.Page):
         elif idx == 2:
             await show_discover()
 
-        # Final repaint after content is set
         if page.views and _is_mounted(content_socket):
             page.update()
 
@@ -266,134 +286,183 @@ async def network_view(page: ft.Page):
             print(f"Failed to load friends: {ex}")
             all_friends = []
 
-        grid = ft.ResponsiveRow(spacing=12, run_spacing=12)
+        state["friends_count"] = len(all_friends)
+        if header_subtitle_ref.current and _is_mounted(header_subtitle_ref.current):
+            header_subtitle_ref.current.value = f"{len(all_friends)} Friends"
+            header_subtitle_ref.current.update()
+
+        friends_list_col = ft.Column(spacing=10)
+        section_count_ref = ft.Ref[ft.Text]()
+
+        def _avatar_bubble(user: dict) -> ft.Container:
+            first = user.get("first_name") or "Friend"
+            uid   = user.get("id", "")
+            return ft.Container(
+                ink=True,
+                border_radius=12,
+                padding=ft.Padding.symmetric(horizontal=4, vertical=2),
+                tooltip=f"View {first}'s profile",
+                on_click=lambda _, u=uid: page.go(f"/member/{u}"),
+                content=ft.Column(
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    spacing=4,
+                    tight=True,
+                    controls=[
+                        ft.Container(
+                            padding=ft.Padding.all(2),
+                            border=ft.Border.all(2, ft.Colors.PRIMARY),
+                            border_radius=30,
+                            content=_avatar(user, radius=24),
+                        ),
+                        ft.Text(
+                            first,
+                            size=11,
+                            weight=ft.FontWeight.W_600,
+                            color=ft.Colors.ON_SURFACE,
+                            max_lines=1,
+                            overflow=ft.TextOverflow.ELLIPSIS,
+                        ),
+                    ],
+                ),
+            )
 
         def _friend_card(user: dict) -> ft.Container:
-            first  = user.get("first_name") or "Unknown"
-            last   = user.get("last_name")  or ""
-            university = user.get("university")     or "Student"
-            org    = user.get("org")        # <-- Removed fallback
-            uid    = user.get("id", "")
-            # THE LOGIC: Handles the background API call and UI refresh
-            card_ref = ft.Ref[ft.Container]()
-            
+            first      = user.get("first_name") or "Unknown"
+            last       = user.get("last_name")  or ""
+            university = user.get("university") or "Student"
+            org        = user.get("org")
+            uid        = user.get("id", "")
+            card_ref   = ft.Ref[ft.Container]()
+
             async def do_remove_friend(uid_to_remove):
                 try:
                     await remove_friend(token, uid_to_remove)
-                    # Surgically remove this specific card from the grid
-                    if card_ref.current in grid.controls:
-                        grid.controls.remove(card_ref.current)
+                    if card_ref.current in friends_list_col.controls:
+                        friends_list_col.controls.remove(card_ref.current)
+                        state["friends_count"] = max(0, state["friends_count"] - 1)
+                        if header_subtitle_ref.current and _is_mounted(header_subtitle_ref.current):
+                            header_subtitle_ref.current.value = f"{state['friends_count']} Friends"
+                            header_subtitle_ref.current.update()
+                        if section_count_ref.current and _is_mounted(section_count_ref.current):
+                            section_count_ref.current.value = f"All Friends ({state['friends_count']})"
+                            section_count_ref.current.update()
                         if page.views:
                             page.update()
                 except Exception as ex:
                     print(f"Failed to remove friend: {ex}")
 
-
-    # 2. Return the complete UI tree in one clean block
             return ft.Container(
-            ref=card_ref,
-            col={"xs": 6, "sm": 4, "md": 3},
-            bgcolor=ft.Colors.SURFACE,
-            border_radius=14,
-            border=ft.Border.all(1, ft.Colors.GREY_200),
-            shadow=ft.BoxShadow(
-                blur_radius=12,
-                color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
-                offset=ft.Offset(0, 3),
-            ),
-            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-            content=ft.Column(
-                spacing=0,
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                controls=[
-                    # gradient banner
-                    ft.Container(
-                        height=56,
-                        gradient=ft.LinearGradient(
-                            begin=ft.Alignment(-1, -1),
-                            end=ft.Alignment(1, 1),
-                            colors=["#6B5EE4", "#A78BFA", "#F0ABFC"],
+                ref=card_ref,
+                bgcolor=ft.Colors.SURFACE,
+                border_radius=14,
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+                shadow=ft.BoxShadow(
+                    blur_radius=8,
+                    color=ft.Colors.with_opacity(0.03, ft.Colors.ON_SURFACE),
+                    offset=ft.Offset(0, 2),
+                ),
+                content=ft.Row(
+                    spacing=12,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[
+                        # Avatar (clicking navigates to profile)
+                        ft.Container(
+                            content=_avatar(user, radius=22),
+                            ink=True,
+                            on_click=lambda _, u=uid: page.go(f"/member/{u}"),
                         ),
-                    ),
-                    # avatar overlapping banner
-                    ft.Container(
-                        content=ft.Container(
-                            content=_avatar(user, radius=26),
-                            border=ft.Border.all(3, ft.Colors.ON_PRIMARY),
-                            border_radius=32,
+                        # Middle: Name, University, Org Pill (clicking navigates to profile)
+                        ft.Container(
+                            expand=True,
+                            ink=True,
+                            on_click=lambda _, u=uid: page.go(f"/member/{u}"),
+                            content=ft.Column(
+                                spacing=2,
+                                tight=True,
+                                controls=[
+                                    ft.Text(
+                                        f"{first} {last}".strip(),
+                                        size=14,
+                                        weight=ft.FontWeight.W_700,
+                                        color=ft.Colors.ON_SURFACE,
+                                        max_lines=1,
+                                        overflow=ft.TextOverflow.ELLIPSIS,
+                                    ),
+                                    ft.Text(
+                                        university,
+                                        size=11.5,
+                                        color=ft.Colors.GREY_500,
+                                        max_lines=1,
+                                        overflow=ft.TextOverflow.ELLIPSIS,
+                                    ),
+                                    _org_pill(org),
+                                ],
+                            ),
                         ),
-                        margin=ft.Margin.only(top=-30),
-                    ),
-                    # name + university + pill
-                    ft.Container(
-                        padding=ft.Padding.symmetric(horizontal=10, vertical=8),
-                        content=ft.Column(
-                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                            spacing=3,
-                            controls=[
-                                ft.Text(
-                                    f"{first} {last}".strip(),
-                                    size=13, weight=ft.FontWeight.W_700,
-                                    color=ft.Colors.ON_SURFACE,
-                                    text_align=ft.TextAlign.CENTER,
-                                    max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
-                                ),
-                                ft.Text(
-                                    university,
-                                    size=11, color=ft.Colors.GREY_500,
-                                    text_align=ft.TextAlign.CENTER,
-                                    max_lines=2, overflow=ft.TextOverflow.ELLIPSIS,
-                                ),
-                                ft.Container(height=2),
-                                _org_pill(org),
-                            ],
-                        ),
-                    ),
-                    ft.Divider(height=1, color=ft.Colors.GREY_100),
-                    # actions
-                    ft.Container(
-                        padding=ft.Padding.symmetric(vertical=4),
-                        content=ft.Row(
-                            alignment=ft.MainAxisAlignment.CENTER,
+                        # Right: Actions (Pill Message button + 3-dots Menu)
+                        ft.Row(
                             spacing=4,
+                            tight=True,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
                             controls=[
-                                ft.IconButton(
-                                    ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED,
-                                    icon_color=ft.Colors.PRIMARY,
-                                    icon_size=18,
-                                    tooltip="Message",
+                                # "Message" solid pill button
+                                ft.Container(
+                                    height=32,
+                                    border_radius=20,
+                                    bgcolor=ft.Colors.PRIMARY,
+                                    padding=ft.Padding.symmetric(horizontal=12, vertical=0),
+                                    alignment=ft.Alignment.CENTER,
+                                    ink=True,
                                     on_click=lambda _, u=uid: page.go("/nu-chat"),
+                                    content=ft.Row(
+                                        tight=True,
+                                        spacing=5,
+                                        controls=[
+                                            ft.Icon(
+                                                ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED,
+                                                size=13,
+                                                color=ft.Colors.ON_PRIMARY,
+                                            ),
+                                            ft.Text(
+                                                "Message",
+                                                size=11.5,
+                                                weight=ft.FontWeight.W_600,
+                                                color=ft.Colors.ON_PRIMARY,
+                                            ),
+                                        ],
+                                    ),
                                 ),
-                                ft.IconButton(
-                                    ft.Icons.INSIGHTS_ROUNDED,
-                                    icon_color=ft.Colors.PRIMARY,
-                                    icon_size=18,
-                                    tooltip="View Profile",
-                                    on_click=lambda _, u=uid: page.go(f"/member/{u}"),
-                                ),
+                                # 3-dots popup menu
                                 ft.PopupMenuButton(
                                     icon=ft.Icons.MORE_VERT_ROUNDED,
-                                    icon_color=ft.Colors.ON_SURFACE,
+                                    icon_color=ft.Colors.GREY_400,
                                     icon_size=18,
                                     tooltip="More options",
                                     items=[
                                         ft.PopupMenuItem(
-                                            height=30,
+                                            content="View Profile",
+                                            icon=ft.Icons.PERSON_OUTLINE_ROUNDED,
+                                            on_click=lambda _, u=uid: page.go(f"/member/{u}"),
+                                        ),
+                                        ft.PopupMenuItem(
                                             content="Remove Connection",
                                             icon=ft.Icons.PERSON_REMOVE_ROUNDED,
-                                            on_click=lambda e, u=uid: page.run_task(do_remove_friend, u),
-                                        )
+                                            on_click=lambda _, u=uid: page.run_task(do_remove_friend, u),
+                                        ),
                                     ],
                                 ),
                             ],
                         ),
-                    ),
-                ],
-            ),
-        )
+                    ],
+                ),
+            )
 
-        def rebuild_grid(friends: list):
-            grid.controls = [_friend_card(f) for f in friends]
+        def rebuild_list(friends: list):
+            friends_list_col.controls = [_friend_card(f) for f in friends]
+            if section_count_ref.current and _is_mounted(section_count_ref.current):
+                section_count_ref.current.value = f"All Friends ({len(friends)})"
+                section_count_ref.current.update()
             try:
                 if page.views:
                     page.update()
@@ -403,13 +472,13 @@ async def network_view(page: ft.Page):
         def on_search(e):
             q = (e.control.value or "").strip().lower()
             if not q:
-                rebuild_grid(all_friends)
+                rebuild_list(all_friends)
                 return
-            rebuild_grid([
+            rebuild_list([
                 f for f in all_friends
                 if q in (f.get("first_name") or "").lower()
                 or q in (f.get("last_name")  or "").lower()
-                or q in (f.get("university")     or "").lower()
+                or q in (f.get("university") or "").lower()
                 or q in (f.get("org")        or "").lower()
             ])
 
@@ -419,18 +488,17 @@ async def network_view(page: ft.Page):
                 "Your network is a blank canvas",
                 "Connect with peers and start building your circle.",
                 action_label="Find Peers",
-                # Fix: must use page.run_task because switch_tab is async
                 on_action=lambda: page.run_task(switch_tab, 2),
             )
             return
 
         search = ft.TextField(
-            hint_text="Search your network…",
+            hint_text="Search your friends…",
             prefix_icon=ft.Icons.SEARCH_ROUNDED,
-            border_radius=10,
-            border_color=ft.Colors.GREY_300,
+            border_radius=14,
+            border_color=ft.Colors.GREY_200,
             focused_border_color=ft.Colors.PRIMARY,
-            fill_color=ft.Colors.ON_PRIMARY,
+            fill_color=ft.Colors.SURFACE,
             filled=True,
             expand=True,
             height=44,
@@ -439,15 +507,46 @@ async def network_view(page: ft.Page):
             on_change=on_search,
         )
 
+        # Horizontal carousel of active friend bubbles matching reference UI
+        bubbles_row = ft.Container(
+            padding=ft.Padding.only(bottom=8),
+            content=ft.Row(
+                scroll=ft.ScrollMode.AUTO,
+                spacing=12,
+                controls=[_avatar_bubble(f) for f in all_friends[:15]],
+            ),
+        )
+
         content_socket.content = ft.Column(
             expand=True,
             spacing=0,
             controls=[
+                # Top controls (Bubbles carousel + Search input)
                 ft.Container(
-                    padding=ft.Padding.symmetric(horizontal=16),
-                    content=ft.Row(controls=[search]),
+                    padding=ft.Padding.symmetric(horizontal=16, vertical=4),
+                    content=ft.Column(
+                        spacing=10,
+                        controls=[
+                            bubbles_row,
+                            ft.Row(controls=[search]),
+                            ft.Row(
+                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                controls=[
+                                    ft.Text(
+                                        ref=section_count_ref,
+                                        value=f"All Friends ({len(all_friends)})",
+                                        size=13,
+                                        weight=ft.FontWeight.W_700,
+                                        color=ft.Colors.GREY_700,
+                                    ),
+                                ],
+                            ),
+                        ],
+                    ),
                 ),
-                ft.Container(height=8),
+                ft.Container(height=4),
+                # Vertical list of friend rows
                 ft.Container(
                     expand=True,
                     content=ft.Column(
@@ -456,7 +555,7 @@ async def network_view(page: ft.Page):
                         controls=[
                             ft.Container(
                                 padding=ft.Padding.symmetric(horizontal=16, vertical=4),
-                                content=grid,
+                                content=friends_list_col,
                             ),
                             ft.Container(height=20),
                         ],
@@ -465,8 +564,7 @@ async def network_view(page: ft.Page):
             ],
         )
 
-        # grid is now mounted; safe to populate and repaint
-        rebuild_grid(all_friends)
+        rebuild_list(all_friends)
 
     # ─────────────────────────────────────────────────────────────────────────
     # TAB 2 — REQUESTS
@@ -483,11 +581,10 @@ async def network_view(page: ft.Page):
             incoming_data = incoming_data or []
             sent_data     = sent_data     or []
 
-            # Merge any locally-queued sent requests (from Discover tab)
-            pending = state.pop("pending_sent", [])  # drain the queue
+            # Merge locally-queued sent requests from Discover
+            pending = state.pop("pending_sent", [])
             state["pending_sent"] = []
             for user in pending:
-                # Avoid duplicates
                 existing_ids = {r["user"]["id"] for r in sent_data if "user" in r}
                 uid = user.get("id", "")
                 if uid and uid not in existing_ids:
@@ -499,6 +596,10 @@ async def network_view(page: ft.Page):
             state["pending_count"] = len(incoming_data)
             _rebuild_seg()
 
+            if header_subtitle_ref.current and _is_mounted(header_subtitle_ref.current):
+                header_subtitle_ref.current.value = f"{len(incoming_data)} Incoming · {len(sent_data)} Sent"
+                header_subtitle_ref.current.update()
+
         except Exception as ex:
             print(f"Failed to fetch requests: {ex}")
             incoming_data, sent_data = [], []
@@ -509,10 +610,10 @@ async def network_view(page: ft.Page):
             buttons = ft.Ref[ft.Row]()
             confirm = ft.Ref[ft.Row]()
 
-            first  = user.get("first_name") or "Unknown"
-            last   = user.get("last_name")  or ""
-            university = user.get("university")     or "Student"
-            org    = user.get("org")      
+            first      = user.get("first_name") or "Unknown"
+            last       = user.get("last_name")  or ""
+            university = user.get("university") or "Student"
+            org        = user.get("org")
 
             async def on_accept(e):
                 buttons.current.visible = False
@@ -521,11 +622,14 @@ async def network_view(page: ft.Page):
                     page.update()
                 try:
                     await accept_request(token, req["id"])
-                    await asyncio.sleep(0.6)
+                    await asyncio.sleep(0.5)
                     if card.current in incoming_col.controls:
                         incoming_col.controls.remove(card.current)
                         state["pending_count"] = max(0, state["pending_count"] - 1)
                         _rebuild_seg()
+                        if header_subtitle_ref.current and _is_mounted(header_subtitle_ref.current):
+                            header_subtitle_ref.current.value = f"{state['pending_count']} Incoming · {len(sent_col.controls)} Sent"
+                            header_subtitle_ref.current.update()
                         if page.views:
                             page.update()
                 except Exception:
@@ -541,148 +645,120 @@ async def network_view(page: ft.Page):
                         incoming_col.controls.remove(card.current)
                         state["pending_count"] = max(0, state["pending_count"] - 1)
                         _rebuild_seg()
+                        if header_subtitle_ref.current and _is_mounted(header_subtitle_ref.current):
+                            header_subtitle_ref.current.value = f"{state['pending_count']} Incoming · {len(sent_col.controls)} Sent"
+                            header_subtitle_ref.current.update()
                         if page.views:
                             page.update()
                 except Exception:
                     pass
 
             return ft.Container(
-    ref=card,
-    bgcolor=ft.Colors.SURFACE,
-    border_radius=16,
-    border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.PRIMARY)),
-    padding=ft.Padding.all(0),
-    shadow=ft.BoxShadow(
-        blur_radius=16,
-        spread_radius=0,
-        color=ft.Colors.with_opacity(0.07, ft.Colors.PRIMARY),
-        offset=ft.Offset(0, 4),
-    ),
-    content=ft.Column(
-        spacing=0,
-        controls=[
-            # Primary gradient top bar
-            ft.Container(
-                height=3,
-                border_radius=ft.BorderRadius.only(top_left=16, top_right=16),
-                gradient=ft.LinearGradient(
-                    begin=ft.Alignment(-1, 0),
-                    end=ft.Alignment(1, 0),
-                    colors=[ft.Colors.PRIMARY, ft.Colors.with_opacity(0.3, ft.Colors.PRIMARY)],
+                ref=card,
+                bgcolor=ft.Colors.SURFACE,
+                border_radius=14,
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.PRIMARY)),
+                padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+                shadow=ft.BoxShadow(
+                    blur_radius=8,
+                    color=ft.Colors.with_opacity(0.03, ft.Colors.PRIMARY),
+                    offset=ft.Offset(0, 2),
                 ),
-            ),
-            ft.Container(
-                padding=ft.Padding.symmetric(horizontal=14, vertical=12),
                 content=ft.Row(
                     spacing=12,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     controls=[
-                        # Avatar with primary glow ring
+                        # Avatar with ring
                         ft.Container(
                             padding=ft.Padding.all(2),
-                            border_radius=99,
-                            gradient=ft.LinearGradient(
-                                begin=ft.Alignment(-1, -1),
-                                end=ft.Alignment(1, 1),
-                                colors=[ft.Colors.PRIMARY, ft.Colors.with_opacity(0.3, ft.Colors.PRIMARY)],
-                            ),
-                            content=ft.Container(
-                                padding=ft.Padding.all(2),
-                                bgcolor=ft.Colors.SURFACE,
-                                border_radius=99,
-                                content=_avatar(user, radius=22),
-                            ),
+                            border_radius=30,
+                            border=ft.Border.all(1.5, ft.Colors.PRIMARY),
+                            content=_avatar(user, radius=20),
                         ),
+                        # Middle info
                         ft.Column(
-                            spacing=3, expand=True,
+                            spacing=2,
+                            expand=True,
+                            tight=True,
                             controls=[
                                 ft.Text(
                                     f"{first} {last}".strip(),
-                                    size=14, weight=ft.FontWeight.W_700,
+                                    size=13.5,
+                                    weight=ft.FontWeight.W_700,
                                     color=ft.Colors.ON_SURFACE,
-                                    max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
-                                    expand=True, # Added to ensure name shrinks safely
+                                    max_lines=1,
+                                    overflow=ft.TextOverflow.ELLIPSIS,
                                 ),
-                                ft.Row(
-                                    spacing=6,
-                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                    controls=[
-                                        ft.Icon(ft.Icons.SCHOOL_ROUNDED,
-                                                size=11, color=ft.Colors.GREY_400),
-                                        # THE FIX: expand=True added to the university text
-                                        ft.Text(university, size=11, color=ft.Colors.GREY_500,
-                                                max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, 
-                                                expand=True), 
-                                    ],
+                                ft.Text(
+                                    university,
+                                    size=11,
+                                    color=ft.Colors.GREY_500,
+                                    max_lines=1,
+                                    overflow=ft.TextOverflow.ELLIPSIS,
                                 ),
                                 _org_pill(org),
                             ],
                         ),
+                        # Actions
                         ft.Column(
-                            spacing=6,
+                            tight=True,
                             horizontal_alignment=ft.CrossAxisAlignment.END,
                             controls=[
                                 ft.Row(
-                                    ref=buttons, spacing=8,
+                                    ref=buttons,
+                                    spacing=6,
+                                    tight=True,
                                     controls=[
-                                        ft.OutlinedButton(
-                                            "Decline", height=34,
-                                            style=ft.ButtonStyle(
-                                                shape=ft.RoundedRectangleBorder(radius=10),
-                                                side=ft.BorderSide(1, ft.Colors.GREY_200),
-                                                color=ft.Colors.GREY_400,
-                                                padding=ft.Padding.symmetric(horizontal=12, vertical=0),
-                                            ),
-                                            on_click=lambda e: page.run_task(on_decline, e),
-                                        ),
+                                        # Outlined Decline pill
                                         ft.Container(
-                                            height=34,
-                                            border_radius=10,
-                                            gradient=ft.LinearGradient(
-                                                begin=ft.Alignment(-1, 0),
-                                                end=ft.Alignment(1, 0),
-                                                colors=[ft.Colors.PRIMARY,
-                                                        ft.Colors.with_opacity(0.75, ft.Colors.PRIMARY)],
+                                            height=30,
+                                            border_radius=20,
+                                            border=ft.Border.all(1, ft.Colors.GREY_300),
+                                            padding=ft.Padding.symmetric(horizontal=10, vertical=0),
+                                            alignment=ft.Alignment.CENTER,
+                                            ink=True,
+                                            on_click=lambda e: page.run_task(on_decline, e),
+                                            content=ft.Text(
+                                                "Decline",
+                                                size=11.5,
+                                                weight=ft.FontWeight.W_500,
+                                                color=ft.Colors.GREY_600,
                                             ),
-                                            shadow=ft.BoxShadow(
-                                                blur_radius=8,
-                                                color=ft.Colors.with_opacity(0.25, ft.Colors.PRIMARY),
-                                                offset=ft.Offset(0, 3),
-                                            ),
-                                            content=ft.ElevatedButton(
+                                        ),
+                                        # Solid Accept pill
+                                        ft.Container(
+                                            height=30,
+                                            border_radius=20,
+                                            bgcolor=ft.Colors.PRIMARY,
+                                            padding=ft.Padding.symmetric(horizontal=12, vertical=0),
+                                            alignment=ft.Alignment.CENTER,
+                                            ink=True,
+                                            on_click=lambda e: page.run_task(on_accept, e),
+                                            content=ft.Text(
                                                 "Accept",
-                                                bgcolor=ft.Colors.TRANSPARENT,
+                                                size=11.5,
+                                                weight=ft.FontWeight.W_600,
                                                 color=ft.Colors.ON_PRIMARY,
-                                                style=ft.ButtonStyle(
-                                                    shape=ft.RoundedRectangleBorder(radius=10),
-                                                    elevation=0,
-                                                    shadow_color=ft.Colors.TRANSPARENT,
-                                                    padding=ft.Padding.symmetric(horizontal=12, vertical=0),
-                                                    overlay_color=ft.Colors.with_opacity(0.1, ft.Colors.ON_PRIMARY),
-                                                ),
-                                                on_click=lambda e: page.run_task(on_accept, e),
                                             ),
                                         ),
                                     ],
                                 ),
                                 ft.Row(
-                                    ref=confirm, visible=False, spacing=6,
+                                    ref=confirm,
+                                    visible=False,
+                                    spacing=4,
+                                    tight=True,
                                     controls=[
-                                        ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED,
-                                                color=ft.Colors.GREEN_500, size=18),
-                                        ft.Text("Added!", size=12,
-                                                color=ft.Colors.GREEN_600,
-                                                weight=ft.FontWeight.W_600),
+                                        ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED, color=ft.Colors.GREEN_500, size=16),
+                                        ft.Text("Added!", size=11.5, color=ft.Colors.GREEN_600, weight=ft.FontWeight.W_600),
                                     ],
                                 ),
                             ],
                         ),
                     ],
                 ),
-            ),
-        ],
-    ))
-        
+            )
+
         def _sent_card(req: dict) -> ft.Container:
             user    = req.get("user") or {}
             row     = ft.Ref[ft.Container]()
@@ -690,11 +766,11 @@ async def network_view(page: ft.Page):
 
             first = user.get("first_name") or "Unknown"
             last  = user.get("last_name")  or ""
-            org   = user.get("org")       
+            org   = user.get("org")
 
             async def on_cancel(e):
                 btn_ref.current.disabled = True
-                btn_ref.current.text = "Canceling…"
+                btn_ref.current.text = ft.Text("Canceling…", size=8)
                 if _is_mounted(btn_ref.current):
                     btn_ref.current.update()
                 try:
@@ -710,106 +786,52 @@ async def network_view(page: ft.Page):
                         btn_ref.current.update()
 
             return ft.Container(
-    ref=row,
-    bgcolor=ft.Colors.SURFACE,
-    border_radius=14,
-    border=ft.Border.all(1, ft.Colors.with_opacity(0.07, ft.Colors.PRIMARY)),
-    padding=ft.Padding.all(0),
-    shadow=ft.BoxShadow(
-        blur_radius=10,
-        spread_radius=0,
-        color=ft.Colors.with_opacity(0.04, ft.Colors.PRIMARY),
-        offset=ft.Offset(0, 3),
-    ),
-    content=ft.Column(
-        spacing=0,
-        controls=[
-            # 1. The Top Gradient Border
-            ft.Container(
-                height=2,
-                border_radius=ft.BorderRadius.only(top_left=14, top_right=14),
-                gradient=ft.LinearGradient(
-                    begin=ft.Alignment(-1, 0),
-                    end=ft.Alignment(1, 0),
-                    colors=[ft.Colors.PURPLE_300, ft.Colors.with_opacity(0.2, ft.Colors.INDIGO_200)],
-                ),
-            ),
-            
-            # 2. The Main Inner Content
-            ft.Container(
-                padding=ft.Padding.symmetric(horizontal=14, vertical=12),
-                content=ft.Column(
-                    spacing=12, # Adds clean space between the user info and the button
+                ref=row,
+                bgcolor=ft.Colors.SURFACE,
+                border_radius=14,
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE)),
+                padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+                content=ft.Row(
+                    spacing=12,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     controls=[
-                        # --- TOP ROW: Avatar & Info ---
-                        ft.Row(
-                            spacing=12,
-                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        _avatar(user, radius=18),
+                        ft.Column(
+                            spacing=2,
+                            expand=True,
+                            tight=True,
                             controls=[
-                                ft.Container(
-                                    padding=ft.Padding.all(2),
-                                    border_radius=101,
-                                    content=ft.Container(
-                                        padding=ft.Padding.all(2),
-                                        bgcolor=ft.Colors.SURFACE,
-                                        border_radius=99,
-                                        content=_avatar(user, radius=18),
-                                    ),
+                                ft.Text(
+                                    f"{first} {last}".strip(),
+                                    size=13,
+                                    weight=ft.FontWeight.W_600,
+                                    color=ft.Colors.ON_SURFACE,
+                                    max_lines=1,
+                                    overflow=ft.TextOverflow.ELLIPSIS,
                                 ),
-                                ft.Column(
-                                    spacing=2, expand=True,
-                                    controls=[
-                                        ft.Text(
-                                            f"{first} {last}".strip(),
-                                            size=13, weight=ft.FontWeight.W_600,
-                                            color=ft.Colors.ON_SURFACE,
-                                            max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
-                                        ),
-                                        ft.Row(
-                                            spacing=5,
-                                            visible=bool(org),
-                                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                            controls=[
-                                                ft.Icon(ft.Icons.BUSINESS_ROUNDED,
-                                                        size=10, color=ft.Colors.GREY_400),
-                                                ft.Text(org or "", size=11, color=ft.Colors.GREY_400,
-                                                        max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
-                                                        expand=True), 
-                                            ],
-                                        ),
-                                    ],
+                                ft.Text(
+                                    org or "Pending response",
+                                    size=11,
+                                    color=ft.Colors.GREY_400,
+                                    max_lines=1,
+                                    overflow=ft.TextOverflow.ELLIPSIS,
                                 ),
                             ],
                         ),
-                        
-                        # --- BOTTOM ROW: Action Button ---
-                        ft.Row(
-                            # This pushes the button to the far right side of the card
-                            alignment=ft.MainAxisAlignment.END, 
-                            controls=[
-                                ft.Container(
-                                    border_radius=8,
-                                    height=30,
-                                    border=ft.Border.all(1, ft.Colors.GREY_300),
-                                    padding=ft.Padding.symmetric(horizontal=10, vertical=0),
-                                    content=ft.TextButton(
-                                        ref=btn_ref,
-                                        content=ft.Text("Cancel", size=11,
-                                                        weight=ft.FontWeight.W_500),
-                                        style=ft.ButtonStyle(
-                                            overlay_color=ft.Colors.with_opacity(0.00005, ft.Colors.GREY_400),
-                                        ),
-                                        on_click=lambda e: page.run_task(on_cancel, e),
-                                    ),
-                                ),
-                            ]
-                        )
-                    ]
-                )
-            ),
-        ],
-    ),
-)
+                        ft.Container(
+                            height=28,
+                            border_radius=20,
+                            border=ft.Border.all(1, ft.Colors.GREY_300),
+                            padding=ft.Padding.symmetric(horizontal=6, vertical=0),
+                            content=ft.TextButton(
+                                ref=btn_ref,
+                                content=ft.Text("Cancel", size=8, weight=ft.FontWeight.W_500, color=ft.Colors.GREY_600),
+                                on_click=lambda e: page.run_task(on_cancel, e),
+                            ),
+                        ),
+                    ],
+                ),
+            )
 
         for req in incoming_data:
             incoming_col.controls.append(_incoming_card(req))
@@ -819,14 +841,15 @@ async def network_view(page: ft.Page):
         content_socket.content = ft.Container(
             expand=True,
             content=ft.Column(
-                expand=True, scroll=ft.ScrollMode.AUTO,
+                expand=True,
+                scroll=ft.ScrollMode.AUTO,
                 controls=[
                     ft.Container(
-                        padding=ft.Padding.symmetric(horizontal=16, vertical=14),
+                        padding=ft.Padding.symmetric(horizontal=16, vertical=12),
                         content=ft.Column(
-                            spacing=16,
+                            spacing=14,
                             controls=[
-                                # Incoming header + badge
+                                # Incoming header
                                 ft.Row(
                                     spacing=8,
                                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -838,7 +861,8 @@ async def network_view(page: ft.Page):
                                             border_radius=99,
                                             visible=len(incoming_data) > 0,
                                             content=ft.Text(
-                                                str(len(incoming_data)), size=10,
+                                                str(len(incoming_data)),
+                                                size=10,
                                                 color=ft.Colors.ERROR,
                                                 weight=ft.FontWeight.W_700,
                                             ),
@@ -846,16 +870,16 @@ async def network_view(page: ft.Page):
                                     ],
                                 ),
                                 incoming_col if incoming_data else ft.Container(
-                                    padding=ft.Padding.symmetric(vertical=16),
-                                    content=ft.Text("No pending requests.",
-                                                    size=13, color=ft.Colors.GREY_400),
+                                    padding=ft.Padding.symmetric(vertical=12),
+                                    content=ft.Text("No incoming requests at the moment.",
+                                                    size=12.5, color=ft.Colors.GREY_400),
                                 ),
                                 ft.Divider(height=1, color=ft.Colors.GREY_100),
                                 _section_label("Sent Requests"),
                                 sent_col if sent_data else ft.Container(
-                                    padding=ft.Padding.symmetric(vertical=16),
-                                    content=ft.Text("No sent requests.",
-                                                    size=13, color=ft.Colors.GREY_400),
+                                    padding=ft.Padding.symmetric(vertical=12),
+                                    content=ft.Text("No pending sent requests.",
+                                                    size=12.5, color=ft.Colors.GREY_400),
                                 ),
                                 ft.Container(height=20),
                             ],
@@ -878,166 +902,164 @@ async def network_view(page: ft.Page):
             peers_data    = peers_data    or []
             org_data      = org_data      or []
             trending_data = trending_data or []
+
+            if header_subtitle_ref.current and _is_mounted(header_subtitle_ref.current):
+                header_subtitle_ref.current.value = "Connect & Expand"
+                header_subtitle_ref.current.update()
+
         except Exception as ex:
             print(f"Failed to load discover: {ex}")
             peers_data, org_data, trending_data = [], [], []
 
-        def _discover_card(user: dict) -> ft.Container:
-            btn_text  = ft.Ref[ft.Text]()
-            btn       = ft.Ref[ft.ElevatedButton]()
-            requested = {"v": False}
+        def _discover_row_card(user: dict) -> ft.Container:
+            btn_container = ft.Ref[ft.Container]()
+            btn_text      = ft.Ref[ft.Text]()
+            requested     = {"v": False}
 
-            first  = user.get("first_name") or "Unknown"
-            last   = user.get("last_name")  or ""
-            university = user.get("university")     or "Student"
-            org    = user.get("org")   
-            streak = user.get("streak", 0) or 0
-            uid    = user.get("id", "")
+            first      = user.get("first_name") or "Unknown"
+            last       = user.get("last_name")  or ""
+            university = user.get("university") or "Student"
+            org        = user.get("org")
+            streak     = user.get("streak", 0) or 0
+            uid        = user.get("id", "")
 
             async def on_add(e):
                 if requested["v"]:
                     return
-                # Optimistic UI update
-                requested["v"]         = True
-                btn.current.bgcolor    = ft.Colors.GREY_200
-                btn_text.current.value = "Requested"
-                btn_text.current.color = ft.Colors.GREY_500
+                # Optimistic UI update: transitions to outlined "Added" pill matching reference Screen 2
+                requested["v"] = True
+                btn_container.current.bgcolor = ft.Colors.TRANSPARENT
+                btn_container.current.border = ft.Border.all(1, ft.Colors.PRIMARY)
+                btn_text.current.value = "Added"
+                btn_text.current.color = ft.Colors.PRIMARY
                 if page.views:
                     page.update()
                 try:
                     await asyncio.wait_for(send_request(token, uid), timeout=10)
-                    # Queue the user so the Requests tab shows it when opened
                     state["pending_sent"].append(user)
                 except Exception as ex:
                     print(f"Request failed: {ex}")
                     # Revert on error
-                    requested["v"]         = False
-                    btn.current.bgcolor    = ft.Colors.PRIMARY
-                    btn_text.current.value = "Add Friend"
+                    requested["v"] = False
+                    btn_container.current.bgcolor = ft.Colors.PRIMARY
+                    btn_container.current.border = None
+                    btn_text.current.value = "Add"
                     btn_text.current.color = ft.Colors.ON_PRIMARY
                     if page.views:
                         page.update()
 
             return ft.Container(
-    width=160,
-    bgcolor=ft.Colors.SURFACE,
-    border_radius=14,
-    border=ft.Border.all(1, ft.Colors.GREY_200),
-    shadow=ft.BoxShadow(
-        blur_radius=12,
-        color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
-        offset=ft.Offset(0, 3),
-    ),
-    clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-    content=ft.Column(
-        spacing=0,
-        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-        controls=[
-            # gradient banner
-            ft.Container(
-                height=52,
-                gradient=ft.LinearGradient(
-                    begin=ft.Alignment(-1, -1),
-                    end=ft.Alignment(1, 1),
-                    colors=["#3B82F6", "#818CF8", "#C084FC"],
+                bgcolor=ft.Colors.SURFACE,
+                border_radius=14,
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+                shadow=ft.BoxShadow(
+                    blur_radius=8,
+                    color=ft.Colors.with_opacity(0.03, ft.Colors.ON_SURFACE),
+                    offset=ft.Offset(0, 2),
                 ),
-            ),
-            # floating avatar
-            ft.Container(
-                content=ft.Container(
-                    content=_avatar(user, radius=26),
-                    border=ft.Border.all(3, ft.Colors.SURFACE),
-                    border_radius=30,
-                ),
-                margin=ft.Margin.only(top=-26),
-            ),
-            # body
-            ft.Container(
-                padding=ft.Padding.only(left=10, right=10, top=6, bottom=12),
-                content=ft.Column(
-                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                    spacing=4,
+                content=ft.Row(
+                    spacing=12,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     controls=[
-                        ft.Text(
-                            f"{first} {last}".strip(),
-                            size=13, weight=ft.FontWeight.W_700,
-                            color=ft.Colors.ON_SURFACE,
-                            text_align=ft.TextAlign.CENTER,
-                            max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
+                        # Avatar
+                        ft.Container(
+                            content=_avatar(user, radius=22),
+                            ink=True,
+                            on_click=lambda _, u=uid: page.go(f"/member/{u}"),
                         ),
-                        ft.Text(
-                            university, size=10, color=ft.Colors.GREY_500,
-                            text_align=ft.TextAlign.CENTER,
-                            max_lines=2, overflow=ft.TextOverflow.ELLIPSIS,
-                        ),
-                        ft.Container(height=2),
-                        ft.Row(
-                            alignment=ft.MainAxisAlignment.CENTER,
-                            spacing=4,
-                            controls=[
-                                _org_pill(org),
-                                ft.Container(
-                                    padding=ft.Padding.symmetric(horizontal=6, vertical=3),
-                                    bgcolor=ft.Colors.SURFACE,
-                                    border_radius=99,
-                                    content=ft.Row(
-                                        tight=True, spacing=3,
+                        # User info
+                        ft.Container(
+                            expand=True,
+                            ink=True,
+                            on_click=lambda _, u=uid: page.go(f"/member/{u}"),
+                            content=ft.Column(
+                                spacing=2,
+                                tight=True,
+                                controls=[
+                                    ft.Row(
+                                        spacing=6,
+                                        tight=True,
                                         controls=[
-                                            ft.Icon(ft.Icons.LOCAL_FIRE_DEPARTMENT_ROUNDED,
-                                                    size=10,
-                                                    color=ft.Colors.ORANGE_500 if streak > 0 else ft.Colors.BLUE_100),
-                                            ft.Text(str(streak), size=9,
-                                                    color=ft.Colors.ORANGE_700 if streak > 0 else ft.Colors.BLUE_200,
-                                                    weight=ft.FontWeight.W_700),
+                                            ft.Text(
+                                                f"{first} {last}".strip(),
+                                                size=14,
+                                                weight=ft.FontWeight.W_700,
+                                                color=ft.Colors.ON_SURFACE,
+                                                max_lines=1,
+                                                overflow=ft.TextOverflow.ELLIPSIS,
+                                            ),
+                                            # Streak badge if active
+                                            ft.Container(
+                                                visible=streak > 0,
+                                                padding=ft.Padding.symmetric(horizontal=5, vertical=1),
+                                                bgcolor=ft.Colors.ORANGE_50,
+                                                border_radius=99,
+                                                content=ft.Row(
+                                                    tight=True,
+                                                    spacing=2,
+                                                    controls=[
+                                                        ft.Icon(ft.Icons.LOCAL_FIRE_DEPARTMENT_ROUNDED, size=10, color=ft.Colors.ORANGE_500),
+                                                        ft.Text(str(streak), size=9.5, color=ft.Colors.ORANGE_700, weight=ft.FontWeight.W_700),
+                                                    ],
+                                                ),
+                                            ),
                                         ],
                                     ),
-                                ),
-                            ],
-                        ),
-                        ft.Container(height=2),
-                        ft.ElevatedButton(
-                            ref=btn,
-                            content=ft.Text(ref=btn_text, value="Add Friend",
-                                            size=11, color=ft.Colors.ON_PRIMARY,
-                                            weight=ft.FontWeight.W_600),
-                            bgcolor=ft.Colors.PRIMARY,
-                            expand=True,
-                            height=30,
-                            style=ft.ButtonStyle(
-                                shape=ft.RoundedRectangleBorder(radius=8),
-                                elevation=0,
+                                    ft.Text(
+                                        university,
+                                        size=11.5,
+                                        color=ft.Colors.GREY_500,
+                                        max_lines=1,
+                                        overflow=ft.TextOverflow.ELLIPSIS,
+                                    ),
+                                    _org_pill(org),
+                                ],
                             ),
+                        ),
+                        # Solid "Add" pill -> Outlined "Added" pill (directly matches reference UI)
+                        ft.Container(
+                            ref=btn_container,
+                            height=32,
+                            border_radius=20,
+                            bgcolor=ft.Colors.PRIMARY,
+                            padding=ft.Padding.symmetric(horizontal=16, vertical=0),
+                            alignment=ft.Alignment.CENTER,
+                            ink=True,
                             on_click=lambda e: page.run_task(on_add, e),
+                            content=ft.Text(
+                                ref=btn_text,
+                                value="Add",
+                                size=12,
+                                weight=ft.FontWeight.W_600,
+                                color=ft.Colors.ON_PRIMARY,
+                            ),
                         ),
                     ],
                 ),
-            ),
-        ],
-    ),
-)
+            )
 
-        def _horizontal_row(title: str, users: list, subtitle: str = "") -> ft.Container:
+        def _category_section(title: str, users: list, subtitle: str = "") -> ft.Container:
             if not users:
                 body = ft.Container(
-                    padding=ft.Padding.symmetric(vertical=12),
-                    content=ft.Text("Nothing to show here yet.",
-                                    size=13, color=ft.Colors.GREY_400),
+                    padding=ft.Padding.symmetric(vertical=8),
+                    content=ft.Text("No suggestions available right now.",
+                                    size=12, color=ft.Colors.GREY_400),
                 )
             else:
-                body = ft.Row(
-                    scroll=ft.ScrollMode.AUTO,
-                    spacing=12,
-                    controls=[_discover_card(u) for u in users],
+                body = ft.Column(
+                    spacing=8,
+                    controls=[_discover_row_card(u) for u in users],
                 )
             return ft.Container(
                 content=ft.Column(
-                    spacing=10,
+                    spacing=8,
                     controls=[
                         ft.Column(
-                            spacing=2,
+                            spacing=1,
                             controls=[
                                 _section_label(title),
-                                ft.Text(subtitle, size=12, color=ft.Colors.GREY_400)
+                                ft.Text(subtitle, size=11.5, color=ft.Colors.GREY_400)
                                 if subtitle else ft.Container(),
                             ],
                         ),
@@ -1053,26 +1075,26 @@ async def network_view(page: ft.Page):
                 scroll=ft.ScrollMode.AUTO,
                 controls=[
                     ft.Container(
-                        padding=ft.Padding.symmetric(horizontal=16, vertical=14),
+                        padding=ft.Padding.symmetric(horizontal=16, vertical=12),
                         content=ft.Column(
-                            spacing=20,
+                            spacing=18,
                             controls=[
-                                _horizontal_row(
+                                _category_section(
                                     "Peers at your university",
                                     peers_data,
                                     "Connect with your Schoolmates",
                                 ),
                                 ft.Divider(height=1, color=ft.Colors.GREY_100),
-                                _horizontal_row(
+                                _category_section(
                                     "People at your organisation",
                                     org_data,
                                     "Teamwork makes the dream work",
                                 ),
                                 ft.Divider(height=1, color=ft.Colors.GREY_100),
-                                _horizontal_row(
+                                _category_section(
                                     "Trending Learners",
                                     trending_data,
-                                    "Its hot in here! Connect with High-streak active learners this week",
+                                    "High-streak active learners this week",
                                 ),
                                 ft.Container(height=20),
                             ],
@@ -1082,20 +1104,78 @@ async def network_view(page: ft.Page):
             ),
         )
 
+    # ── Top Header matching reference UI (Clean, Minimalist, No Hero) ────────
+    header_title = ft.Text(
+        "Your Friends",
+        size=24,
+        weight=ft.FontWeight.W_800,
+        color=ft.Colors.ON_SURFACE,
+    )
+    header_subtitle = ft.Text(
+        ref=header_subtitle_ref,
+        value="Loading…",
+        size=12.5,
+        weight=ft.FontWeight.W_500,
+        color=ft.Colors.GREY_400,
+    )
+
+    top_nav_row = ft.Row(
+        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        controls=[
+            ft.IconButton(
+                icon=ft.Icons.ARROW_BACK_IOS_NEW_ROUNDED,
+                icon_size=18,
+                icon_color=ft.Colors.ON_SURFACE,
+                tooltip="Back to Dashboard",
+                on_click=lambda _: page.go("/dashboard"),
+            ),
+            ft.Container(
+                padding=ft.Padding.all(2),
+                border=ft.Border.all(1.5, ft.Colors.PRIMARY),
+                border_radius=20,
+                ink=True,
+                on_click=lambda _: page.go("/profile"),
+                tooltip="Your Profile",
+                content=ft.CircleAvatar(
+                    radius=14,
+                    bgcolor=ft.Colors.PRIMARY_CONTAINER,
+                    content=ft.Icon(ft.Icons.PERSON_ROUNDED, size=16, color=ft.Colors.PRIMARY),
+                ),
+            ),
+        ],
+    )
+
+    header_container = ft.Container(
+        padding=ft.Padding.only(left=16, right=16, top=10, bottom=4),
+        bgcolor=ft.Colors.SURFACE,
+        border=ft.Border(bottom=ft.BorderSide(1, ft.Colors.GREY_100)),
+        content=ft.Column(
+            spacing=8,
+            controls=[
+                top_nav_row,
+                ft.Column(
+                    spacing=2,
+                    controls=[
+                        header_title,
+                        header_subtitle,
+                    ],
+                ),
+                seg_row,
+            ],
+        ),
+    )
+
     # ─────────────────────────────────────────────────────────────────────────
     # BOOT
     # ─────────────────────────────────────────────────────────────────────────
-    # Build seg pills without triggering .update() (view not on page yet)
     _rebuild_seg(do_update=False)
-
-    # Set initial spinner so the view renders immediately with something visible
     content_socket.content = _loading_spinner("Loading your network…")
 
     view = ft.View(
         route="/network",
-        appbar=app_bar,
         bottom_appbar=app_bar_bottom,
-        bgcolor=ft.Colors.GREY_50,
+        bgcolor=ft.Colors.SURFACE,
         padding=0,
         controls=[
             ft.SafeArea(
@@ -1104,7 +1184,7 @@ async def network_view(page: ft.Page):
                     expand=True,
                     spacing=0,
                     controls=[
-                        seg_row,
+                        header_container,
                         ft.Container(expand=True, content=content_socket),
                     ],
                 ),
@@ -1112,15 +1192,8 @@ async def network_view(page: ft.Page):
         ],
     )
 
-    # Kick off data load AFTER the view is appended to page.views by the caller.
-    # A bare `sleep(0)` only yields once — it does NOT guarantee the router
-    # has finished appending `view` to page.views and Flet has mounted
-    # seg_row/content_socket by the time we resume. That's a race: it
-    # usually wins, but not always, which is exactly the intermittent
-    # "Control must be added to the page first" crash. Poll instead, with
-    # a sane timeout so we never hang forever if something else is wrong.
     async def _boot():
-        for _ in range(200):  # ~2s worst case at 10ms steps
+        for _ in range(200):
             if _is_mounted(seg_row):
                 break
             await asyncio.sleep(0.01)

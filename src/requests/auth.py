@@ -1,14 +1,15 @@
 import httpx
+from src.requests.net import ssl_context
 import json
 api_url = "https://api.nu-age.name.ng"
 
 async def login_request(email: str, password: str):
     # I bumped the timeout to 15 seconds. If the DB is waking up, 
     # giving it 5 extra seconds might just save the request.
-    limits = httpx.Timeout(15.0) 
+    limits = httpx.Timeout(connect=3.5, read=15.0, write=15.0, pool=5.0) 
     
     try:
-        async with httpx.AsyncClient(timeout=limits) as client:
+        async with httpx.AsyncClient(timeout=limits, verify=ssl_context) as client:
             response = await client.post(
                 f"{api_url}/users/auth/login", 
                 data={'username': email, 'password': password} 
@@ -52,21 +53,32 @@ async def signup_request(email: str, username: str, password: str, first_name: s
     if organisation is not None:
         payload["organisation"] = organisation
 
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        response = await client.post(
-            f"{api_url}/users/auth/register", 
-            json=payload 
-        )
-        return response.status_code, response.json()
+    try:
+        limits = httpx.Timeout(connect=3.5, read=15.0, write=15.0, pool=5.0)
+        async with httpx.AsyncClient(timeout=limits, verify=ssl_context) as client:  # bumped from 10s, matches login
+            response = await client.post(
+                f"{api_url}/users/auth/register", 
+                json=payload 
+            )
+            try:
+                return response.status_code, response.json()
+            except json.decoder.JSONDecodeError:
+                return response.status_code, {"detail": "Server error or waking up. Please try again."}
+
+    except httpx.ReadTimeout:
+        return 504, {"detail": "The server is waking up. Please try again."}
+
+    except httpx.RequestError as e:
+        return 503, {"detail": "Please check your internet connection and try again."}
 
 async def get_current_user_request(token: str):
 
     url = f"{api_url}/users/me"
     headers = {"Authorization": f"Bearer {token}"}
-    limits = httpx.Timeout(15.0)
+    limits = httpx.Timeout(connect=3.0, read=10.0, write=10.0, pool=5.0)
 
     try:
-        async with httpx.AsyncClient(timeout=limits) as client:
+        async with httpx.AsyncClient(timeout=limits, verify=ssl_context) as client:
             response = await client.get(url, headers=headers)
             try:
                 return response.status_code, response.json()
@@ -87,7 +99,7 @@ async def get_current_user_request(token: str):
 async def reset_request(token: str, payload: dict):
     payload = payload
     headers = {"Authorization": f"Bearer {token}"}
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with httpx.AsyncClient(timeout=10.0, verify=ssl_context) as client:
         response = await client.patch(
             f"{api_url}/users/me/update", 
             json=payload, headers=headers
@@ -99,7 +111,7 @@ async def get_universities():
     
     try:
         # Added a timeout so a slow network triggers the except block cleanly
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, verify=ssl_context) as client:
             response = await client.get(url)
             
             # Ensure we don't accidentally try to parse an HTML error page as JSON
@@ -114,19 +126,24 @@ async def get_universities():
     
 async def get_member_profile(token: str, identifier: str):
     """Fetches a specific user's public profile data."""
-    async with httpx.AsyncClient() as client:
-        response = await client.get(
-            f"{api_url}/users/one?identifier={identifier}", # Assuming your router prefix is /users
-            headers={"Authorization": f"Bearer {token}"}
-        )
-        response.raise_for_status()
-        return response.json()
+    try:
+        async with httpx.AsyncClient(verify=ssl_context, timeout=10.0) as client:
+            response = await client.get(
+                f"{api_url}/users/one?identifier={identifier}",
+                headers={"Authorization": f"Bearer {token}"}
+            )
+            if response.status_code == 200:
+                return response.json()
+            return {"error": response.json().get("detail", "User not found")}
+    except Exception as e:
+        print(f"Request Error in get_member_profile: {e}")
+        return {"error": "Connection failed"}
 
 async def verify_email_request(email: str, code: str):
     # Adjust your base URL if it is different
     payload = {"email": email, "code": code}
     
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(verify=ssl_context) as client:
         try:
             response = await client.post(f"{api_url}/users/auth/verify-email", json=payload)
             return response.status_code, response.json()
@@ -137,7 +154,7 @@ async def send_password_reset_otp(email: str):
     # Adjust your base URL if it is different
     
     
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(verify=ssl_context) as client:
         try:
             response = await client.post(f"{api_url}/users/auth/reset-password?email={email}")
             return response.status_code, response.json()
@@ -148,9 +165,30 @@ async def verify_password(email: str, new_password: str, otp: str):
     # Adjust your base URL if it is different
     payload = {"email": email, "new_password": new_password, "otp": otp}
     
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(verify=ssl_context) as client:
         try:
             response = await client.post(f"{api_url}/users/auth/verify-password?email={email}&otp={otp}&new_password={new_password}")
             return response.status_code, response.json()
         except Exception as e:
             return 500, {"detail": str(e)}
+
+async def refresh_access_token_request(refresh_token: str):
+    limits = httpx.Timeout(connect=3.5, read=10.0, write=10.0, pool=5.0)
+    async with httpx.AsyncClient(timeout=limits) as client:
+        resp = await client.post(
+            f"{api_url}/users/auth/refresh",
+            json={"refresh_token": refresh_token},
+        )
+        return resp.status_code, resp.json()
+
+async def logout_request(refresh_token: str):
+    limits = httpx.Timeout(connect=3.5, read=5.0, write=5.0, pool=3.0)
+    async with httpx.AsyncClient(timeout=limits) as client:
+        try:
+            resp = await client.post(
+                f"{api_url}/users/auth/logout",
+                json={"refresh_token": refresh_token},
+            )
+            return resp.status_code
+        except httpx.RequestError:
+            return None

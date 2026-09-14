@@ -29,8 +29,8 @@ jobs:
       - name: Setup Java (Required for Android)
         uses: actions/setup-java@v4
         with:
-          distribution: 'zulu'
-          java-version: '17'
+          distribution: "zulu"
+          java-version: "17"
 
       # NOTE: We intentionally do NOT install Flutter via subosito/flutter-action here.
       # flet-cli manages/downloads the exact Flutter SDK version its build template
@@ -42,7 +42,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
       - name: Install Build Tools
         run: |
@@ -82,9 +82,63 @@ jobs:
           flet doctor
 
       - name: Clean Flet build cache
-        run: rm -rf build .flet_build ~/.flet 2>/dev/null || true
+        run: |
+          rm -rf build .flet_build ~/.flet 2>/dev/null || true
+          # Explicit: ensure no stale/partial apk from a prior failed run can
+          # ever be picked up by the later "find build/apk -name *.apk" check.
+          find . -name "*.apk" -delete 2>/dev/null || true
+
+      - name: Decode signing keystore
+        run: |
+          # Flet copies the project into build/flutter/... before invoking Gradle,
+          # and Gradle resolves a relative key_store path against that copied
+          # android/app directory - not the repo root. A relative path here was
+          # the bug: Gradle looked for it at
+          # build/flutter/android/app/upload-keystore.jks and never found it.
+          # Using an absolute path (via RUNNER_TEMP) removes that ambiguity
+          # entirely, since it resolves the same way no matter where Gradle runs.
+          # tr strips any stray whitespace/newlines that copy-paste (especially
+          # from Windows/PowerShell) can introduce into the secret value -
+          # base64 -d can otherwise silently mis-decode a wrapped/CRLF'd blob
+          # into a corrupt file without raising an error.
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | tr -d '[:space:]' | base64 -d > "$RUNNER_TEMP/upload-keystore.jks"
+          echo "KEYSTORE_PATH=$RUNNER_TEMP/upload-keystore.jks" >> "$GITHUB_ENV"
+
+      - name: Verify decoded keystore is valid
+        env:
+          FLET_ANDROID_SIGNING_KEY_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          # Fail here, with a clear message, instead of discovering a
+          # corrupt/truncated keystore only after a ~9 minute Gradle build
+          # silently ships an unsigned APK. A bad base64 secret (stray
+          # newline, line-wrapping introduced by copy/paste) produces a file
+          # that exists but isn't a valid keystore - keytool -list refuses it.
+          ls -la "$KEYSTORE_PATH"
+          file "$KEYSTORE_PATH"
+          keytool -list -v -keystore "$KEYSTORE_PATH" -storepass "$FLET_ANDROID_SIGNING_KEY_STORE_PASSWORD" | head -20
 
       - name: Compile the APK
+        env:
+          # These four env vars are read directly by Gradle's
+          # `System.getenv(...)` calls inside the generated
+          # signingConfigs.release block. All four MUST be set here as
+          # literal FLET_* env vars — the --android-signing-key-store CLI
+          # flag only controls whether flet-cli renders the signingConfigs
+          # block in the first place; it does NOT export
+          # FLET_ANDROID_SIGNING_KEY_STORE for Gradle to read. Without it
+          # (and without FLET_ANDROID_SIGNING_KEY_ALIAS), storeFile and
+          # keyAlias silently resolve to null, Gradle builds an unusable
+          # signing config without erroring, and AGP quietly falls back to
+          # an unsigned APK.
+          FLET_ANDROID_SIGNING_KEY_STORE: ${{ env.KEYSTORE_PATH }}
+          FLET_ANDROID_SIGNING_KEY_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          # Not a secret - just the alias name inside the keystore (confirmed via
+          # the "Verify decoded keystore is valid" step's `keytool -list -v` output:
+          # "Alias name: upload"). Hardcoded here instead of a repo secret since
+          # knowing the alias alone is useless without the keystore file + both
+          # passwords.
+          FLET_ANDROID_SIGNING_KEY_ALIAS: upload
+          FLET_ANDROID_SIGNING_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -o pipefail
           # --arch arm64-v8a restricts native libs/Python dist to a single ABI.
@@ -95,11 +149,67 @@ jobs:
           # last ~6 years; x86_64 is only useful for emulators and armeabi-v7a is
           # legacy 32-bit devices. Add more archs back here only if you have a
           # concrete reason to ship them.
-          yes | flet build apk --product "Nu Age" --arch arm64-v8a --verbose 2>&1 | tee flet_build.log || true
+          yes | flet build apk --product "Nu Age" --arch arm64-v8a --android-signing-key-store "$KEYSTORE_PATH" --android-signing-key-alias "$FLET_ANDROID_SIGNING_KEY_ALIAS" --verbose 2>&1 | tee flet_build.log || true
           if ! grep -q "Successfully built your .apk for Android" flet_build.log; then
             echo "::error::CRITICAL ERROR: Flet compiler crashed! Check verbose logs for Dart/Python errors."
             exit 1
           fi
+
+      - name: Dump generated Gradle signing config (diagnostic)
+        run: |
+          # We've been guessing at how Flet wires FLET_ANDROID_SIGNING_KEY_STORE
+          # into the generated Gradle file across a few failed attempts. This
+          # prints the real generated file so the next fix is based on what
+          # Flet actually wrote, not on reading flet-cli source in isolation.
+          GRADLE_FILE=$(find build -name "build.gradle.kts" -path "*app*" | head -n 1)
+          echo "Found: $GRADLE_FILE"
+          if [ -n "$GRADLE_FILE" ]; then
+            echo "--- signingConfigs / buildTypes section ---"
+            grep -n -A 15 "signingConfigs\|buildTypes" "$GRADLE_FILE" || echo "(no signingConfigs/buildTypes block found at all)"
+            echo "--- full file, for reference ---"
+            cat "$GRADLE_FILE"
+          else
+            echo "::warning::No build.gradle.kts found under build/ - Flet may use a different output path in this version."
+            find build -iname "*.gradle*" 2>/dev/null
+          fi
+
+      - name: Verify APK is signed
+        run: |
+          # Belt-and-suspenders: fail the job explicitly if an unsigned APK
+          # would otherwise slip through and get uploaded as the artifact.
+          #
+          # NOTE: this used to grep for META-INF/*.RSA|DSA|EC (the old JAR/v1
+          # signing artifacts). That check was a false positive generator:
+          # since minSdk is 24, AGP is free to sign release builds with
+          # Signature Scheme v2/v3 only, which embeds the signature in a
+          # binary "APK Signing Block" instead of META-INF - a validly
+          # v2/v3-signed, installable APK legitimately has NO META-INF/*.RSA
+          # file at all. Use apksigner (the real Android tool for this) so
+          # v1/v2/v3/v4 are all correctly recognized instead of assuming the
+          # old JAR-signing layout.
+          set -e
+          APK_FILE=$(find build/apk -name "*.apk" | head -n 1)
+          if [ -z "$APK_FILE" ]; then
+            echo "::error::No APK found in build/apk after build step."
+            exit 1
+          fi
+
+          APKSIGNER=$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools" -name apksigner 2>/dev/null | sort -V | tail -n 1)
+          if [ -z "$APKSIGNER" ]; then
+            echo "::error::apksigner not found under Android SDK build-tools - cannot verify signing."
+            exit 1
+          fi
+          echo "Using apksigner: $APKSIGNER"
+
+          if ! "$APKSIGNER" verify --print-certs "$APK_FILE"; then
+            echo "::error::APK failed apksigner verification — it is unsigned or the signature is invalid. Refusing to publish."
+            exit 1
+          fi
+          echo "APK signature verified by apksigner — OK."
+
+      - name: Clean up decoded keystore
+        if: always()
+        run: rm -f "$KEYSTORE_PATH"
 
       - name: Show extra logs on failure
         if: failure()

@@ -1,6 +1,7 @@
 import flet as ft
 from datetime import datetime
 import asyncio
+import json
 
 # ==========================================
 # REAL BACKEND IMPORTS
@@ -19,6 +20,15 @@ from src.requests.chats import (
     delete_chat_channel,
     leave_group_channel
 )
+
+from src.local_db import (
+    get_cached_chat_channels,
+    upsert_chat_channels,
+    get_cached_messages,
+    upsert_chat_messages
+)
+import json
+
 
 
 async def chat_view(page: ft.Page) -> ft.View:
@@ -100,6 +110,7 @@ async def chat_view(page: ft.Page) -> ft.View:
             ],
             actions_alignment=ft.MainAxisAlignment.END
         )
+        page.open(dlg)
         page.overlay.append(dlg)
         dlg.open = True
         page.update()
@@ -164,6 +175,10 @@ async def chat_view(page: ft.Page) -> ft.View:
                 page.run_task(ws_client_ref[0].send_message, current_chat_id[0], "typing", "typing")
             last_typing_time[0] = now
 
+    # ==========================================
+    # 5. INPUT & SEARCH FIELDS
+    # ==========================================
+
     msg_input = ft.TextField(
         hint_text="Message",
         expand=True,
@@ -208,7 +223,7 @@ async def chat_view(page: ft.Page) -> ft.View:
         tokens   = [t for t in (name or "").split() if t]
         initials = "".join([t[0] for t in tokens[:2]]).upper() if tokens else "?"
 
-        is_group = channel_type in ("group", "org", "organisation", "custom")
+        is_group = channel_type != "direct"
 
         base_avatar = ft.CircleAvatar(
             content=(
@@ -505,6 +520,9 @@ async def chat_view(page: ft.Page) -> ft.View:
                 ]
             )
 
+        # No poll block here anymore
+
+
         sender_info = msg.get("sender", {})
         my_id       = str(current_user_id[0]).strip().lower()
         sender_id   = str(sender_info.get("id", "unknown")).strip().lower()
@@ -560,10 +578,12 @@ async def chat_view(page: ft.Page) -> ft.View:
         margin = ft.Margin(top=1, bottom=1, left=60 if is_me else 8, right=8 if is_me else 60)
 
         if is_me:
-            return ft.Container(
+            c = ft.Container(
                 content=ft.Row([bubble], alignment=ft.MainAxisAlignment.END),
                 margin=margin
             )
+            c.data = str(msg.get("id"))
+            return c
         else:
             sender_initials = "".join([t[0] for t in sender_name.split()[:2]]).upper()
             sender_avatar   = ft.CircleAvatar(
@@ -571,7 +591,7 @@ async def chat_view(page: ft.Page) -> ft.View:
                 bgcolor=ft.Colors.with_opacity(0.75, UI_ACCENT),
                 radius=14
             )
-            return ft.Container(
+            c = ft.Container(
                 content=ft.Row(
                     [sender_avatar, bubble],
                     alignment=ft.MainAxisAlignment.START,
@@ -580,6 +600,8 @@ async def chat_view(page: ft.Page) -> ft.View:
                 ),
                 margin=margin
             )
+            c.data = str(msg.get("id"))
+            return c
 
     # ==========================================
     # 10. TYPING INDICATOR
@@ -657,6 +679,7 @@ async def chat_view(page: ft.Page) -> ft.View:
             channels_list = res
         render_chat_list()
 
+
     async def load_active_chat(chat_id):
         if chat_load_lock[0]: return
         chat_load_lock[0] = True
@@ -685,7 +708,7 @@ async def chat_view(page: ft.Page) -> ft.View:
             _chat_online   = chat_info.get("is_online", False)
             header_actions = []
 
-            if _chat_type in ("group", "custom", "organisation"):
+            if _chat_type != "direct":
                 header_actions.append(
                     ft.IconButton(
                         ft.Icons.PERSON_ADD_ALT_1_ROUNDED,
@@ -783,62 +806,95 @@ async def chat_view(page: ft.Page) -> ft.View:
                 )
             ], spacing=0, expand=True)
 
+
+    
             update_responsive_layout()
+
             page.update()
 
+            # --- 1. LOCAL CACHE LOAD ---
+            def _render_history(hist_list):
+                messages_listview.controls.clear()
+                seen_msg_ids.clear()
+                showing_placeholder[0] = False
+                if hist_list:
+                    current_date_label = None
+                    for msg in reversed(hist_list):
+                        if msg.get("type") in ("typing", "presence"): continue
+                        
+                        msg_id = str(msg.get("id"))
+                        if msg_id: seen_msg_ids.add(msg_id)
+
+                        msg_date = get_day_label(msg.get("created_at"))
+                        if msg_date and msg_date != current_date_label:
+                            date_pill = ft.Container(
+                                content=ft.Text(msg_date, size=11, color=ft.Colors.BLACK,
+                                                weight=ft.FontWeight.W_500),
+                                bgcolor="#D1F2EA",
+                                padding=ft.Padding(14, 5, 14, 5),
+                                border_radius=10,
+                                margin=ft.Margin(top=8, bottom=8, left=0, right=0),
+                                shadow=ft.BoxShadow(blur_radius=2, color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE), offset=ft.Offset(0, 1))
+                            )
+                            messages_listview.controls.append(
+                                ft.Row([date_pill], alignment=ft.MainAxisAlignment.CENTER)
+                            )
+                            current_date_label = msg_date
+
+                        messages_listview.controls.append(render_message_bubble(msg))
+                else:
+                    showing_placeholder[0] = True
+                    messages_listview.controls = [
+                        ft.Container(
+                            expand=True,
+                            alignment=ft.Alignment(0, 0),
+                            content=ft.Column([
+                                ft.Container(
+                                    content=ft.Text("Say Hello!", size=14,
+                                                    color=ft.Colors.ON_SURFACE54, weight=ft.FontWeight.W_500),
+                                    bgcolor="#D1F2EA",
+                                    padding=ft.Padding(18, 8, 18, 8),
+                                    border_radius=12
+                                )
+                            ], alignment=ft.MainAxisAlignment.CENTER,
+                               horizontal_alignment=ft.CrossAxisAlignment.CENTER)
+                        )
+                    ]
+                page.update()
+
+            cached_history = get_cached_messages(page, chat_id)
+            if cached_history:
+                _render_history(cached_history)
+
+            # --- 2. NETWORK SYNC ---
             history = await get_channel_messages(token, chat_id)
 
             if isinstance(history, dict) and ("401" in str(history) or "unauthorized" in str(history).lower() or "error" in history):
                 trigger_session_expired()
                 return
 
-            messages_listview.controls.clear()
-            seen_msg_ids.clear()
-            showing_placeholder[0] = False
-
-            if isinstance(history, list) and len(history) > 0:
-                current_date_label = None
-                for msg in reversed(history):
-                    if msg.get("type") in ("typing", "presence"): continue
+            if isinstance(history, list):
+                # Format for SQLite ONLY, keep raw nested JSON for UI rendering
+                formatted_msgs = []
+                for m in history:
+                    sender_data = m.get("sender") or {}
+                    formatted_msgs.append({
+                        "id": str(m.get("id")),
+                        "channel_id": str(chat_id),
+                        "sender_id": str(sender_data.get("id", m.get("sender_id", ""))),
+                        "sender_name": str(sender_data.get("name") or "Unknown").strip() or "Unknown",
+                        "type": m.get("type", "text"),
+                        "content": m.get("content", ""),
+                        "metadata_payload": json.dumps(m.get("metadata_payload")) if m.get("metadata_payload") else None,
+                        "created_at": str(m.get("created_at", "")),
+                        "status": "sent"
+                    })
+                
+                if formatted_msgs:
+                    upsert_chat_messages(page, formatted_msgs)
                     
-                    msg_id = str(msg.get("id"))
-                    if msg_id: seen_msg_ids.add(msg_id)
+                _render_history(history)
 
-                    msg_date = get_day_label(msg.get("created_at"))
-                    if msg_date and msg_date != current_date_label:
-                        date_pill = ft.Container(
-                            content=ft.Text(msg_date, size=11, color=ft.Colors.BLACK,
-                                            weight=ft.FontWeight.W_500),
-                            bgcolor="#D1F2EA",
-                            padding=ft.Padding(14, 5, 14, 5),
-                            border_radius=10,
-                            margin=ft.Margin(top=8, bottom=8, left=0, right=0),
-                            shadow=ft.BoxShadow(blur_radius=2, color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE), offset=ft.Offset(0, 1))
-                        )
-                        messages_listview.controls.append(
-                            ft.Row([date_pill], alignment=ft.MainAxisAlignment.CENTER)
-                        )
-                        current_date_label = msg_date
-
-                    messages_listview.controls.append(render_message_bubble(msg))
-            else:
-                showing_placeholder[0] = True
-                messages_listview.controls = [
-                    ft.Container(
-                        expand=True,
-                        alignment=ft.Alignment(0, 0),
-                        content=ft.Column([
-                            ft.Container(
-                                content=ft.Text("Say Hello!", size=14,
-                                                color=ft.Colors.ON_SURFACE54, weight=ft.FontWeight.W_500),
-                                bgcolor="#D1F2EA",
-                                padding=ft.Padding(18, 8, 18, 8),
-                                border_radius=12
-                            )
-                        ], alignment=ft.MainAxisAlignment.CENTER,
-                           horizontal_alignment=ft.CrossAxisAlignment.CENTER)
-                    )
-                ]
 
             if len(active_chat_header.controls) >= 3:
                 status_col = active_chat_header.controls[2]
@@ -858,6 +914,10 @@ async def chat_view(page: ft.Page) -> ft.View:
             ws_client_ref[0] = ChatWebSocketClient(token)
             await ws_client_ref[0].connect(handle_incoming_message)
 
+        except Exception as e:
+            print(f"CRITICAL ERROR IN LOAD_ACTIVE_CHAT: {e}")
+            import traceback
+            traceback.print_exc()
         finally:
             chat_load_lock[0] = False
 
@@ -905,6 +965,7 @@ async def chat_view(page: ft.Page) -> ft.View:
             return
             
         msg_id_str = str(msg_id)
+        
         if msg_id_str in seen_msg_ids: return
         seen_msg_ids.add(msg_id_str)
 
