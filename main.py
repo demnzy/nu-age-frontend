@@ -34,6 +34,7 @@ from src.download_manager import is_course_downloaded
 from src.progress_sync import sync_offline_progress
 from src.local_db import get_local_db, has_any_downloaded_courses
 from src.components.shimmer_skeletons import build_skeleton_view
+from src.components.bottom_appbar import PersistentBottomAppBar
 import os
 
 
@@ -199,26 +200,60 @@ async def main(page: ft.Page):
     # We define the ColorScheme AND Transitions in ONE object so they don't overwrite each other.
     page.window.icon = "icon.ico"
 
+    # ── PERSISTENT APP SHELL & BOTTOM NAVIGATION ─────────────────────────────
+    # The bottom app bar is instantiated once and mounted onto a stationary
+    # App Shell View. Content above the bar transitions smoothly inside an
+    # AnimatedSwitcher, completely eliminating tab sliding/flickering.
+    persistent_nav_bar = PersistentBottomAppBar(page)
+    shell_history = []
+
+    shell_content = ft.AnimatedSwitcher(
+        content=ft.Container(expand=True),
+        transition=ft.AnimatedSwitcherTransition.FADE,
+        duration=180,
+        reverse_duration=150,
+        switch_in_curve=ft.AnimationCurve.EASE_OUT,
+        switch_out_curve=ft.AnimationCurve.EASE_IN,
+        expand=True,
+    )
+
+    shell_view = ft.View(
+        route="/dashboard",
+        bottom_appbar=persistent_nav_bar.bar,
+        padding=0,
+        bgcolor=ft.Colors.SURFACE,
+        controls=[shell_content],
+    )
+
+    def is_shell_route(route: str) -> bool:
+        if not route:
+            return False
+        clean = route.split("?")[0]
+        if clean in ("/", "/login", "/signup", "/offline"):
+            return False
+        if clean.startswith("/accept-invite/"):
+            return False
+        if clean.startswith("/courses/") and (clean.endswith("/view") or clean.endswith("/offline")):
+            return False
+        if clean.startswith("/playlists/") and not (clean.endswith("/build") or clean.endswith("/settings") or clean.endswith("/analytics")):
+            return False
+        return True
+
     def view_pop(view):
-        # Prevent crashing if there's only one page left
+        for ctrl in list(page.overlay):
+            if isinstance(ctrl, ft.AlertDialog):
+                ctrl.open = False
         if len(page.views) > 1:
-            # BUG FIX: if a dialog was opened on the view *underneath* the
-            # one being popped (e.g. login's connectivity dialog, before
-            # navigating to /offline via "View downloaded courses"),
-            # page.pop_dialog()'s bookkeeping can end up out of sync with
-            # which View is actually on screen once we come back via the
-            # back arrow — the dialog can resurface stuck open, with dead
-            # handlers and no scrim-tap-to-dismiss. Force-close anything
-            # left open on page.overlay here, unconditionally, before we
-            # even look at what's underneath, so the revealed view never
-            # resurfaces with a stuck dialog regardless of ordering.
-            for ctrl in list(page.overlay):
-                if isinstance(ctrl, ft.AlertDialog):
-                    ctrl.open = False
-            page.views.pop()             # Remove the current view from the stack
-            top_view = page.views[-1]    # Look at the view underneath it
-            page.go(top_view.route)      # Navigate to that route
-            page.update()
+            page.views.pop()
+            top_view = page.views[-1]
+            if top_view is shell_view:
+                page.go(shell_history[-1] if shell_history else "/dashboard")
+            else:
+                page.go(top_view.route)
+        elif len(shell_history) > 1:
+            shell_history.pop()
+            prev_route = shell_history.pop()
+            page.go(prev_route)
 
     # 2. Attach it to the page event
     page.on_view_pop = view_pop
@@ -277,9 +312,12 @@ async def main(page: ft.Page):
         """Apply the correct theme and persist the preference."""
         if is_dark:
             page.theme_mode = ft.ThemeMode.DARK
-            page.theme = LIGHT_THEME       # used as fallback base
-            page.dark_theme = DARK_THEME   # Flet uses dark_theme in dark mode
+            if page.theme is not LIGHT_THEME:
+                page.theme = LIGHT_THEME       # used as fallback base
+            if page.dark_theme is not DARK_THEME:
+                page.dark_theme = DARK_THEME   # Flet uses dark_theme in dark mode
             page.bgcolor = "#121212"
+            shell_view.bgcolor = "#121212"
 
             # Set to Dark Mode Logo
             splash_logo.src = "nu_age_black_2-removebg-preview.png"
@@ -287,8 +325,12 @@ async def main(page: ft.Page):
             splash_logo.height = 500
         else:
             page.theme_mode = ft.ThemeMode.LIGHT
-            page.theme = LIGHT_THEME
+            if page.theme is not LIGHT_THEME:
+                page.theme = LIGHT_THEME
+            if page.dark_theme is not DARK_THEME:
+                page.dark_theme = DARK_THEME
             page.bgcolor = ft.Colors.SURFACE
+            shell_view.bgcolor = ft.Colors.SURFACE
 
             # THE FIX: Explicitly reset to Light Mode Logo
             splash_logo.src = "Nu age new logo.png"
@@ -372,132 +414,329 @@ async def main(page: ft.Page):
         # as "something to send this person offline to".
         return has_any_downloaded_courses(page)
 
+    def _get_downloaded_course_count() -> int:
+        if getattr(page, "web", False):
+            return 0
+        try:
+            db = get_local_db(page)
+            row = db.execute("SELECT COUNT(*) FROM downloaded_courses").fetchone()
+            return int(row[0]) if row else 0
+        except Exception:
+            return 0
+
     def _view_offline_courses_button() -> ft.Control:
         def go_offline(e):
             page.go("/offline")
 
-        return ft.ElevatedButton(
-            "Downloads",
-            icon=ft.Icons.DOWNLOAD_FOR_OFFLINE,
-            color=ft.Colors.PRIMARY,
-            bgcolor=ft.Colors.ON_PRIMARY,
-            on_click=go_offline,
+        return ft.FilledButton(
+            content=ft.Row(
+                [
+                    ft.Icon(ft.Icons.DOWNLOAD_FOR_OFFLINE_ROUNDED, size=18),
+                    ft.Text("View Your Downloads", weight=ft.FontWeight.W_600, size=13),
+                ],
+                alignment=ft.MainAxisAlignment.CENTER,
+                spacing=8,
+            ),
             style=ft.ButtonStyle(
-                shape=ft.RoundedRectangleBorder(radius=8),
-                padding=ft.Padding(left=20, top=12, right=20, bottom=12),
-            )
+                shape=ft.RoundedRectangleBorder(radius=10),
+                bgcolor=ft.Colors.PRIMARY,
+                color=ft.Colors.ON_PRIMARY,
+                padding=ft.Padding.symmetric(horizontal=18, vertical=12),
+            ),
+            on_click=go_offline,
         )
 
     def _error_fallback_view(route: str, ex: Exception, status: int = None) -> ft.View:
-        """A visible error screen used whenever a view fails to load —
-        whether it raised an exception or silently returned nothing. Ensures
-        the user always sees *something* explaining the failure, with a way
-        to retry, instead of a dead blank screen.
-
-        Uses the same classify_failure()/failure_copy() as the rest of the
-        app's error handling (see module-level definitions near the top of
-        this file), so this screen and the SnackBar/dialog notices always
-        agree on wording — and so a code bug (e.g. "string indices must be
-        integers, not 'str'") shows as "Something went wrong", not under a
-        wifi-off icon with "This page couldn't load", which is what was
-        happening before this screen was wired into the shared classifier.
-
-        The raw exception text is still available — behind a "Details"
-        toggle, collapsed by default — rather than permanently on screen.
-        Keeps the friendly message for regular users while the exact error
-        is still one tap away for debugging."""
+        """A sleek, modern offline and error screen used whenever a view fails to load.
+        Provides a dedicated, elegant 'Offline Mode' experience when disconnected,
+        offering direct one-tap access to downloaded courses, or clear diagnostics
+        for server/client errors."""
         kind = classify_failure(ex, status)
         copy = failure_copy(kind, ex, status)
+        is_offline = (kind == "connectivity")
+        has_downloads = is_offline and _has_any_downloaded_courses()
+        download_count = _get_downloaded_course_count() if has_downloads else 0
 
         def retry(e):
-            # page.route already equals `route` here (this view's own
-            # route is the one that failed), so a plain page.go(route)
-            # is a same-route no-op client-side — the tap would do
-            # nothing. Directly re-run the route-loading logic instead
-            # of relying on a "route change" the client won't detect.
             page.run_task(route_change, None)
 
+        def go_offline(e):
+            page.go("/offline")
+
+        # ── Technical Diagnostics Toggle ──────────────────────────────
         details_text = ft.Text(
-            copy["dev_detail"] or "No further detail available.",
+            copy["dev_detail"] or "No further diagnostic details available.",
             size=11,
-            color=ft.Colors.BLACK,
+            color=ft.Colors.ON_SURFACE,
             selectable=True,
+            font_family="roboto",
         )
         details_container = ft.Container(
-            content=details_text,
+            content=ft.Column(
+                [
+                    ft.Row(
+                        [
+                            ft.Icon(ft.Icons.TERMINAL_ROUNDED, size=14, color=ft.Colors.ON_SURFACE_VARIANT),
+                            ft.Text("DIAGNOSTIC DETAILS", size=10, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE_VARIANT),
+                        ],
+                        spacing=6,
+                        tight=True,
+                    ),
+                    details_text,
+                ],
+                spacing=6,
+            ),
             visible=False,
-            padding=ft.Padding.symmetric(horizontal=16, vertical=10),
-            bgcolor=ft.Colors.with_opacity(0.05, ft.Colors.ON_SURFACE),
-            border_radius=8,
-            width=320,
+            padding=ft.Padding.symmetric(horizontal=16, vertical=12),
+            bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
+            border=ft.Border.all(1, ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)),
+            border_radius=10,
+            width=360,
         )
 
         def toggle_details(e):
             details_container.visible = not details_container.visible
-            toggle_button.text = "Hide details" if details_container.visible else "Show details"
+            toggle_icon.name = ft.Icons.KEYBOARD_ARROW_UP_ROUNDED if details_container.visible else ft.Icons.KEYBOARD_ARROW_DOWN_ROUNDED
+            toggle_label.text = "Hide diagnostic details" if details_container.visible else "Show diagnostic details"
             details_container.update()
             toggle_button.update()
 
-        toggle_button = ft.TextButton("Show details", on_click=toggle_details)
+        toggle_icon = ft.Icon(ft.Icons.KEYBOARD_ARROW_DOWN_ROUNDED, size=16, color=ft.Colors.ON_SURFACE_VARIANT)
+        toggle_label = ft.Text("Show diagnostic details", size=11, color=ft.Colors.ON_SURFACE_VARIANT, weight=ft.FontWeight.W_500)
+        toggle_button = ft.TextButton(
+            content=ft.Row([toggle_icon, toggle_label], spacing=4, tight=True),
+            on_click=toggle_details,
+        )
 
-        # Centralized offline escape hatch: only offered when the failure
-        # is genuinely a connectivity problem (not a 5xx or a code bug —
-        # those aren't fixed by going offline) AND there's actually
-        # something downloaded to send the person to. Covers exactly the
-        # case you flagged: cold app open, offline, with a token that
-        # might still be perfectly valid — previously this screen was a
-        # dead end even when local course content existed.
-        offer_offline = kind == "connectivity" and _has_any_downloaded_courses()
+        # ── Visual Badging & Hero Icon ─────────────────────────────────
+        accent_color = ft.Colors.PRIMARY if is_offline else ft.Colors.ERROR
+        badge_text = "OFFLINE MODE" if is_offline else ("SERVER ISSUE" if kind == "server" else "SYSTEM NOTICE")
+        badge_icon = ft.Icons.WIFI_OFF_ROUNDED if is_offline else (ft.Icons.DNS_ROUNDED if kind == "server" else ft.Icons.BUG_REPORT_ROUNDED)
 
-        primary_actions = [
-            ft.FilledButton(
-                "Retry",
-                icon=ft.Icons.REFRESH,
-                on_click=retry,
-                style=ft.ButtonStyle(
-                    shape=ft.RoundedRectangleBorder(radius=8),
-                    padding=ft.Padding(left=20, top=12, right=20, bottom=12),
+        badge_pill = ft.Container(
+            content=ft.Row(
+                [
+                    ft.Container(width=6, height=6, border_radius=3, bgcolor=accent_color),
+                    ft.Text(badge_text, size=11, weight=ft.FontWeight.BOLD, color=accent_color),
+                ],
+                tight=True,
+                spacing=6,
+            ),
+            bgcolor=ft.Colors.with_opacity(0.10, accent_color),
+            padding=ft.Padding.symmetric(horizontal=12, vertical=5),
+            border_radius=20,
+            border=ft.Border.all(1, ft.Colors.with_opacity(0.2, accent_color)),
+        )
+
+        hero_icon_widget = ft.Container(
+            width=80,
+            height=80,
+            border_radius=40,
+            bgcolor=ft.Colors.with_opacity(0.08, accent_color),
+            alignment=ft.Alignment.CENTER,
+            content=ft.Container(
+                width=56,
+                height=56,
+                border_radius=28,
+                bgcolor=ft.Colors.with_opacity(0.16, accent_color),
+                alignment=ft.Alignment.CENTER,
+                content=ft.Icon(badge_icon, size=28, color=accent_color),
+            ),
+        )
+
+        # ── Dynamic Action Section ─────────────────────────────────────
+        action_elements = []
+
+        if has_downloads:
+            # Standout Hero Card for Offline Study
+            action_elements.append(
+                ft.Container(
+                    width=360,
+                    bgcolor=ft.Colors.SURFACE,
+                    border=ft.Border.all(1.2, ft.Colors.with_opacity(0.25, ft.Colors.PRIMARY)),
+                    border_radius=16,
+                    padding=18,
+                    shadow=ft.BoxShadow(
+                        blur_radius=16,
+                        color=ft.Colors.with_opacity(0.06, ft.Colors.BLACK),
+                        offset=ft.Offset(0, 4),
+                    ),
+                    content=ft.Column(
+                        [
+                            ft.Row(
+                                [
+                                    ft.Container(
+                                        width=44,
+                                        height=44,
+                                        border_radius=12,
+                                        bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY),
+                                        alignment=ft.Alignment.CENTER,
+                                        content=ft.Icon(
+                                            ft.Icons.DOWNLOAD_FOR_OFFLINE_ROUNDED,
+                                            color=ft.Colors.PRIMARY,
+                                            size=24,
+                                        ),
+                                    ),
+                                    ft.Column(
+                                        [
+                                            ft.Text(
+                                                "Downloaded Courses",
+                                                size=15,
+                                                weight=ft.FontWeight.BOLD,
+                                                color=ft.Colors.ON_SURFACE,
+                                            ),
+                                            ft.Text(
+                                                f"{download_count} course{'s' if download_count != 1 else ''} ready for offline study",
+                                                size=12,
+                                                color=ft.Colors.ON_SURFACE_VARIANT,
+                                            ),
+                                        ],
+                                        spacing=2,
+                                        expand=True,
+                                    ),
+                                ],
+                                spacing=12,
+                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            ),
+                            ft.FilledButton(
+                                content=ft.Row(
+                                    [
+                                        ft.Text("View Your Downloads", weight=ft.FontWeight.BOLD, size=13),
+                                        ft.Icon(ft.Icons.ARROW_FORWARD_ROUNDED, size=16),
+                                    ],
+                                    alignment=ft.MainAxisAlignment.CENTER,
+                                    spacing=8,
+                                ),
+                                height=44,
+                                width=360,
+                                on_click=go_offline,
+                                style=ft.ButtonStyle(
+                                    shape=ft.RoundedRectangleBorder(radius=10),
+                                    bgcolor=ft.Colors.PRIMARY,
+                                    color=ft.Colors.ON_PRIMARY,
+                                ),
+                            ),
+                        ],
+                        spacing=14,
+                    ),
                 )
             )
-        ]
-        
-        if offer_offline:
-            primary_actions.append(_view_offline_courses_button())
-            
-        action_row = ft.Row(
-            primary_actions,
-            alignment=ft.MainAxisAlignment.CENTER,
-            spacing=16,
+            # Secondary reconnection button
+            action_elements.append(
+                ft.OutlinedButton(
+                    content=ft.Row(
+                        [
+                            ft.Icon(ft.Icons.REFRESH_ROUNDED, size=16),
+                            ft.Text("Try Reconnecting", weight=ft.FontWeight.W_600, size=13),
+                        ],
+                        alignment=ft.MainAxisAlignment.CENTER,
+                        spacing=6,
+                    ),
+                    height=42,
+                    width=360,
+                    on_click=retry,
+                    style=ft.ButtonStyle(
+                        shape=ft.RoundedRectangleBorder(radius=10),
+                        side=ft.BorderSide(1, ft.Colors.with_opacity(0.2, ft.Colors.OUTLINE)),
+                    ),
+                )
+            )
+        else:
+            # No offline downloads available or non-connectivity error
+            primary_text = "Retry Connection" if is_offline else "Try Again"
+            action_elements.append(
+                ft.FilledButton(
+                    content=ft.Row(
+                        [
+                            ft.Icon(ft.Icons.REFRESH_ROUNDED, size=18),
+                            ft.Text(primary_text, weight=ft.FontWeight.BOLD, size=14),
+                        ],
+                        alignment=ft.MainAxisAlignment.CENTER,
+                        spacing=8,
+                    ),
+                    height=46,
+                    width=360,
+                    on_click=retry,
+                    style=ft.ButtonStyle(
+                        shape=ft.RoundedRectangleBorder(radius=10),
+                        bgcolor=ft.Colors.PRIMARY,
+                        color=ft.Colors.ON_PRIMARY,
+                    ),
+                )
+            )
+            if is_offline and not getattr(page, "web", False):
+                action_elements.append(
+                    ft.Text(
+                        "Tip: Download courses while online to access them anytime without internet.",
+                        size=11,
+                        color=ft.Colors.ON_SURFACE_VARIANT,
+                        text_align=ft.TextAlign.CENTER,
+                    )
+                )
+
+        main_card = ft.Container(
+            width=400,
+            bgcolor=ft.Colors.SURFACE,
+            border_radius=20,
+            padding=ft.Padding.symmetric(horizontal=24, vertical=32),
+            shadow=ft.BoxShadow(
+                blur_radius=24,
+                color=ft.Colors.with_opacity(0.04, ft.Colors.BLACK),
+                offset=ft.Offset(0, 8),
+            ),
+            content=ft.Column(
+                [
+                    badge_pill,
+                    hero_icon_widget,
+                    ft.Text(
+                        "You're Offline" if is_offline else copy["dialog_title"],
+                        size=22,
+                        weight=ft.FontWeight.BOLD,
+                        text_align=ft.TextAlign.CENTER,
+                        color=ft.Colors.ON_SURFACE,
+                    ),
+                    ft.Text(
+                        "No internet connection was detected. You can still study any courses you've previously downloaded."
+                        if (is_offline and has_downloads)
+                        else copy["dialog_message"],
+                        size=13,
+                        color=ft.Colors.ON_SURFACE_VARIANT,
+                        text_align=ft.TextAlign.CENTER,
+                    ),
+                    ft.Container(height=6),
+                    *action_elements,
+                    ft.Container(height=4),
+                    toggle_button,
+                    details_container,
+                ],
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                alignment=ft.MainAxisAlignment.CENTER,
+                spacing=12,
+            ),
         )
 
         return ft.View(
-    route=route,
-    controls=[
-        ft.Column(
-            [
-                ft.Icon(copy["icon"], color=ft.Colors.ERROR, size=48),
-                ft.Text(copy["dialog_title"], size=18, weight=ft.FontWeight.BOLD),
-                ft.Text(
-                    copy["dialog_message"],
-                    size=14,
-                    color=ft.Colors.OUTLINE,
-                    text_align=ft.TextAlign.CENTER,
+            route=route,
+            bgcolor=ft.Colors.SURFACE,
+            padding=16,
+            controls=[
+                ft.SafeArea(
+                    expand=True,
+                    content=ft.Container(
+                        expand=True,
+                        alignment=ft.Alignment.CENTER,
+                        content=ft.Column(
+                            [main_card],
+                            alignment=ft.MainAxisAlignment.CENTER,
+                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            scroll=ft.ScrollMode.ADAPTIVE,
+                        ),
+                    ),
                 ),
-                ft.Container(height=4),
-                action_row,
-                toggle_button,
-                details_container,
             ],
+            vertical_alignment=ft.MainAxisAlignment.CENTER,
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            alignment=ft.MainAxisAlignment.CENTER,
-            spacing=12,
-            expand=True,
         )
-    ],
-    vertical_alignment=ft.MainAxisAlignment.CENTER,
-    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-    padding=20,
-)
     def skeleton_view(route: str, rows: int = 5) -> ft.View:
         """Full-screen shimmer placeholder shown instantly while the real
         view loads. Uses 1-to-1 accurate grey shimmer skeletons matching
@@ -530,6 +769,23 @@ async def main(page: ft.Page):
             # stop quietly rather than crashing the background task.
             pass
 
+    def _strip_redundant_appbars(controls: list) -> list:
+        """Safeguard: filters out any ft.BottomAppBar or ft.AppBar instances
+        accidentally included in controls, preventing stacked/duplicate app bars
+        when views are mounted inside the persistent shell or as standalone pages."""
+        if not controls:
+            return []
+        cleaned = []
+        for c in controls:
+            if isinstance(c, (ft.BottomAppBar, ft.AppBar)):
+                continue
+            if isinstance(c, ft.Container) and isinstance(getattr(c, "content", None), (ft.BottomAppBar, ft.AppBar)):
+                continue
+            if isinstance(c, ft.Column) and hasattr(c, "controls") and c.controls:
+                c.controls = [child for child in c.controls if not isinstance(child, (ft.BottomAppBar, ft.AppBar))]
+            cleaned.append(c)
+        return cleaned
+
     async def load_view(
         coro,
         route: str,
@@ -550,43 +806,87 @@ async def main(page: ft.Page):
         push its own dedicated error screen) or False if there was nothing
         to fall back to (meaning load_view should show the error screen).
         May be a sync or async callable — both are supported."""
+        in_shell = is_shell_route(route)
+        shimmer_task = None
+        skel = None
+
+        coro_task = asyncio.ensure_future(coro)
+
         if existing_skeleton is not None:
             skel = existing_skeleton
             shimmer_task = existing_shimmer_task
         else:
-            skel = skeleton_view(route)
-            page.views.append(skel)
-            page.update()
-            # CRITICAL: page.update() only queues the change — without
-            # yielding back to the event loop here, the blocking `await
-            # coro` below can start executing before that update has
-            # actually been flushed to the client, making the skeleton
-            # appear late. asyncio.sleep(0) forces a real scheduler tick
-            # so the update is sent immediately.
-            await asyncio.sleep(0)
-            shimmer_task = page.run_task(run_shimmer, skel.data, skel)
+            # Check if coro takes longer than 350ms (e.g. cold start).
+            # Normal in-memory view construction completes in <100ms and transitions
+            # directly and smoothly without jarring skeleton flicker or premature view popping.
+            done, _ = await asyncio.wait([coro_task], timeout=0.35)
+            if not done:
+                if in_shell:
+                    if shell_view not in page.views:
+                        page.views.clear()
+                        page.views.append(shell_view)
+                    else:
+                        while len(page.views) > 1 and page.views[-1] is not shell_view:
+                            page.views.pop()
+                    persistent_nav_bar.set_active_route(route)
+                    skel = skeleton_view(route)
+                    shell_content.content = ft.Container(
+                        content=ft.Column(skel.controls, expand=True, spacing=0) if len(skel.controls) > 1 else (skel.controls[0] if skel.controls else ft.Container()),
+                        expand=True,
+                        key=f"skel_{route}",
+                    )
+                    page.update()
+                    await asyncio.sleep(0)
+                    shimmer_task = page.run_task(run_shimmer, skel.data, shell_view)
+                else:
+                    skel = skeleton_view(route)
+                    page.views.append(skel)
+                    page.update()
+                    await asyncio.sleep(0)
+                    shimmer_task = page.run_task(run_shimmer, skel.data, skel)
 
         async def handle_failure(ex: Exception):
-            shimmer_task.cancel()
-            # Pop the skeleton first — whatever happens next (restored
-            # previous view, or dedicated error screen) replaces it.
-            if page.views and page.views[-1] is skel:
-                page.views.pop()
+            if shimmer_task:
+                shimmer_task.cancel()
 
-            fell_back = False
-            if on_failure is not None:
-                result = on_failure(route, ex)
-                if asyncio.iscoroutine(result):
-                    result = await result
-                fell_back = result
+            if in_shell:
+                fell_back = False
+                if on_failure is not None:
+                    result = on_failure(route, ex)
+                    if asyncio.iscoroutine(result):
+                        result = await result
+                    fell_back = result
 
-            if not fell_back:
-                page.views.append(_error_fallback_view(route, ex))
+                if not fell_back:
+                    err_v = _error_fallback_view(route, ex)
+                    shell_view.appbar = err_v.appbar
+                    shell_view.floating_action_button = err_v.floating_action_button
+                    shell_content.content = ft.Container(
+                        content=ft.Column(err_v.controls, expand=True, spacing=0) if len(err_v.controls) > 1 else (err_v.controls[0] if err_v.controls else ft.Container()),
+                        expand=True,
+                        key=f"shell_error_{route}",
+                    )
+                page.update()
+            else:
+                # Pop the skeleton first — whatever happens next (restored
+                # previous view, or dedicated error screen) replaces it.
+                if page.views and skel is not None and page.views[-1] is skel:
+                    page.views.pop()
 
-            page.update()
+                fell_back = False
+                if on_failure is not None:
+                    result = on_failure(route, ex)
+                    if asyncio.iscoroutine(result):
+                        result = await result
+                    fell_back = result
+
+                if not fell_back:
+                    page.views.append(_error_fallback_view(route, ex))
+
+                page.update()
 
         try:
-            real_view = await coro
+            real_view = await coro_task
         except Exception as ex:
             # The view function itself raised (e.g. an unhandled
             # ConnectTimeout deep inside its own data-fetching code).
@@ -609,10 +909,47 @@ async def main(page: ft.Page):
 
         # Stop the shimmer the instant we're done, don't wait for its
         # own loop to notice on its next 0.25s tick.
-        shimmer_task.cancel()
+        if shimmer_task:
+            shimmer_task.cancel()
 
-        page.views[-1] = real_view
-        page.update()
+        if in_shell:
+            if shell_view not in page.views:
+                page.views.clear()
+                page.views.append(shell_view)
+            else:
+                while len(page.views) > 1 and page.views[-1] is not shell_view:
+                    page.views.pop()
+
+            shell_view.appbar = real_view.appbar
+            shell_view.floating_action_button = real_view.floating_action_button
+            default_shell_bg = "#121212" if page.theme_mode == ft.ThemeMode.DARK else ft.Colors.SURFACE
+            shell_view.bgcolor = real_view.bgcolor or default_shell_bg
+            shell_view.scroll = real_view.scroll
+            shell_view.horizontal_alignment = real_view.horizontal_alignment
+            shell_view.vertical_alignment = real_view.vertical_alignment
+            shell_view.drawer = real_view.drawer
+            shell_view.end_drawer = real_view.end_drawer
+            shell_view.route = route
+
+            clean_controls = _strip_redundant_appbars(real_view.controls)
+            shell_content.content = ft.Container(
+                content=ft.Column(clean_controls, expand=True, spacing=0) if len(clean_controls) > 1 else (clean_controls[0] if clean_controls else ft.Container()),
+                expand=True,
+                key=f"shell_content_{route}",
+            )
+
+            persistent_nav_bar.set_active_route(route)
+            if not shell_history or shell_history[-1] != route:
+                shell_history.append(route)
+            page.update()
+        else:
+            if real_view.bottom_appbar is not None or real_view.appbar is not None:
+                real_view.controls = _strip_redundant_appbars(real_view.controls)
+            if page.views and skel is not None and page.views[-1] is skel:
+                page.views[-1] = real_view
+            else:
+                page.views.append(real_view)
+            page.update()
 
     # --- 4. ROUTING LOGIC ---
     route_change_state = {"in_flight": False, "pending_rerun": False}
@@ -731,6 +1068,10 @@ async def main(page: ft.Page):
         # it was, no risky re-append of a stale instance required.
         previous_view = page.views[-1] if page.views else None
         previous_route = previous_view.route if previous_view is not None else None
+        previous_shell_content = getattr(shell_content, "content", None)
+        previous_shell_appbar = getattr(shell_view, "appbar", None)
+        previous_shell_fab = getattr(shell_view, "floating_action_button", None)
+        previous_shell_route = getattr(shell_view, "route", None)
 
         clean_route = (page.route or "").split("?")[0]
         troute = ft.TemplateRoute(clean_route)
@@ -797,9 +1138,10 @@ async def main(page: ft.Page):
               accepted per current signature — DurationValue), so we wrap
               it explicitly rather than passing a bare int.
             """
+            snack_icon = icon or (ft.Icons.WIFI_OFF_ROUNDED if offer_offline else ft.Icons.ERROR_OUTLINE_ROUNDED)
             snack_content_controls = [
-                ft.Icon(icon or ft.Icons.WIFI_OFF, color=ft.Colors.ON_PRIMARY, size=20),
-                ft.Text(message, color=ft.Colors.ON_PRIMARY, expand=True),
+                ft.Icon(snack_icon, color=ft.Colors.PRIMARY if offer_offline else ft.Colors.WHITE, size=20),
+                ft.Text(message, color=ft.Colors.WHITE, size=13, weight=ft.FontWeight.W_500, expand=True),
             ]
 
             if offer_offline and _has_any_downloaded_courses():
@@ -807,30 +1149,35 @@ async def main(page: ft.Page):
                     page.go("/offline")
 
                 snack_content_controls.append(
-                    ft.ElevatedButton(
-                        "View Your Downloads",
-                        icon=ft.Icons.DOWNLOAD_FOR_OFFLINE,
-                        color=ft.Colors.ERROR,
-                        bgcolor=ft.Colors.WHITE,
+                    ft.FilledButton(
+                        content=ft.Row(
+                            [
+                                ft.Icon(ft.Icons.DOWNLOAD_FOR_OFFLINE_ROUNDED, size=14),
+                                ft.Text("View Downloads", size=12, weight=ft.FontWeight.BOLD),
+                            ],
+                            tight=True,
+                            spacing=4,
+                        ),
                         on_click=go_offline,
                         style=ft.ButtonStyle(
-                            shape=ft.RoundedRectangleBorder(radius=6),
-                            padding=ft.Padding(12, 6, 12, 6),
-                        )
+                            bgcolor=ft.Colors.PRIMARY,
+                            color=ft.Colors.ON_PRIMARY,
+                            shape=ft.RoundedRectangleBorder(radius=8),
+                            padding=ft.Padding.symmetric(horizontal=12, vertical=6),
+                        ),
                     )
                 )
 
             snack = ft.SnackBar(
                 content=ft.Row(
                     snack_content_controls,
-                    spacing=10,
-                    tight=True,
+                    spacing=12,
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
-                bgcolor=ft.Colors.ERROR,
+                bgcolor="#1B221E" if offer_offline else "#242424",
                 duration=ft.Duration(milliseconds=5000 if offer_offline else 3000),
-                behavior=ft.SnackBarBehavior.FLOATING,
-                shape=ft.RoundedRectangleBorder(radius=10),
-                margin=ft.Margin.only(left=20, right=20, bottom=20),
+                behavior=ft.SnackBarBehavior.FIXED,
             )
             page.show_dialog(snack)
 
@@ -935,11 +1282,30 @@ async def main(page: ft.Page):
                 # guaranteed to happen before we told the caller "restored
                 # successfully") to keep the browser's actual navigation
                 # state in sync with what's really on screen.
-                page.route = previous_view.route
-                try:
-                    await page.push_route(previous_view.route, skip_route_change_event=True)
-                except Exception as resync_ex:
-                    print(f"restore_previous_or_fallback: push_route resync failed: {resync_ex!r}")
+                if previous_view is shell_view:
+                    if previous_shell_content is not None:
+                        shell_content.content = previous_shell_content
+                    if previous_shell_appbar is not None:
+                        shell_view.appbar = previous_shell_appbar
+                    if previous_shell_fab is not None:
+                        shell_view.floating_action_button = previous_shell_fab
+                    if previous_shell_route:
+                        shell_view.route = previous_shell_route
+                        page.route = previous_shell_route
+                        persistent_nav_bar.set_active_route(previous_shell_route)
+                    else:
+                        page.route = previous_view.route
+                else:
+                    page.route = previous_view.route
+
+                route_change_state["pending_rerun"] = False
+                if getattr(page, "web", False):
+                    try:
+                        await page.push_route(page.route, skip_route_change_event=True)
+                    except Exception as resync_ex:
+                        print(f"restore_previous_or_fallback: push_route resync failed: {resync_ex!r}")
+                    finally:
+                        route_change_state["pending_rerun"] = False
                 return True
             else:
                 # Nothing safe to fall back to (first view of the session,
@@ -1019,16 +1385,41 @@ async def main(page: ft.Page):
             if dlg.open:
                 close_dialog()
 
-        if not is_public_route(page.route) and not is_offline_capable_route(page.route) and not await is_route_for_downloaded_course(page.route):
-            # Show the skeleton IMMEDIATELY, before the auth check even
+        in_shell_route_flag = is_shell_route(page.route)
+        current_user = page.session.store.get("current_user") if hasattr(page, "session") and hasattr(page.session, "store") else None
+        needs_auth_check = (
+            not is_public_route(page.route)
+            and not is_offline_capable_route(page.route)
+            and not await is_route_for_downloaded_course(page.route)
+            and (current_user is None)
+        )
+        if needs_auth_check:
+            # Show the skeleton IMMEDIATELY for cold-open / unverified session auth check
             # starts — otherwise on a slow connection the screen sits
             # blank during get_current_user_request(), and only pushes
             # the skeleton afterwards for the (much shorter) view fetch.
             skel = skeleton_view(page.route)
-            page.views.append(skel)
-            page.update()
-            await asyncio.sleep(0)
-            shimmer_task = page.run_task(run_shimmer, skel.data, skel)
+            if in_shell_route_flag:
+                if shell_view not in page.views:
+                    page.views.clear()
+                    page.views.append(shell_view)
+                else:
+                    while len(page.views) > 1 and page.views[-1] is not shell_view:
+                        page.views.pop()
+                persistent_nav_bar.set_active_route(page.route)
+                shell_content.content = ft.Container(
+                    content=ft.Column(skel.controls, expand=True, spacing=0) if len(skel.controls) > 1 else (skel.controls[0] if skel.controls else ft.Container()),
+                    expand=True,
+                    key=f"skel_{page.route}",
+                )
+                page.update()
+                await asyncio.sleep(0)
+                shimmer_task = page.run_task(run_shimmer, skel.data, shell_view)
+            else:
+                page.views.append(skel)
+                page.update()
+                await asyncio.sleep(0)
+                shimmer_task = page.run_task(run_shimmer, skel.data, skel)
 
             # Fast local check first — no network call needed to know
             # whether a token even exists.
@@ -1043,8 +1434,12 @@ async def main(page: ft.Page):
                 # leaves nothing for the dialog to render on top of —
                 # that's the "white screen after the shimmer" bug. Always
                 # ensure a real view (login) is underneath the dialog.
-                if page.views and page.views[-1] is skel:
-                    page.views.pop()
+                if in_shell_route_flag:
+                    if page.views and page.views[-1] is shell_view:
+                        page.views.pop()
+                else:
+                    if page.views and page.views[-1] is skel:
+                        page.views.pop()
                 if not page.views:
                     page.views.append(login_view(page))
                     page.update()
@@ -1064,7 +1459,8 @@ async def main(page: ft.Page):
                 # whatever was on screen before, same as a failed view load,
                 # rather than stranding the user on a dialog-only screen.
                 shimmer_task.cancel()
-                page.views.pop()
+                if not in_shell_route_flag and page.views and page.views[-1] is skel:
+                    page.views.pop()
                 fell_back = await restore_previous_or_fallback(page.route, ex)
                 page.update()
                 await report_failure(fell_back=fell_back, ex=ex)
@@ -1072,6 +1468,7 @@ async def main(page: ft.Page):
 
             if status == 200:
                 page.session.store.set("current_user", user_data)
+                persistent_nav_bar.refresh()
             elif status in (401, 403):
                 # Access token expired/invalid — this is now the EXPECTED
                 # steady state (access tokens are short-lived by design).
@@ -1089,7 +1486,8 @@ async def main(page: ft.Page):
                         # Network failure on the retry — not a session
                         # problem, treat like any other failed view load.
                         shimmer_task.cancel()
-                        page.views.pop()
+                        if not in_shell_route_flag and page.views and page.views[-1] is skel:
+                            page.views.pop()
                         fell_back = await restore_previous_or_fallback(page.route, ex)
                         page.update()
                         await report_failure(fell_back=fell_back, ex=ex)
@@ -1097,6 +1495,7 @@ async def main(page: ft.Page):
 
                     if status == 200:
                         page.session.store.set("current_user", user_data)
+                        persistent_nav_bar.refresh()
                         # Fall through to the normal view-render path below
                         # (do NOT return here) — this is now a success case.
                     else:
@@ -1105,8 +1504,12 @@ async def main(page: ft.Page):
                         # successful refresh, but fail safe rather than
                         # loop — treat as a genuine session end.
                         shimmer_task.cancel()
-                        if page.views and page.views[-1] is skel:
-                            page.views.pop()
+                        if in_shell_route_flag:
+                            if page.views and page.views[-1] is shell_view:
+                                page.views.pop()
+                        else:
+                            if page.views and page.views[-1] is skel:
+                                page.views.pop()
                         if not page.views:
                             page.views.append(login_view(page))
                             page.update()
@@ -1129,8 +1532,12 @@ async def main(page: ft.Page):
                     # that's the white-screen-after-shimmer bug. Always
                     # land on a real login view underneath the dialog.
                     shimmer_task.cancel()
-                    if page.views and page.views[-1] is skel:
-                        page.views.pop()
+                    if in_shell_route_flag:
+                        if page.views and page.views[-1] is shell_view:
+                            page.views.pop()
+                    else:
+                        if page.views and page.views[-1] is skel:
+                            page.views.pop()
                     if not page.views:
                         page.views.append(login_view(page))
                         page.update()
@@ -1154,7 +1561,8 @@ async def main(page: ft.Page):
                 # response"). Only genuine other-status responses (500,
                 # 422, etc) land in the SERVER bucket.
                 shimmer_task.cancel()
-                page.views.pop()
+                if not in_shell_route_flag and page.views and page.views[-1] is skel:
+                    page.views.pop()
                 server_ex = RuntimeError(f"Server error {status}")
                 fell_back = await restore_previous_or_fallback(page.route, server_ex, status=status)
                 page.update()
@@ -1237,7 +1645,8 @@ async def main(page: ft.Page):
             await load_view_and_report(playlist_analytics_view(page, org_id, troute.id), page.route, active_skeleton, active_shimmer_task)
         elif troute.match("/playlists/:id"):
             from src.playlist_view import playlist_view
-            await load_view_and_report(playlist_view(page, troute.id), page.route, active_skeleton, active_shimmer_task)
+            target_back = previous_route if (previous_route and not previous_route.endswith("/view") and not previous_route.endswith("/offline")) else "/courses"
+            await load_view_and_report(playlist_view(page, troute.id, back_target=target_back), page.route, active_skeleton, active_shimmer_task)
         # --- Organization Courses Route (Admins redirected to dashboard) ---
         elif troute.match("/organisations/:org_id/courses"):
             user_data = page.session.store.get("current_user") or {} if hasattr(page, "session") and hasattr(page.session, "store") else {}
@@ -1255,8 +1664,9 @@ async def main(page: ft.Page):
                 return
             # Explicit offline course learner view: strictly offline, zero network probe
             course_id_param = troute.course_id
+            target_back = previous_route if (previous_route and not previous_route.endswith("/view") and not previous_route.endswith("/offline")) else "/offline"
             await load_view_and_report(
-                offline_course_learner_view(page, course_id_param, back_target="/offline"),
+                offline_course_learner_view(page, course_id_param, back_target=target_back),
                 page.route, active_skeleton, active_shimmer_task
             )
         elif troute.match("/courses/:course_id/view"):
@@ -1271,11 +1681,10 @@ async def main(page: ft.Page):
                 or (page.route and ("/offline" in page.route or "offline=true" in page.route))
             )
 
-            # Semantic back-navigation:
-            valid_back_targets = ("/offline", "/courses", "/dashboard", "/network", "/self-study", "/organisations")
-            if is_from_offline_view:
+            # Semantic back-navigation: preserve where the user actually navigated from
+            if is_from_offline_view or previous_route == "/offline":
                 back_target = "/offline"
-            elif previous_route and (previous_route in valid_back_targets or previous_route.startswith("/playlists/") or previous_route.startswith("/organisations/")):
+            elif previous_route and not previous_route.endswith("/view") and not previous_route.endswith("/offline"):
                 back_target = previous_route
             else:
                 back_target = "/courses"
@@ -1283,15 +1692,15 @@ async def main(page: ft.Page):
             # STRICT OFFLINE LOADING for /view route:
             if (is_from_offline_view or not current_token) and course_downloaded:
                 await load_view_and_report(
-                    offline_course_learner_view(page, course_id_param, back_target="/offline"),
+                    offline_course_learner_view(page, course_id_param, back_target=back_target),
                     page.route, active_skeleton, active_shimmer_task
                 )
             elif current_token and course_downloaded:
                 # Normal browsing from online catalog (/courses, /dashboard):
-                # Probe network to decide if we can load fresh online course or fall back to offline
+                # Probe network to decide online vs offline engine using centralized auth request
                 try:
-                    probe_status, _ = await get_current_user_request(current_token)
-                    online_reachable = probe_status == 200
+                    probe_status, _ = await asyncio.wait_for(get_current_user_request(current_token), timeout=2.5)
+                    online_reachable = (probe_status == 200)
                 except Exception:
                     online_reachable = False
 
@@ -1302,7 +1711,7 @@ async def main(page: ft.Page):
                     )
                 else:
                     await load_view_and_report(
-                        offline_course_learner_view(page, course_id_param, back_target="/offline"),
+                        offline_course_learner_view(page, course_id_param, back_target=back_target),
                         page.route, active_skeleton, active_shimmer_task
                     )
             else:
@@ -1316,15 +1725,19 @@ async def main(page: ft.Page):
             if getattr(page, "web", False):
                 page.go("/courses")
                 return
-            await load_view_and_report(offline_courses_view(page), page.route, active_skeleton, active_shimmer_task)
+            while len(page.views) > 1 and page.views[-1] is not shell_view:
+                page.views.pop()
+            valid_back = previous_route if (previous_route and previous_route != "/offline") else "/dashboard"
+            offline_v = await offline_courses_view(page, back_target=valid_back)
+            page.views.append(offline_v)
+            page.update()
         elif troute.match("/member/:user_id"):
             # Extracts the ID from the URL and passes it to the view
             await load_view_and_report(member_profile_view(page, troute.user_id), page.route, active_skeleton, active_shimmer_task)
         elif troute.match("/organisations/:org_id/courses/:course_id/settings"):
-            # Extracts the ID from the URL and passes it to the view
             await load_view_and_report(
-                course_settings_view(page, troute.course_id, troute.org_id), page.route,
-                active_skeleton, active_shimmer_task,
+                course_settings_view(page, troute.org_id, troute.course_id),
+                page.route, active_skeleton, active_shimmer_task,
             )
         elif troute.match("/accept-invite/:token"):
             # Safely extract the token natively and mount the invite view.
@@ -1351,24 +1764,15 @@ async def main(page: ft.Page):
             )
         elif troute.match("/courses/:course_id"):
             # Compute where the back arrow should return to
-            valid_back_targets = ("/offline", "/courses", "/dashboard", "/network", "/self-study", "/organisations")
-            if previous_route and (previous_route in valid_back_targets or previous_route.startswith("/playlists/") or previous_route.startswith("/organisations/")):
-                back_target = previous_route
-            else:
-                back_target = "/courses"
-                
+            target_back = previous_route if (previous_route and not previous_route.endswith("/view") and not previous_route.endswith("/offline")) else "/courses"
             await load_view_and_report(
-                course_details_view(page, troute.course_id, back_target=back_target), page.route,
+                course_details_view(page, troute.course_id, back_target=target_back), page.route,
                 active_skeleton, active_shimmer_task,
             )
 
         elif active_skeleton is not None:
-            # Protected route matched none of the branches above — same
-            # fix as directly above: actually remove the frozen skeleton,
-            # don't just stop its animation. Also a routing bug, not a
-            # network/server failure — see note above.
             active_shimmer_task.cancel()
-            if page.views and page.views[-1] is active_skeleton:
+            if not in_shell_route_flag and page.views and page.views[-1] is active_skeleton:
                 page.views.pop()
             fell_back = await restore_previous_or_fallback(
                 page.route, RuntimeError(f"Unknown route: {page.route}")

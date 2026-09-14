@@ -147,7 +147,7 @@ async def invite_members_view(page: ft.Page, org_id: str):
         def update_role_pills():
             role_row.controls = [
                 build_role_pill("STUDENT", "Student Member", ft.Icons.SCHOOL_ROUNDED),
-                build_role_pill("TEACHER", "Teacher / Instructor", ft.Icons.CO-PRESENT_ROUNDED),
+                build_role_pill("TEACHER", "Teacher / Instructor", ft.Icons.CO_PRESENT_ROUNDED),
             ]
 
         update_role_pills()

@@ -597,13 +597,6 @@ async def playlist_view(page: ft.Page, playlist_id: str, back_target: str = "/co
             )
 
             # Progress Bar line
-            # Assign col props only to non-None buttons for ResponsiveRow
-            if quick_enroll_btn:
-                quick_enroll_btn.col = {"xs": 6, "md": 6}
-                action_btn.col = {"xs": 6, "md": 6}
-            else:
-                action_btn.col = {"xs": 12}
-
             progress_strip = None
             if is_enrolled:
                 progress_strip = ft.Column(
@@ -626,18 +619,7 @@ async def playlist_view(page: ft.Page, playlist_id: str, back_target: str = "/co
                     ],
                 )
 
-            # Build the action buttons row as a ResponsiveRow so it wraps on mobile
-            action_buttons_row = ft.ResponsiveRow(
-                columns=12,
-                spacing=8,
-                run_spacing=8,
-                controls=[
-                    *([quick_enroll_btn] if quick_enroll_btn else []),
-                    action_btn,
-                ],
-            )
-
-            # Bottom footer: step label + buttons — use Column to stack on mobile
+            # Bottom footer: step label + buttons
             step_label = ft.Row(
                 spacing=6,
                 tight=True,
@@ -647,20 +629,38 @@ async def playlist_view(page: ft.Page, playlist_id: str, back_target: str = "/co
                 ],
             )
 
-            card_footer = ft.Column(
-                spacing=10,
-                controls=[
-                    step_label,
-                    action_buttons_row,
-                ],
-            ) if is_mobile else ft.Row(
-                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                controls=[
-                    step_label,
-                    action_buttons_row,
-                ],
-            )
+            if is_mobile:
+                action_buttons_ctrl = ft.Row(
+                    spacing=8,
+                    controls=[
+                        *([ft.Container(content=quick_enroll_btn, expand=True)] if quick_enroll_btn else []),
+                        ft.Container(content=action_btn, expand=True),
+                    ],
+                )
+                card_footer = ft.Column(
+                    spacing=10,
+                    controls=[
+                        step_label,
+                        action_buttons_ctrl,
+                    ],
+                )
+            else:
+                action_buttons_ctrl = ft.Row(
+                    spacing=8,
+                    tight=True,
+                    controls=[
+                        *([quick_enroll_btn] if quick_enroll_btn else []),
+                        action_btn,
+                    ],
+                )
+                card_footer = ft.Row(
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[
+                        step_label,
+                        action_buttons_ctrl,
+                    ],
+                )
 
             # Card Container
             card_container = ft.Container(

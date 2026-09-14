@@ -1010,7 +1010,7 @@ def login_view(page: ft.Page):
                 size=12,
                 color=ft.Colors.GREY_400 if is_dark else ft.Colors.GREY_500,
             ),
-            ft.Container(height=2),
+            ft.Container(height=15),
 
             # Form Fields
             ft.Row([email]),

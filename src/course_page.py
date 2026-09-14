@@ -4,9 +4,10 @@ import flet_charts as fch
 import flet as ft
 from flet_video import Video, VideoMedia
 import asyncio
-from src.components.bottom_appbar import get_bottom_appbar
 from src.requests.Courses import get_course_curriculum, mark_complete, generate_course_certificate, rate_course
 from src.utils.file_opener import open_or_download_asset
+import re
+from src.utils.code_runner import execute_python, execute_sql, run_code_lab_tests, parse_cloze_text
 
 
 async def course_learner_view(
@@ -33,7 +34,6 @@ async def course_learner_view(
     back_target: str = "/courses",
 ):
     token = None
-    app_bar = get_bottom_appbar(page)
 
     # =========================================================
     # 0. THEME / LAYOUT CONFIG
@@ -61,6 +61,10 @@ async def course_learner_view(
             "cards": "FLASHCARDS",
             "assessment": "ASSESSMENT",
             "scenario": "SCENARIO",
+            "stepper": "WALKTHROUGH",
+            "sequencer": "ORDER MATCH",
+            "cloze": "FILL IN BLANKS",
+            "code_lab": "CODE LAB",
         }
         return labels.get(lesson_type, "LESSON")
 
@@ -73,6 +77,10 @@ async def course_learner_view(
             "cards": ft.Icons.STYLE_ROUNDED,
             "assessment": ft.Icons.QUIZ_ROUNDED,
             "scenario": ft.Icons.CALL_SPLIT_ROUNDED,
+            "stepper": ft.Icons.LINEAR_SCALE_ROUNDED,
+            "sequencer": ft.Icons.REORDER_ROUNDED,
+            "cloze": ft.Icons.EDIT_NOTE_ROUNDED,
+            "code_lab": ft.Icons.CODE_ROUNDED,
         }
         return icons.get(lesson_type, ft.Icons.ARTICLE_ROUNDED)
 
@@ -172,7 +180,7 @@ async def course_learner_view(
         bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
         content=ft.Row(
             [
-                ft.Icon(ft.Icons.VIEW_SIDEBAR_ROUNDED, size=16, color=ft.Colors.ON_SURFACE),
+                ft.Icon(ft.Icons.MENU, size=16, color=ft.Colors.ON_SURFACE),
                 ft.Text("Syllabus", size=12, weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE),
             ],
             tight=True,
@@ -981,7 +989,6 @@ async def course_learner_view(
                     ft.Row(
                         [
                             prev_btn,
-                            ft.Text("Tap card or arrows to navigate", size=11, color=ft.Colors.ON_SURFACE_VARIANT, italic=True),
                             next_btn,
                         ],
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -1286,14 +1293,750 @@ async def course_learner_view(
             content=ft.Column(banner + question_cards, spacing=16, horizontal_alignment=ft.CrossAxisAlignment.STRETCH),
         )
 
+    def render_stepper_ui(lesson: dict):
+        content = lesson.get("content", {})
+        steps = content.get("steps", [])
+        valid_steps = [s for s in steps if str(s.get("headline", "")).strip() or str(s.get("content", "")).strip()]
+
+        if not valid_steps:
+            return ft.Container(
+                padding=30,
+                border_radius=12,
+                bgcolor=ft.Colors.SURFACE,
+                content=ft.Text("This walkthrough has no steps yet.", color=ft.Colors.ON_SURFACE_VARIANT),
+            )
+
+        current_step_idx = [0]
+
+        title_text = content.get("title", "")
+        intro_text = content.get("intro", "")
+
+        header_elements = []
+        if title_text:
+            header_elements.append(ft.Text(title_text, size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE))
+        if intro_text:
+            header_elements.append(
+                ft.Markdown(
+                    intro_text,
+                    extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+                    md_style_sheet=ft.MarkdownStyleSheet(
+                        p_text_style=ft.TextStyle(size=14, color=ft.Colors.ON_SURFACE_VARIANT, height=1.5)
+                    ),
+                )
+            )
+
+        progress_bar = ft.ProgressBar(value=1.0 / len(valid_steps), color=ft.Colors.CYAN_600, bgcolor=ft.Colors.with_opacity(0.1, ft.Colors.ON_SURFACE))
+        counter_label = ft.Text(f"Phase 1 of {len(valid_steps)}", size=12, weight=ft.FontWeight.BOLD, color=ft.Colors.CYAN_600)
+
+        tag_chip = ft.Container(
+            padding=ft.Padding.symmetric(horizontal=10, vertical=4),
+            border_radius=6,
+            bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.CYAN_600),
+            content=ft.Text(valid_steps[0].get("tag", "Step 1"), size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.CYAN_600),
+        )
+        headline_text = ft.Text(valid_steps[0].get("headline", ""), size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE)
+        content_md = ft.Markdown(
+            valid_steps[0].get("content", ""),
+            extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+            selectable=True,
+            md_style_sheet=ft.MarkdownStyleSheet(
+                p_text_style=ft.TextStyle(size=15, height=1.6, color=ft.Colors.ON_SURFACE),
+                code_text_style=ft.TextStyle(font_family="monospace", size=13, color=ft.Colors.CYAN_300),
+            ),
+        )
+        takeaway_col = ft.Container(
+            padding=16,
+            border_radius=10,
+            bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.CYAN_600),
+            border=ft.Border.only(left=ft.BorderSide(4, ft.Colors.CYAN_600)),
+            visible=bool(valid_steps[0].get("takeaway", "").strip()),
+            content=ft.Row(
+                [
+                    ft.Icon(ft.Icons.LIGHTBULB_OUTLINE_ROUNDED, color=ft.Colors.CYAN_600, size=22),
+                    ft.Column(
+                        [
+                            ft.Text("Key Takeaway", size=13, weight=ft.FontWeight.BOLD, color=ft.Colors.CYAN_600),
+                            ft.Text(valid_steps[0].get("takeaway", ""), size=14, color=ft.Colors.ON_SURFACE),
+                        ],
+                        spacing=4,
+                        expand=True,
+                    ),
+                ],
+                spacing=12,
+                vertical_alignment=ft.CrossAxisAlignment.START,
+            ),
+        )
+
+        prev_btn = ft.OutlinedButton(
+            content=ft.Row([ft.Icon(ft.Icons.ARROW_BACK_ROUNDED, size=15), ft.Text("Previous Phase", size=13, weight=ft.FontWeight.BOLD)], tight=True, spacing=6),
+            disabled=True,
+        )
+        next_btn = ft.FilledButton(
+            content=ft.Row([ft.Text("Next Phase", size=13, weight=ft.FontWeight.BOLD), ft.Icon(ft.Icons.ARROW_FORWARD_ROUNDED, size=15)], tight=True, spacing=6),
+            style=ft.ButtonStyle(bgcolor=ft.Colors.CYAN_600, color=ft.Colors.WHITE),
+        )
+
+        def update_step_view(idx):
+            current_step_idx[0] = idx
+            st = valid_steps[idx]
+            progress_bar.value = (idx + 1) / len(valid_steps)
+            counter_label.value = f"Phase {idx + 1} of {len(valid_steps)}"
+            tag_chip.content.value = st.get("tag", f"Step {idx + 1}")
+            headline_text.value = st.get("headline", "")
+            content_md.value = st.get("content", "")
+
+            tw = st.get("takeaway", "").strip()
+            if tw:
+                takeaway_col.content.controls[1].controls[1].value = tw
+                takeaway_col.visible = True
+            else:
+                takeaway_col.visible = False
+
+            prev_btn.disabled = (idx == 0)
+            is_last = (idx == len(valid_steps) - 1)
+            if is_last:
+                next_btn.content.controls[0].value = "Completed ✓"
+                next_btn.content.controls[1].icon = ft.Icons.CHECK_ROUNDED
+                next_btn.style.bgcolor = ft.Colors.GREEN_600
+                lesson["is_done"] = True
+                recalculate_locks()
+            else:
+                next_btn.content.controls[0].value = "Next Phase"
+                next_btn.content.controls[1].icon = ft.Icons.ARROW_FORWARD_ROUNDED
+                next_btn.style.bgcolor = ft.Colors.CYAN_600
+            page.update()
+
+        def on_prev(e):
+            if current_step_idx[0] > 0:
+                update_step_view(current_step_idx[0] - 1)
+
+        def on_next(e):
+            if current_step_idx[0] < len(valid_steps) - 1:
+                update_step_view(current_step_idx[0] + 1)
+
+        prev_btn.on_click = on_prev
+        next_btn.on_click = on_next
+
+        return ft.Container(
+            padding=24,
+            border_radius=14,
+            bgcolor=ft.Colors.SURFACE,
+            border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+            content=ft.Column(
+                header_elements + [
+                    ft.Row([counter_label, progress_bar], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                    ft.Divider(height=1, color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                    tag_chip,
+                    headline_text,
+                    content_md,
+                    takeaway_col,
+                    ft.Divider(height=1, color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                    ft.Row([prev_btn, next_btn], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                ],
+                spacing=14,
+                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+            ),
+        )
+
+    def render_sequencer_ui(lesson: dict):
+        content = lesson.get("content", {})
+        prompt = content.get("prompt", "")
+        items = content.get("items", [])
+        valid_items = [it for it in items if str(it.get("label", "")).strip()]
+
+        if len(valid_items) < 2:
+            return ft.Container(
+                padding=30,
+                border_radius=12,
+                bgcolor=ft.Colors.SURFACE,
+                content=ft.Text("This sequence challenge requires at least 2 items.", color=ft.Colors.ON_SURFACE_VARIANT),
+            )
+
+        def get_scrambled_items(items_list):
+            scrambled = list(items_list)
+            if len(scrambled) < 2:
+                return scrambled
+            correct_ids = [it.get("id") for it in items_list]
+            for _ in range(50):
+                random.shuffle(scrambled)
+                if [it.get("id") for it in scrambled] != correct_ids:
+                    return scrambled
+            scrambled[0], scrambled[1] = scrambled[1], scrambled[0]
+            return scrambled
+
+        current_items = get_scrambled_items(valid_items)
+
+        feedback_banner = ft.Container(visible=False, padding=14, border_radius=10)
+        items_column = ft.Column(spacing=10, horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
+
+        def render_items_list(status_map=None):
+            items_column.controls.clear()
+            for idx, it in enumerate(current_items):
+                is_correct_pos = status_map.get(it.get("id")) if status_map else None
+
+                if is_correct_pos is True:
+                    border_color = ft.Colors.GREEN_600
+                    bg_color = ft.Colors.with_opacity(0.08, ft.Colors.GREEN_600)
+                    status_icon = ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED, color=ft.Colors.GREEN_600, size=20)
+                elif is_correct_pos is False:
+                    border_color = ft.Colors.AMBER_600
+                    bg_color = ft.Colors.with_opacity(0.08, ft.Colors.AMBER_600)
+                    status_icon = ft.Icon(ft.Icons.ERROR_OUTLINE_ROUNDED, color=ft.Colors.AMBER_600, size=20)
+                else:
+                    border_color = ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)
+                    bg_color = ft.Colors.SURFACE
+                    status_icon = ft.Container()
+
+                def move_up(i):
+                    def handler(e):
+                        if i > 0:
+                            current_items[i], current_items[i - 1] = current_items[i - 1], current_items[i]
+                            render_items_list(None)
+                            feedback_banner.visible = False
+                            page.update()
+                    return handler
+
+                def move_down(i):
+                    def handler(e):
+                        if i < len(current_items) - 1:
+                            current_items[i], current_items[i + 1] = current_items[i + 1], current_items[i]
+                            render_items_list(None)
+                            feedback_banner.visible = False
+                            page.update()
+                    return handler
+
+                explanation_ui = ft.Container()
+                if is_correct_pos is True and it.get("explanation", "").strip():
+                    explanation_ui = ft.Container(
+                        padding=10,
+                        bgcolor=ft.Colors.with_opacity(0.05, ft.Colors.ON_SURFACE),
+                        border_radius=8,
+                        content=ft.Row(
+                            [
+                                ft.Icon(ft.Icons.LIGHTBULB_ROUNDED, color=ft.Colors.AMBER_500, size=16),
+                                ft.Text(it.get("explanation"), size=13, color=ft.Colors.ON_SURFACE, expand=True),
+                            ],
+                            spacing=8,
+                        ),
+                    )
+
+                item_card = ft.Container(
+                    padding=14,
+                    border_radius=10,
+                    border=ft.Border.all(1, border_color),
+                    bgcolor=bg_color,
+                    content=ft.Column(
+                        [
+                            ft.Row(
+                                [
+                                    ft.Container(
+                                        width=28,
+                                        height=28,
+                                        border_radius=999,
+                                        bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.AMBER_600),
+                                        alignment=ft.Alignment.CENTER,
+                                        content=ft.Text(f"{idx + 1}", size=12, weight=ft.FontWeight.BOLD, color=ft.Colors.AMBER_600),
+                                    ),
+                                    ft.Text(it.get("label", ""), size=14, weight=ft.FontWeight.W_500, expand=True, color=ft.Colors.ON_SURFACE),
+                                    status_icon,
+                                    ft.Row(
+                                        [
+                                            ft.IconButton(ft.Icons.KEYBOARD_ARROW_UP_ROUNDED, icon_size=20, disabled=(idx == 0), on_click=move_up(idx)),
+                                            ft.IconButton(ft.Icons.KEYBOARD_ARROW_DOWN_ROUNDED, icon_size=20, disabled=(idx == len(current_items) - 1), on_click=move_down(idx)),
+                                        ],
+                                        spacing=0,
+                                    ),
+                                ],
+                                spacing=12,
+                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            ),
+                            explanation_ui,
+                        ],
+                        spacing=8,
+                    ),
+                )
+                items_column.controls.append(item_card)
+
+        def check_sequence(e):
+            correct_order = [it.get("id") for it in valid_items]
+            current_order = [it.get("id") for it in current_items]
+            status_map = {}
+            correct_count = 0
+
+            for idx, target_id in enumerate(correct_order):
+                is_match = (idx < len(current_order) and current_order[idx] == target_id)
+                status_map[current_order[idx]] = is_match
+                if is_match:
+                    correct_count += 1
+
+            is_perfect = (correct_count == len(valid_items))
+
+            if is_perfect:
+                feedback_banner.bgcolor = ft.Colors.with_opacity(0.12, ft.Colors.GREEN_600)
+                feedback_banner.border = ft.Border.all(1, ft.Colors.GREEN_600)
+                feedback_banner.content = ft.Row([
+                    ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED, color=ft.Colors.GREEN_600, size=24),
+                    ft.Text("Outstanding! Everything is in the perfect order!", weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_600, size=14),
+                ], spacing=10)
+                lesson["is_done"] = True
+                recalculate_locks()
+            else:
+                feedback_banner.bgcolor = ft.Colors.with_opacity(0.12, ft.Colors.AMBER_600)
+                feedback_banner.border = ft.Border.all(1, ft.Colors.AMBER_600)
+                feedback_banner.content = ft.Row([
+                    ft.Icon(ft.Icons.INFO_OUTLINE_ROUNDED, color=ft.Colors.AMBER_600, size=22),
+                    ft.Text(f"{correct_count} of {len(valid_items)} steps are in position. Check the highlighted items and try again!", weight=ft.FontWeight.BOLD, color=ft.Colors.AMBER_600, size=13),
+                ], spacing=10)
+
+            feedback_banner.visible = True
+            render_items_list(status_map)
+            page.update()
+
+        def reset_shuffle(e):
+            nonlocal current_items
+            current_items = get_scrambled_items(valid_items)
+            feedback_banner.visible = False
+            render_items_list(None)
+            page.update()
+
+        render_items_list(None)
+
+        return ft.Container(
+            padding=24,
+            border_radius=14,
+            bgcolor=ft.Colors.SURFACE,
+            border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+            content=ft.Column(
+                [
+                    ft.Row(
+                        [
+                            ft.Icon(ft.Icons.REORDER_ROUNDED, color=ft.Colors.AMBER_600, size=22),
+                            ft.Text("Sequence Challenge", weight=ft.FontWeight.BOLD, size=16, color=ft.Colors.ON_SURFACE),
+                        ],
+                        spacing=8,
+                    ),
+                    ft.Markdown(
+                        prompt or "Arrange the following steps into their correct sequence:",
+                        extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+                        selectable=True,
+                        md_style_sheet=ft.MarkdownStyleSheet(
+                            p_text_style=ft.TextStyle(size=14, color=ft.Colors.ON_SURFACE, height=1.5)
+                        ),
+                    ),
+                    feedback_banner,
+                    items_column,
+                    ft.Row(
+                        [
+                            ft.OutlinedButton("Shuffle / Reset", icon=ft.Icons.REFRESH_ROUNDED, on_click=reset_shuffle),
+                            ft.FilledButton(
+                                "Verify Sequence",
+                                icon=ft.Icons.CHECK_ROUNDED,
+                                style=ft.ButtonStyle(bgcolor=ft.Colors.AMBER_600, color=ft.Colors.WHITE),
+                                on_click=check_sequence,
+                            ),
+                        ],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    ),
+                ],
+                spacing=16,
+                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+            ),
+        )
+
+    def render_cloze_ui(lesson: dict):
+        content = lesson.get("content", {})
+        raw_text = content.get("text", "")
+        distractors = content.get("distractors", [])
+        explanation = content.get("explanation", "")
+
+        segments, blanks = parse_cloze_text(raw_text)
+        if not blanks:
+            return ft.Container(
+                padding=24,
+                border_radius=12,
+                bgcolor=ft.Colors.SURFACE,
+                content=ft.Text("This cloze exercise has no blanks configured.", color=ft.Colors.ON_SURFACE_VARIANT),
+            )
+
+        all_words = list(set([b["answer"] for b in blanks] + [d for d in distractors if d.strip()]))
+        random.shuffle(all_words)
+
+        user_answers = {b["index"]: "" for b in blanks}
+        validation_state = {}
+
+        feedback_banner = ft.Container(visible=False, padding=14, border_radius=10)
+        explanation_box = ft.Container(
+            padding=16,
+            border_radius=10,
+            bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.GREEN_600),
+            border=ft.Border.only(left=ft.BorderSide(4, ft.Colors.GREEN_600)),
+            visible=False,
+            content=ft.Column(
+                [
+                    ft.Row(
+                        [
+                            ft.Icon(ft.Icons.LIGHTBULB_ROUNDED, color=ft.Colors.GREEN_600, size=20),
+                            ft.Text("Pedagogical Summary & Takeaway", weight=ft.FontWeight.BOLD, size=14, color=ft.Colors.GREEN_600),
+                        ],
+                        spacing=8,
+                    ),
+                    ft.Markdown(
+                        explanation,
+                        extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+                        selectable=True,
+                        md_style_sheet=ft.MarkdownStyleSheet(
+                            p_text_style=ft.TextStyle(size=14, color=ft.Colors.ON_SURFACE, height=1.5)
+                        ),
+                    ),
+                ],
+                spacing=8,
+            ),
+        )
+
+        text_flow_row = ft.Row(wrap=True, spacing=6, run_spacing=8)
+        word_bank_row = ft.Row(wrap=True, spacing=8, run_spacing=8)
+
+        def rebuild_ui():
+            text_flow_row.controls.clear()
+            for seg in segments:
+                if seg["type"] == "text":
+                    text_flow_row.controls.append(
+                        ft.Text(seg["content"], size=15, color=ft.Colors.ON_SURFACE)
+                    )
+                else:
+                    b_info = seg["info"]
+                    b_idx = b_info["index"]
+                    ans_val = user_answers.get(b_idx, "")
+                    is_correct = validation_state.get(b_idx)
+
+                    if is_correct is True:
+                        border_c = ft.Colors.GREEN_600
+                        bg_c = ft.Colors.with_opacity(0.12, ft.Colors.GREEN_600)
+                        text_c = ft.Colors.GREEN_600
+                    elif is_correct is False:
+                        border_c = ft.Colors.AMBER_600
+                        bg_c = ft.Colors.with_opacity(0.12, ft.Colors.AMBER_600)
+                        text_c = ft.Colors.AMBER_600
+                    else:
+                        border_c = ft.Colors.CYAN_600 if not ans_val else UI_ACCENT
+                        bg_c = ft.Colors.with_opacity(0.08, border_c)
+                        text_c = ft.Colors.ON_SURFACE
+
+                    display_label = ans_val or (f"[{b_info['hint']}]" if b_info["hint"] else "[ blank ]")
+
+                    def clear_blank(bi):
+                        def handler(e):
+                            if user_answers.get(bi):
+                                user_answers[bi] = ""
+                                validation_state.pop(bi, None)
+                                feedback_banner.visible = False
+                                rebuild_ui()
+                                page.update()
+                        return handler
+
+                    text_flow_row.controls.append(
+                        ft.Container(
+                            padding=ft.Padding.symmetric(horizontal=12, vertical=5),
+                            border_radius=8,
+                            border=ft.Border.all(1.5, border_c),
+                            bgcolor=bg_c,
+                            content=ft.Text(display_label, size=14, weight=ft.FontWeight.BOLD, color=text_c),
+                            tooltip="Click to remove word" if ans_val else (b_info["hint"] or "Blank"),
+                            on_click=clear_blank(b_idx),
+                        )
+                    )
+
+            word_bank_row.controls.clear()
+            used_words = [w for w in user_answers.values() if w]
+            for w in all_words:
+                is_used = w in used_words
+                def pick_word(word):
+                    def handler(e):
+                        for b in blanks:
+                            if not user_answers.get(b["index"]):
+                                user_answers[b["index"]] = word
+                                validation_state.pop(b["index"], None)
+                                break
+                        rebuild_ui()
+                        page.update()
+                    return handler
+
+                word_bank_row.controls.append(
+                    ft.Container(
+                        padding=ft.Padding.symmetric(horizontal=14, vertical=7),
+                        border_radius=999,
+                        border=ft.Border.all(1, ft.Colors.with_opacity(0.15, ft.Colors.ON_SURFACE) if not is_used else ft.Colors.with_opacity(0.05, ft.Colors.ON_SURFACE)),
+                        bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE) if not is_used else ft.Colors.TRANSPARENT,
+                        content=ft.Text(w, size=13, weight=ft.FontWeight.W_500, color=ft.Colors.ON_SURFACE if not is_used else ft.Colors.with_opacity(0.25, ft.Colors.ON_SURFACE)),
+                        opacity=0.35 if is_used else 1.0,
+                        on_click=pick_word(w) if not is_used else None,
+                    )
+                )
+
+        def check_answers(e):
+            all_correct = True
+            correct_count = 0
+            for b in blanks:
+                b_idx = b["index"]
+                user_val = user_answers.get(b_idx, "").strip().lower()
+                expected = b["answer"].strip().lower()
+                match = (user_val == expected)
+                validation_state[b_idx] = match
+                if match:
+                    correct_count += 1
+                else:
+                    all_correct = False
+
+            if all_correct:
+                feedback_banner.bgcolor = ft.Colors.with_opacity(0.15, ft.Colors.GREEN_600)
+                feedback_banner.border = ft.Border.all(1, ft.Colors.GREEN_600)
+                feedback_banner.content = ft.Row([
+                    ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED, color=ft.Colors.GREEN_600, size=22),
+                    ft.Text("All blanks filled with 100% accuracy! Well done.", weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_600, size=14),
+                ], spacing=10)
+                if explanation:
+                    explanation_box.visible = True
+                lesson["is_done"] = True
+                recalculate_locks()
+            else:
+                feedback_banner.bgcolor = ft.Colors.with_opacity(0.12, ft.Colors.AMBER_600)
+                feedback_banner.border = ft.Border.all(1, ft.Colors.AMBER_600)
+                feedback_banner.content = ft.Row([
+                    ft.Icon(ft.Icons.INFO_OUTLINE_ROUNDED, color=ft.Colors.AMBER_600, size=22),
+                    ft.Text(f"{correct_count} of {len(blanks)} correct. Tap highlighted blanks to swap words.", weight=ft.FontWeight.BOLD, color=ft.Colors.AMBER_600, size=13),
+                ], spacing=10)
+
+            feedback_banner.visible = True
+            rebuild_ui()
+            page.update()
+
+        def reset_blanks(e):
+            for b in blanks:
+                user_answers[b["index"]] = ""
+            validation_state.clear()
+            feedback_banner.visible = False
+            explanation_box.visible = False
+            rebuild_ui()
+            page.update()
+
+        rebuild_ui()
+
+        return ft.Container(
+            padding=24,
+            border_radius=14,
+            bgcolor=ft.Colors.SURFACE,
+            border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+            content=ft.Column(
+                [
+                    ft.Row(
+                        [
+                            ft.Icon(ft.Icons.EDIT_NOTE_ROUNDED, color=ft.Colors.GREEN_600, size=22),
+                            ft.Text("Fill in the Blanks Reading", weight=ft.FontWeight.BOLD, size=16, color=ft.Colors.ON_SURFACE),
+                        ],
+                        spacing=8,
+                    ),
+                    text_flow_row,
+                    ft.Divider(height=1, color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                    ft.Text("Word Bank (Tap word to place into the next blank):", size=13, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE_VARIANT),
+                    word_bank_row,
+                    feedback_banner,
+                    explanation_box,
+                    ft.Row(
+                        [
+                            ft.OutlinedButton("Clear All", icon=ft.Icons.CLEAR_ALL_ROUNDED, on_click=reset_blanks),
+                            ft.FilledButton("Check Blanks", icon=ft.Icons.CHECK_ROUNDED, style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_600, color=ft.Colors.WHITE), on_click=check_answers),
+                        ],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    ),
+                ],
+                spacing=16,
+                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+            ),
+        )
+
+    def render_code_lab_ui(lesson: dict):
+        content = lesson.get("content", {})
+        language = content.get("language", "python").lower()
+        instructions = content.get("instructions", "")
+        starter_code = content.get("starter_code", "")
+        setup_sql = content.get("setup_sql", "")
+        test_cases = content.get("test_cases", [])
+
+        is_sql = "sql" in language
+        lang_display = "SQLite In-Memory" if is_sql else "Python 3.12"
+        lang_color = ft.Colors.TEAL_400 if is_sql else ft.Colors.BLUE_400
+
+        code_input = ft.TextField(
+            value=starter_code,
+            multiline=True,
+            min_lines=8,
+            max_lines=20,
+            border_radius=8,
+            bgcolor=ft.Colors.BLACK,
+            text_style=ft.TextStyle(font_family="monospace", size=13, color=ft.Colors.GREEN_300),
+        )
+
+        stdin_field = ft.TextField(
+            label="Program Input (stdin)",
+            hint_text="Input text to pass to input() calls (optional)...",
+            dense=True,
+            border_radius=8,
+            visible=(not is_sql),
+            text_style=ft.TextStyle(font_family="monospace", size=12),
+        )
+
+        console_output = ft.Text("Click 'Run Code' to execute in sandbox...", font_family="monospace", size=12, color=ft.Colors.ON_SURFACE_VARIANT)
+        test_results_col = ft.Column(spacing=6, horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
+
+        console_container = ft.Container(
+            padding=14,
+            border_radius=8,
+            bgcolor=ft.Colors.BLACK,
+            border=ft.Border.all(1, ft.Colors.with_opacity(0.2, ft.Colors.ON_SURFACE)),
+            content=console_output,
+        )
+
+        status_banner = ft.Container(visible=False, padding=12, border_radius=8)
+
+        def run_code(e):
+            user_code = code_input.value
+            results = run_code_lab_tests(language, user_code, setup_sql, test_cases)
+
+            if is_sql:
+                res = execute_sql(user_code, setup_sql)
+                if res["success"]:
+                    cols = " | ".join(res["columns"])
+                    rows_text = "\n".join([" | ".join([str(v) for v in r]) for r in res["rows"][:25]])
+                    console_output.value = f"COLUMNS: {cols}\n" + ("-" * 45) + f"\n{rows_text or '(0 rows returned)'}"
+                    console_output.color = ft.Colors.GREEN_300
+                else:
+                    console_output.value = f"SQL ERROR:\n{res['error']}"
+                    console_output.color = ft.Colors.RED_400
+            else:
+                passed_stdin = stdin_field.value if stdin_field.value else (test_cases[0].get("input", "") if test_cases else "")
+                res = execute_python(user_code, test_input=passed_stdin)
+                if res["success"]:
+                    console_output.value = res["output"] or "(Code executed successfully with no stdout)"
+                    console_output.color = ft.Colors.GREEN_300
+                else:
+                    console_output.value = f"RUNTIME ERROR:\n{res['error']}"
+                    console_output.color = ft.Colors.RED_400
+
+            test_results_col.controls.clear()
+            all_passed = True
+            for tr in results:
+                if not tr["passed"]:
+                    all_passed = False
+                test_results_col.controls.append(
+                    ft.Container(
+                        padding=10,
+                        border_radius=8,
+                        bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.GREEN_600 if tr["passed"] else ft.Colors.RED_500),
+                        border=ft.Border.all(1, ft.Colors.GREEN_600 if tr["passed"] else ft.Colors.RED_500),
+                        content=ft.Row(
+                            [
+                                ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED if tr["passed"] else ft.Icons.CANCEL_ROUNDED, color=ft.Colors.GREEN_600 if tr["passed"] else ft.Colors.RED_500, size=18),
+                                ft.Text(tr["description"], size=13, weight=ft.FontWeight.W_500, expand=True, color=ft.Colors.ON_SURFACE),
+                                ft.Text("PASSED" if tr["passed"] else "FAILED", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_600 if tr["passed"] else ft.Colors.RED_500),
+                            ],
+                            spacing=10,
+                        ),
+                    )
+                )
+
+            if test_cases:
+                if all_passed:
+                    status_banner.bgcolor = ft.Colors.with_opacity(0.15, ft.Colors.GREEN_600)
+                    status_banner.border = ft.Border.all(1, ft.Colors.GREEN_600)
+                    status_banner.content = ft.Row([
+                        ft.Icon(ft.Icons.VERIFIED_ROUNDED, color=ft.Colors.GREEN_600, size=20),
+                        ft.Text("All verification tests passed successfully! Challenge complete.", weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_600, size=13),
+                    ], spacing=8)
+                    lesson["is_done"] = True
+                    recalculate_locks()
+                else:
+                    status_banner.bgcolor = ft.Colors.with_opacity(0.12, ft.Colors.AMBER_600)
+                    status_banner.border = ft.Border.all(1, ft.Colors.AMBER_600)
+                    status_banner.content = ft.Row([
+                        ft.Icon(ft.Icons.INFO_OUTLINE_ROUNDED, color=ft.Colors.AMBER_600, size=20),
+                        ft.Text("Some test cases failed. Inspect the console output and try again.", weight=ft.FontWeight.BOLD, color=ft.Colors.AMBER_600, size=13),
+                    ], spacing=8)
+                status_banner.visible = True
+            else:
+                status_banner.visible = False
+
+            page.update()
+
+        def reset_code(e):
+            code_input.value = starter_code
+            stdin_field.value = ""
+            console_output.value = "Code reset to starter template."
+            console_output.color = ft.Colors.ON_SURFACE_VARIANT
+            test_results_col.controls.clear()
+            status_banner.visible = False
+            page.update()
+
+        return ft.Container(
+            padding=24,
+            border_radius=14,
+            bgcolor=ft.Colors.SURFACE,
+            border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+            content=ft.Column(
+                [
+                    ft.Row(
+                        [
+                            ft.Row(
+                                [
+                                    ft.Icon(ft.Icons.CODE_ROUNDED, color=ft.Colors.DEEP_PURPLE_400, size=22),
+                                    ft.Text("Interactive Code Lab", weight=ft.FontWeight.BOLD, size=16, color=ft.Colors.ON_SURFACE),
+                                ],
+                                spacing=8,
+                            ),
+                            ft.Container(
+                                padding=ft.Padding.symmetric(horizontal=10, vertical=4),
+                                border_radius=6,
+                                bgcolor=ft.Colors.with_opacity(0.12, lang_color),
+                                content=ft.Text(lang_display, size=11, weight=ft.FontWeight.BOLD, color=lang_color),
+                            ),
+                        ],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    ),
+                    ft.Markdown(
+                        instructions or "Write your solution in the code editor below:",
+                        extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+                        selectable=True,
+                        md_style_sheet=ft.MarkdownStyleSheet(
+                            p_text_style=ft.TextStyle(size=14, color=ft.Colors.ON_SURFACE, height=1.5)
+                        ),
+                    ),
+                    code_input,
+                    stdin_field,
+                    ft.Row(
+                        [
+                            ft.OutlinedButton("Reset Code", icon=ft.Icons.REFRESH_ROUNDED, on_click=reset_code),
+                            ft.FilledButton("Run Code", icon=ft.Icons.PLAY_ARROW_ROUNDED, style=ft.ButtonStyle(bgcolor=ft.Colors.DEEP_PURPLE_400, color=ft.Colors.WHITE), on_click=run_code),
+                        ],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    ),
+                    ft.Text("Execution Console Output:", size=13, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE_VARIANT),
+                    console_container,
+                    status_banner,
+                    test_results_col,
+                ],
+                spacing=16,
+                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+            ),
+        )
+
     def render_lesson_ui(lesson: dict):
         content = lesson.get("content", {})
         blocks = []
         lesson["_page"] = page
 
         for key, value in content.items():
-            # Add the new keys to the skip list
-            if key in ["questions", "scenario", "choices", "prompt_text"]:
+            if lesson.get("type") == "cloze" and key == "text":
+                continue
+            if key in ["questions", "scenario", "choices", "prompt_text", "steps", "items", "title", "intro", "prompt", "distractors", "explanation", "starter_code", "solution_code", "setup_sql", "test_cases", "language", "instructions"]:
                 continue
 
             renderer = CONTENT_RENDERERS.get(key)
@@ -1304,6 +2047,14 @@ async def course_learner_view(
             blocks.append(render_assessment_ui(lesson))
         elif lesson["type"] == "scenario":
             blocks.append(render_scenario_ui(lesson))
+        elif lesson["type"] == "stepper":
+            blocks.append(render_stepper_ui(lesson))
+        elif lesson["type"] == "sequencer":
+            blocks.append(render_sequencer_ui(lesson))
+        elif lesson["type"] == "cloze":
+            blocks.append(render_cloze_ui(lesson))
+        elif lesson["type"] == "code_lab":
+            blocks.append(render_code_lab_ui(lesson))
 
         return ft.Column(blocks, spacing=20, horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
 

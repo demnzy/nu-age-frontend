@@ -6,7 +6,7 @@ api_url = "https://api.nu-age.name.ng"
 async def login_request(email: str, password: str):
     # I bumped the timeout to 15 seconds. If the DB is waking up, 
     # giving it 5 extra seconds might just save the request.
-    limits = httpx.Timeout(15.0) 
+    limits = httpx.Timeout(connect=3.5, read=15.0, write=15.0, pool=5.0) 
     
     try:
         async with httpx.AsyncClient(timeout=limits, verify=ssl_context) as client:
@@ -54,7 +54,8 @@ async def signup_request(email: str, username: str, password: str, first_name: s
         payload["organisation"] = organisation
 
     try:
-        async with httpx.AsyncClient(timeout=15.0, verify=ssl_context) as client:  # bumped from 10s, matches login
+        limits = httpx.Timeout(connect=3.5, read=15.0, write=15.0, pool=5.0)
+        async with httpx.AsyncClient(timeout=limits, verify=ssl_context) as client:  # bumped from 10s, matches login
             response = await client.post(
                 f"{api_url}/users/auth/register", 
                 json=payload 
@@ -74,7 +75,7 @@ async def get_current_user_request(token: str):
 
     url = f"{api_url}/users/me"
     headers = {"Authorization": f"Bearer {token}"}
-    limits = httpx.Timeout(15.0)
+    limits = httpx.Timeout(connect=3.0, read=10.0, write=10.0, pool=5.0)
 
     try:
         async with httpx.AsyncClient(timeout=limits, verify=ssl_context) as client:
@@ -172,7 +173,8 @@ async def verify_password(email: str, new_password: str, otp: str):
             return 500, {"detail": str(e)}
 
 async def refresh_access_token_request(refresh_token: str):
-    async with httpx.AsyncClient(timeout=10) as client:
+    limits = httpx.Timeout(connect=3.5, read=10.0, write=10.0, pool=5.0)
+    async with httpx.AsyncClient(timeout=limits) as client:
         resp = await client.post(
             f"{api_url}/users/auth/refresh",
             json={"refresh_token": refresh_token},
@@ -180,7 +182,8 @@ async def refresh_access_token_request(refresh_token: str):
         return resp.status_code, resp.json()
 
 async def logout_request(refresh_token: str):
-    async with httpx.AsyncClient(timeout=10) as client:
+    limits = httpx.Timeout(connect=3.5, read=5.0, write=5.0, pool=3.0)
+    async with httpx.AsyncClient(timeout=limits) as client:
         try:
             resp = await client.post(
                 f"{api_url}/users/auth/logout",

@@ -51,16 +51,16 @@ def _progress_color(pct: float):
 
 async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
     app_bar = get_bottom_appbar(page)
-    # Hide bottom appbar during loading so only the centered spinner is visible
-    app_bar.visible = False
     token = await page.shared_preferences.get("auth_token")
 
     def _go_back(e=None):
         if len(page.views) > 1:
             page.views.pop()
+            page.update()
+        elif hasattr(page, "on_view_pop") and callable(page.on_view_pop):
+            page.on_view_pop(None)
         else:
-            page.go("/organisations")
-        page.update()
+            page.go(f"/organisations/{org_id}" if org_id else "/organisations")
 
     theme_color = ft.Colors.INDIGO_600
     course_data: dict = {}
@@ -93,7 +93,6 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
     )
 
     def _show_load_error(msg: str):
-        app_bar.visible = True
         content_socket.alignment = ft.Alignment.CENTER
         content_socket.content = ft.Container(
             padding=32,
@@ -990,8 +989,6 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
             if isinstance(activity, list):
                 weekly_activity = activity
 
-            # Reveal the bottom appbar only now that content is loaded
-            app_bar.visible = True
             content_socket.alignment = None
             content_socket.content = build_main_layout()
             page.update()
@@ -1006,8 +1003,8 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
     return ft.View(
         route=f"/organisations/{org_id}/courses/{course_id}/analytics",
         padding=0,
+        bottom_appbar=app_bar,
         controls=[
             content_socket,
-            app_bar,
         ],
     )

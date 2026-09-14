@@ -5,6 +5,21 @@ from src.requests.playlists import (
     save_bulk_playlist_courses,
 )
 from src.requests.organisations import get_organisation_courses
+from src.components.course_card_theme import get_course_module_meta
+
+
+def _get_course_module_count(c: dict) -> int:
+    if not isinstance(c, dict):
+        return 0
+    modules_data = (
+        c.get("total_modules")
+        or c.get("module_count")
+        or c.get("modules")
+        or (c.get("curriculum", {}).get("modules") if isinstance(c.get("curriculum"), dict) else None)
+    )
+    seed = c.get("id") or c.get("name") or "course"
+    total_modules, _, _ = get_course_module_meta(modules_data, seed_key=seed)
+    return total_modules
 
 
 def _get_palette(is_dark: bool) -> dict:
@@ -89,7 +104,8 @@ async def playlist_builder_view(page: ft.Page, playlist_id: str):
             for c in available_courses:
                 c_name = c.get("name", "Untitled Course")
                 c_desc = c.get("description", "") or "No description provided."
-                c_modules = c.get("total_modules") or len(c.get("modules", [])) or 0
+                c_modules = _get_course_module_count(c)
+                mod_label = f"{c_modules} {'module' if c_modules == 1 else 'modules'}"
 
                 item_card = ft.Container(
                     bgcolor=dlg_palette["card_bg_subtle"],
@@ -131,7 +147,7 @@ async def playlist_builder_view(page: ft.Page, playlist_id: str):
                                                 overflow=ft.TextOverflow.ELLIPSIS,
                                             ),
                                             ft.Text(
-                                                f"{c_modules} modules • {c_desc}",
+                                                f"{mod_label} • {c_desc}",
                                                 size=11,
                                                 color=dlg_palette["text_secondary"],
                                                 max_lines=1,
@@ -342,7 +358,8 @@ async def playlist_builder_view(page: ft.Page, playlist_id: str):
         for index, c in enumerate(local_courses):
             c_name = c.get("name", "Untitled Course")
             c_desc = c.get("description", "") or "Curriculum module"
-            c_modules = c.get("total_modules") or len(c.get("modules", [])) or 0
+            c_modules = _get_course_module_count(c)
+            mod_label = f"{c_modules} {'module' if c_modules == 1 else 'modules'}"
             step_num = f"{index + 1:02d}"
 
             def make_move_up(idx=index):
@@ -422,7 +439,7 @@ async def playlist_builder_view(page: ft.Page, playlist_id: str):
                                             controls=[
                                                 ft.Icon(ft.Icons.PLAY_LESSON_ROUNDED, size=12, color=p["text_secondary"]),
                                                 ft.Text(
-                                                    f"{c_modules} modules",
+                                                    mod_label,
                                                     size=11,
                                                     color=p["text_secondary"],
                                                     weight=ft.FontWeight.W_500,

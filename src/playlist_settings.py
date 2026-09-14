@@ -45,9 +45,11 @@ async def playlist_settings_view(page: ft.Page, playlist_id: str) -> ft.View:
     def _go_back(e=None):
         if len(page.views) > 1:
             page.views.pop()
+            page.update()
+        elif hasattr(page, "on_view_pop") and callable(page.on_view_pop):
+            page.on_view_pop(None)
         else:
             page.go("/organisations")
-        page.update()
 
     theme_color = ft.Colors.INDIGO_600
 

@@ -25,6 +25,8 @@ def get_profile_palette(is_dark: bool) -> dict:
 
 
 async def profile_view(page: ft.Page):
+    is_dark = getattr(page, "theme_mode", None) == ft.ThemeMode.DARK
+
     # ── Initial Loading Socket ────────────────────────────────────────────────
     content_socket = ft.Container(
         expand=True,
@@ -136,7 +138,7 @@ async def profile_view(page: ft.Page):
         if cached_enrollments is None:
             token = await page.shared_preferences.get("auth_token")
             try:
-                cached_enrollments = await asyncio.wait_for(get_enrollments(token, None), timeout=12)
+                cached_enrollments = await asyncio.wait_for(get_enrollments(token, None), timeout=3.5)
                 if not isinstance(cached_enrollments, list):
                     cached_enrollments = []
             except Exception:
@@ -281,7 +283,6 @@ async def profile_view(page: ft.Page):
                 padding=ft.Padding.symmetric(horizontal=8, vertical=3),
                 border_radius=10,
                 bgcolor=palette["card_bg_alt"],
-                animate=ft.Animation(200, ft.AnimationCurve.EASE_OUT),
                 content=sub_text,
             )
             val_text = ft.Text(str(value), size=22, weight=ft.FontWeight.W_800, color=palette["text_primary"])
@@ -294,7 +295,6 @@ async def profile_view(page: ft.Page):
                 padding=ft.Padding.all(16),
                 border=ft.Border.all(1, palette["border_clr"]),
                 shadow=ft.BoxShadow(blur_radius=10, color=ft.Colors.with_opacity(0.04, ft.Colors.BLACK), offset=ft.Offset(0, 4)),
-                animate=ft.Animation(200, ft.AnimationCurve.EASE_OUT),
                 content=ft.Column([
                     ft.Row([
                         ft.Container(
@@ -345,7 +345,6 @@ async def profile_view(page: ft.Page):
             bgcolor=palette["theme_icon_bg"],
             alignment=ft.Alignment.CENTER,
             content=theme_card_icon,
-            animate=ft.Animation(200, ft.AnimationCurve.EASE_OUT),
         )
         theme_title = ft.Text(
             "Theme Appearance",
@@ -390,7 +389,6 @@ async def profile_view(page: ft.Page):
             padding=ft.Padding.symmetric(horizontal=18, vertical=14),
             border=ft.Border.all(1, palette["border_clr"]),
             shadow=ft.BoxShadow(blur_radius=10, color=ft.Colors.with_opacity(0.04, ft.Colors.BLACK), offset=ft.Offset(0, 3)),
-            animate=ft.Animation(200, ft.AnimationCurve.EASE_OUT),
             content=ft.Row([
                 theme_icon_box,
                 ft.Column([
@@ -415,7 +413,6 @@ async def profile_view(page: ft.Page):
                 border=ft.Border.all(1, palette["border_clr"]),
                 padding=ft.Padding.all(10),
                 shadow=ft.BoxShadow(blur_radius=8, color=ft.Colors.with_opacity(0.03, ft.Colors.BLACK), offset=ft.Offset(0, 2)),
-                animate=ft.Animation(200, ft.AnimationCurve.EASE_OUT),
                 ink=True,
                 on_click=lambda _: page.go(route),
                 content=ft.Row([
@@ -458,7 +455,6 @@ async def profile_view(page: ft.Page):
                 width=36, height=36, border_radius=10,
                 bgcolor=palette["icon_bg"],
                 alignment=ft.Alignment.CENTER,
-                animate=ft.Animation(200, ft.AnimationCurve.EASE_OUT),
                 content=ft.Icon(icon, color=ft.Colors.PRIMARY, size=18)
             )
             lbl = ft.Text(label, size=10, weight=ft.FontWeight.W_600, color=palette["text_muted"])
@@ -495,7 +491,6 @@ async def profile_view(page: ft.Page):
             border_radius=18,
             border=ft.Border.all(1, palette["border_clr"]),
             shadow=ft.BoxShadow(blur_radius=10, color=ft.Colors.with_opacity(0.04, ft.Colors.BLACK), offset=ft.Offset(0, 3)),
-            animate=ft.Animation(200, ft.AnimationCurve.EASE_OUT),
             clip_behavior=ft.ClipBehavior.HARD_EDGE,
             content=ft.Column(detail_controls, spacing=0)
         )
@@ -569,7 +564,8 @@ async def profile_view(page: ft.Page):
             theme_title.color = p["text_primary"]
             theme_subtitle.value = p["theme_sub"]
             theme_subtitle.color = p["text_muted"]
-            theme_switch.value = dark
+            if theme_switch.value != dark:
+                theme_switch.value = dark
 
             # 3. Update Shortcut Tiles
             for t in shortcut_registry:
@@ -629,6 +625,7 @@ async def profile_view(page: ft.Page):
     return ft.View(
         route="/profile",
         padding=0,
+        bgcolor="#121212" if is_dark else ft.Colors.SURFACE,
         bottom_appbar=get_bottom_appbar(page),
         controls=[
             ft.SafeArea(

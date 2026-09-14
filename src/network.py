@@ -770,7 +770,7 @@ async def network_view(page: ft.Page):
 
             async def on_cancel(e):
                 btn_ref.current.disabled = True
-                btn_ref.current.text = "Canceling…"
+                btn_ref.current.text = ft.Text("Canceling…", size=8)
                 if _is_mounted(btn_ref.current):
                     btn_ref.current.update()
                 try:
@@ -825,7 +825,7 @@ async def network_view(page: ft.Page):
                             padding=ft.Padding.symmetric(horizontal=6, vertical=0),
                             content=ft.TextButton(
                                 ref=btn_ref,
-                                content=ft.Text("Cancel", size=11, weight=ft.FontWeight.W_500, color=ft.Colors.GREY_600),
+                                content=ft.Text("Cancel", size=8, weight=ft.FontWeight.W_500, color=ft.Colors.GREY_600),
                                 on_click=lambda e: page.run_task(on_cancel, e),
                             ),
                         ),

@@ -42,16 +42,16 @@ def _progress_color(pct: float):
 
 async def playlist_analytics_view(page: ft.Page, org_id: str, playlist_id: str):
     app_bar = get_bottom_appbar(page)
-    # Hide bottom app bar during loading so user sees only the centered loading spinner
-    app_bar.visible = False
     token = await page.shared_preferences.get("auth_token")
 
     def _go_back(e=None):
         if len(page.views) > 1:
             page.views.pop()
+            page.update()
+        elif hasattr(page, "on_view_pop") and callable(page.on_view_pop):
+            page.on_view_pop(None)
         else:
-            page.go("/organisations")
-        page.update()
+            page.go(f"/organisations/{org_id}" if org_id else "/organisations")
 
     theme_color = ft.Colors.INDIGO_600
     playlist_data: dict = {}
@@ -80,7 +80,6 @@ async def playlist_analytics_view(page: ft.Page, org_id: str, playlist_id: str):
     )
 
     def _show_load_error(msg: str):
-        app_bar.visible = True
         content_socket.alignment = ft.Alignment.CENTER
         content_socket.content = ft.Container(
             padding=32,
@@ -806,8 +805,6 @@ async def playlist_analytics_view(page: ft.Page, org_id: str, playlist_id: str):
             elif isinstance(an_resp, dict) and "error" not in an_resp:
                 analytics_data = an_resp.get("enrollments") or an_resp.get("results") or an_resp.get("data") or []
 
-            # Reveal the bottom appbar only now that content is loaded
-            app_bar.visible = True
             content_socket.alignment = None
             content_socket.content = build_main_layout()
             page.update()
@@ -822,8 +819,8 @@ async def playlist_analytics_view(page: ft.Page, org_id: str, playlist_id: str):
     return ft.View(
         route=f"/organisations/{org_id}/playlists/{playlist_id}/analytics",
         padding=0,
+        bottom_appbar=app_bar,
         controls=[
             content_socket,
-            app_bar,
         ],
     )

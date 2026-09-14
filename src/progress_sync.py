@@ -19,7 +19,10 @@ import flet as ft
 from datetime import datetime, timezone
 from src.local_db import get_local_db
 
-BASE_URL = "..."  # reuse your existing API base
+try:
+    from src.requests.Courses import api_url as BASE_URL
+except Exception:
+    BASE_URL = "https://api.nu-age.name.ng"
 
 
 class SyncResult:
@@ -75,56 +78,87 @@ async def sync_offline_progress(page: ft.Page, result: SyncResult = None) -> Syn
         for r in rows
     ]
 
+    synced_count = 0
+    now = datetime.now(timezone.utc).isoformat()
+    bulk_succeeded = False
+
+    # 1. Primary Strategy: Try bulk-sync
     try:
-        async with httpx.AsyncClient(timeout=20) as client:
+        async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.post(
                 f"{BASE_URL}/courses/progress/bulk-sync",
                 headers={"Authorization": f"Bearer {token}"},
                 json={"entries": entries},
             )
+            if resp.status_code == 200:
+                data = resp.json()
+                for item in data.get("results", []):
+                    if item.get("status") in ("synced", "skipped_already_completed", "skipped_not_found"):
+                        db.execute(
+                            "UPDATE lesson_progress SET synced_at = ? WHERE lesson_id = ?",
+                            (now, item["lesson_id"]),
+                        )
+                        synced_count += 1
+                db.commit()
+                bulk_succeeded = True
+            elif resp.status_code == 401:
+                result.status = "error"
+                result.error_message = "Session expired — please log in again."
+                return result
+            else:
+                print(f"[Sync] bulk-sync rejected with status {resp.status_code}: {resp.text}")
     except httpx.RequestError as ex:
-        # Network failure mid-sync — not a "session ended" situation, just
-        # try again next time. Nothing is marked synced.
+        print(f"[Sync] bulk-sync network error: {ex}")
+    except Exception as ex:
+        print(f"[Sync] bulk-sync unexpected error: {ex}")
+
+    # 2. Secondary Strategy: If bulk-sync was rejected or failed, sync individually via mark_complete
+    if not bulk_succeeded:
+        from src.requests.Courses import mark_complete
+        for r in rows:
+            lesson_id = r[0]
+            course_id = r[1]
+            try:
+                res = await mark_complete(token, course_id, lesson_id)
+                err = res.get("error") if isinstance(res, dict) else None
+                details = str(res.get("details", "")) if isinstance(res, dict) else ""
+                msg = str(res.get("message", "")) if isinstance(res, dict) else ""
+
+                # Check for success, already completed, or obsolete/deleted lesson on server
+                is_obsolete = (
+                    err == "not_found"
+                    or "ForeignKeyViolation" in details
+                    or "not present in table" in details
+                    or "does not exist or was removed" in msg
+                )
+
+                if not err or err in ("already_completed", "not_found") or is_obsolete:
+                    if is_obsolete:
+                        print(f"[Sync] Lesson {lesson_id} was removed on server; marking progress resolved.")
+                    db.execute(
+                        "UPDATE lesson_progress SET synced_at = ? WHERE lesson_id = ?",
+                        (now, lesson_id),
+                    )
+                    synced_count += 1
+                elif err == "unauthorized":
+                    result.status = "error"
+                    result.error_message = "Session expired — please log in again."
+                    db.commit()
+                    return result
+                else:
+                    print(f"[Sync] Individual mark_complete failed for {lesson_id}: {res}")
+            except Exception as ex:
+                print(f"[Sync] Exception marking lesson {lesson_id} complete: {ex}")
+        db.commit()
+
+    if synced_count > 0:
+        result.synced = synced_count
+        result.failed = result.total - synced_count
+        result.status = "done"
+    else:
         result.status = "error"
-        result.error_message = f"Network error: {ex}"
-        return result
+        result.error_message = "Could not sync with server. Check internet connectivity."
 
-    if resp.status_code == 401:
-        # Access token was dead and this call didn't go through
-        # route_change's refresh machinery (sync can run from a background
-        # task, not just navigation). Don't clear tokens here — that's
-        # route_change's job, and it'll sort itself out on next navigation
-        # or resume. Just report failure so the caller can decide whether
-        # to retry immediately after a manual refresh attempt.
-        result.status = "error"
-        result.error_message = "Session expired — will retry after next login."
-        return result
-
-    if resp.status_code != 200:
-        result.status = "error"
-        result.error_message = f"Server rejected sync ({resp.status_code})."
-        return result
-
-    data = resp.json()
-    now = datetime.now(timezone.utc).isoformat()
-
-    synced_count = 0
-    for item in data.get("results", []):
-        # Both "synced" and "skipped_already_completed" mean the server
-        # has authoritative state for this lesson now — either way, this
-        # local row no longer needs to be retried.
-        if item.get("status") in ("synced", "skipped_already_completed"):
-            db.execute(
-                "UPDATE lesson_progress SET synced_at = ? WHERE lesson_id = ?",
-                (now, item["lesson_id"]),
-            )
-            synced_count += 1
-
-    db.commit()
-
-    result.synced = synced_count
-    result.failed = result.total - synced_count
-    result.status = "done"
     return result
 
 

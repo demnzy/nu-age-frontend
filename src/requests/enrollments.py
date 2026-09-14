@@ -4,9 +4,9 @@ import json
 
 api_url = "https://api.nu-age.name.ng"
 
-# Default timeout for standard JSON requests (matches the 15s "server waking up"
-# allowance used elsewhere in the app).
-DEFAULT_TIMEOUT = httpx.Timeout(15.0)
+# Default timeout for standard JSON requests. Uses connect=3.5s so offline network
+# issues fail fast, while retaining read=15.0s for server waking up/cold starts.
+DEFAULT_TIMEOUT = httpx.Timeout(connect=3.5, read=15.0, write=10.0, pool=5.0)
 
 
 async def get_enrollments(token: str, params: dict | None = None):

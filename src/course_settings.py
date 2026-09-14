@@ -48,9 +48,11 @@ async def course_settings_view(page: ft.Page, course_id: str, org_id: str = None
     def _go_back(e=None):
         if len(page.views) > 1:
             page.views.pop()
+            page.update()
+        elif hasattr(page, "on_view_pop") and callable(page.on_view_pop):
+            page.on_view_pop(None)
         else:
             page.go(f"/organisations/{effective_org_id}" if effective_org_id else "/organisations")
-        page.update()
 
     theme_color = ft.Colors.INDIGO_600
 

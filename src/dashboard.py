@@ -12,6 +12,7 @@ from src.requests.enrollments import get_enrollments
 from src.requests.chats import get_all_users
 from src.utils.quotes import get_random_quote, get_random_greeting, get_random_tip
 from src.utils.db_manager import get_weekly_activity, log_daily_activity
+from src.local_db import has_any_downloaded_courses
 
 # ─────────────────────────────────────────────────────────────────────────────
 # HELPERS
@@ -729,7 +730,7 @@ async def dashboard_view(page: ft.Page):
         # ── enrollments (non-fatal on failure) ────────────────────────────────
         try:
             enrolled_list = await asyncio.wait_for(
-                get_enrollments(token, None), timeout=15
+                get_enrollments(token, None), timeout=3.5
             )
             if not isinstance(enrolled_list, list):
                 enrolled_list = []
@@ -820,32 +821,82 @@ async def dashboard_view(page: ft.Page):
                 ],
             )
         else:
-            continue_learning_section.content = ft.Container(
-                bgcolor=ft.Colors.SURFACE,
-                border_radius=16,
-                border=ft.Border.all(1, ft.Colors.GREY_200),
-                padding=18,
-                shadow=ft.BoxShadow(
-                    blur_radius=8,
-                    color=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
-                    offset=ft.Offset(0, 3),
-                ),
-                content=ft.Column(
-                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                    spacing=8,
-                    controls=[
-                        ft.Icon(ft.Icons.SCHOOL_OUTLINED, size=36,
-                                color=ft.Colors.GREY_300),
-                        ft.Text("No courses in progress.",
-                                size=13, color=ft.Colors.GREY_400),
-                        ft.TextButton(
-                            "Find a course →",
-                            on_click=lambda _: page.go("/courses"),
-                            style=ft.ButtonStyle(color=ft.Colors.PRIMARY),
-                        ),
-                    ],
+            if has_any_downloaded_courses(page):
+                continue_learning_section.content = ft.Container(
+                    bgcolor=ft.Colors.SURFACE,
+                    border_radius=16,
+                    border=ft.Border.all(1.2, ft.Colors.with_opacity(0.25, ft.Colors.PRIMARY)),
+                    padding=18,
+                    shadow=ft.BoxShadow(
+                        blur_radius=12,
+                        color=ft.Colors.with_opacity(0.06, ft.Colors.BLACK),
+                        offset=ft.Offset(0, 4),
+                    ),
+                    content=ft.Column(
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        spacing=12,
+                        controls=[
+                            ft.Row(
+                                alignment=ft.MainAxisAlignment.CENTER,
+                                spacing=10,
+                                controls=[
+                                    ft.Icon(ft.Icons.DOWNLOAD_FOR_OFFLINE_ROUNDED, size=24, color=ft.Colors.PRIMARY),
+                                    ft.Text("Downloaded Courses Ready", size=15, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
+                                ],
+                            ),
+                            ft.Text(
+                                "You have downloaded courses saved locally. Keep studying even without an active internet connection.",
+                                size=12.5,
+                                color=ft.Colors.ON_SURFACE_VARIANT,
+                                text_align=ft.TextAlign.CENTER,
+                            ),
+                            ft.FilledButton(
+                                content=ft.Row(
+                                    [
+                                        ft.Icon(ft.Icons.PLAY_ARROW_ROUNDED, size=16),
+                                        ft.Text("View Downloads", weight=ft.FontWeight.BOLD, size=13),
+                                    ],
+                                    tight=True,
+                                    spacing=6,
+                                ),
+                                on_click=lambda _: page.go("/offline"),
+                                style=ft.ButtonStyle(
+                                    bgcolor=ft.Colors.PRIMARY,
+                                    color=ft.Colors.ON_PRIMARY,
+                                    shape=ft.RoundedRectangleBorder(radius=10),
+                                    padding=ft.Padding.symmetric(horizontal=20, vertical=10),
+                                ),
+                            ),
+                        ],
+                    ),
                 )
-            )
+            else:
+                continue_learning_section.content = ft.Container(
+                    bgcolor=ft.Colors.SURFACE,
+                    border_radius=16,
+                    border=ft.Border.all(1, ft.Colors.GREY_200),
+                    padding=18,
+                    shadow=ft.BoxShadow(
+                        blur_radius=8,
+                        color=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
+                        offset=ft.Offset(0, 3),
+                    ),
+                    content=ft.Column(
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        spacing=8,
+                        controls=[
+                            ft.Icon(ft.Icons.SCHOOL_OUTLINED, size=36,
+                                    color=ft.Colors.GREY_300),
+                            ft.Text("No courses in progress.",
+                                    size=13, color=ft.Colors.GREY_400),
+                            ft.TextButton(
+                                "Find a course →",
+                                on_click=lambda _: page.go("/courses"),
+                                style=ft.ButtonStyle(color=ft.Colors.PRIMARY),
+                            ),
+                        ],
+                    )
+                )
 
         # ── 1. POPULATE ACTIVITY THREAD & LEARNING FOCUS TRACKERS ────────────
         total_courses = len(enrolled_list)

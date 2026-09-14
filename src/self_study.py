@@ -1,7 +1,6 @@
 import asyncio
 
 import flet as ft
-from src.components.bottom_appbar import get_bottom_appbar
 from src.components.study_flashcards import build_flashcard_session
 from src.components.study_quiz import build_quiz
 from src.components.study_exam import build_exam
@@ -245,7 +244,6 @@ def format_material_title(raw_title: str) -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 async def self_study_view(page: ft.Page):
     visible_trigger=True
-    app_bar_bottom = get_bottom_appbar(page)
     token          = await page.shared_preferences.get("auth_token")
 
     # ── shared state ──────────────────────────────────────────────────────────
