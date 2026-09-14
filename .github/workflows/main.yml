@@ -65,7 +65,7 @@ jobs:
           # Verify the current latest patch before building:
           #   pip index versions flet
           #   pip index versions flet-charts
-          pip install flet-cli==0.86.5 flet==0.86.5 flet-video==0.86.5 flet-charts==0.86.5 httpx==0.28.1 requests==2.33.1
+          pip install flet-cli==0.86.5 flet==0.86.5 flet-video==0.86.5 flet-charts==0.86.5 flet-webview==0.86.5 httpx==0.28.1 requests==2.33.1
 
       - name: Verify matching flet toolchain versions
         run: |
@@ -73,7 +73,7 @@ jobs:
           # into a Gradle build if the pins ever drift out of lockstep again.
           python -c "
           import importlib.metadata as m
-          pkgs = ['flet', 'flet-cli', 'flet-video', 'flet-charts']
+          pkgs = ['flet', 'flet-cli', 'flet-video', 'flet-charts', 'flet-webview']
           versions = {p: m.version(p) for p in pkgs}
           print(versions)
           vals = set(versions.values())

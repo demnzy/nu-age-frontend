@@ -118,8 +118,14 @@ class AdaptiveVideoPlayer(ft.Container):
         """Resolves YouTube stream or mounts platform-appropriate player."""
         current_page = self._get_page()
         is_web = getattr(current_page, "web", False) if current_page else False
+        platform = getattr(current_page, "platform", None) if current_page else None
+        platform_str = str(platform or "").lower()
+        is_mobile = (
+            platform in (ft.PagePlatform.ANDROID, ft.PagePlatform.IOS, getattr(ft.PagePlatform, "ANDROID_TV", None))
+            or any(m in platform_str for m in ("android", "ios"))
+        ) if platform else False
         is_windows = (
-            (getattr(current_page, "platform", None) == ft.PagePlatform.WINDOWS if current_page else False)
+            (platform == ft.PagePlatform.WINDOWS)
             or sys.platform == "win32"
         ) and not is_web
 
@@ -144,8 +150,25 @@ class AdaptiveVideoPlayer(ft.Container):
             self._mount_offline_card()
             return
 
-        # 3. Progressive Stream URL Extraction via yt-dlp (Native Player on All Platforms)
-        # Attempt progressive stream URL extraction across all native platforms (Android, iOS, Desktop).
+        # 3. Mobile (Android / iOS): Native In-App WebView Player
+        # On Android and iOS, embed YouTube directly inside the app using flet_webview.
+        # This provides seamless in-app playback, touch controls, HD quality, fullscreen,
+        # closed captions, and scrubbing without external redirects or yt-dlp dependencies.
+        if is_mobile:
+            try:
+                from flet_webview import WebView  # noqa: F401
+                embed_url = get_youtube_embed_url(self._video_id, autoplay=self.autoplay)
+                logger.info("Mobile platform detected (%s); mounting native in-app WebView player for %s", platform, self._video_id)
+                self.content = self._build_webview_player(embed_url)
+                self.update()
+                if self.on_load_callback:
+                    self.on_load_callback(None)
+                return
+            except Exception as ex:
+                logger.warning("Mobile WebView player initialization failed for %s: %s", self.media_url, ex)
+
+        # 4. Progressive Stream URL Extraction via yt-dlp (Desktop)
+        # Attempt progressive stream URL extraction on Desktop platforms.
         # This provides hardware-accelerated, native media playback via flet_video without
         # WebView JavaScript restrictions, COEP blocks, or embedded player errors.
         try:
@@ -165,7 +188,7 @@ class AdaptiveVideoPlayer(ft.Container):
         except Exception as ex:
             logger.warning("Failed yt-dlp resolution for %s: %s", self.media_url, ex)
 
-        # 4. Resilient Fallback to High-Fidelity Cinema Card
+        # 5. Resilient Fallback to High-Fidelity Cinema Card
         # If stream extraction is unavailable (restricted/private/DRM), mount the Cinema Card
         # which lets the learner launch the video in YouTube app or browser with zero errors.
         logger.info("Stream extraction unavailable for %s; mounting Cinema Card.", self._video_id)
@@ -373,6 +396,30 @@ class AdaptiveVideoPlayer(ft.Container):
             controls=controls_scheme,
         )
         return self._player_control
+
+    def _build_webview_player(self, embed_url: str) -> ft.Container:
+        """Constructs an in-app native WebView player for YouTube embeds."""
+        from flet_webview import WebView
+
+        def _on_web_error(e):
+            logger.warning("WebView playback error for %s: %s", embed_url, getattr(e, "data", e))
+            if self.on_error_callback:
+                self.on_error_callback(e)
+
+        webview = WebView(
+            url=embed_url,
+            expand=True,
+            bgcolor="#000000",
+            on_web_resource_error=_on_web_error,
+        )
+
+        return ft.Container(
+            content=webview,
+            expand=True,
+            bgcolor="#000000",
+            border_radius=self.border_radius,
+            clip_behavior=ft.ClipBehavior.HARD_EDGE,
+        )
 
     def _build_empty_placeholder(self) -> ft.Container:
         """Fallback for empty media URL."""

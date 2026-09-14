@@ -13,6 +13,7 @@ dependencies = [
     "flet==0.86.5",
     "flet-charts==0.86.5",
     "flet-video==0.86.5",
+    "flet-webview==0.86.5",
     "httpx>=0.28.1",
     "idna>=3.11",
     "requests>=2.33.1",

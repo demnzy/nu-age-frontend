@@ -21,6 +21,7 @@ flet-cli==0.86.5
 flet-desktop==0.86.5
 flet-video==0.86.5
 flet-web==0.86.5
+flet-webview==0.86.5
 h11==0.16.0
 httpcore==1.0.9
 httptools==0.7.1
