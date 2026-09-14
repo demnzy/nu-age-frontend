@@ -60,12 +60,12 @@ jobs:
           # "Error: The method 'disposeReplaced' isn't defined for the type ...").
           #
           # flet-charts patched this rapidly: 0.86.0 -> 0.86.1 -> 0.86.2 -> 0.86.3 ->
-          # 0.86.4, all within ~2 weeks. Pin to the latest 0.86.x patch instead.
+          # 0.86.4 -> 0.86.5. Pin to 0.86.5 across all packages.
           #
           # Verify the current latest patch before building:
           #   pip index versions flet
           #   pip index versions flet-charts
-          pip install flet-cli==0.86.4 flet==0.86.4 flet-video==0.86.4 flet-charts==0.86.4 httpx==0.28.1 requests==2.32.3
+          pip install flet-cli==0.86.5 flet==0.86.5 flet-video==0.86.5 flet-charts==0.86.5 httpx==0.28.1 requests==2.33.1
 
       - name: Verify matching flet toolchain versions
         run: |
@@ -117,6 +117,10 @@ jobs:
           file "$KEYSTORE_PATH"
           keytool -list -v -keystore "$KEYSTORE_PATH" -storepass "$FLET_ANDROID_SIGNING_KEY_STORE_PASSWORD" | head -20
 
+      - name: Accept Android SDK Licenses
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses 2>/dev/null || true
+
       - name: Compile the APK
         env:
           # These four env vars are read directly by Gradle's
@@ -149,7 +153,7 @@ jobs:
           # last ~6 years; x86_64 is only useful for emulators and armeabi-v7a is
           # legacy 32-bit devices. Add more archs back here only if you have a
           # concrete reason to ship them.
-          yes | flet build apk --product "Nu Age" --arch arm64-v8a --android-signing-key-store "$KEYSTORE_PATH" --android-signing-key-alias "$FLET_ANDROID_SIGNING_KEY_ALIAS" --verbose 2>&1 | tee flet_build.log || true
+          yes | flet build apk --yes --product "Nu Age" --arch arm64-v8a --python-version 3.12 --android-signing-key-store "$KEYSTORE_PATH" --android-signing-key-alias "$FLET_ANDROID_SIGNING_KEY_ALIAS" --verbose 2>&1 | tee flet_build.log || true
           if ! grep -q "Successfully built your .apk for Android" flet_build.log; then
             echo "::error::CRITICAL ERROR: Flet compiler crashed! Check verbose logs for Dart/Python errors."
             exit 1
