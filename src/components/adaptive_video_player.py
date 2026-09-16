@@ -156,11 +156,40 @@ class AdaptiveVideoPlayer(ft.Container):
         # closed captions, and scrubbing without external redirects or yt-dlp dependencies.
         if is_mobile:
             try:
-                from flet_webview import WebView  # noqa: F401
+                from flet_webview import WebView, JavaScriptMode  # noqa: F401
                 embed_url = get_youtube_embed_url(self._video_id, autoplay=self.autoplay)
                 logger.info("Mobile platform detected (%s); mounting native in-app WebView player for %s", platform, self._video_id)
-                self.content = self._build_webview_player(embed_url)
+                
+                # Mount WebView first so WebViewController is attached to the page
+                webview = self._build_webview_player(embed_url=None)
+                self.content = ft.Container(
+                    content=webview,
+                    expand=True,
+                    bgcolor="#000000",
+                    border_radius=self.border_radius,
+                    clip_behavior=ft.ClipBehavior.HARD_EDGE,
+                )
                 self.update()
+
+                # Explicitly enable unrestricted JavaScript execution before loading the YouTube page
+                try:
+                    await webview.set_javascript_mode(JavaScriptMode.UNRESTRICTED)
+                    logger.info("Successfully set WebView JavaScriptMode to UNRESTRICTED")
+                except Exception as js_ex:
+                    logger.warning("Could not set JavaScriptMode on WebView: %s", js_ex)
+
+                # Now load the YouTube embed request with JavaScript mode safely enabled
+                try:
+                    await webview.load_request(embed_url)
+                    webview.url = embed_url
+                except Exception as load_ex:
+                    logger.warning("load_request failed (%s); updating url directly on WebView", load_ex)
+                    webview.url = embed_url
+                    try:
+                        webview.update()
+                    except Exception:
+                        pass
+
                 if self.on_load_callback:
                     self.on_load_callback(None)
                 return
@@ -397,28 +426,24 @@ class AdaptiveVideoPlayer(ft.Container):
         )
         return self._player_control
 
-    def _build_webview_player(self, embed_url: str) -> ft.Container:
+    def _build_webview_player(self, embed_url: Optional[str] = None) -> Any:
         """Constructs an in-app native WebView player for YouTube embeds."""
         from flet_webview import WebView
 
         def _on_web_error(e):
-            logger.warning("WebView playback error for %s: %s", embed_url, getattr(e, "data", e))
+            logger.warning("WebView playback error for %s: %s", self.media_url, getattr(e, "data", e))
             if self.on_error_callback:
                 self.on_error_callback(e)
 
-        webview = WebView(
+        def _on_console(e):
+            logger.debug("WebView console: %s", getattr(e, "message", e))
+
+        return WebView(
             url=embed_url,
             expand=True,
             bgcolor="#000000",
             on_web_resource_error=_on_web_error,
-        )
-
-        return ft.Container(
-            content=webview,
-            expand=True,
-            bgcolor="#000000",
-            border_radius=self.border_radius,
-            clip_behavior=ft.ClipBehavior.HARD_EDGE,
+            on_console_message=_on_console,
         )
 
     def _build_empty_placeholder(self) -> ft.Container:

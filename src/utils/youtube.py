@@ -52,16 +52,17 @@ def extract_youtube_id(url: Optional[str]) -> Optional[str]:
     return None
 
 
-def get_youtube_embed_url(video_id_or_url: str, autoplay: bool = False) -> str:
+def get_youtube_embed_url(video_id_or_url: str, autoplay: bool = False, use_nocookie: bool = False) -> str:
     """
-    Generate a privacy-enhanced, cookie-safe iframe embed URL for WebView or Web browsers.
-    Uses youtube-nocookie.com to prevent third-party cookie rejections in modern browsers.
+    Generate a clean, cookie-safe embed URL for WebView or Web browsers.
+    Uses standard https://www.youtube.com/embed/{video_id} with playsinline and modestbranding.
     """
     video_id = extract_youtube_id(video_id_or_url) or video_id_or_url
     ap = 1 if autoplay else 0
+    host = "www.youtube-nocookie.com" if use_nocookie else "www.youtube.com"
     return (
-        f"https://www.youtube-nocookie.com/embed/{video_id}"
-        f"?autoplay={ap}&playsinline=1&rel=0&modestbranding=1&enablejsapi=1"
+        f"https://{host}/embed/{video_id}"
+        f"?autoplay={ap}&playsinline=1&rel=0&modestbranding=1"
     )
 
 
