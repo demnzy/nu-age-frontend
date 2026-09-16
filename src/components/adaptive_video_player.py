@@ -24,6 +24,7 @@ from src.utils.youtube import (
     is_youtube_url,
     extract_youtube_id,
     get_youtube_embed_url,
+    get_youtube_iframe_html,
     get_youtube_thumbnail_url,
     resolve_youtube_stream_url_async,
     is_network_available_async,
@@ -157,7 +158,8 @@ class AdaptiveVideoPlayer(ft.Container):
         if is_mobile:
             try:
                 from flet_webview import WebView, JavaScriptMode  # noqa: F401
-                embed_url = get_youtube_embed_url(self._video_id, autoplay=self.autoplay)
+                embed_html = get_youtube_iframe_html(self._video_id, autoplay=self.autoplay, use_nocookie=True)
+                embed_url = get_youtube_embed_url(self._video_id, autoplay=self.autoplay, use_nocookie=True)
                 logger.info("Mobile platform detected (%s); mounting native in-app WebView player for %s", platform, self._video_id)
                 
                 # Mount WebView first so WebViewController is attached to the page
@@ -178,17 +180,28 @@ class AdaptiveVideoPlayer(ft.Container):
                 except Exception as js_ex:
                     logger.warning("Could not set JavaScriptMode on WebView: %s", js_ex)
 
-                # Now load the YouTube embed request with JavaScript mode safely enabled
+                # Load YouTube player via load_html with base_url="https://www.youtube-nocookie.com"
+                # This provides the necessary Origin & Referer headers to satisfy YouTube security
+                # and permanently eliminate Error 153 ("Video Player Configuration Error") in mobile WebViews
+                loaded = False
                 try:
-                    await webview.load_request(embed_url)
-                    webview.url = embed_url
-                except Exception as load_ex:
-                    logger.warning("load_request failed (%s); updating url directly on WebView", load_ex)
-                    webview.url = embed_url
+                    await webview.load_html(embed_html, base_url="https://www.youtube-nocookie.com")
+                    loaded = True
+                    logger.info("Successfully loaded YouTube iframe HTML with base_url into WebView")
+                except Exception as html_err:
+                    logger.warning("load_html failed (%s); trying load_request", html_err)
+
+                if not loaded:
                     try:
-                        webview.update()
-                    except Exception:
-                        pass
+                        await webview.load_request(embed_url)
+                        webview.url = embed_url
+                    except Exception as load_ex:
+                        logger.warning("load_request failed (%s); updating url directly on WebView", load_ex)
+                        webview.url = embed_url
+                        try:
+                            webview.update()
+                        except Exception:
+                            pass
 
                 if self.on_load_callback:
                     self.on_load_callback(None)

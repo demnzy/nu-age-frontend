@@ -52,10 +52,10 @@ def extract_youtube_id(url: Optional[str]) -> Optional[str]:
     return None
 
 
-def get_youtube_embed_url(video_id_or_url: str, autoplay: bool = False, use_nocookie: bool = False) -> str:
+def get_youtube_embed_url(video_id_or_url: str, autoplay: bool = False, use_nocookie: bool = True) -> str:
     """
     Generate a clean, cookie-safe embed URL for WebView or Web browsers.
-    Uses standard https://www.youtube.com/embed/{video_id} with playsinline and modestbranding.
+    Uses https://www.youtube-nocookie.com/embed/{video_id} with playsinline and modestbranding.
     """
     video_id = extract_youtube_id(video_id_or_url) or video_id_or_url
     ap = 1 if autoplay else 0
@@ -64,6 +64,63 @@ def get_youtube_embed_url(video_id_or_url: str, autoplay: bool = False, use_noco
         f"https://{host}/embed/{video_id}"
         f"?autoplay={ap}&playsinline=1&rel=0&modestbranding=1"
     )
+
+
+def get_youtube_iframe_html(video_id_or_url: str, autoplay: bool = False, use_nocookie: bool = True) -> str:
+    """
+    Generate responsive HTML containing an embedded YouTube iframe with proper
+    Referrer-Policy and viewport configuration to resolve and prevent YouTube
+    Error 153 ('Video Player Configuration Error') in native mobile WebViews.
+    """
+    video_id = extract_youtube_id(video_id_or_url) or video_id_or_url
+    embed_url = get_youtube_embed_url(video_id, autoplay=autoplay, use_nocookie=use_nocookie)
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="referrer" content="strict-origin-when-cross-origin">
+    <style>
+        * {{
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }}
+        html, body {{
+            width: 100%;
+            height: 100%;
+            background-color: #000000;
+            overflow: hidden;
+        }}
+        .video-wrapper {{
+            position: relative;
+            width: 100%;
+            height: 100%;
+            background-color: #000000;
+        }}
+        iframe {{
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border: 0;
+        }}
+    </style>
+</head>
+<body>
+    <div class="video-wrapper">
+        <iframe
+            src="{embed_url}"
+            frameborder="0"
+            referrerpolicy="strict-origin-when-cross-origin"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowfullscreen>
+        </iframe>
+    </div>
+</body>
+</html>"""
 
 
 def get_youtube_thumbnail_url(video_id_or_url: str, quality: str = "maxres") -> str:
