@@ -729,8 +729,8 @@ class AdaptiveVideoPlayer(ft.Container):
 
         return ft.Stack(
             [
-                poster_image,
-                gradient_overlay,
+                poster_layer,
+                overlay_tint,
                 card_layout,
             ],
             expand=True,

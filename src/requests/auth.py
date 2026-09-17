@@ -141,11 +141,24 @@ async def get_member_profile(token: str, identifier: str):
 
 async def verify_email_request(email: str, code: str):
     # Adjust your base URL if it is different
-    payload = {"email": email, "code": code}
+    payload = {"email": email.strip(), "code": code.strip()}
     
     async with httpx.AsyncClient(verify=ssl_context) as client:
         try:
             response = await client.post(f"{api_url}/users/auth/verify-email", json=payload)
+            return response.status_code, response.json()
+        except Exception as e:
+            return 500, {"detail": str(e)}
+
+async def resend_verification_otp_request(email_or_username: str):
+    payload = {"email": email_or_username.strip(), "identifier": email_or_username.strip()}
+    async with httpx.AsyncClient(verify=ssl_context) as client:
+        try:
+            response = await client.post(
+                f"{api_url}/users/auth/resend-verification-otp",
+                params={"email": email_or_username.strip()},
+                json=payload
+            )
             return response.status_code, response.json()
         except Exception as e:
             return 500, {"detail": str(e)}

@@ -1,10 +1,15 @@
 import flet as ft
 import re
-from src.requests.auth import login_request
+from src.requests.auth import (
+    login_request,
+    send_password_reset_otp,
+    verify_password,
+    verify_email_request,
+    resend_verification_otp_request,
+)
 from src.components.landing_navbar import get_landing_appbar
 from src.utils.db_manager import log_daily_activity
 import asyncio
-from src.requests.auth import send_password_reset_otp, verify_password
 from src.local_db import has_any_downloaded_courses
 
 
@@ -129,6 +134,160 @@ def login_view(page: ft.Page):
         timeout_dialog.actions = actions
         page.show_dialog(timeout_dialog)
 
+    # ── Unverified Email Dialog ─────────────────────────────────────
+    unverified_target_email = ""
+    unverified_otp_input = ft.TextField(
+        width=250,
+        height=55,
+        text_align=ft.TextAlign.CENTER,
+        text_size=20,
+        keyboard_type=ft.KeyboardType.NUMBER,
+        max_length=6,
+        border_radius=10,
+        border_color=ft.Colors.GREY_300,
+        focused_border_color=ft.Colors.PRIMARY,
+        cursor_color=ft.Colors.PRIMARY,
+        hint_text="_ _ _ _ _ _",
+    )
+    unverified_error_text = ft.Text("", color=ft.Colors.RED_600, size=12, text_align=ft.TextAlign.CENTER)
+    unverified_resend_status = ft.Text("", size=11, color=ft.Colors.PRIMARY, text_align=ft.TextAlign.CENTER)
+    unverified_desc_text = ft.Text("", size=13, color=ft.Colors.ON_SURFACE, text_align=ft.TextAlign.CENTER)
+
+    async def _handle_verify_and_login(e):
+        verify_action_btn.disabled = True
+        verify_action_btn.text = "Verifying..."
+        unverified_error_text.value = ""
+        page.update()
+
+        status_code, verify_data = await verify_email_request(
+            unverified_target_email,
+            unverified_otp_input.value.strip()
+        )
+
+        if status_code == 200:
+            verify_action_btn.text = "Verified!"
+            unverified_dialog.open = False
+            page.pop_dialog()
+            page.update()
+
+            # If password is already provided in the form, automatically sign them in!
+            if password.value and password.value.strip():
+                Submit.disabled = True
+                Submit.content = ft.ProgressRing(width=16, height=16, color=ft.Colors.ON_PRIMARY)
+                page.update()
+                l_status, l_data = await login_request(unverified_target_email, password.value.strip())
+                Submit.content = ft.Text("Sign In", size=14, weight=ft.FontWeight.W_600)
+                Submit.disabled = False
+                if l_status == 200:
+                    token = l_data.get("access_token")
+                    await page.shared_preferences.set("auth_token", token)
+                    await page.shared_preferences.set("refresh_token", l_data["refresh_token"])
+                    log_daily_activity()
+                    page.go("/dashboard")
+                    return
+            set_error("Account verified successfully! Please click Sign In to continue.")
+            page.update()
+        else:
+            unverified_error_text.value = verify_data.get("detail", "Verification failed. Please check your code.")
+            verify_action_btn.disabled = False
+            verify_action_btn.text = "Verify & Sign In"
+            page.update()
+
+    async def _handle_resend_unverified_otp(e):
+        resend_unverified_btn.disabled = True
+        resend_unverified_btn.text = "Sending..."
+        unverified_resend_status.value = ""
+        page.update()
+
+        r_status, r_data = await resend_verification_otp_request(unverified_target_email)
+        if r_status == 200:
+            unverified_resend_status.value = "New code sent! Check inbox & spam folder."
+            unverified_resend_status.color = ft.Colors.GREEN_600
+        else:
+            unverified_resend_status.value = r_data.get("detail", "Failed to resend code.")
+            unverified_resend_status.color = ft.Colors.RED_600
+        page.update()
+
+        for remaining in range(30, 0, -1):
+            resend_unverified_btn.text = f"Resend code ({remaining}s)"
+            page.update()
+            await asyncio.sleep(1)
+
+        resend_unverified_btn.disabled = False
+        resend_unverified_btn.text = "Resend code"
+        page.update()
+
+    def _dismiss_unverified_dialog(e):
+        unverified_dialog.open = False
+        page.pop_dialog()
+        page.update()
+
+    verify_action_btn = ft.ElevatedButton(
+        "Verify & Sign In",
+        width=250,
+        height=44,
+        color=ft.Colors.ON_PRIMARY,
+        bgcolor=ft.Colors.PRIMARY,
+        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10), elevation=0),
+        on_click=_handle_verify_and_login,
+    )
+
+    resend_unverified_btn = ft.TextButton(
+        "Didn't receive email? Resend code",
+        on_click=_handle_resend_unverified_otp,
+        style=ft.ButtonStyle(color=ft.Colors.PRIMARY),
+    )
+
+    unverified_dialog = ft.AlertDialog(
+        modal=True,
+        title=ft.Row(
+            [
+                ft.Icon(ft.Icons.MARK_EMAIL_UNREAD_ROUNDED, color=ft.Colors.AMBER_700, size=24),
+                ft.Text("Verify Your Account", size=18, weight=ft.FontWeight.W_700),
+            ],
+            alignment=ft.MainAxisAlignment.CENTER,
+            wrap=True,
+        ),
+        content=ft.Container(
+            width=280,
+            content=ft.Column(
+                [
+                    unverified_desc_text,
+                    ft.Container(height=8),
+                    ft.Row([unverified_otp_input], alignment=ft.MainAxisAlignment.CENTER),
+                    ft.Row([unverified_error_text], alignment=ft.MainAxisAlignment.CENTER),
+                    ft.Container(height=8),
+                    ft.Row([verify_action_btn], alignment=ft.MainAxisAlignment.CENTER),
+                    ft.Container(height=4),
+                    ft.Row([unverified_resend_status], alignment=ft.MainAxisAlignment.CENTER),
+                    ft.Row([resend_unverified_btn], alignment=ft.MainAxisAlignment.CENTER),
+                ],
+                tight=True,
+                spacing=4,
+            ),
+        ),
+        actions=[
+            ft.TextButton(
+                "Cancel",
+                on_click=_dismiss_unverified_dialog,
+                style=ft.ButtonStyle(color=ft.Colors.GREY_600),
+            )
+        ],
+    )
+
+    def _open_unverified_dialog(target_email: str):
+        nonlocal unverified_target_email
+        unverified_target_email = target_email
+        unverified_otp_input.value = ""
+        unverified_error_text.value = ""
+        unverified_resend_status.value = ""
+        verify_action_btn.disabled = False
+        verify_action_btn.text = "Verify & Sign In"
+        unverified_desc_text.value = f"Your account is not verified yet. Enter the 6-digit OTP sent to {target_email} below."
+        unverified_dialog.open = True
+        page.show_dialog(unverified_dialog)
+        page.update()
+
     # ── validation ────────────────────────────────────────────────
     def validate_inputs(e):
         all_filled = all(
@@ -175,7 +334,17 @@ def login_view(page: ft.Page):
                 )
 
             elif status == 403:
-                set_error("Incorrect password. Please try again.")
+                detail = data.get("detail", "") if isinstance(data, dict) else ""
+                detail_str = str(detail).lower()
+                if "not verified" in detail_str or "unverified" in detail_str:
+                    target_email = email.value.strip() if email.value else ""
+                    if "email:" in str(detail):
+                        parts = str(detail).split("Email:")
+                        if len(parts) > 1 and parts[1].strip():
+                            target_email = parts[1].strip()
+                    _open_unverified_dialog(target_email)
+                else:
+                    set_error("Incorrect password. Please try again.")
 
             elif status == 429:
                 set_error(

@@ -1,5 +1,6 @@
+import asyncio
 import flet as ft
-from src.requests.auth import signup_request, get_universities, verify_email_request
+from src.requests.auth import signup_request, get_universities, verify_email_request, resend_verification_otp_request
 from src.components.landing_navbar import get_landing_appbar
 from src.requests.organisations import join_org
 import re
@@ -223,6 +224,45 @@ def Signup_view(page: ft.Page):
         on_click=handle_verification,
     )
 
+    resend_status_text = ft.Text("", size=11, color=ft.Colors.PRIMARY, text_align=ft.TextAlign.CENTER)
+
+    async def handle_resend_otp(e):
+        resend_btn.disabled = True
+        resend_btn.text = "Sending..."
+        resend_status_text.value = ""
+        page.update()
+
+        target = email.value.strip() if email.value else ""
+        status, data = await resend_verification_otp_request(target)
+        if status == 200:
+            resend_status_text.value = "New code sent! Check inbox & spam."
+            resend_status_text.color = ft.Colors.GREEN_600
+        else:
+            resend_status_text.value = data.get("detail", "Failed to resend code.")
+            resend_status_text.color = ft.Colors.RED_600
+        page.update()
+
+        for remaining in range(30, 0, -1):
+            resend_btn.text = f"Resend code ({remaining}s)"
+            page.update()
+            await asyncio.sleep(1)
+
+        resend_btn.disabled = False
+        resend_btn.text = "Resend code"
+        page.update()
+
+    resend_btn = ft.TextButton(
+        "Didn't receive email? Resend code",
+        on_click=handle_resend_otp,
+        style=ft.ButtonStyle(color=ft.Colors.PRIMARY),
+    )
+
+    def handle_dismiss_otp(e):
+        otp_dialog.open = False
+        page.pop_dialog()
+        page.update()
+        page.go("/")
+
     otp_dialog = ft.AlertDialog(
         modal=True,
         title=ft.Row(
@@ -248,11 +288,21 @@ def Signup_view(page: ft.Page):
                     ft.Row([otp_error_text], alignment=ft.MainAxisAlignment.CENTER),
                     ft.Container(height=8),
                     ft.Row([otp_btn], alignment=ft.MainAxisAlignment.CENTER),
+                    ft.Container(height=4),
+                    ft.Row([resend_status_text], alignment=ft.MainAxisAlignment.CENTER),
+                    ft.Row([resend_btn], alignment=ft.MainAxisAlignment.CENTER),
                 ],
                 tight=True,
                 spacing=4,
             ),
         ),
+        actions=[
+            ft.TextButton(
+                "Sign In Instead",
+                on_click=handle_dismiss_otp,
+                style=ft.ButtonStyle(color=ft.Colors.GREY_600),
+            )
+        ],
     )
 
     # ── field style factory ───────────────────────────────────────
