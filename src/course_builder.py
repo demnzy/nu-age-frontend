@@ -16,7 +16,7 @@ from src.utils.file_opener import open_or_download_asset
 import os
 import tempfile
 import re
-from src.utils.code_runner import execute_python, execute_sql, execute_remote_code, execute_html, run_code_lab_tests, parse_cloze_text
+from src.utils.code_runner import execute_python, execute_sql, execute_remote_code, execute_html, run_code_lab_tests, parse_cloze_text, sanitize_javascript_code
 
 # =========================================================
 # CONFIG / SCHEMA
@@ -195,6 +195,15 @@ def ensure_lesson_shape(lesson: dict):
         if k in REQUIRED_KEYS.get(lesson["type"], []) or k == "file_name":
             dv = DEFAULTS.get(k, "")
             content[k] = dv.copy() if isinstance(dv, list) else dv
+
+    # Sanitize code_lab JavaScript/Service Worker code from AI drafts to eliminate import syntax errors
+    if lesson["type"] == "code_lab":
+        code_lang = (content.get("language") or "javascript").lower().strip()
+        if code_lang in ("javascript", "js", "typescript", "ts"):
+            if content.get("starter_code"):
+                content["starter_code"] = sanitize_javascript_code(content["starter_code"])
+            if content.get("solution_code"):
+                content["solution_code"] = sanitize_javascript_code(content["solution_code"])
 
     return lesson
 

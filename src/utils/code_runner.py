@@ -489,6 +489,58 @@ def execute_service_worker_js(code: str) -> dict:
     }
 
 
+def sanitize_javascript_code(code: str) -> str:
+    """
+    Sanitizes JavaScript/TypeScript code to eliminate module/import runtime syntax errors:
+    1. Converts bare Workbox ES module imports into standalone Service Worker
+       importScripts('https://storage.googleapis.com/workbox-cdn/releases/6.4.1/workbox-sw.js') + destructuring.
+    2. Converts generic ES module imports into Node.js CommonJS require(...) and module.exports,
+       preventing 'SyntaxError: Cannot use import statement outside a module'.
+    """
+    if not isinstance(code, str) or not code.strip():
+        return code
+
+    # 1. Handle Workbox Service Worker imports (all submodules)
+    if "workbox" in code.lower():
+        def _replace_wb(m: re.Match) -> str:
+            items = m.group(1).strip()
+            pkg = m.group(2).strip()
+            submod = pkg.replace("workbox-", "").replace("-", "_")
+            return f"const {{ {items} }} = workbox.{submod};"
+
+        code = re.sub(
+            r"import\s*\{\s*([^}]+)\s*\}\s*from\s*['\"](workbox-[a-z0-9\-]+)['\"];?",
+            _replace_wb,
+            code
+        )
+        if "workbox-sw.js" not in code:
+            code = (
+                "// Load Workbox from CDN for standalone service worker\n"
+                "importScripts('https://storage.googleapis.com/workbox-cdn/releases/6.4.1/workbox-sw.js');\n\n"
+                + code.lstrip()
+            )
+
+    # 2. Handle generic ES module imports: convert to CommonJS require
+    code = re.sub(
+        r"import\s*\{\s*([^}]+)\s*\}\s*from\s*['\"]([^'\"]+)['\"];?",
+        r"const { \1 } = require('\2');",
+        code
+    )
+    code = re.sub(
+        r"import\s*\*\s*as\s+([a-zA-Z0-9_$]+)\s+from\s*['\"]([^'\"]+)['\"];?",
+        r"const \1 = require('\2');",
+        code
+    )
+    code = re.sub(
+        r"import\s+([a-zA-Z0-9_$]+)\s+from\s*['\"]([^'\"]+)['\"];?",
+        r"const \1 = require('\2');",
+        code
+    )
+    code = re.sub(r"export\s+default\s+", "module.exports = ", code)
+
+    return code
+
+
 def run_code_lab_tests(language: str, code: str, setup_sql: str, test_cases: list[dict]) -> list[dict]:
     """
     Executes student code against a suite of test cases.
@@ -504,6 +556,9 @@ def run_code_lab_tests(language: str, code: str, setup_sql: str, test_cases: lis
     """
     results = []
     lang = (language or "python").lower().strip()
+    if lang in ("javascript", "js", "typescript", "ts"):
+        code = sanitize_javascript_code(code)
+
     is_sql = "sql" in lang
     is_python = lang in ("python", "py", "python3")
     is_html = lang in ("html", "web", "html5", "htm")
