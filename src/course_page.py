@@ -6,8 +6,32 @@ from flet_video import Video, VideoMedia
 import asyncio
 from src.requests.Courses import get_course_curriculum, mark_complete, generate_course_certificate, rate_course
 from src.utils.file_opener import open_or_download_asset
+import os
+import tempfile
 import re
-from src.utils.code_runner import execute_python, execute_sql, run_code_lab_tests, parse_cloze_text
+import base64
+from src.utils.code_runner import execute_python, execute_sql, execute_remote_code, execute_html, run_code_lab_tests, parse_cloze_text
+
+
+def heal_markdown(text: str) -> str:
+    """Auto-heals legacy markdown anomalies such as truncated Mermaid URLs."""
+    if not isinstance(text, str) or "mermaid.ink" not in text:
+        return text
+    pattern = re.compile(
+        r'!\[([^\]]*)\]\(https://mermaid\.ink/img/([^?]+)\?bgColor=FFFFFF\)\s*\n((?:[ \t]+[^\n]+\n?)+)\s*\)',
+        re.MULTILINE
+    )
+    def _heal(m: re.Match) -> str:
+        alt, b64_part, dangling = m.group(1), m.group(2), m.group(3).strip()
+        try:
+            padded = b64_part + '=' * (-len(b64_part) % 4)
+            prefix = base64.urlsafe_b64decode(padded.encode('utf-8')).decode('utf-8', errors='ignore')
+            full_code = prefix + ')\n  ' + dangling
+            new_b64 = base64.urlsafe_b64encode(full_code.encode('utf-8')).decode('utf-8')
+            return f"![{alt}](https://mermaid.ink/img/{new_b64}?bgColor=FFFFFF)"
+        except Exception:
+            return m.group(0)
+    return pattern.sub(_heal, text)
 
 
 async def course_learner_view(
@@ -180,8 +204,8 @@ async def course_learner_view(
         bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
         content=ft.Row(
             [
-                ft.Icon(ft.Icons.MENU, size=16, color=ft.Colors.ON_SURFACE),
-                ft.Text("Syllabus", size=12, weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE),
+                ft.Icon(ft.Icons.MENU, size=16, color=ft.Colors.ON_PRIMARY),
+                ft.Text("Syllabus", size=12, weight=ft.FontWeight.W_600, color=ft.Colors.ON_PRIMARY),
             ],
             tight=True,
             spacing=6,
@@ -203,7 +227,7 @@ async def course_learner_view(
         color=UI_ACCENT,
         bgcolor=ft.Colors.with_opacity(0.12, UI_ACCENT),
         height=5,
-        border_radius=3,
+        border_radius=ft.BorderRadius.only(bottom_left=6, bottom_right=6),
     )
     sidebar_progress_label = ft.Text("0% complete", color=UI_ACCENT, size=11, weight=ft.FontWeight.BOLD)
 
@@ -326,7 +350,7 @@ async def course_learner_view(
         "Loading Course...",
         size=15,
         weight=ft.FontWeight.BOLD,
-        color=ft.Colors.ON_SURFACE,
+        color=ft.Colors.ON_PRIMARY,
         max_lines=1,
         overflow=ft.TextOverflow.ELLIPSIS,
     )
@@ -335,7 +359,7 @@ async def course_learner_view(
         "",
         size=11,
         weight=ft.FontWeight.W_500,
-        color=ft.Colors.ON_SURFACE_VARIANT,
+        color=ft.Colors.ON_PRIMARY,
         max_lines=1,
         overflow=ft.TextOverflow.ELLIPSIS,
     )
@@ -343,7 +367,7 @@ async def course_learner_view(
     page_appbar = ft.AppBar(
         leading=ft.IconButton(
             ft.Icons.ARROW_BACK_ROUNDED,
-            icon_color=ft.Colors.ON_SURFACE,
+            icon_color=ft.Colors.ON_PRIMARY,
             tooltip="Back",
             on_click=lambda _: page.go(back_target),
         ),
@@ -356,8 +380,11 @@ async def course_learner_view(
             alignment=ft.MainAxisAlignment.CENTER,
         ),
         center_title=False,
-        bgcolor=ft.Colors.SURFACE,
+        bgcolor=ft.Colors.PRIMARY,
         elevation=0,
+        shape=ft.RoundedRectangleBorder(
+            radius=ft.BorderRadius.only(bottom_left=16, bottom_right=16)
+        ),
         actions=[
             top_progress_pill,
             ft.Container(width=4),
@@ -548,34 +575,31 @@ async def course_learner_view(
             alignment=ft.Alignment.CENTER,
             content=ft.Container(width=1000, content=player),
         )
-        
+
     @register_content_renderer("accompanying_text")
     def render_notes_block(value, lesson):
         async def handle_link_tap(e):
             await e.page.launch_url(e.data)
 
+        healed_value = heal_markdown(value)
+
         return ft.Container(
             padding=20,
             border_radius=12,
-            bgcolor=ft.Colors.with_opacity(0.03, UI_ACCENT),
-            border=ft.Border.only(
-                left=ft.BorderSide(3.5, UI_ACCENT),
-                top=ft.BorderSide(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
-                right=ft.BorderSide(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
-                bottom=ft.BorderSide(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
-            ),
+            bgcolor=ft.Colors.SURFACE,
+            border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
             content=ft.Column(
                 [
                     ft.Row(
                         [
-                            ft.Icon(ft.Icons.LIGHTBULB_OUTLINE_ROUNDED, size=18, color=UI_ACCENT),
-                            ft.Text("Lesson Notes & Key Takeaways", weight=ft.FontWeight.BOLD, size=14, color=UI_ACCENT),
+                            ft.Icon(ft.Icons.LIGHTBULB_OUTLINE_ROUNDED, size=18, color=ft.Colors.AMBER_400),
+                            ft.Text("Lesson Notes & Key Takeaways", weight=ft.FontWeight.BOLD, size=14, color=ft.Colors.ON_SURFACE),
                         ],
                         spacing=8,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     ),
                     ft.Markdown(
-                        value,
+                        healed_value,
                         selectable=True,
                         extension_set=ft.MarkdownExtensionSet.GITHUB_FLAVORED,
                         on_tap_link=handle_link_tap,
@@ -585,6 +609,12 @@ async def course_learner_view(
                                 weight=ft.FontWeight.W_400,
                                 color=ft.Colors.ON_SURFACE,
                                 height=1.5,
+                            ),
+                            code_text_style=ft.TextStyle(
+                                size=13.5,
+                                font_family="Roboto Mono, monospace",
+                                color=ft.Colors.ON_SURFACE,
+                                bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
                             ),
                         ),
                     ),
@@ -663,13 +693,15 @@ async def course_learner_view(
         async def handle_link_tap(e):
             await e.page.launch_url(e.data)
 
+        healed_value = heal_markdown(value)
+
         return ft.Container(
             padding=28,
             border_radius=12,
             bgcolor=ft.Colors.SURFACE,
             border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
             content=ft.Markdown(
-                value,
+                healed_value,
                 selectable=True,
                 extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
                 code_theme=ft.MarkdownCodeTheme.ATELIER_LAKESIDE_DARK,
@@ -706,11 +738,23 @@ async def course_learner_view(
                         color=ft.Colors.ON_SURFACE,
                     ),
                     code_text_style=ft.TextStyle(
-                        size=14,
+                        size=13.5,
                         font_family="Roboto Mono, monospace",
-                        color=UI_ACCENT,
-                        bgcolor=ft.Colors.with_opacity(0.08, UI_ACCENT),
+                        color=ft.Colors.ON_SURFACE,
+                        bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
                     ),
+                    blockquote_decoration=ft.BoxDecoration(
+                        bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
+                        border=ft.Border.only(left=ft.BorderSide(3.5, ft.Colors.AMBER_500)),
+                        border_radius=ft.BorderRadius.all(6),
+                    ),
+                    blockquote_text_style=ft.TextStyle(
+                        size=14.5,
+                        italic=True,
+                        color=ft.Colors.ON_SURFACE,
+                        height=1.5,
+                    ),
+                    blockquote_padding=ft.Padding.symmetric(horizontal=16, vertical=10),
                 ),
             ),
         )
@@ -819,7 +863,7 @@ async def course_learner_view(
             color=UI_ACCENT,
             bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
             height=4,
-            border_radius=2,
+            border_radius=ft.BorderRadius.only(bottom_left=6, bottom_right=6),
         )
 
         card_md = ft.Markdown(
@@ -1014,20 +1058,15 @@ async def course_learner_view(
         consequence_box = ft.Container(
             padding=18,
             border_radius=10,
-            bgcolor=ft.Colors.with_opacity(0.04, UI_ACCENT),
-            border=ft.Border.only(
-                left=ft.BorderSide(3.5, UI_ACCENT),
-                top=ft.BorderSide(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
-                right=ft.BorderSide(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
-                bottom=ft.BorderSide(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
-            ),
+            bgcolor=ft.Colors.SURFACE,
+            border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
             visible=False,
             content=ft.Column(
                 [
                     ft.Row(
                         [
-                            ft.Icon(ft.Icons.LIGHTBULB_CIRCLE_ROUNDED, color=UI_ACCENT, size=20),
-                            ft.Text("Scenario Outcome & Analysis", weight=ft.FontWeight.BOLD, color=UI_ACCENT, size=14),
+                            ft.Icon(ft.Icons.LIGHTBULB_CIRCLE_ROUNDED, color=ft.Colors.AMBER_400, size=20),
+                            ft.Text("Scenario Outcome & Analysis", weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE, size=14),
                         ],
                         spacing=8,
                     ),
@@ -1037,6 +1076,12 @@ async def course_learner_view(
                         extension_set=ft.MarkdownExtensionSet.GITHUB_FLAVORED,
                         md_style_sheet=ft.MarkdownStyleSheet(
                             p_text_style=ft.TextStyle(color=ft.Colors.ON_SURFACE, size=14, height=1.5),
+                            code_text_style=ft.TextStyle(
+                                size=13.5,
+                                font_family="Roboto Mono, monospace",
+                                color=ft.Colors.ON_SURFACE,
+                                bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
+                            ),
                         ),
                     ),
                 ],
@@ -1281,9 +1326,10 @@ async def course_learner_view(
                     content=ft.Row(
                         [
                             ft.Icon(ft.Icons.VERIFIED_ROUNDED, color=ft.Colors.GREEN_600, size=20),
-                            ft.Text("You have already passed and completed this assessment.", weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_700, size=12.5),
+                            ft.Text("You have already passed and completed this assessment.", weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_700, size=12.5, expand=True),
                         ],
                         spacing=10,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     ),
                 )
             ]
@@ -1325,7 +1371,13 @@ async def course_learner_view(
                 )
             )
 
-        progress_bar = ft.ProgressBar(value=1.0 / len(valid_steps), color=ft.Colors.CYAN_600, bgcolor=ft.Colors.with_opacity(0.1, ft.Colors.ON_SURFACE))
+        progress_bar = ft.ProgressBar(
+            value=1.0 / len(valid_steps),
+            color=ft.Colors.CYAN_600,
+            bgcolor=ft.Colors.with_opacity(0.1, ft.Colors.ON_SURFACE),
+            height=4,
+            border_radius=ft.BorderRadius.only(bottom_left=6, bottom_right=6),
+        )
         counter_label = ft.Text(f"Phase 1 of {len(valid_steps)}", size=12, weight=ft.FontWeight.BOLD, color=ft.Colors.CYAN_600)
 
         tag_chip = ft.Container(
@@ -1395,7 +1447,7 @@ async def course_learner_view(
             prev_btn.disabled = (idx == 0)
             is_last = (idx == len(valid_steps) - 1)
             if is_last:
-                next_btn.content.controls[0].value = "Completed ✓"
+                next_btn.content.controls[0].value = "Completed"
                 next_btn.content.controls[1].icon = ft.Icons.CHECK_ROUNDED
                 next_btn.style.bgcolor = ft.Colors.GREEN_600
                 lesson["is_done"] = True
@@ -1576,8 +1628,8 @@ async def course_learner_view(
                 feedback_banner.border = ft.Border.all(1, ft.Colors.GREEN_600)
                 feedback_banner.content = ft.Row([
                     ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED, color=ft.Colors.GREEN_600, size=24),
-                    ft.Text("Outstanding! Everything is in the perfect order!", weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_600, size=14),
-                ], spacing=10)
+                    ft.Text("Outstanding! Everything is in the perfect order!", weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_600, size=14, expand=True),
+                ], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER)
                 lesson["is_done"] = True
                 recalculate_locks()
             else:
@@ -1585,8 +1637,8 @@ async def course_learner_view(
                 feedback_banner.border = ft.Border.all(1, ft.Colors.AMBER_600)
                 feedback_banner.content = ft.Row([
                     ft.Icon(ft.Icons.INFO_OUTLINE_ROUNDED, color=ft.Colors.AMBER_600, size=22),
-                    ft.Text(f"{correct_count} of {len(valid_items)} steps are in position. Check the highlighted items and try again!", weight=ft.FontWeight.BOLD, color=ft.Colors.AMBER_600, size=13),
-                ], spacing=10)
+                    ft.Text(f"{correct_count} of {len(valid_items)} steps are in position. Check the highlighted items and try again!", weight=ft.FontWeight.BOLD, color=ft.Colors.AMBER_600, size=13, expand=True),
+                ], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
             feedback_banner.visible = True
             render_items_list(status_map)
@@ -1792,8 +1844,8 @@ async def course_learner_view(
                 feedback_banner.border = ft.Border.all(1, ft.Colors.GREEN_600)
                 feedback_banner.content = ft.Row([
                     ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED, color=ft.Colors.GREEN_600, size=22),
-                    ft.Text("All blanks filled with 100% accuracy! Well done.", weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_600, size=14),
-                ], spacing=10)
+                    ft.Text("All blanks filled with 100% accuracy! Well done.", weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_600, size=14, expand=True),
+                ], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER)
                 if explanation:
                     explanation_box.visible = True
                 lesson["is_done"] = True
@@ -1803,8 +1855,8 @@ async def course_learner_view(
                 feedback_banner.border = ft.Border.all(1, ft.Colors.AMBER_600)
                 feedback_banner.content = ft.Row([
                     ft.Icon(ft.Icons.INFO_OUTLINE_ROUNDED, color=ft.Colors.AMBER_600, size=22),
-                    ft.Text(f"{correct_count} of {len(blanks)} correct. Tap highlighted blanks to swap words.", weight=ft.FontWeight.BOLD, color=ft.Colors.AMBER_600, size=13),
-                ], spacing=10)
+                    ft.Text(f"{correct_count} of {len(blanks)} correct. Tap highlighted blanks to swap words.", weight=ft.FontWeight.BOLD, color=ft.Colors.AMBER_600, size=13, expand=True),
+                ], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
             feedback_banner.visible = True
             rebuild_ui()
@@ -1856,15 +1908,48 @@ async def course_learner_view(
 
     def render_code_lab_ui(lesson: dict):
         content = lesson.get("content", {})
-        language = content.get("language", "python").lower()
+        language = content.get("language", "python").lower().strip()
         instructions = content.get("instructions", "")
         starter_code = content.get("starter_code", "")
         setup_sql = content.get("setup_sql", "")
         test_cases = content.get("test_cases", [])
 
         is_sql = "sql" in language
-        lang_display = "SQLite In-Memory" if is_sql else "Python 3.12"
-        lang_color = ft.Colors.TEAL_400 if is_sql else ft.Colors.BLUE_400
+        is_python = language in ("python", "py", "python3")
+        is_html = language in ("html", "web", "html5", "htm")
+        is_cpp = language in ("cpp", "c++", "cplusplus")
+        is_js = language in ("javascript", "js")
+        is_ts = language in ("typescript", "ts")
+        is_java = "java" in language
+        is_c = (language == "c")
+
+        if is_sql:
+            lang_display = "SQLite In-Memory (Offline)"
+            lang_color = ft.Colors.TEAL_400
+        elif is_python:
+            lang_display = "Python 3.12 (Offline)"
+            lang_color = ft.Colors.BLUE_400
+        elif is_html:
+            lang_display = "HTML5 / Web (Live Sandbox Preview)"
+            lang_color = ft.Colors.DEEP_ORANGE_400
+        elif is_cpp:
+            lang_display = "C++ (GCC 9.2)"
+            lang_color = ft.Colors.CYAN_400
+        elif is_js:
+            lang_display = "JavaScript (Node.js)"
+            lang_color = ft.Colors.AMBER_400
+        elif is_ts:
+            lang_display = "TypeScript"
+            lang_color = ft.Colors.LIGHT_BLUE_400
+        elif is_java:
+            lang_display = "Java (OpenJDK)"
+            lang_color = ft.Colors.ORANGE_400
+        elif is_c:
+            lang_display = "C (GCC 9.2)"
+            lang_color = ft.Colors.BLUE_GREY_400
+        else:
+            lang_display = f"{language.upper()}"
+            lang_color = ft.Colors.PURPLE_400
 
         code_input = ft.TextField(
             value=starter_code,
@@ -1878,10 +1963,10 @@ async def course_learner_view(
 
         stdin_field = ft.TextField(
             label="Program Input (stdin)",
-            hint_text="Input text to pass to input() calls (optional)...",
+            hint_text="Input text to pass to stdin calls (optional)...",
             dense=True,
             border_radius=8,
-            visible=(not is_sql),
+            visible=(not is_sql and not is_html),
             text_style=ft.TextStyle(font_family="monospace", size=12),
         )
 
@@ -1898,74 +1983,142 @@ async def course_learner_view(
 
         status_banner = ft.Container(visible=False, padding=12, border_radius=8)
 
-        def run_code(e):
-            user_code = code_input.value
-            results = run_code_lab_tests(language, user_code, setup_sql, test_cases)
+        run_btn_icon = ft.Icon(ft.Icons.PLAY_ARROW_ROUNDED, color=ft.Colors.WHITE, size=18)
+        run_btn_spinner = ft.ProgressRing(width=14, height=14, stroke_width=2, color=ft.Colors.WHITE, visible=False)
+        run_btn_text = ft.Text("Run Code", color=ft.Colors.WHITE, size=13, weight=ft.FontWeight.W_600)
 
-            if is_sql:
-                res = execute_sql(user_code, setup_sql)
-                if res["success"]:
-                    cols = " | ".join(res["columns"])
-                    rows_text = "\n".join([" | ".join([str(v) for v in r]) for r in res["rows"][:25]])
-                    console_output.value = f"COLUMNS: {cols}\n" + ("-" * 45) + f"\n{rows_text or '(0 rows returned)'}"
-                    console_output.color = ft.Colors.GREEN_300
-                else:
-                    console_output.value = f"SQL ERROR:\n{res['error']}"
-                    console_output.color = ft.Colors.RED_400
-            else:
-                passed_stdin = stdin_field.value if stdin_field.value else (test_cases[0].get("input", "") if test_cases else "")
-                res = execute_python(user_code, test_input=passed_stdin)
-                if res["success"]:
-                    console_output.value = res["output"] or "(Code executed successfully with no stdout)"
-                    console_output.color = ft.Colors.GREEN_300
-                else:
-                    console_output.value = f"RUNTIME ERROR:\n{res['error']}"
-                    console_output.color = ft.Colors.RED_400
+        run_btn = ft.FilledButton(
+            content=ft.Row(
+                [run_btn_icon, run_btn_spinner, run_btn_text],
+                tight=True,
+                alignment=ft.MainAxisAlignment.CENTER,
+                spacing=6,
+            ),
+            style=ft.ButtonStyle(bgcolor=ft.Colors.DEEP_PURPLE_400, color=ft.Colors.WHITE),
+            on_click=lambda e: page.run_task(execute_and_update, e),
+        )
 
-            test_results_col.controls.clear()
-            all_passed = True
-            for tr in results:
-                if not tr["passed"]:
-                    all_passed = False
-                test_results_col.controls.append(
-                    ft.Container(
-                        padding=10,
-                        border_radius=8,
-                        bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.GREEN_600 if tr["passed"] else ft.Colors.RED_500),
-                        border=ft.Border.all(1, ft.Colors.GREEN_600 if tr["passed"] else ft.Colors.RED_500),
-                        content=ft.Row(
-                            [
-                                ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED if tr["passed"] else ft.Icons.CANCEL_ROUNDED, color=ft.Colors.GREEN_600 if tr["passed"] else ft.Colors.RED_500, size=18),
-                                ft.Text(tr["description"], size=13, weight=ft.FontWeight.W_500, expand=True, color=ft.Colors.ON_SURFACE),
-                                ft.Text("PASSED" if tr["passed"] else "FAILED", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_600 if tr["passed"] else ft.Colors.RED_500),
-                            ],
-                            spacing=10,
-                        ),
-                    )
-                )
-
-            if test_cases:
-                if all_passed:
-                    status_banner.bgcolor = ft.Colors.with_opacity(0.15, ft.Colors.GREEN_600)
-                    status_banner.border = ft.Border.all(1, ft.Colors.GREEN_600)
-                    status_banner.content = ft.Row([
-                        ft.Icon(ft.Icons.VERIFIED_ROUNDED, color=ft.Colors.GREEN_600, size=20),
-                        ft.Text("All verification tests passed successfully! Challenge complete.", weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_600, size=13),
-                    ], spacing=8)
-                    lesson["is_done"] = True
-                    recalculate_locks()
-                else:
-                    status_banner.bgcolor = ft.Colors.with_opacity(0.12, ft.Colors.AMBER_600)
-                    status_banner.border = ft.Border.all(1, ft.Colors.AMBER_600)
-                    status_banner.content = ft.Row([
-                        ft.Icon(ft.Icons.INFO_OUTLINE_ROUNDED, color=ft.Colors.AMBER_600, size=20),
-                        ft.Text("Some test cases failed. Inspect the console output and try again.", weight=ft.FontWeight.BOLD, color=ft.Colors.AMBER_600, size=13),
-                    ], spacing=8)
-                status_banner.visible = True
-            else:
-                status_banner.visible = False
-
+        async def execute_and_update(e):
+            run_btn.disabled = True
+            run_btn_icon.visible = False
+            run_btn_spinner.visible = True
+            run_btn_text.value = "Running Code…"
+            console_output.value = "Executing in sandbox…"
+            console_output.color = ft.Colors.ON_SURFACE_VARIANT
             page.update()
+
+            try:
+                user_code = code_input.value
+                results = await asyncio.to_thread(run_code_lab_tests, language, user_code, setup_sql, test_cases)
+                has_offline_blocked = any(tr.get("offline_blocked") for tr in results)
+
+                if is_sql:
+                    res = await asyncio.to_thread(execute_sql, user_code, setup_sql)
+                    if res["success"]:
+                        cols = " | ".join(res["columns"])
+                        rows_text = "\n".join([" | ".join([str(v) for v in r]) for r in res["rows"][:25]])
+                        console_output.value = f"COLUMNS: {cols}\n" + ("-" * 45) + f"\n{rows_text or '(0 rows returned)'}"
+                        console_output.color = ft.Colors.GREEN_300
+                    else:
+                        console_output.value = f"SQL ERROR:\n{res['error']}"
+                        console_output.color = ft.Colors.RED_400
+                elif is_python:
+                    passed_stdin = stdin_field.value if stdin_field.value else (test_cases[0].get("input", "") if test_cases else "")
+                    res = await asyncio.to_thread(execute_python, user_code, test_input=passed_stdin)
+                    if res["success"]:
+                        console_output.value = res["output"] or "(Code executed successfully with no stdout)"
+                        console_output.color = ft.Colors.GREEN_300
+                    else:
+                        console_output.value = f"RUNTIME ERROR:\n{res['error']}"
+                        console_output.color = ft.Colors.RED_400
+                elif is_html:
+                    res = await asyncio.to_thread(execute_html, user_code)
+                    if res["success"]:
+                        console_output.value = (
+                            f"HTML/WEB SANDBOX VALIDATION:\n"
+                            f"{res['output']}\n\n"
+                            f"💡 Tip: Click 'Preview in Browser' to render and interact with your webpage and scripts live."
+                        )
+                        console_output.color = ft.Colors.GREEN_300
+                    else:
+                        console_output.value = f"HTML VALIDATION ERROR:\n{res['error']}"
+                        console_output.color = ft.Colors.RED_400
+                else:
+                    passed_stdin = stdin_field.value if stdin_field.value else (test_cases[0].get("input", "") if test_cases else "")
+                    res = await asyncio.to_thread(execute_remote_code, language, user_code, test_input=passed_stdin)
+                    if res.get("offline_blocked"):
+                        has_offline_blocked = True
+                        console_output.value = f"OFFLINE NOTICE:\n{res['error']}"
+                        console_output.color = ft.Colors.AMBER_400
+                    elif res["success"]:
+                        console_output.value = res["output"] or "(Code compiled and executed with no stdout)"
+                        console_output.color = ft.Colors.GREEN_300
+                    else:
+                        console_output.value = f"COMPILATION / RUNTIME ERROR:\n{res['error']}"
+                        console_output.color = ft.Colors.RED_400
+
+                test_results_col.controls.clear()
+                all_passed = True
+                for tr in results:
+                    if not tr["passed"]:
+                        all_passed = False
+                    
+                    is_off = tr.get("offline_blocked", False)
+                    item_color = ft.Colors.AMBER_500 if is_off else (ft.Colors.GREEN_600 if tr["passed"] else ft.Colors.RED_500)
+                    item_icon = ft.Icons.WIFI_OFF_ROUNDED if is_off else (ft.Icons.CHECK_CIRCLE_ROUNDED if tr["passed"] else ft.Icons.CANCEL_ROUNDED)
+                    item_status = "OFFLINE" if is_off else ("PASSED" if tr["passed"] else "FAILED")
+
+                    test_results_col.controls.append(
+                        ft.Container(
+                            padding=10,
+                            border_radius=8,
+                            bgcolor=ft.Colors.with_opacity(0.06, item_color),
+                            border=ft.Border.all(1, item_color),
+                            content=ft.Row(
+                                [
+                                    ft.Icon(item_icon, color=item_color, size=18),
+                                    ft.Text(tr["description"], size=13, weight=ft.FontWeight.W_500, expand=True, color=ft.Colors.ON_SURFACE),
+                                    ft.Text(item_status, size=11, weight=ft.FontWeight.BOLD, color=item_color),
+                                ],
+                                spacing=10,
+                            ),
+                        )
+                    )
+
+                if test_cases:
+                    if has_offline_blocked:
+                        status_banner.bgcolor = ft.Colors.with_opacity(0.12, ft.Colors.AMBER_600)
+                        status_banner.border = ft.Border.all(1, ft.Colors.AMBER_600)
+                        status_banner.content = ft.Row([
+                            ft.Icon(ft.Icons.WIFI_OFF_ROUNDED, color=ft.Colors.AMBER_600, size=20),
+                            ft.Text(f"Internet connection is required to compile and verify {lang_display} code. You can review test cases and solutions while offline.", weight=ft.FontWeight.BOLD, color=ft.Colors.AMBER_600, size=12, expand=True),
+                        ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+                    elif all_passed:
+                        status_banner.bgcolor = ft.Colors.with_opacity(0.15, ft.Colors.GREEN_600)
+                        status_banner.border = ft.Border.all(1, ft.Colors.GREEN_600)
+                        status_banner.content = ft.Row([
+                            ft.Icon(ft.Icons.VERIFIED_ROUNDED, color=ft.Colors.GREEN_600, size=20),
+                            ft.Text("All verification tests passed successfully! Challenge complete.", weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_600, size=13, expand=True),
+                        ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+                        lesson["is_done"] = True
+                        recalculate_locks()
+                    else:
+                        status_banner.bgcolor = ft.Colors.with_opacity(0.12, ft.Colors.RED_500)
+                        status_banner.border = ft.Border.all(1, ft.Colors.RED_500)
+                        status_banner.content = ft.Row([
+                            ft.Icon(ft.Icons.INFO_OUTLINE_ROUNDED, color=ft.Colors.RED_500, size=20),
+                            ft.Text("Some test cases failed. Inspect the console output and try again.", weight=ft.FontWeight.BOLD, color=ft.Colors.RED_500, size=13, expand=True),
+                        ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+                    status_banner.visible = True
+                else:
+                    status_banner.visible = False
+
+            finally:
+                run_btn.disabled = False
+                run_btn_icon.visible = True
+                run_btn_spinner.visible = False
+                run_btn_text.value = "Run Code"
+                page.update()
 
         def reset_code(e):
             code_input.value = starter_code
@@ -1975,6 +2128,38 @@ async def course_learner_view(
             test_results_col.controls.clear()
             status_banner.visible = False
             page.update()
+
+        async def launch_browser_preview(e):
+            current_html = code_input.value or "<h1>Empty HTML Document</h1>"
+            tmp_dir = tempfile.gettempdir()
+            tmp_path = os.path.join(tmp_dir, f"nu_lab_preview_{lesson.get('id', 'temp')}.html")
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                f.write(current_html)
+            file_url = f"file:///{tmp_path.replace(os.sep, '/')}"
+            res = page.launch_url(file_url)
+            if asyncio.iscoroutine(res):
+                await res
+
+        action_buttons = [
+            ft.OutlinedButton("Reset Code", icon=ft.Icons.REFRESH_ROUNDED, on_click=reset_code),
+        ]
+        if is_html:
+            action_buttons.append(
+                ft.FilledButton(
+                    content=ft.Row(
+                        [
+                            ft.Icon(ft.Icons.OPEN_IN_BROWSER_ROUNDED, color=ft.Colors.WHITE, size=16),
+                            ft.Text("Preview in Browser", color=ft.Colors.WHITE, size=13, weight=ft.FontWeight.W_600),
+                        ],
+                        tight=True,
+                        spacing=6,
+                    ),
+                    style=ft.ButtonStyle(bgcolor=ft.Colors.DEEP_ORANGE_500, color=ft.Colors.WHITE),
+                    tooltip="Open live rendering of this HTML/PWA in your browser",
+                    on_click=lambda e: page.run_task(launch_browser_preview, e),
+                )
+            )
+        action_buttons.append(run_btn)
 
         return ft.Container(
             padding=24,
@@ -2012,10 +2197,7 @@ async def course_learner_view(
                     code_input,
                     stdin_field,
                     ft.Row(
-                        [
-                            ft.OutlinedButton("Reset Code", icon=ft.Icons.REFRESH_ROUNDED, on_click=reset_code),
-                            ft.FilledButton("Run Code", icon=ft.Icons.PLAY_ARROW_ROUNDED, style=ft.ButtonStyle(bgcolor=ft.Colors.DEEP_PURPLE_400, color=ft.Colors.WHITE), on_click=run_code),
-                        ],
+                        action_buttons,
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                     ),
                     ft.Text("Execution Console Output:", size=13, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE_VARIANT),
@@ -3211,12 +3393,14 @@ async def course_learner_view(
                         text_align=ft.TextAlign.LEFT,
                     ),
                     ft.Container(
+                        border_radius=ft.BorderRadius.only(bottom_left=6, bottom_right=6),
+                        clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
                         content=ft.ProgressBar(
                             value=mod_progress_val,
                             color=UI_ACCENT,
                             bgcolor=ft.Colors.with_opacity(0.10, UI_ACCENT),
-                            height=3.5,
-                            border_radius=2,
+                            height=4,
+                            border_radius=ft.BorderRadius.only(bottom_left=6, bottom_right=6),
                         ),
                     ),
                 ],

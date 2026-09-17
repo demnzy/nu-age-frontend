@@ -2468,6 +2468,8 @@ def build_skeleton_view(route: str, page: ft.Page | None = None) -> ft.View:
         body = build_course_builder_skeleton(page)
     elif troute.match("/organisations/:org_id/courses/:id/settings"):
         body = build_settings_skeleton(page)
+    elif troute.match("/courses/:id/settings"):
+        body = build_settings_skeleton(page)
     elif troute.match("/organisations/:org_id/courses/:id/analytics"):
         body = build_analytics_skeleton(page)
     elif troute.match("/organisations/:org_id/playlists/:id/analytics"):

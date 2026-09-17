@@ -252,7 +252,7 @@ async def course_stats_view(page: ft.Page, course_id: str) -> ft.View:
                                 tight=True,
                                 spacing=5,
                                 controls=[
-                                    ft.Icon(ft.Icons.LOGIN_ROUNDED, size=13, color=ft.Colors.WHITE70),
+                                    ft.Icon(ft.Icons.LOGIN_ROUNDED, size=13, color=ft.Colors.WHITE_70),
                                     ft.Text(f"Started: {_fmt_date(s.get('enrolled_at'))}", size=11 if is_mobile else 12, color=ft.Colors.WHITE),
                                 ],
                             ),

@@ -316,7 +316,7 @@ class AdaptiveVideoPlayer(ft.Container):
                 ft.Text(
                     "Requires internet connection.",
                     size=11,
-                    color=ft.Colors.WHITE70,
+                    color=ft.Colors.WHITE_70,
                     text_align=ft.TextAlign.CENTER,
                 ),
             ],
@@ -329,18 +329,34 @@ class AdaptiveVideoPlayer(ft.Container):
             ft.Container(
                 content=ft.Row(
                     [
-                        ft.Icon(ft.Icons.REFRESH_ROUNDED, size=13, color=ft.Colors.WHITE),
-                        ft.Text("Retry", size=11, weight=ft.FontWeight.W_600, color=ft.Colors.WHITE),
+                        ft.Icon(ft.Icons.REFRESH_ROUNDED, size=15, color=ft.Colors.AMBER_400),
+                        ft.Text("Retry Stream", size=12, weight=ft.FontWeight.W_600, color=ft.Colors.AMBER_400),
                     ],
-                    tight=True,
-                    spacing=5,
+                    spacing=6,
+                    alignment=ft.MainAxisAlignment.CENTER,
                 ),
-                padding=ft.Padding.symmetric(horizontal=12, vertical=7),
+                padding=ft.Padding.symmetric(horizontal=14, vertical=8),
                 border_radius=ft.BorderRadius.all(8),
-                bgcolor=ft.Colors.with_opacity(0.20, ft.Colors.WHITE),
-                border=ft.Border.all(1, ft.Colors.with_opacity(0.20, ft.Colors.WHITE)),
+                bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.AMBER_400),
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.35, ft.Colors.AMBER_400)),
                 ink=True,
                 on_click=_handle_retry,
+            ),
+            ft.Container(
+                content=ft.Row(
+                    [
+                        ft.Icon(ft.Icons.OPEN_IN_NEW_ROUNDED, size=15, color=ft.Colors.WHITE),
+                        ft.Text("Open on YouTube", size=12, weight=ft.FontWeight.W_600, color=ft.Colors.WHITE),
+                    ],
+                    spacing=6,
+                    alignment=ft.MainAxisAlignment.CENTER,
+                ),
+                padding=ft.Padding.symmetric(horizontal=14, vertical=8),
+                border_radius=ft.BorderRadius.all(8),
+                bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.WHITE),
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.25, ft.Colors.WHITE)),
+                ink=True,
+                on_click=self._handle_open_youtube,
             ),
         ]
 
@@ -349,44 +365,44 @@ class AdaptiveVideoPlayer(ft.Container):
                 ft.Container(
                     content=ft.Row(
                         [
-                            ft.Icon(ft.Icons.CHECK_CIRCLE_OUTLINE_ROUNDED, size=13, color=ft.Colors.GREEN_ACCENT_200),
-                            ft.Text("Mark Complete", size=11, weight=ft.FontWeight.W_600, color=ft.Colors.GREEN_ACCENT_200),
+                            ft.Icon(ft.Icons.CHECK_CIRCLE_OUTLINE_ROUNDED, size=15, color=ft.Colors.GREEN_ACCENT_200),
+                            ft.Text("Mark Complete", size=12, weight=ft.FontWeight.W_600, color=ft.Colors.GREEN_ACCENT_200),
                         ],
-                        tight=True,
-                        spacing=5,
+                        spacing=6,
+                        alignment=ft.MainAxisAlignment.CENTER,
                     ),
-                    padding=ft.Padding.symmetric(horizontal=12, vertical=7),
+                    padding=ft.Padding.symmetric(horizontal=14, vertical=8),
                     border_radius=ft.BorderRadius.all(8),
-                    bgcolor=ft.Colors.with_opacity(0.18, ft.Colors.GREEN_ACCENT_700),
+                    bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.GREEN_ACCENT_700),
                     border=ft.Border.all(1, ft.Colors.with_opacity(0.35, ft.Colors.GREEN_ACCENT_400)),
                     ink=True,
                     on_click=self._handle_mark_complete,
                 )
             )
 
-        bottom_bar = ft.Container(
-            padding=ft.Padding.only(left=12, right=12, bottom=10),
-            content=ft.Row(
-                action_buttons,
-                alignment=ft.MainAxisAlignment.CENTER,
-                spacing=8,
-                wrap=True,
-                run_spacing=6,
-            ),
-        )
-
-        return ft.Container(
+        return ft.Stack(
+            [
+                poster_layer,
+                overlay_tint,
+                ft.Container(
+                    left=0,
+                    top=0,
+                    right=0,
+                    bottom=0,
+                    content=ft.Column(
+                        [
+                            top_bar,
+                            center_content,
+                            ft.Container(
+                                content=ft.Row(action_buttons, alignment=ft.MainAxisAlignment.CENTER, spacing=12),
+                                padding=ft.Padding.only(bottom=16),
+                            ),
+                        ],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    ),
+                ),
+            ],
             expand=True,
-            bgcolor="#0A0C10",
-            content=ft.Column(
-                [
-                    top_bar,
-                    ft.Container(expand=True, content=center_content),
-                    bottom_bar,
-                ],
-                expand=True,
-                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-            ),
         )
 
     def _build_native_player(
@@ -510,7 +526,7 @@ class AdaptiveVideoPlayer(ft.Container):
                     ft.Text(
                         "Optimizing high-definition playback",
                         size=12,
-                        color=ft.Colors.WHITE60,
+                        color=ft.Colors.WHITE_70,
                     ),
                     ft.Container(height=4),
                     ft.TextButton(
@@ -520,7 +536,7 @@ class AdaptiveVideoPlayer(ft.Container):
                                 ft.Icon(ft.Icons.OPEN_IN_NEW_ROUNDED, size=13, color=ft.Colors.RED_ACCENT_100),
                             ],
                             tight=True,
-                            spacing=6,
+                            spacing=4,
                         ),
                         on_click=self._handle_open_youtube,
                     ),
@@ -535,28 +551,27 @@ class AdaptiveVideoPlayer(ft.Container):
 
     def _build_cinema_card(self) -> ft.Stack:
         """
-        Sleek, high-production YouTube Cinema Card.
-        Displays high-res thumbnail, dark cinematic gradient, play button,
-        and external launcher button.
+        Constructs the high-fidelity YouTube Cinema Card fallback.
+        Provides high-res thumbnail background, gradient overlays, pulsing play action,
+        full metadata, and instantaneous launch buttons for YouTube and external browsers.
         """
         thumbnail_url = get_youtube_thumbnail_url(self._video_id, quality="maxres") if self._video_id else ""
-        fallback_thumb = get_youtube_thumbnail_url(self._video_id, quality="hq") if self._video_id else ""
 
-        # Background poster
-        poster_image = ft.Container(
+        # Background poster with ambient darkness
+        poster_layer = ft.Container(
             left=0,
             top=0,
             right=0,
             bottom=0,
             content=ft.Image(
                 src=thumbnail_url,
-                error_content=ft.Image(src=fallback_thumb, fit=ft.BoxFit.COVER),
                 fit=ft.BoxFit.COVER,
-            ),
+                opacity=0.35,
+            ) if thumbnail_url else None,
         )
 
-        # Gradient overlay for contrast and sleek cinematic feel
-        gradient_overlay = ft.Container(
+        # Subtle dark gradient overlay
+        overlay_tint = ft.Container(
             left=0,
             top=0,
             right=0,
@@ -565,17 +580,15 @@ class AdaptiveVideoPlayer(ft.Container):
                 begin=ft.Alignment.TOP_CENTER,
                 end=ft.Alignment.BOTTOM_CENTER,
                 colors=[
-                    ft.Colors.with_opacity(0.60, "#08090C"),
-                    ft.Colors.with_opacity(0.40, "#08090C"),
-                    ft.Colors.with_opacity(0.88, "#08090C"),
+                    ft.Colors.with_opacity(0.40, ft.Colors.BLACK),
+                    ft.Colors.with_opacity(0.85, ft.Colors.BLACK),
                 ],
-                stops=[0.0, 0.45, 1.0],
             ),
         )
 
-        # Top badges
+        # Top Bar: YouTube Platform Badge & Quality
         top_bar = ft.Container(
-            padding=ft.Padding.only(left=12, top=10, right=12),
+            padding=ft.Padding.only(left=14, top=12, right=14),
             content=ft.Row(
                 [
                     ft.Container(
@@ -593,7 +606,7 @@ class AdaptiveVideoPlayer(ft.Container):
                         border=ft.Border.all(1, ft.Colors.with_opacity(0.25, ft.Colors.RED_ACCENT_400)),
                     ),
                     ft.Container(
-                        content=ft.Text("HD", size=10, weight=ft.FontWeight.W_600, color=ft.Colors.WHITE70),
+                        content=ft.Text("HD", size=10, weight=ft.FontWeight.W_600, color=ft.Colors.WHITE_70),
                         padding=ft.Padding.symmetric(horizontal=8, vertical=4),
                         border_radius=ft.BorderRadius.all(6),
                         bgcolor=ft.Colors.with_opacity(0.40, ft.Colors.BLACK),
@@ -637,7 +650,7 @@ class AdaptiveVideoPlayer(ft.Container):
                     ft.Text(
                         "Click to watch stream on YouTube",
                         size=12,
-                        color=ft.Colors.WHITE70,
+                        color=ft.Colors.WHITE_70,
                         text_align=ft.TextAlign.CENTER,
                     ),
                 ],

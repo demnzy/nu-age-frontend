@@ -291,9 +291,19 @@ async def organisations_view(page: ft.Page):
 
             category_dropdown = ft.Dropdown(
                 label="Category *",
-                border_color=ft.Colors.GREY_300,
+                border_color=ft.Colors.with_opacity(0.20, ft.Colors.ON_SURFACE),
                 focused_border_color=theme_color,
-                border_radius=10,
+                border_radius=8,
+                dense=True,
+                text_size=13,
+                menu_height=260,
+                menu_style=ft.MenuStyle(
+                    bgcolor=ft.Colors.SURFACE,
+                    elevation=8,
+                    shape=ft.RoundedRectangleBorder(radius=10),
+                    side=ft.BorderSide(1, ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)),
+                ),
+                content_padding=ft.Padding.symmetric(horizontal=12, vertical=8),
                 width=float("inf"),
                 options=[ft.dropdown.Option(c["id"], c["name"]) for c in categories_cache if isinstance(c, dict) and "id" in c and "name" in c],
                 hint_text="Select a category",
@@ -311,26 +321,46 @@ async def organisations_view(page: ft.Page):
 
             teacher_dropdown = ft.Dropdown(
                 label="Assign Instructor (Optional)",
-                border_color=ft.Colors.GREY_300,
+                border_color=ft.Colors.with_opacity(0.20, ft.Colors.ON_SURFACE),
                 focused_border_color=theme_color,
-                border_radius=10,
+                border_radius=8,
+                dense=True,
+                text_size=13,
+                menu_height=260,
+                menu_style=ft.MenuStyle(
+                    bgcolor=ft.Colors.SURFACE,
+                    elevation=8,
+                    shape=ft.RoundedRectangleBorder(radius=10),
+                    side=ft.BorderSide(1, ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)),
+                ),
+                content_padding=ft.Padding.symmetric(horizontal=12, vertical=8),
                 width=float("inf"),
                 options=staff_options,
                 hint_text="Assign a faculty member",
             )
 
-            # Visibility: Campus (organisation) vs Public (true) vs Draft (false)
+            # Visibility: Draft (false) vs Campus (organisation) vs Public (true)
             visibility_dropdown = ft.Dropdown(
                 label="Access & Visibility *",
-                value="organisation",  # Default to Campus for organizations
-                border_color=ft.Colors.GREY_300,
+                value="false",  # Default to Draft (Private / Unpublished) until curriculum is configured
+                border_color=ft.Colors.with_opacity(0.20, ft.Colors.ON_SURFACE),
                 focused_border_color=theme_color,
-                border_radius=10,
+                border_radius=8,
+                dense=True,
+                text_size=13,
+                menu_height=260,
+                menu_style=ft.MenuStyle(
+                    bgcolor=ft.Colors.SURFACE,
+                    elevation=8,
+                    shape=ft.RoundedRectangleBorder(radius=10),
+                    side=ft.BorderSide(1, ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)),
+                ),
+                content_padding=ft.Padding.symmetric(horizontal=12, vertical=8),
                 width=float("inf"),
                 options=[
+                    ft.dropdown.Option("false", "Draft (Private / Unpublished)"),
                     ft.dropdown.Option("organisation", "Campus (Academy Members Only)"),
                     ft.dropdown.Option("true", "Public (Global Student Network)"),
-                    ft.dropdown.Option("false", "Draft (Private / Unpublished)"),
                 ],
             )
 
@@ -455,7 +485,7 @@ async def organisations_view(page: ft.Page):
                         "name": t_val,
                         "category_id": category_dropdown.value,
                         "description": desc_input.value.strip() if desc_input.value else t_val,
-                        "public": visibility_dropdown.value or "organisation",
+                        "public": visibility_dropdown.value if visibility_dropdown.value else "false",
                         "objectives": objectives_list,
                         "image_bytes": logo_b64,
                         "image_filename": selected_logo_name,

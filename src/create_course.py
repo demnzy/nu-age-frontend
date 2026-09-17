@@ -281,9 +281,19 @@ async def create_courses_view(page: ft.Page, org_id: str = None):
         category_dropdown = ft.Dropdown(
             label="Category",
             options=categories_options,
-            border_color=ft.Colors.GREY_300,
+            border_color=ft.Colors.with_opacity(0.20, ft.Colors.ON_SURFACE),
             focused_border_color=ft.Colors.PRIMARY,
-            border_radius=10,
+            border_radius=8,
+            dense=True,
+            text_size=13,
+            menu_height=260,
+            menu_style=ft.MenuStyle(
+                bgcolor=ft.Colors.SURFACE,
+                elevation=8,
+                shape=ft.RoundedRectangleBorder(radius=10),
+                side=ft.BorderSide(1, ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)),
+            ),
+            content_padding=ft.Padding.symmetric(horizontal=12, vertical=8),
         )
         # Freelance courses have exactly one possible teacher: whoever is
         # creating it. No dropdown needed, and no one else should be
@@ -291,9 +301,19 @@ async def create_courses_view(page: ft.Page, org_id: str = None):
         teacher_dropdown = ft.Dropdown(
             label="Assign Teacher (Optional)",
             options=teachers_options,
-            border_color=ft.Colors.GREY_300,
+            border_color=ft.Colors.with_opacity(0.20, ft.Colors.ON_SURFACE),
             focused_border_color=ft.Colors.PRIMARY,
-            border_radius=10,
+            border_radius=8,
+            dense=True,
+            text_size=13,
+            menu_height=260,
+            menu_style=ft.MenuStyle(
+                bgcolor=ft.Colors.SURFACE,
+                elevation=8,
+                shape=ft.RoundedRectangleBorder(radius=10),
+                side=ft.BorderSide(1, ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)),
+            ),
+            content_padding=ft.Padding.symmetric(horizontal=12, vertical=8),
             visible=not is_freelance,
         )
         

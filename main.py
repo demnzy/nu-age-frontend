@@ -1736,7 +1736,12 @@ async def main(page: ft.Page):
             await load_view_and_report(member_profile_view(page, troute.user_id), page.route, active_skeleton, active_shimmer_task)
         elif troute.match("/organisations/:org_id/courses/:course_id/settings"):
             await load_view_and_report(
-                course_settings_view(page, troute.org_id, troute.course_id),
+                course_settings_view(page, course_id=troute.course_id, org_id=troute.org_id),
+                page.route, active_skeleton, active_shimmer_task,
+            )
+        elif troute.match("/courses/:course_id/settings"):
+            await load_view_and_report(
+                course_settings_view(page, course_id=troute.course_id),
                 page.route, active_skeleton, active_shimmer_task,
             )
         elif troute.match("/accept-invite/:token"):
