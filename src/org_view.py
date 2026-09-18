@@ -14,6 +14,7 @@ from src.requests.organisations import (
 from src.requests.Courses import create_course, get_categories
 from src.requests.playlists import get_org_playlists, create_playlist
 from src.utils.file_opener import show_page_snackbar
+from src.components.cohorts_hub import build_cohorts_tab
 
 # The shared "Nu Age" account every freelance course is filed under.
 # /courses now scopes TEACHER-role requests against this org_id down to
@@ -71,6 +72,8 @@ async def organisations_view(page: ft.Page):
         org_address = org_data.get("address", "")
         org_logo = org_data.get("logo", "")
         owner_id = str(org_data.get("owner_id", ""))
+        current_user_id = str(user_data.get("id", ""))
+        is_admin = (owner_id == current_user_id) or (role in ("TEACHER", "INSTRUCTOR", "STAFF", "ADMIN", "OWNER"))
         theme_color = org_data.get("theme_color") or ft.Colors.PRIMARY
 
         if not org_id:
@@ -1498,6 +1501,17 @@ async def organisations_view(page: ft.Page):
                 tab_content_container.content = render_courses_tab()
             elif active_tab == "members":
                 tab_content_container.content = render_members_tab()
+            elif active_tab == "cohorts":
+                tab_content_container.content = build_cohorts_tab(
+                    page=page,
+                    org_id=org_id,
+                    org_data=org_data,
+                    token=token,
+                    is_admin=is_admin,
+                    org_courses=courses,
+                    org_members=members,
+                    theme_color=theme_color,
+                )
             elif active_tab == "playlists":
                 tab_content_container.content = render_playlists_tab()
             elif active_tab == "info":
@@ -1507,6 +1521,7 @@ async def organisations_view(page: ft.Page):
             tab_buttons.controls = [
                 tab_button("Courses", "courses", ft.Icons.AUTO_STORIES_ROUNDED, len(courses)),
                 tab_button("Members", "members", ft.Icons.GROUPS_ROUNDED, len(members)),
+                tab_button("Cohorts & Exams", "cohorts", ft.Icons.SCHOOL_ROUNDED),
                 tab_button("Learning Paths", "playlists", ft.Icons.PLAYLIST_PLAY_ROUNDED, len(playlists)),
                 tab_button("Organization Details", "info", ft.Icons.INFO_OUTLINE_ROUNDED),
             ]
@@ -1536,6 +1551,7 @@ async def organisations_view(page: ft.Page):
         tab_buttons = ft.Row([
             tab_button("Courses", "courses", ft.Icons.AUTO_STORIES_ROUNDED, len(courses)),
             tab_button("Members", "members", ft.Icons.GROUPS_ROUNDED, len(members)),
+            tab_button("Cohorts & Exams", "cohorts", ft.Icons.SCHOOL_ROUNDED),
             tab_button("Learning Paths", "playlists", ft.Icons.PLAYLIST_PLAY_ROUNDED, len(playlists)),
             tab_button("Organization Details", "info", ft.Icons.INFO_OUTLINE_ROUNDED),
         ], scroll=ft.ScrollMode.AUTO, spacing=8)
