@@ -208,7 +208,6 @@ async def dashboard_view(page: ft.Page):
 
     def build_hero_content():
         is_desktop = (page.width or 400) >= 720
-        notif_bell = get_notification_bell(page, on_open=lambda: page.go("/notifications"))
         if is_desktop:
             return ft.Row(
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -218,7 +217,7 @@ async def dashboard_view(page: ft.Page):
                         expand=True,
                         spacing=12,
                         controls=[
-                            ft.Row([greeting_name, notif_bell], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                            greeting_name,
                             greeting_sub,
                             tip_container,
                         ],
@@ -241,25 +240,60 @@ async def dashboard_view(page: ft.Page):
                                     greeting_name,
                                 ],
                             ),
-                            ft.Row([
-                                notif_bell,
-                                ft.Container(
-                                    width=95,
-                                    height=75,
-                                    border_radius=ft.BorderRadius.all(12),
-                                    clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-                                    content=ft.Image(
-                                        src="hero_graduation.png",
-                                        fit=ft.BoxFit.CONTAIN,
-                                    ),
+                            ft.Container(
+                                width=105,
+                                height=85,
+                                border_radius=ft.BorderRadius.all(12),
+                                clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                                content=ft.Image(
+                                    src="hero_graduation.png",
+                                    fit=ft.BoxFit.CONTAIN,
                                 ),
-                            ], spacing=6, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                            ),
                         ],
                     ),
                     greeting_sub,
                     tip_container,
                 ],
             )
+
+    notif_bell = get_notification_bell(page, on_open=lambda: page.go("/notifications"))
+
+    dashboard_top_bar = ft.Container(
+        padding=ft.Padding.only(left=20, right=16, top=10, bottom=4),
+        content=ft.Row(
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                ft.Row(
+                    spacing=8,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[
+                        ft.Container(
+                            width=32,
+                            height=32,
+                            border_radius=8,
+                            bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY),
+                            alignment=ft.Alignment.CENTER,
+                            content=ft.Icon(ft.Icons.SCHOOL_ROUNDED, size=18, color=ft.Colors.PRIMARY),
+                        ),
+                        ft.Text(
+                            "NU-AGE",
+                            size=18,
+                            weight=ft.FontWeight.BOLD,
+                            color=ft.Colors.PRIMARY,
+                            letter_spacing=0.8,
+                        ),
+                    ],
+                ),
+                ft.Container(
+                    border_radius=22,
+                    bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
+                    content=notif_bell,
+                ),
+            ],
+        ),
+    )
 
     header = ft.Container(
         bgcolor=ft.Colors.SECONDARY,  # Matches theme secondary color (#37BF14) & hero_graduation.png background
@@ -1312,6 +1346,7 @@ async def dashboard_view(page: ft.Page):
             expand=True,
             spacing=0,
             controls=[
+                dashboard_top_bar,
                 ft.Column(
                     expand=True,
                     scroll=ft.ScrollMode.AUTO,
