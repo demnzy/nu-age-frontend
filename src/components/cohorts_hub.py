@@ -111,10 +111,82 @@ def build_cohorts_tab(
         name_field = ft.TextField(label="Cohort Name *", hint_text="e.g. 2026 Tech Scholarship Cohort", **_INPUT)
         desc_field = ft.TextField(label="Description", hint_text="Program goals, timeline, and requirements...", multiline=True, min_lines=2, max_lines=3, **_INPUT)
 
-        now_str = datetime.now().strftime("%Y-%m-%d")
-        three_months_str = (datetime.now().replace(month=(datetime.now().month % 12) + 1)).strftime("%Y-%m-%d")
-        start_field = ft.TextField(label="Start Date (YYYY-MM-DD) *", value=now_str, hint_text="2026-09-01", **_INPUT)
-        end_field = ft.TextField(label="End Date (YYYY-MM-DD) *", value=three_months_str, hint_text="2026-12-01", **_INPUT)
+        now_dt = datetime.now()
+        three_months_dt = now_dt + timedelta(days=90)
+
+        start_date_val = [now_dt.date()]
+        end_date_val = [three_months_dt.date()]
+
+        start_btn_text = ft.Text(start_date_val[0].strftime("%b %d, %Y"), size=13, weight=ft.FontWeight.W_600)
+        end_btn_text = ft.Text(end_date_val[0].strftime("%b %d, %Y"), size=13, weight=ft.FontWeight.W_600)
+
+        def on_start_change(e):
+            if e.control.value:
+                val = e.control.value
+                start_date_val[0] = val.date() if isinstance(val, datetime) else val
+                start_btn_text.value = start_date_val[0].strftime("%b %d, %Y")
+                page.update()
+
+        def on_end_change(e):
+            if e.control.value:
+                val = e.control.value
+                end_date_val[0] = val.date() if isinstance(val, datetime) else val
+                end_btn_text.value = end_date_val[0].strftime("%b %d, %Y")
+                page.update()
+
+        start_picker = ft.DatePicker(
+            value=now_dt,
+            first_date=now_dt - timedelta(days=365),
+            last_date=now_dt + timedelta(days=365 * 5),
+            on_change=on_start_change,
+        )
+        end_picker = ft.DatePicker(
+            value=three_months_dt,
+            first_date=now_dt - timedelta(days=365),
+            last_date=now_dt + timedelta(days=365 * 5),
+            on_change=on_end_change,
+        )
+        page.overlay.extend([start_picker, end_picker])
+
+        def open_start_picker(_):
+            start_picker.open = True
+            page.update()
+
+        def open_end_picker(_):
+            end_picker.open = True
+            page.update()
+
+        start_picker_btn = ft.Container(
+            padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+            border_radius=10,
+            border=ft.Border.all(1, ft.Colors.with_opacity(0.18, ft.Colors.ON_SURFACE)),
+            bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
+            ink=True,
+            on_click=open_start_picker,
+            content=ft.Row([
+                ft.Icon(ft.Icons.CALENDAR_MONTH_ROUNDED, size=18, color=theme_color),
+                ft.Column([
+                    ft.Text("Start Date", size=10, color=ft.Colors.ON_SURFACE_VARIANT),
+                    start_btn_text,
+                ], spacing=1, expand=True),
+            ], spacing=8),
+        )
+
+        end_picker_btn = ft.Container(
+            padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+            border_radius=10,
+            border=ft.Border.all(1, ft.Colors.with_opacity(0.18, ft.Colors.ON_SURFACE)),
+            bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
+            ink=True,
+            on_click=open_end_picker,
+            content=ft.Row([
+                ft.Icon(ft.Icons.EVENT_REPEAT_ROUNDED, size=18, color=theme_color),
+                ft.Column([
+                    ft.Text("End Date", size=10, color=ft.Colors.ON_SURFACE_VARIANT),
+                    end_btn_text,
+                ], spacing=1, expand=True),
+            ], spacing=8),
+        )
 
         # Courses selection checkboxes
         course_checks = []
@@ -138,17 +210,13 @@ def build_cohorts_tab(
 
         all_members_toggle = ft.Checkbox(label="Select All Members", value=False, on_change=select_all_members)
 
-        async def do_create(e):
+        async def do_create(e=None):
             if not name_field.value or not name_field.value.strip():
                 show_snack("Cohort name is required.", is_error=True)
                 return
 
-            try:
-                s_dt = datetime.strptime(start_field.value.strip(), "%Y-%m-%d").replace(tzinfo=timezone.utc)
-                e_dt = datetime.strptime(end_field.value.strip(), "%Y-%m-%d").replace(tzinfo=timezone.utc)
-            except Exception:
-                show_snack("Dates must be formatted as YYYY-MM-DD.", is_error=True)
-                return
+            s_dt = datetime.combine(start_date_val[0], datetime.min.time()).replace(tzinfo=timezone.utc)
+            e_dt = datetime.combine(end_date_val[0], datetime.max.time()).replace(tzinfo=timezone.utc)
 
             if e_dt <= s_dt:
                 show_snack("End date must be after start date.", is_error=True)
@@ -182,8 +250,8 @@ def build_cohorts_tab(
                 name_field,
                 desc_field,
                 ft.Row([
-                    ft.Container(content=start_field, expand=True),
-                    ft.Container(content=end_field, expand=True),
+                    ft.Container(content=start_picker_btn, expand=True),
+                    ft.Container(content=end_picker_btn, expand=True),
                 ], spacing=10),
                 ft.Divider(height=1, color=ft.Colors.with_opacity(0.1, ft.Colors.ON_SURFACE)),
                 ft.Text("Assign Courses to Cohort:", size=12, weight=ft.FontWeight.BOLD),
@@ -823,10 +891,82 @@ def build_cohorts_tab(
                 dur_field = ft.TextField(label="Duration (Minutes) *", value="60", **_INPUT)
                 pass_field = ft.TextField(label="Pass Mark (%) *", value="70", **_INPUT)
 
-                now_iso = datetime.now().strftime("%Y-%m-%d %H:%M")
-                later_iso = (datetime.now().replace(day=datetime.now().day + 7)).strftime("%Y-%m-%d %H:%M")
-                open_field = ft.TextField(label="Opens At (YYYY-MM-DD HH:MM) *", value=now_iso, **_INPUT)
-                close_field = ft.TextField(label="Closes At (YYYY-MM-DD HH:MM) *", value=later_iso, **_INPUT)
+                now_ex_dt = datetime.now()
+                later_ex_dt = now_ex_dt + timedelta(days=7)
+
+                open_date_val = [now_ex_dt.date()]
+                close_date_val = [later_ex_dt.date()]
+
+                open_btn_text = ft.Text(open_date_val[0].strftime("%b %d, %Y"), size=13, weight=ft.FontWeight.W_600)
+                close_btn_text = ft.Text(close_date_val[0].strftime("%b %d, %Y"), size=13, weight=ft.FontWeight.W_600)
+
+                def on_open_date_change(e):
+                    if e.control.value:
+                        val = e.control.value
+                        open_date_val[0] = val.date() if isinstance(val, datetime) else val
+                        open_btn_text.value = open_date_val[0].strftime("%b %d, %Y")
+                        page.update()
+
+                def on_close_date_change(e):
+                    if e.control.value:
+                        val = e.control.value
+                        close_date_val[0] = val.date() if isinstance(val, datetime) else val
+                        close_btn_text.value = close_date_val[0].strftime("%b %d, %Y")
+                        page.update()
+
+                open_picker = ft.DatePicker(
+                    value=now_ex_dt,
+                    first_date=now_ex_dt - timedelta(days=365),
+                    last_date=now_ex_dt + timedelta(days=365 * 5),
+                    on_change=on_open_date_change,
+                )
+                close_picker = ft.DatePicker(
+                    value=later_ex_dt,
+                    first_date=now_ex_dt - timedelta(days=365),
+                    last_date=now_ex_dt + timedelta(days=365 * 5),
+                    on_change=on_close_date_change,
+                )
+                page.overlay.extend([open_picker, close_picker])
+
+                def open_start_exam_picker(_):
+                    open_picker.open = True
+                    page.update()
+
+                def open_close_exam_picker(_):
+                    close_picker.open = True
+                    page.update()
+
+                open_picker_btn = ft.Container(
+                    padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+                    border_radius=10,
+                    border=ft.Border.all(1, ft.Colors.with_opacity(0.18, ft.Colors.ON_SURFACE)),
+                    bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
+                    ink=True,
+                    on_click=open_start_exam_picker,
+                    content=ft.Row([
+                        ft.Icon(ft.Icons.CALENDAR_MONTH_ROUNDED, size=18, color=theme_color),
+                        ft.Column([
+                            ft.Text("Opens Date", size=10, color=ft.Colors.ON_SURFACE_VARIANT),
+                            open_btn_text,
+                        ], spacing=1, expand=True),
+                    ], spacing=8),
+                )
+
+                close_picker_btn = ft.Container(
+                    padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+                    border_radius=10,
+                    border=ft.Border.all(1, ft.Colors.with_opacity(0.18, ft.Colors.ON_SURFACE)),
+                    bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
+                    ink=True,
+                    on_click=open_close_exam_picker,
+                    content=ft.Row([
+                        ft.Icon(ft.Icons.EVENT_BUSY_ROUNDED, size=18, color=theme_color),
+                        ft.Column([
+                            ft.Text("Closes Date", size=10, color=ft.Colors.ON_SURFACE_VARIANT),
+                            close_btn_text,
+                        ], spacing=1, expand=True),
+                    ], spacing=8),
+                )
 
                 attempts_field = ft.TextField(label="Max Attempts", value="1", **_INPUT)
                 security_dd = ft.Dropdown(
@@ -842,16 +982,13 @@ def build_cohorts_tab(
                 shuffle_chk = ft.Checkbox(label="Shuffle Question Order", value=True)
                 immediate_chk = ft.Checkbox(label="Show Immediate Results to Candidate", value=True)
 
-                async def do_schedule(e):
+                async def do_schedule(e=None):
                     if not title_field.value or not title_field.value.strip():
                         show_snack("Exam title is required.", is_error=True)
                         return
-                    try:
-                        o_dt = datetime.strptime(open_field.value.strip(), "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
-                        c_dt = datetime.strptime(close_field.value.strip(), "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
-                    except Exception:
-                        show_snack("Dates must be formatted as YYYY-MM-DD HH:MM.", is_error=True)
-                        return
+
+                    o_dt = datetime.combine(open_date_val[0], datetime.min.time()).replace(tzinfo=timezone.utc)
+                    c_dt = datetime.combine(close_date_val[0], datetime.max.time()).replace(tzinfo=timezone.utc)
 
                     if c_dt <= o_dt:
                         show_snack("Close date must be after open date.", is_error=True)
@@ -888,8 +1025,8 @@ def build_cohorts_tab(
                             title_field,
                             inst_field,
                             ft.Row([
-                                ft.Container(open_field, expand=True),
-                                ft.Container(close_field, expand=True),
+                                ft.Container(open_picker_btn, expand=True),
+                                ft.Container(close_picker_btn, expand=True),
                             ], spacing=10),
                             ft.Row([
                                 ft.Container(dur_field, expand=True),

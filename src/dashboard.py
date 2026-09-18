@@ -208,7 +208,7 @@ async def dashboard_view(page: ft.Page):
 
     def build_hero_content():
         is_desktop = (page.width or 400) >= 720
-        notif_bell = get_notification_bell(page)
+        notif_bell = get_notification_bell(page, on_open=lambda: page.go("/notifications"))
         if is_desktop:
             return ft.Row(
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
