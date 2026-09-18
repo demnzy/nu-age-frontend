@@ -42,6 +42,8 @@ class PersistentBottomAppBar:
             return clean == "/organisations" or clean.startswith("/organisations/")
         if item_route == "/nu-chat":
             return clean == "/nu-chat"
+        if clean == "/notifications":
+            return item_route == "/notifications"
         if item_route == "/profile":
             return clean in ("/profile", "/edit-profile")
         return clean == item_route
@@ -53,6 +55,8 @@ class PersistentBottomAppBar:
             label_text = "Home"
         if route == "/courses":
             label_text = "Learn"
+        if route == "/notifications":
+            label_text = "Alerts"
 
         btn = ft.IconButton(
             icon=icon_name,
@@ -94,6 +98,7 @@ class PersistentBottomAppBar:
             self._build_nav_item(ft.Icons.HOME_ROUNDED, "/dashboard"),
             self._build_nav_item(ft.Icons.SEND_ROUNDED, "/nu-chat", is_rotated=True),
             self._build_nav_item(ft.Icons.SCHOOL_ROUNDED, "/courses"),
+            self._build_nav_item(ft.Icons.NOTIFICATIONS_ROUNDED, "/notifications"),
         ]
 
         if role in ["ADMIN", "TEACHER"]:

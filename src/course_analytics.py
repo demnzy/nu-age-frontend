@@ -122,15 +122,16 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
         page.update()
 
     # ─────────────────────────────────────────────────────────────────────────
-    # BENTO STAT CARD
+    # ─────────────────────────────────────────────────────────────────────────
+    # BENTO STAT CARD (MOBILE-OPTIMIZED 2x2 GRID & CLEAN TYPOGRAPHY)
     # ─────────────────────────────────────────────────────────────────────────
     def bento_stat(icon, title: str, value: str, subtext: str, accent_color, col_spec=None):
         return ft.Container(
-            col=col_spec or {"xs": 12, "sm": 6, "md": 3},
+            col=col_spec or {"xs": 6, "sm": 6, "md": 3},
             bgcolor=ft.Colors.SURFACE,
             border_radius=14,
             border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
-            padding=ft.Padding.all(16),
+            padding=ft.Padding.all(12),
             shadow=ft.BoxShadow(
                 blur_radius=8,
                 color=ft.Colors.with_opacity(0.04, ft.Colors.BLACK),
@@ -139,18 +140,27 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
             content=ft.Column([
                 ft.Row([
                     ft.Container(
-                        width=36,
-                        height=36,
-                        border_radius=10,
+                        width=30,
+                        height=30,
+                        border_radius=8,
                         bgcolor=ft.Colors.with_opacity(0.12, accent_color),
                         alignment=ft.Alignment.CENTER,
-                        content=ft.Icon(icon, size=18, color=accent_color),
+                        content=ft.Icon(icon, size=15, color=accent_color),
                     ),
-                    ft.Text(title, size=10, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE_VARIANT),
+                    ft.Text(
+                        title,
+                        size=9,
+                        weight=ft.FontWeight.BOLD,
+                        color=ft.Colors.ON_SURFACE_VARIANT,
+                        max_lines=1,
+                        overflow=ft.TextOverflow.ELLIPSIS,
+                        expand=True,
+                        text_align=ft.TextAlign.RIGHT,
+                    ),
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                 ft.Container(height=4),
-                ft.Text(str(value), size=24, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
-                ft.Text(subtext, size=11, color=ft.Colors.ON_SURFACE_VARIANT, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                ft.Text(str(value), size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
+                ft.Text(subtext, size=10, color=ft.Colors.ON_SURFACE_VARIANT, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
             ], spacing=2),
         )
 
@@ -194,38 +204,38 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
             pct = (t["count"] / total) * 100
             tier_rows.append(
                 ft.Container(
-                    margin=ft.Margin.only(bottom=10),
+                    margin=ft.Margin.only(bottom=8),
                     content=ft.Column([
                         ft.Row([
                             ft.Row([
-                                ft.Container(width=10, height=10, border_radius=5, bgcolor=t["color"]),
-                                ft.Text(t["label"], size=12, weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE),
-                            ], spacing=6),
+                                ft.Container(width=8, height=8, border_radius=4, bgcolor=t["color"]),
+                                ft.Text(t["label"], size=11, weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, expand=True),
+                            ], spacing=6, expand=True),
                             ft.Row([
-                                ft.Text(f"{t['count']} learners", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
-                                ft.Text(f"({int(pct)}%)", size=11, color=ft.Colors.ON_SURFACE_VARIANT),
-                            ], spacing=4),
+                                ft.Text(f"{t['count']} learners", size=10.5, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
+                                ft.Text(f"({int(pct)}%)", size=10.5, color=ft.Colors.ON_SURFACE_VARIANT),
+                            ], spacing=3),
                         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                        ft.Container(height=4),
+                        ft.Container(height=3),
                         # Horizontal progress bar (never shrinks, adapts fluidly)
                         ft.Container(
-                            height=8,
-                            border_radius=4,
+                            height=6,
+                            border_radius=3,
                             bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
                             content=ft.Row([
                                 ft.Container(
-                                    height=8,
-                                    border_radius=4,
+                                    height=6,
+                                    border_radius=3,
                                     bgcolor=t["color"],
                                     expand=int(pct) if pct > 0 else 0,
                                 ) if pct > 0 else ft.Container(),
                                 ft.Container(
-                                    height=8,
+                                    height=6,
                                     expand=int(100 - pct) if pct < 100 else 0,
                                 ) if pct < 100 else ft.Container(),
                             ], spacing=0),
                         ),
-                        ft.Text(t["insight"], size=10, color=ft.Colors.ON_SURFACE_VARIANT),
+                        ft.Text(t["insight"], size=9.5, color=ft.Colors.ON_SURFACE_VARIANT, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                     ], spacing=2),
                 )
             )
@@ -234,21 +244,21 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
             bgcolor=ft.Colors.SURFACE,
             border_radius=14,
             border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
-            padding=ft.Padding.all(16),
+            padding=ft.Padding.all(12),
             content=ft.Column([
                 _section_header("COHORT PROGRESS TIER DISTRIBUTION", "Pedagogical breakdown across mastery milestones"),
-                ft.Container(height=8),
+                ft.Container(height=6),
                 # Explanatory diagnosis pill
                 ft.Container(
-                    padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+                    padding=ft.Padding.symmetric(horizontal=10, vertical=6),
                     border_radius=8,
                     bgcolor=diag_bg,
                     content=ft.Row([
-                        ft.Icon(ft.Icons.LIGHTBULB_ROUNDED, size=16, color=diag_color),
-                        ft.Text(diagnosis_text, size=11, weight=ft.FontWeight.W_500, color=diag_color, expand=True),
-                    ], spacing=8),
+                        ft.Icon(ft.Icons.LIGHTBULB_ROUNDED, size=15, color=diag_color),
+                        ft.Text(diagnosis_text, size=10.5, weight=ft.FontWeight.W_500, color=diag_color, expand=True),
+                    ], spacing=6),
                 ),
-                ft.Container(height=12),
+                ft.Container(height=10),
                 ft.Column(tier_rows, spacing=0),
             ], spacing=4),
         )
@@ -268,17 +278,17 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
 
         def metric_item(label, value, sub, color, icon):
             return ft.Container(
-                padding=12,
+                padding=ft.Padding.symmetric(horizontal=8, vertical=10),
                 border_radius=10,
                 bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
                 expand=True,
                 content=ft.Column([
                     ft.Row([
-                        ft.Icon(icon, size=16, color=color),
-                        ft.Text(label, size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE_VARIANT),
-                    ], spacing=6),
-                    ft.Text(str(value), size=20, weight=ft.FontWeight.BOLD, color=color),
-                    ft.Text(sub, size=10, color=ft.Colors.ON_SURFACE_VARIANT),
+                        ft.Icon(icon, size=14, color=color),
+                        ft.Text(label, size=9.5, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE_VARIANT, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, expand=True),
+                    ], spacing=4),
+                    ft.Text(str(value), size=17, weight=ft.FontWeight.BOLD, color=color),
+                    ft.Text(sub, size=9.5, color=ft.Colors.ON_SURFACE_VARIANT, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                 ], spacing=2),
             )
 
@@ -286,19 +296,19 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
             bgcolor=ft.Colors.SURFACE,
             border_radius=14,
             border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
-            padding=ft.Padding.all(16),
+            padding=ft.Padding.all(12),
             content=ft.Column([
                 _section_header("COHORT RETENTION & COMPLETION HEALTH", "Engagement velocity and attrition diagnostics"),
-                ft.Container(height=8),
+                ft.Container(height=6),
                 ft.Row([
                     metric_item("Active", f"{active_pct}%", f"{active_cnt} in motion", ft.Colors.BLUE_600, ft.Icons.DIRECTIONS_RUN_ROUNDED),
                     metric_item("Graduated", f"{grad_pct}%", f"{grad_cnt} completed", ft.Colors.GREEN_600, ft.Icons.SCHOOL_ROUNDED),
                     metric_item("At Risk", f"{stalled_pct}%", f"{stalled_cnt} unstarted", ft.Colors.AMBER_600, ft.Icons.WARNING_AMBER_ROUNDED),
-                ], spacing=10),
-                ft.Container(height=10),
+                ], spacing=6),
+                ft.Container(height=8),
                 ft.Text(
                     "Recommendation: Instructors can message learners directly from the Student Roster tab to re-engage inactive students or guide them through challenging lessons.",
-                    size=11,
+                    size=10.5,
                     color=ft.Colors.ON_SURFACE_VARIANT,
                 ),
             ], spacing=4),
@@ -325,7 +335,6 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
         total_modules = len(modules)
 
         # Estimate module completion by progress thresholds
-        # e.g. for module i of N: threshold = (i+1)/N * 100
         module_rows = []
         for i, mod in enumerate(modules):
             m_title = mod.get("title") or f"Module {i+1}"
@@ -344,24 +353,24 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
 
             module_rows.append(
                 ft.Container(
-                    margin=ft.Margin.only(bottom=10),
-                    padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+                    margin=ft.Margin.only(bottom=8),
+                    padding=ft.Padding.symmetric(horizontal=10, vertical=8),
                     border_radius=10,
                     bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
                     content=ft.Column([
                         ft.Row([
                             ft.Row([
                                 ft.Container(
-                                    width=22, height=22, border_radius=11,
+                                    width=20, height=20, border_radius=10,
                                     bgcolor=ft.Colors.with_opacity(0.12, mod_color),
                                     alignment=ft.Alignment.CENTER,
-                                    content=ft.Text(str(i + 1), size=11, weight=ft.FontWeight.BOLD, color=mod_color),
+                                    content=ft.Text(str(i + 1), size=10, weight=ft.FontWeight.BOLD, color=mod_color),
                                 ),
-                                ft.Text(m_title, size=13, weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE),
-                            ], spacing=8),
-                            ft.Text(f"{lesson_cnt} lessons", size=11, color=ft.Colors.ON_SURFACE_VARIANT),
+                                ft.Text(m_title, size=12, weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, expand=True),
+                            ], spacing=6, expand=True),
+                            ft.Text(f"{lesson_cnt} lessons", size=10.5, color=ft.Colors.ON_SURFACE_VARIANT),
                         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                        ft.Container(height=4),
+                        ft.Container(height=3),
                         # Progress Bar
                         ft.Row([
                             ft.Container(
@@ -382,9 +391,9 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
                                     ) if pct_mod < 100 else ft.Container(),
                                 ], spacing=0),
                             ),
-                            ft.Text(f"{int(pct_mod)}% completion", size=10, weight=ft.FontWeight.BOLD, color=mod_color),
-                        ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                        ft.Text("Critical gateway milestone" if is_steepest else f"Core curriculum topic", size=10, color=ft.Colors.ON_SURFACE_VARIANT),
+                            ft.Text(f"{int(pct_mod)}%", size=9.5, weight=ft.FontWeight.BOLD, color=mod_color),
+                        ], spacing=6, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                        ft.Text("Critical gateway milestone" if is_steepest else "Core curriculum topic", size=9.5, color=ft.Colors.ON_SURFACE_VARIANT, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                     ], spacing=2),
                 )
             )
@@ -393,10 +402,10 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
             bgcolor=ft.Colors.SURFACE,
             border_radius=14,
             border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
-            padding=ft.Padding.all(16),
+            padding=ft.Padding.all(12),
             content=ft.Column([
                 _section_header("CURRICULUM MODULE PROGRESSION", f"{len(modules)} modules sequenced with lesson completion rates"),
-                ft.Container(height=8),
+                ft.Container(height=6),
                 ft.Column(module_rows, spacing=0),
             ], spacing=4),
         )
@@ -420,7 +429,7 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
 
         max_val = max((d.get("participations", 0) for d in data), default=0)
         max_val = max(max_val, 1)
-        max_h = 75
+        max_h = 65
 
         bars = []
         for i, item in enumerate(data):
@@ -436,12 +445,12 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
             bars.append(
                 ft.Column(
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                    spacing=6,
+                    spacing=4,
                     controls=[
                         ft.Container(
-                            width=26,
+                            width=22,
                             height=bar_h,
-                            border_radius=ft.BorderRadius.only(top_left=6, top_right=6),
+                            border_radius=ft.BorderRadius.only(top_left=5, top_right=5),
                             gradient=ft.LinearGradient(
                                 begin=ft.Alignment(0, -1),
                                 end=ft.Alignment(0, 1),
@@ -449,7 +458,7 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
                             ),
                             tooltip=f"{week_label}: {int(val)} participations, {int(views)} views",
                         ),
-                        ft.Text(week_label, size=10, weight=ft.FontWeight.W_500, color=ft.Colors.ON_SURFACE_VARIANT),
+                        ft.Text(week_label, size=9.5, weight=ft.FontWeight.W_500, color=ft.Colors.ON_SURFACE_VARIANT),
                     ],
                 )
             )
@@ -461,7 +470,7 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
             bgcolor=ft.Colors.SURFACE,
             border_radius=14,
             border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
-            padding=ft.Padding.all(16),
+            padding=ft.Padding.all(12),
             content=ft.Column([
                 ft.Row([
                     _section_header("WEEKLY ENGAGEMENT TELEMETRY", f"{total_part} lesson participations across cohorts"),
@@ -472,16 +481,17 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
                         content=ft.Text("Velocity Trend", size=10, weight=ft.FontWeight.BOLD, color=theme_color),
                     ),
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                ft.Container(height=12),
+                ft.Container(height=10),
                 ft.Row(
                     alignment=ft.MainAxisAlignment.SPACE_AROUND,
                     vertical_alignment=ft.CrossAxisAlignment.END,
+                    scroll=ft.ScrollMode.AUTO,
                     controls=bars,
                 ),
-                ft.Container(height=10),
+                ft.Container(height=8),
                 ft.Row([
-                    ft.Text(f"Total Views: {total_views}", size=11, color=ft.Colors.ON_SURFACE_VARIANT),
-                    ft.Text(f"Participations: {total_part}", size=11, weight=ft.FontWeight.BOLD, color=theme_color),
+                    ft.Text(f"Total Views: {total_views}", size=10.5, color=ft.Colors.ON_SURFACE_VARIANT),
+                    ft.Text(f"Participations: {total_part}", size=10.5, weight=ft.FontWeight.BOLD, color=theme_color),
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
             ], spacing=4),
         )
@@ -516,7 +526,7 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
             page.go("/nu-chat")
 
         return ft.Container(
-            padding=ft.Padding.all(12),
+            padding=ft.Padding.all(10),
             margin=ft.Margin.only(bottom=8),
             border_radius=12,
             border=ft.Border.all(1, ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE)),
@@ -526,50 +536,50 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
                 ft.Row([
                     ft.Row([
                         ft.CircleAvatar(
-                            content=ft.Text(initials, size=12, weight=ft.FontWeight.BOLD),
+                            content=ft.Text(initials, size=11, weight=ft.FontWeight.BOLD),
                             bgcolor=ft.Colors.with_opacity(0.12, theme_color),
                             color=theme_color,
-                            radius=18,
+                            radius=16,
                         ),
                         ft.Column([
-                            ft.Text(full_name, size=13, weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
-                            ft.Text(email, size=11, color=ft.Colors.ON_SURFACE_VARIANT, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
-                        ], spacing=2, expand=True),
-                    ], spacing=10, expand=True),
+                            ft.Text(full_name, size=12, weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                            ft.Text(email, size=10, color=ft.Colors.ON_SURFACE_VARIANT, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                        ], spacing=1, expand=True),
+                    ], spacing=8, expand=True),
                     ft.Row([
                         ft.IconButton(
                             ft.Icons.PERSON_OUTLINE_ROUNDED,
-                            icon_size=17,
+                            icon_size=16,
                             icon_color=ft.Colors.ON_SURFACE_VARIANT,
                             tooltip="View Profile",
                             on_click=lambda _, uid=user_id: page.go(f"/member/{uid}") if uid else None,
                         ),
                         ft.IconButton(
                             ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED,
-                            icon_size=17,
+                            icon_size=16,
                             icon_color=theme_color,
                             tooltip=f"Direct Message {first or 'Student'}",
                             on_click=lambda e, uid=user_id: page.run_task(_message, e, uid),
                         ),
                     ], spacing=0),
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                ft.Container(height=6),
+                ft.Container(height=4),
                 # Full-width Progress bar with percentage pill (immune to shrinking)
                 ft.Row([
                     ft.Container(
-                        height=6,
+                        height=5,
                         border_radius=3,
                         bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
                         expand=True,
                         content=ft.ProgressBar(value=progress_ratio, color=prog_color, bgcolor=ft.Colors.TRANSPARENT),
                     ),
                     ft.Container(
-                        padding=ft.Padding.symmetric(horizontal=6, vertical=2),
-                        border_radius=6,
+                        padding=ft.Padding.symmetric(horizontal=5, vertical=1),
+                        border_radius=5,
                         bgcolor=ft.Colors.with_opacity(0.1, prog_color),
-                        content=ft.Text(f"{int(progress_val)}%", size=10, weight=ft.FontWeight.BOLD, color=prog_color),
+                        content=ft.Text(f"{int(progress_val)}%", size=9.5, weight=ft.FontWeight.BOLD, color=prog_color),
                     ),
-                ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                ], spacing=6, vertical_alignment=ft.CrossAxisAlignment.CENTER),
             ], spacing=0),
         )
 
@@ -629,7 +639,7 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
 
         # ── HERO HEADER CARD ───────────────────────────────────────────────────
         hero_card = ft.Container(
-            margin=ft.Margin.symmetric(horizontal=16, vertical=8),
+            margin=ft.Margin.symmetric(horizontal=12, vertical=6),
             border_radius=16,
             bgcolor=ft.Colors.SURFACE,
             border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
@@ -643,7 +653,7 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
                         end=ft.Alignment(1, 1),
                         colors=[theme_color, ft.Colors.PRIMARY],
                     ),
-                    padding=ft.Padding.only(top=10, left=12, right=12, bottom=12),
+                    padding=ft.Padding.only(top=8, left=10, right=10, bottom=8),
                     content=ft.Row([
                         ft.Row([
                             ft.IconButton(
@@ -653,50 +663,58 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
                                 tooltip="Back to Academy",
                                 on_click=_go_back,
                             ),
-                            ft.Text("Course Analytics & Intelligence", size=13, weight=ft.FontWeight.W_600, color=ft.Colors.WHITE),
-                        ], spacing=4),
+                            ft.Text(
+                                "Course Analytics",
+                                size=13,
+                                weight=ft.FontWeight.W_600,
+                                color=ft.Colors.WHITE,
+                                max_lines=1,
+                                overflow=ft.TextOverflow.ELLIPSIS,
+                                expand=True,
+                            ),
+                        ], spacing=2, expand=True),
                         ft.Row([
                             ft.IconButton(
                                 ft.Icons.EDIT_ROUNDED,
                                 icon_color=ft.Colors.WHITE,
-                                icon_size=17,
+                                icon_size=16,
                                 tooltip="Manage Curriculum",
                                 on_click=lambda _: page.go(f"/courses/{course_id}/manage"),
                             ),
                             ft.IconButton(
                                 ft.Icons.SETTINGS_OUTLINED,
                                 icon_color=ft.Colors.WHITE,
-                                icon_size=17,
+                                icon_size=16,
                                 tooltip="Course Settings",
                                 on_click=lambda _: page.go(f"/organisations/{org_id}/courses/{course_id}/settings"),
                             ),
                             ft.IconButton(
                                 ft.Icons.VISIBILITY_OUTLINED,
                                 icon_color=ft.Colors.WHITE,
-                                icon_size=17,
+                                icon_size=16,
                                 tooltip="View Course Engine",
                                 on_click=lambda _: page.go(f"/courses/{course_id}/view"),
                             ),
-                        ], spacing=2),
+                        ], spacing=0),
                     ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                 ),
                 # Header Body
                 ft.Container(
-                    padding=ft.Padding.all(16),
+                    padding=ft.Padding.all(12),
                     content=ft.Column([
-                        ft.Text(title, size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
-                        ft.Text(desc, size=12, color=ft.Colors.ON_SURFACE_VARIANT, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
-                        ft.Container(height=4),
+                        ft.Text(title, size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
+                        ft.Text(desc, size=11.5, color=ft.Colors.ON_SURFACE_VARIANT, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
+                        ft.Container(height=2),
                         ft.Row([
                             status_badge,
                             category_badge,
                             mode_badge,
                             ft.Row([
                                 ft.Icon(ft.Icons.SCHOOL_ROUNDED, size=13, color=ft.Colors.ON_SURFACE_VARIANT),
-                                ft.Text(f"{module_count} Modules · {lesson_count} Lessons", size=11, color=ft.Colors.ON_SURFACE_VARIANT, weight=ft.FontWeight.W_500),
+                                ft.Text(f"{module_count} Modules · {lesson_count} Lessons", size=10.5, color=ft.Colors.ON_SURFACE_VARIANT, weight=ft.FontWeight.W_500),
                             ], spacing=4),
-                        ], spacing=8, wrap=True),
-                    ], spacing=6),
+                        ], spacing=6, wrap=True),
+                    ], spacing=5),
                 ),
             ], spacing=0),
         )
@@ -726,25 +744,25 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
             is_sel = (active_tab == key)
             return ft.Container(
                 data=key,
-                padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+                padding=ft.Padding.symmetric(horizontal=10, vertical=6),
                 border_radius=10,
                 bgcolor=theme_color if is_sel else ft.Colors.TRANSPARENT,
                 ink=True,
                 on_click=lambda _, k=key: switch_tab(k),
                 content=ft.Row([
-                    ft.Icon(icon, size=14, color=ft.Colors.WHITE if is_sel else ft.Colors.ON_SURFACE_VARIANT),
-                    ft.Text(title, size=12, weight=ft.FontWeight.BOLD if is_sel else ft.FontWeight.NORMAL, color=ft.Colors.WHITE if is_sel else ft.Colors.ON_SURFACE),
-                ], spacing=6, tight=True),
+                    ft.Icon(icon, size=13, color=ft.Colors.WHITE if is_sel else ft.Colors.ON_SURFACE_VARIANT),
+                    ft.Text(title, size=11.5, weight=ft.FontWeight.BOLD if is_sel else ft.FontWeight.NORMAL, color=ft.Colors.WHITE if is_sel else ft.Colors.ON_SURFACE),
+                ], spacing=5, tight=True),
             )
 
         tab_buttons = ft.Row([
-            tab_btn("Cohort Performance", "performance", ft.Icons.INSIGHTS_ROUNDED),
-            tab_btn("Curriculum & Engagement", "curriculum", ft.Icons.SCHOOL_ROUNDED),
-            tab_btn(f"Student Roster ({total_students})", "roster", ft.Icons.PEOPLE_ROUNDED),
-        ], spacing=6, scroll=ft.ScrollMode.AUTO)
+            tab_btn("Performance", "performance", ft.Icons.INSIGHTS_ROUNDED),
+            tab_btn("Curriculum", "curriculum", ft.Icons.SCHOOL_ROUNDED),
+            tab_btn(f"Roster ({total_students})", "roster", ft.Icons.PEOPLE_ROUNDED),
+        ], spacing=4, scroll=ft.ScrollMode.AUTO)
 
         tabs_bar = ft.Container(
-            padding=ft.Padding.symmetric(horizontal=16, vertical=4),
+            padding=ft.Padding.symmetric(horizontal=12, vertical=4),
             content=tab_buttons,
         )
 
@@ -781,11 +799,11 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
                         "Verified credentials awarded",
                         ft.Colors.AMBER_600,
                     ),
-                ], spacing=12, run_spacing=12),
-                ft.Container(height=12),
+                ], spacing=8, run_spacing=8),
+                ft.Container(height=8),
                 # Explanatory Progress Tier Distribution
                 build_tier_distribution_card(students),
-                ft.Container(height=12),
+                ft.Container(height=8),
                 # Retention and Risk Radar
                 build_retention_card(students),
             ], spacing=0)
@@ -795,7 +813,7 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
             return ft.Column([
                 # Explanatory Module Bottlenecks
                 build_module_analytics_card(modules, students),
-                ft.Container(height=12),
+                ft.Container(height=8),
                 # Weekly Telemetry Velocity
                 build_activity_chart(weekly_activity),
             ], spacing=0)
@@ -823,11 +841,11 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
             if not s_list:
                 return [
                     ft.Container(
-                        padding=32,
+                        padding=24,
                         alignment=ft.Alignment.CENTER,
                         content=ft.Column([
-                            ft.Icon(ft.Icons.PEOPLE_OUTLINE_ROUNDED, size=36, color=ft.Colors.with_opacity(0.3, ft.Colors.ON_SURFACE)),
-                            ft.Text("No learners match current filter criteria.", size=12, color=ft.Colors.ON_SURFACE_VARIANT),
+                            ft.Icon(ft.Icons.PEOPLE_OUTLINE_ROUNDED, size=32, color=ft.Colors.with_opacity(0.3, ft.Colors.ON_SURFACE)),
+                            ft.Text("No learners match current filter criteria.", size=11, color=ft.Colors.ON_SURFACE_VARIANT),
                         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=6),
                     )
                 ]
@@ -866,14 +884,14 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
             is_active = (student_filter_status == key)
             return ft.Container(
                 data=key,
-                padding=ft.Padding.symmetric(horizontal=10, vertical=5),
-                border_radius=14,
+                padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+                border_radius=12,
                 bgcolor=theme_color if is_active else ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
                 ink=True,
                 on_click=lambda _, k=key: set_roster_filter(k),
                 content=ft.Text(
                     label,
-                    size=11,
+                    size=10.5,
                     weight=ft.FontWeight.BOLD if is_active else ft.FontWeight.NORMAL,
                     color=ft.Colors.WHITE if is_active else ft.Colors.ON_SURFACE,
                 ),
@@ -884,14 +902,15 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
             roster_chip(f"Completed ({completed_cnt})", "completed"),
             roster_chip(f"In Progress ({in_prog_cnt})", "in_progress"),
             roster_chip(f"Not Started ({not_started_cnt})", "not_started"),
-        ], spacing=6, scroll=ft.ScrollMode.AUTO)
+        ], spacing=5, scroll=ft.ScrollMode.AUTO)
 
         student_search_box = ft.TextField(
             hint_text="Search cohort by learner name or email…",
             prefix_icon=ft.Icons.SEARCH_ROUNDED,
             border_radius=10,
             dense=True,
-            content_padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+            text_size=12,
+            content_padding=ft.Padding.symmetric(horizontal=10, vertical=6),
             on_change=on_student_search_change,
             width=float("inf"),
         )
@@ -901,14 +920,14 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
                 bgcolor=ft.Colors.SURFACE,
                 border_radius=14,
                 border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
-                padding=ft.Padding.all(16),
+                padding=ft.Padding.all(12),
                 content=ft.Column([
                     _section_header("LEARNER COHORT ROSTER", f"{total_students} students enrolled in curriculum"),
                     student_search_box,
                     roster_filter_chips,
-                    ft.Container(height=4),
+                    ft.Container(height=2),
                     roster_column,
-                ], spacing=10),
+                ], spacing=8),
             )
 
         def get_active_tab_content():
@@ -919,7 +938,7 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
             return build_performance_tab()
 
         tab_content_container = ft.Container(
-            padding=ft.Padding.symmetric(horizontal=16),
+            padding=ft.Padding.symmetric(horizontal=12),
             content=get_active_tab_content(),
         )
 
@@ -929,7 +948,7 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
             controls=[
                 hero_card,
                 tabs_bar,
-                ft.Container(height=8),
+                ft.Container(height=4),
                 tab_content_container,
                 ft.Container(height=32),
             ],

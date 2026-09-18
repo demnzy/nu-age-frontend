@@ -42,6 +42,7 @@ from datetime import datetime, timezone
 from urllib.parse import urljoin, urlparse
 from src.local_db import get_local_db
 from src.local_media_server import ensure_started
+from src.utils.youtube import is_youtube_url
 
 # Keys inside a lesson's `content` dict whose value is a URL pointing at
 # a downloadable asset (as opposed to inline text/data). Must stay in
@@ -131,6 +132,11 @@ async def download_course(page: ft.Page, course_id: str, progress: DownloadProgr
         for key in ASSET_CONTENT_KEYS:
             url = content.get(key)
             if url and isinstance(url, str) and url.startswith("http"):
+                if key == "video_url" and is_youtube_url(url):
+                    # YouTube URLs are web/stream embeds, not downloadable static media files.
+                    # Preserve the remote YouTube URL so AdaptiveVideoPlayer can handle it
+                    # (via stream extraction, webview, or Cinema Card) without downloading raw HTML.
+                    continue
                 asset_jobs.append((lesson, key, url))
 
     progress.total_assets = len(asset_jobs)
@@ -352,6 +358,9 @@ async def _download_asset(client: httpx.AsyncClient, url: str, assets_dir: str) 
     """
     asset_dir = os.path.join(assets_dir, uuid.uuid4().hex)
     os.makedirs(asset_dir, exist_ok=True)
+
+    if is_youtube_url(url):
+        raise ValueError(f"Cannot download YouTube URL as static binary asset: {url}")
 
     if _is_hls_url(url):
         return await _download_hls_asset(client, url, asset_dir)

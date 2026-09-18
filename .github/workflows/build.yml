@@ -40,14 +40,14 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           # IMPORTANT: All flet-* packages must be pinned to the SAME patch version
-          pip install flet-cli==0.86.4 flet==0.86.4 flet-video==0.86.4 flet-charts==0.86.4 httpx==0.28.1 requests==2.32.3
+          pip install flet-cli==0.86.5 flet==0.86.5 flet-video==0.86.5 flet-charts==0.86.5 flet-webview==0.86.5 httpx==0.28.1 requests==2.33.1
 
       - name: Verify matching flet toolchain versions
         run: |
           # Fail fast instead of getting cryptic Dart compile errors
           python -c "
           import importlib.metadata as m
-          pkgs = ['flet', 'flet-cli', 'flet-video', 'flet-charts']
+          pkgs = ['flet', 'flet-cli', 'flet-video', 'flet-charts', 'flet-webview']
           versions = {p: m.version(p) for p in pkgs}
           print(versions)
           vals = set(versions.values())
@@ -64,8 +64,8 @@ jobs:
         run: |
           set -o pipefail
           # Windows builds default to the host architecture (x64)
-          # Pipe 'yes' to auto-accept the missing Flutter SDK installation prompt
-          yes | flet build windows --product "Nu Age" --verbose 2>&1 | tee flet_build.log || true
+          # Pass --yes to auto-accept the Flutter SDK installation prompt
+          flet build windows --yes --product "Nu Age" --python-version 3.12 --verbose 2>&1 | tee flet_build.log || true
           
           # Use case-insensitive grep to catch the success string universally
           if ! grep -q -i "successfully built" flet_build.log; then

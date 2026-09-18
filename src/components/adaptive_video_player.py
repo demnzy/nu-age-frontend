@@ -24,6 +24,7 @@ from src.utils.youtube import (
     is_youtube_url,
     extract_youtube_id,
     get_youtube_embed_url,
+    get_youtube_iframe_html,
     get_youtube_thumbnail_url,
     resolve_youtube_stream_url_async,
     is_network_available_async,
@@ -118,8 +119,14 @@ class AdaptiveVideoPlayer(ft.Container):
         """Resolves YouTube stream or mounts platform-appropriate player."""
         current_page = self._get_page()
         is_web = getattr(current_page, "web", False) if current_page else False
+        platform = getattr(current_page, "platform", None) if current_page else None
+        platform_str = str(platform or "").lower()
+        is_mobile = (
+            platform in (ft.PagePlatform.ANDROID, ft.PagePlatform.IOS, getattr(ft.PagePlatform, "ANDROID_TV", None))
+            or any(m in platform_str for m in ("android", "ios"))
+        ) if platform else False
         is_windows = (
-            (getattr(current_page, "platform", None) == ft.PagePlatform.WINDOWS if current_page else False)
+            (platform == ft.PagePlatform.WINDOWS)
             or sys.platform == "win32"
         ) and not is_web
 
@@ -144,8 +151,66 @@ class AdaptiveVideoPlayer(ft.Container):
             self._mount_offline_card()
             return
 
-        # 3. Progressive Stream URL Extraction via yt-dlp (Native Player on All Platforms)
-        # Attempt progressive stream URL extraction across all native platforms (Android, iOS, Desktop).
+        # 3. Mobile (Android / iOS): Native In-App WebView Player
+        # On Android and iOS, embed YouTube directly inside the app using flet_webview.
+        # This provides seamless in-app playback, touch controls, HD quality, fullscreen,
+        # closed captions, and scrubbing without external redirects or yt-dlp dependencies.
+        if is_mobile:
+            try:
+                from flet_webview import WebView, JavaScriptMode  # noqa: F401
+                embed_html = get_youtube_iframe_html(self._video_id, autoplay=self.autoplay, use_nocookie=True)
+                embed_url = get_youtube_embed_url(self._video_id, autoplay=self.autoplay, use_nocookie=True)
+                logger.info("Mobile platform detected (%s); mounting native in-app WebView player for %s", platform, self._video_id)
+                
+                # Mount WebView first so WebViewController is attached to the page
+                webview = self._build_webview_player(embed_url=None)
+                self.content = ft.Container(
+                    content=webview,
+                    expand=True,
+                    bgcolor="#000000",
+                    border_radius=self.border_radius,
+                    clip_behavior=ft.ClipBehavior.HARD_EDGE,
+                )
+                self.update()
+
+                # Explicitly enable unrestricted JavaScript execution before loading the YouTube page
+                try:
+                    await webview.set_javascript_mode(JavaScriptMode.UNRESTRICTED)
+                    logger.info("Successfully set WebView JavaScriptMode to UNRESTRICTED")
+                except Exception as js_ex:
+                    logger.warning("Could not set JavaScriptMode on WebView: %s", js_ex)
+
+                # Load YouTube player via load_html with base_url="https://www.youtube-nocookie.com"
+                # This provides the necessary Origin & Referer headers to satisfy YouTube security
+                # and permanently eliminate Error 153 ("Video Player Configuration Error") in mobile WebViews
+                loaded = False
+                try:
+                    await webview.load_html(embed_html, base_url="https://www.youtube-nocookie.com")
+                    loaded = True
+                    logger.info("Successfully loaded YouTube iframe HTML with base_url into WebView")
+                except Exception as html_err:
+                    logger.warning("load_html failed (%s); trying load_request", html_err)
+
+                if not loaded:
+                    try:
+                        await webview.load_request(embed_url)
+                        webview.url = embed_url
+                    except Exception as load_ex:
+                        logger.warning("load_request failed (%s); updating url directly on WebView", load_ex)
+                        webview.url = embed_url
+                        try:
+                            webview.update()
+                        except Exception:
+                            pass
+
+                if self.on_load_callback:
+                    self.on_load_callback(None)
+                return
+            except Exception as ex:
+                logger.warning("Mobile WebView player initialization failed for %s: %s", self.media_url, ex)
+
+        # 4. Progressive Stream URL Extraction via yt-dlp (Desktop)
+        # Attempt progressive stream URL extraction on Desktop platforms.
         # This provides hardware-accelerated, native media playback via flet_video without
         # WebView JavaScript restrictions, COEP blocks, or embedded player errors.
         try:
@@ -165,7 +230,7 @@ class AdaptiveVideoPlayer(ft.Container):
         except Exception as ex:
             logger.warning("Failed yt-dlp resolution for %s: %s", self.media_url, ex)
 
-        # 4. Resilient Fallback to High-Fidelity Cinema Card
+        # 5. Resilient Fallback to High-Fidelity Cinema Card
         # If stream extraction is unavailable (restricted/private/DRM), mount the Cinema Card
         # which lets the learner launch the video in YouTube app or browser with zero errors.
         logger.info("Stream extraction unavailable for %s; mounting Cinema Card.", self._video_id)
@@ -251,7 +316,7 @@ class AdaptiveVideoPlayer(ft.Container):
                 ft.Text(
                     "Requires internet connection.",
                     size=11,
-                    color=ft.Colors.WHITE70,
+                    color=ft.Colors.WHITE_70,
                     text_align=ft.TextAlign.CENTER,
                 ),
             ],
@@ -264,18 +329,34 @@ class AdaptiveVideoPlayer(ft.Container):
             ft.Container(
                 content=ft.Row(
                     [
-                        ft.Icon(ft.Icons.REFRESH_ROUNDED, size=13, color=ft.Colors.WHITE),
-                        ft.Text("Retry", size=11, weight=ft.FontWeight.W_600, color=ft.Colors.WHITE),
+                        ft.Icon(ft.Icons.REFRESH_ROUNDED, size=15, color=ft.Colors.AMBER_400),
+                        ft.Text("Retry Stream", size=12, weight=ft.FontWeight.W_600, color=ft.Colors.AMBER_400),
                     ],
-                    tight=True,
-                    spacing=5,
+                    spacing=6,
+                    alignment=ft.MainAxisAlignment.CENTER,
                 ),
-                padding=ft.Padding.symmetric(horizontal=12, vertical=7),
+                padding=ft.Padding.symmetric(horizontal=14, vertical=8),
                 border_radius=ft.BorderRadius.all(8),
-                bgcolor=ft.Colors.with_opacity(0.20, ft.Colors.WHITE),
-                border=ft.Border.all(1, ft.Colors.with_opacity(0.20, ft.Colors.WHITE)),
+                bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.AMBER_400),
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.35, ft.Colors.AMBER_400)),
                 ink=True,
                 on_click=_handle_retry,
+            ),
+            ft.Container(
+                content=ft.Row(
+                    [
+                        ft.Icon(ft.Icons.OPEN_IN_NEW_ROUNDED, size=15, color=ft.Colors.WHITE),
+                        ft.Text("Open on YouTube", size=12, weight=ft.FontWeight.W_600, color=ft.Colors.WHITE),
+                    ],
+                    spacing=6,
+                    alignment=ft.MainAxisAlignment.CENTER,
+                ),
+                padding=ft.Padding.symmetric(horizontal=14, vertical=8),
+                border_radius=ft.BorderRadius.all(8),
+                bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.WHITE),
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.25, ft.Colors.WHITE)),
+                ink=True,
+                on_click=self._handle_open_youtube,
             ),
         ]
 
@@ -284,44 +365,44 @@ class AdaptiveVideoPlayer(ft.Container):
                 ft.Container(
                     content=ft.Row(
                         [
-                            ft.Icon(ft.Icons.CHECK_CIRCLE_OUTLINE_ROUNDED, size=13, color=ft.Colors.GREEN_ACCENT_200),
-                            ft.Text("Mark Complete", size=11, weight=ft.FontWeight.W_600, color=ft.Colors.GREEN_ACCENT_200),
+                            ft.Icon(ft.Icons.CHECK_CIRCLE_OUTLINE_ROUNDED, size=15, color=ft.Colors.GREEN_ACCENT_200),
+                            ft.Text("Mark Complete", size=12, weight=ft.FontWeight.W_600, color=ft.Colors.GREEN_ACCENT_200),
                         ],
-                        tight=True,
-                        spacing=5,
+                        spacing=6,
+                        alignment=ft.MainAxisAlignment.CENTER,
                     ),
-                    padding=ft.Padding.symmetric(horizontal=12, vertical=7),
+                    padding=ft.Padding.symmetric(horizontal=14, vertical=8),
                     border_radius=ft.BorderRadius.all(8),
-                    bgcolor=ft.Colors.with_opacity(0.18, ft.Colors.GREEN_ACCENT_700),
+                    bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.GREEN_ACCENT_700),
                     border=ft.Border.all(1, ft.Colors.with_opacity(0.35, ft.Colors.GREEN_ACCENT_400)),
                     ink=True,
                     on_click=self._handle_mark_complete,
                 )
             )
 
-        bottom_bar = ft.Container(
-            padding=ft.Padding.only(left=12, right=12, bottom=10),
-            content=ft.Row(
-                action_buttons,
-                alignment=ft.MainAxisAlignment.CENTER,
-                spacing=8,
-                wrap=True,
-                run_spacing=6,
-            ),
-        )
-
-        return ft.Container(
+        return ft.Stack(
+            [
+                poster_layer,
+                overlay_tint,
+                ft.Container(
+                    left=0,
+                    top=0,
+                    right=0,
+                    bottom=0,
+                    content=ft.Column(
+                        [
+                            top_bar,
+                            center_content,
+                            ft.Container(
+                                content=ft.Row(action_buttons, alignment=ft.MainAxisAlignment.CENTER, spacing=12),
+                                padding=ft.Padding.only(bottom=16),
+                            ),
+                        ],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    ),
+                ),
+            ],
             expand=True,
-            bgcolor="#0A0C10",
-            content=ft.Column(
-                [
-                    top_bar,
-                    ft.Container(expand=True, content=center_content),
-                    bottom_bar,
-                ],
-                expand=True,
-                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-            ),
         )
 
     def _build_native_player(
@@ -374,6 +455,26 @@ class AdaptiveVideoPlayer(ft.Container):
         )
         return self._player_control
 
+    def _build_webview_player(self, embed_url: Optional[str] = None) -> Any:
+        """Constructs an in-app native WebView player for YouTube embeds."""
+        from flet_webview import WebView
+
+        def _on_web_error(e):
+            logger.warning("WebView playback error for %s: %s", self.media_url, getattr(e, "data", e))
+            if self.on_error_callback:
+                self.on_error_callback(e)
+
+        def _on_console(e):
+            logger.debug("WebView console: %s", getattr(e, "message", e))
+
+        return WebView(
+            url=embed_url,
+            expand=True,
+            bgcolor="#000000",
+            on_web_resource_error=_on_web_error,
+            on_console_message=_on_console,
+        )
+
     def _build_empty_placeholder(self) -> ft.Container:
         """Fallback for empty media URL."""
         return ft.Container(
@@ -425,7 +526,7 @@ class AdaptiveVideoPlayer(ft.Container):
                     ft.Text(
                         "Optimizing high-definition playback",
                         size=12,
-                        color=ft.Colors.WHITE60,
+                        color=ft.Colors.WHITE_70,
                     ),
                     ft.Container(height=4),
                     ft.TextButton(
@@ -435,7 +536,7 @@ class AdaptiveVideoPlayer(ft.Container):
                                 ft.Icon(ft.Icons.OPEN_IN_NEW_ROUNDED, size=13, color=ft.Colors.RED_ACCENT_100),
                             ],
                             tight=True,
-                            spacing=6,
+                            spacing=4,
                         ),
                         on_click=self._handle_open_youtube,
                     ),
@@ -450,28 +551,27 @@ class AdaptiveVideoPlayer(ft.Container):
 
     def _build_cinema_card(self) -> ft.Stack:
         """
-        Sleek, high-production YouTube Cinema Card.
-        Displays high-res thumbnail, dark cinematic gradient, play button,
-        and external launcher button.
+        Constructs the high-fidelity YouTube Cinema Card fallback.
+        Provides high-res thumbnail background, gradient overlays, pulsing play action,
+        full metadata, and instantaneous launch buttons for YouTube and external browsers.
         """
         thumbnail_url = get_youtube_thumbnail_url(self._video_id, quality="maxres") if self._video_id else ""
-        fallback_thumb = get_youtube_thumbnail_url(self._video_id, quality="hq") if self._video_id else ""
 
-        # Background poster
-        poster_image = ft.Container(
+        # Background poster with ambient darkness
+        poster_layer = ft.Container(
             left=0,
             top=0,
             right=0,
             bottom=0,
             content=ft.Image(
                 src=thumbnail_url,
-                error_content=ft.Image(src=fallback_thumb, fit=ft.BoxFit.COVER),
                 fit=ft.BoxFit.COVER,
-            ),
+                opacity=0.35,
+            ) if thumbnail_url else None,
         )
 
-        # Gradient overlay for contrast and sleek cinematic feel
-        gradient_overlay = ft.Container(
+        # Subtle dark gradient overlay
+        overlay_tint = ft.Container(
             left=0,
             top=0,
             right=0,
@@ -480,17 +580,15 @@ class AdaptiveVideoPlayer(ft.Container):
                 begin=ft.Alignment.TOP_CENTER,
                 end=ft.Alignment.BOTTOM_CENTER,
                 colors=[
-                    ft.Colors.with_opacity(0.60, "#08090C"),
-                    ft.Colors.with_opacity(0.40, "#08090C"),
-                    ft.Colors.with_opacity(0.88, "#08090C"),
+                    ft.Colors.with_opacity(0.40, ft.Colors.BLACK),
+                    ft.Colors.with_opacity(0.85, ft.Colors.BLACK),
                 ],
-                stops=[0.0, 0.45, 1.0],
             ),
         )
 
-        # Top badges
+        # Top Bar: YouTube Platform Badge & Quality
         top_bar = ft.Container(
-            padding=ft.Padding.only(left=12, top=10, right=12),
+            padding=ft.Padding.only(left=14, top=12, right=14),
             content=ft.Row(
                 [
                     ft.Container(
@@ -508,7 +606,7 @@ class AdaptiveVideoPlayer(ft.Container):
                         border=ft.Border.all(1, ft.Colors.with_opacity(0.25, ft.Colors.RED_ACCENT_400)),
                     ),
                     ft.Container(
-                        content=ft.Text("HD", size=10, weight=ft.FontWeight.W_600, color=ft.Colors.WHITE70),
+                        content=ft.Text("HD", size=10, weight=ft.FontWeight.W_600, color=ft.Colors.WHITE_70),
                         padding=ft.Padding.symmetric(horizontal=8, vertical=4),
                         border_radius=ft.BorderRadius.all(6),
                         bgcolor=ft.Colors.with_opacity(0.40, ft.Colors.BLACK),
@@ -552,7 +650,7 @@ class AdaptiveVideoPlayer(ft.Container):
                     ft.Text(
                         "Click to watch stream on YouTube",
                         size=12,
-                        color=ft.Colors.WHITE70,
+                        color=ft.Colors.WHITE_70,
                         text_align=ft.TextAlign.CENTER,
                     ),
                 ],
@@ -631,8 +729,8 @@ class AdaptiveVideoPlayer(ft.Container):
 
         return ft.Stack(
             [
-                poster_image,
-                gradient_overlay,
+                poster_layer,
+                overlay_tint,
                 card_layout,
             ],
             expand=True,

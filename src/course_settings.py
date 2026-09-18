@@ -150,28 +150,40 @@ async def course_settings_view(page: ft.Page, course_id: str, org_id: str = None
     def build_settings_ui(course_data: dict, categories: list, teachers: list):
         course_name = course_data.get("name") or "Untitled Course"
         course_desc = course_data.get("description") or ""
-        current_cat = course_data.get("category", {}).get("name") if isinstance(course_data.get("category"), dict) else (course_data.get("category") or "")
-        current_teacher_id = course_data.get("teacher_id")
+        current_cat_id = course_data.get("category_id")
+        current_cat_name = ""
+        if isinstance(course_data.get("category"), dict):
+            if not current_cat_id:
+                current_cat_id = course_data.get("category", {}).get("id")
+            current_cat_name = course_data.get("category", {}).get("name", "")
+        elif isinstance(course_data.get("category"), str):
+            current_cat_name = course_data.get("category")
+        current_cat_id = str(current_cat_id) if current_cat_id else None
 
-        # Normalize public visibility value
+        current_teacher_id = str(course_data.get("teacher_id")) if course_data.get("teacher_id") else None
+
+        # Normalize public visibility value: "true", "organisation", or "false"
         raw_pub = str(course_data.get("public", "false")).lower()
-        if raw_pub in ["true", "public"]:
-            current_visibility = "public"
+        if raw_pub in ["true", "public", "published"]:
+            current_visibility = "true"
         elif raw_pub in ["organisation", "campus", "organization"]:
             current_visibility = "organisation"
         else:
             current_visibility = "false"
 
         # ── HERO HEADER CARD ─────────────────────────────────────────────────
-        pub_badge = (
-            _pill("PUBLIC", ft.Colors.GREEN_700, ft.Colors.WHITE, ft.Icons.PUBLIC_ROUNDED)
-            if current_visibility == "public"
-            else (
-                _pill("CAMPUS", ft.Colors.BLUE_700, ft.Colors.WHITE, ft.Icons.LOCK_ROUNDED)
-                if current_visibility == "organisation"
-                else _pill("DRAFT", ft.Colors.GREY_700, ft.Colors.WHITE, ft.Icons.EDIT_NOTE_ROUNDED)
-            )
-        )
+        def get_pub_badge(vis_val: str):
+            if vis_val == "true":
+                return _pill("PUBLIC", ft.Colors.GREEN_700, ft.Colors.WHITE, ft.Icons.PUBLIC_ROUNDED)
+            elif vis_val == "organisation":
+                return _pill("CAMPUS", ft.Colors.BLUE_700, ft.Colors.WHITE, ft.Icons.LOCK_ROUNDED)
+            else:
+                return _pill("DRAFT", ft.Colors.GREY_700, ft.Colors.WHITE, ft.Icons.EDIT_NOTE_ROUNDED)
+
+        pub_badge_container = ft.Container(content=get_pub_badge(current_visibility))
+        cat_badge_text = ft.Text(current_cat_name or "Uncategorized", size=11, color=ft.Colors.ON_SURFACE_VARIANT, weight=ft.FontWeight.W_500)
+        hero_title_text = ft.Text(course_name, size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE)
+        breadcrumb_title_text = ft.Text(course_name, size=11, weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS)
 
         hero_card = ft.Container(
             margin=ft.Margin.symmetric(horizontal=16, vertical=8),
@@ -235,14 +247,14 @@ async def course_settings_view(page: ft.Page, course_id: str, org_id: str = None
                             ft.Icon(ft.Icons.CHEVRON_RIGHT_ROUNDED, size=12, color=ft.Colors.ON_SURFACE_VARIANT),
                             ft.Text("Courses", size=11, color=ft.Colors.ON_SURFACE_VARIANT),
                             ft.Icon(ft.Icons.CHEVRON_RIGHT_ROUNDED, size=12, color=ft.Colors.ON_SURFACE_VARIANT),
-                            ft.Text(course_name, size=11, weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                            breadcrumb_title_text,
                         ], spacing=4, wrap=True),
-                        ft.Text(course_name, size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
+                        hero_title_text,
                         ft.Row([
-                            pub_badge,
+                            pub_badge_container,
                             ft.Row([
                                 ft.Icon(ft.Icons.CATEGORY_ROUNDED, size=12, color=ft.Colors.ON_SURFACE_VARIANT),
-                                ft.Text(current_cat or "Uncategorized", size=11, color=ft.Colors.ON_SURFACE_VARIANT, weight=ft.FontWeight.W_500),
+                                cat_badge_text,
                             ], spacing=4),
                         ], spacing=8),
                     ], spacing=6),
@@ -278,16 +290,37 @@ async def course_settings_view(page: ft.Page, course_id: str, org_id: str = None
             expand=True,
         )
 
-        cat_options = [ft.dropdown.Option(c["name"]) for c in categories if isinstance(c, dict) and "name" in c]
+        cat_options = [
+            ft.dropdown.Option(
+                key=str(c["id"]),
+                text=c.get("name", "Category"),
+            )
+            for c in categories if isinstance(c, dict) and "id" in c and "name" in c
+        ]
+        matched_cat_key = None
+        if current_cat_id and any(opt.key == current_cat_id for opt in cat_options):
+            matched_cat_key = current_cat_id
+        elif current_cat_name and any(opt.text.lower() == current_cat_name.lower() for opt in cat_options):
+            matched_cat_key = next((opt.key for opt in cat_options if opt.text.lower() == current_cat_name.lower()), None)
+        elif cat_options:
+            matched_cat_key = cat_options[0].key
+
         category_dropdown = ft.Dropdown(
             label="Curriculum Category",
-            value=current_cat if any(opt.key == current_cat for opt in cat_options) else (cat_options[0].key if cat_options else None),
+            value=matched_cat_key,
             options=cat_options,
             leading_icon=ft.Icons.LABEL_OUTLINE_ROUNDED,
             border_radius=10,
             border_color=ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE),
             focused_border_color=theme_color,
             dense=True,
+            menu_height=260,
+            menu_style=ft.MenuStyle(
+                bgcolor=ft.Colors.SURFACE,
+                elevation=8,
+                shape=ft.RoundedRectangleBorder(radius=10),
+                side=ft.BorderSide(1, ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)),
+            ),
             expand=True,
         )
 
@@ -306,7 +339,7 @@ async def course_settings_view(page: ft.Page, course_id: str, org_id: str = None
             save_general_btn.text = "Saving…"
             page.update()
 
-            title_val = name_input.value.strip()
+            title_val = name_input.value.strip() if name_input.value else ""
             if not title_val:
                 show_error_toast("Course title cannot be empty.")
                 save_general_btn.disabled = False
@@ -314,12 +347,24 @@ async def course_settings_view(page: ft.Page, course_id: str, org_id: str = None
                 page.update()
                 return
 
+            payload = {
+                "name": title_val,
+                "description": desc_input.value.strip() if desc_input.value else "",
+                "category_id": category_dropdown.value,
+            }
+
             try:
-                p1 = update_course_settings(token, course_id, {"name": title_val})
-                p2 = update_course_settings(token, course_id, {"description": desc_input.value.strip()})
-                p3 = update_course_settings(token, course_id, {"category": category_dropdown.value}) if category_dropdown.value else asyncio.sleep(0)
-                await asyncio.gather(p1, p2, p3)
-                show_toast("Course details successfully updated.")
+                res = await update_course_settings(token, course_id, payload)
+                if isinstance(res, dict) and res.get("error"):
+                    err_detail = res.get("details") or res.get("error")
+                    show_error_toast(f"Failed to update course: {err_detail}")
+                else:
+                    hero_title_text.value = title_val
+                    breadcrumb_title_text.value = title_val
+                    selected_cat_name = next((opt.text for opt in cat_options if opt.key == category_dropdown.value), None)
+                    if selected_cat_name:
+                        cat_badge_text.value = selected_cat_name
+                    show_toast("Course details successfully updated.")
             except Exception as ex:
                 show_error_toast(f"Failed to update course: {ex}")
             finally:
@@ -393,28 +438,37 @@ async def course_settings_view(page: ft.Page, course_id: str, org_id: str = None
             return ft.ResponsiveRow([
                 ft.Container(content=build_visibility_option("false", "Draft / Private", "Visible only to course authors & admins", ft.Icons.EDIT_NOTE_ROUNDED), col={"xs": 12, "md": 4}),
                 ft.Container(content=build_visibility_option("organisation", "Campus Track", "Restricted to verified organisation members", ft.Icons.LOCK_ROUNDED), col={"xs": 12, "md": 4}),
-                ft.Container(content=build_visibility_option("public", "Public Track", "Discoverable and open across Nu-Age", ft.Icons.PUBLIC_ROUNDED), col={"xs": 12, "md": 4}),
+                ft.Container(content=build_visibility_option("true", "Public Track", "Discoverable and open across Nu-Age", ft.Icons.PUBLIC_ROUNDED), col={"xs": 12, "md": 4}),
             ], spacing=8, run_spacing=8)
 
         # Teacher dropdown
         teacher_options = [
             ft.dropdown.Option(
-                key=t["id"],
+                key=str(t["id"]),
                 text=f"{t.get('first_name', '')} {t.get('last_name', '')}".strip() or t.get("email", "Faculty"),
             )
             for t in teachers if isinstance(t, dict) and "id" in t
         ]
         teacher_options.insert(0, ft.dropdown.Option(key="none", text="None (Unassigned)"))
 
+        matched_teacher_val = current_teacher_id if (current_teacher_id and any(opt.key == current_teacher_id for opt in teacher_options)) else "none"
+
         teacher_dropdown = ft.Dropdown(
             label="Assigned Lead Instructor",
-            value=current_teacher_id if any(opt.key == current_teacher_id for opt in teacher_options) else "none",
+            value=matched_teacher_val,
             options=teacher_options,
             leading_icon=ft.Icons.PERSON_ROUNDED,
             border_radius=10,
             border_color=ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE),
             focused_border_color=theme_color,
             dense=True,
+            menu_height=260,
+            menu_style=ft.MenuStyle(
+                bgcolor=ft.Colors.SURFACE,
+                elevation=8,
+                shape=ft.RoundedRectangleBorder(radius=10),
+                side=ft.BorderSide(1, ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)),
+            ),
             expand=True,
         )
 
@@ -434,11 +488,18 @@ async def course_settings_view(page: ft.Page, course_id: str, org_id: str = None
             page.update()
 
             try:
-                t_val = teacher_dropdown.value if teacher_dropdown.value != "none" else None
-                p1 = update_course_settings(token, course_id, {"public": selected_visibility})
-                p2 = update_course_settings(token, course_id, {"teacher_id": t_val})
-                await asyncio.gather(p1, p2)
-                show_toast("Access & Instructor governance saved.")
+                t_val = teacher_dropdown.value if teacher_dropdown.value and teacher_dropdown.value != "none" else "none"
+                payload = {
+                    "public": selected_visibility,
+                    "teacher_id": t_val,
+                }
+                res = await update_course_settings(token, course_id, payload)
+                if isinstance(res, dict) and res.get("error"):
+                    err_detail = res.get("details") or res.get("error")
+                    show_error_toast(f"Failed to update access: {err_detail}")
+                else:
+                    pub_badge_container.content = get_pub_badge(selected_visibility)
+                    show_toast("Access & Instructor governance saved.")
             except Exception as ex:
                 show_error_toast(f"Failed to update access: {ex}")
             finally:

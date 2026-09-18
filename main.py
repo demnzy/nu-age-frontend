@@ -35,6 +35,7 @@ from src.progress_sync import sync_offline_progress
 from src.local_db import get_local_db, has_any_downloaded_courses
 from src.components.shimmer_skeletons import build_skeleton_view
 from src.components.bottom_appbar import PersistentBottomAppBar
+from src.notifications_view import notifications_view
 import os
 
 
@@ -1622,6 +1623,8 @@ async def main(page: ft.Page):
             await load_view_and_report(network_view(page), page.route, active_skeleton, active_shimmer_task)
         elif page.route == "/nu-chat":
             await load_view_and_report(chat_view(page), page.route, active_skeleton, active_shimmer_task)
+        elif page.route == "/notifications":
+            await load_view_and_report(notifications_view(page), page.route, active_skeleton, active_shimmer_task)
         elif troute.match("/courses/:id/stats"):
             await load_view_and_report(course_stats_view(page, troute.id), page.route, active_skeleton, active_shimmer_task)
         elif page.route == "/self-study":
@@ -1736,7 +1739,12 @@ async def main(page: ft.Page):
             await load_view_and_report(member_profile_view(page, troute.user_id), page.route, active_skeleton, active_shimmer_task)
         elif troute.match("/organisations/:org_id/courses/:course_id/settings"):
             await load_view_and_report(
-                course_settings_view(page, troute.org_id, troute.course_id),
+                course_settings_view(page, course_id=troute.course_id, org_id=troute.org_id),
+                page.route, active_skeleton, active_shimmer_task,
+            )
+        elif troute.match("/courses/:course_id/settings"):
+            await load_view_and_report(
+                course_settings_view(page, course_id=troute.course_id),
                 page.route, active_skeleton, active_shimmer_task,
             )
         elif troute.match("/accept-invite/:token"):

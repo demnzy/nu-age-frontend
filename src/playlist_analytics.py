@@ -109,15 +109,16 @@ async def playlist_analytics_view(page: ft.Page, org_id: str, playlist_id: str):
         page.update()
 
     # ─────────────────────────────────────────────────────────────────────────
-    # BENTO STAT CARD
+    # ─────────────────────────────────────────────────────────────────────────
+    # BENTO STAT CARD (MOBILE-OPTIMIZED 2x2 GRID & CLEAN TYPOGRAPHY)
     # ─────────────────────────────────────────────────────────────────────────
     def bento_stat(icon, title: str, value: str, subtext: str, accent_color, col_spec=None):
         return ft.Container(
-            col=col_spec or {"xs": 12, "sm": 6, "md": 3},
+            col=col_spec or {"xs": 6, "sm": 6, "md": 3},
             bgcolor=ft.Colors.SURFACE,
             border_radius=14,
             border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
-            padding=ft.Padding.all(16),
+            padding=ft.Padding.all(12),
             shadow=ft.BoxShadow(
                 blur_radius=8,
                 color=ft.Colors.with_opacity(0.04, ft.Colors.BLACK),
@@ -126,18 +127,27 @@ async def playlist_analytics_view(page: ft.Page, org_id: str, playlist_id: str):
             content=ft.Column([
                 ft.Row([
                     ft.Container(
-                        width=36,
-                        height=36,
-                        border_radius=10,
+                        width=30,
+                        height=30,
+                        border_radius=8,
                         bgcolor=ft.Colors.with_opacity(0.12, accent_color),
                         alignment=ft.Alignment.CENTER,
-                        content=ft.Icon(icon, size=18, color=accent_color),
+                        content=ft.Icon(icon, size=15, color=accent_color),
                     ),
-                    ft.Text(title, size=10, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE_VARIANT),
+                    ft.Text(
+                        title,
+                        size=9,
+                        weight=ft.FontWeight.BOLD,
+                        color=ft.Colors.ON_SURFACE_VARIANT,
+                        max_lines=1,
+                        overflow=ft.TextOverflow.ELLIPSIS,
+                        expand=True,
+                        text_align=ft.TextAlign.RIGHT,
+                    ),
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                 ft.Container(height=4),
-                ft.Text(str(value), size=24, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
-                ft.Text(subtext, size=11, color=ft.Colors.ON_SURFACE_VARIANT, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                ft.Text(str(value), size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
+                ft.Text(subtext, size=10, color=ft.Colors.ON_SURFACE_VARIANT, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
             ], spacing=2),
         )
 
@@ -154,24 +164,24 @@ async def playlist_analytics_view(page: ft.Page, org_id: str, playlist_id: str):
         tier_unstarted = [l for l in learners if float(l.get("progress", 0) or 0) < 0.1]
 
         tiers = [
-            {"label": "Pathway Graduates (90% – 100%)", "count": len(tier_mastery), "color": ft.Colors.GREEN_600, "insight": "Full track mastery achieved"},
-            {"label": "Advanced Milestones (60% – 89%)", "count": len(tier_proficient), "color": ft.Colors.TEAL_600, "insight": "Completing final courses"},
-            {"label": "Mid-Track Pace (30% – 59%)", "count": len(tier_developing), "color": ft.Colors.BLUE_600, "insight": "Actively progressing through core courses"},
-            {"label": "Initiating Track (1% – 29%)", "count": len(tier_initiating), "color": ft.Colors.AMBER_600, "insight": "Navigating prerequisite lessons"},
+            {"label": "Pathway Graduates (90%–100%)", "count": len(tier_mastery), "color": ft.Colors.GREEN_600, "insight": "Full track mastery achieved"},
+            {"label": "Advanced Milestones (60%–89%)", "count": len(tier_proficient), "color": ft.Colors.TEAL_600, "insight": "Completing final courses"},
+            {"label": "Mid-Track Pace (30%–59%)", "count": len(tier_developing), "color": ft.Colors.BLUE_600, "insight": "Actively progressing through core courses"},
+            {"label": "Initiating Track (1%–29%)", "count": len(tier_initiating), "color": ft.Colors.AMBER_600, "insight": "Navigating prerequisite lessons"},
             {"label": "Not Started (0%)", "count": len(tier_unstarted), "color": ft.Colors.GREY_500, "insight": "Enrolled in track, inactive"},
         ]
 
         # Pedagogical diagnosis
         if len(tier_mastery) / total >= 0.35:
-            diag_text = "Exceptional track completion rate: over a third of enrolled pathfinders have achieved mastery."
+            diag_text = "Exceptional track completion: over a third of pathfinders reached mastery."
             diag_color = ft.Colors.GREEN_700
             diag_bg = ft.Colors.GREEN_50
         elif len(tier_unstarted) / total >= 0.5:
-            diag_text = "Attention required: High early-stage attrition. Recommend issuing an introductory track reminder."
+            diag_text = "High early-stage attrition: Recommend issuing a pathway reminder."
             diag_color = ft.Colors.AMBER_800
             diag_bg = ft.Colors.AMBER_50
         else:
-            diag_text = "Steady pathway flow: Learners are transitioning fluidly across course milestones."
+            diag_text = "Steady flow: Learners are transitioning fluidly across course milestones."
             diag_color = ft.Colors.BLUE_700
             diag_bg = ft.Colors.BLUE_50
 
@@ -180,38 +190,46 @@ async def playlist_analytics_view(page: ft.Page, org_id: str, playlist_id: str):
             pct = (t["count"] / total) * 100
             tier_rows.append(
                 ft.Container(
-                    margin=ft.Margin.only(bottom=10),
+                    margin=ft.Margin.only(bottom=8),
                     content=ft.Column([
                         ft.Row([
                             ft.Row([
-                                ft.Container(width=10, height=10, border_radius=5, bgcolor=t["color"]),
-                                ft.Text(t["label"], size=12, weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE),
-                            ], spacing=6),
+                                ft.Container(width=8, height=8, border_radius=4, bgcolor=t["color"]),
+                                ft.Text(
+                                    t["label"],
+                                    size=11,
+                                    weight=ft.FontWeight.W_600,
+                                    color=ft.Colors.ON_SURFACE,
+                                    max_lines=1,
+                                    overflow=ft.TextOverflow.ELLIPSIS,
+                                    expand=True,
+                                ),
+                            ], spacing=6, expand=True),
                             ft.Row([
-                                ft.Text(f"{t['count']} learners", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
-                                ft.Text(f"({int(pct)}%)", size=11, color=ft.Colors.ON_SURFACE_VARIANT),
-                            ], spacing=4),
+                                ft.Text(f"{t['count']}", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
+                                ft.Text(f"({int(pct)}%)", size=10, color=ft.Colors.ON_SURFACE_VARIANT),
+                            ], spacing=3),
                         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                        ft.Container(height=4),
+                        ft.Container(height=3),
                         # Fluid non-shrinking horizontal bar
                         ft.Container(
-                            height=8,
-                            border_radius=4,
+                            height=6,
+                            border_radius=3,
                             bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
                             content=ft.Row([
                                 ft.Container(
-                                    height=8,
-                                    border_radius=4,
+                                    height=6,
+                                    border_radius=3,
                                     bgcolor=t["color"],
                                     expand=int(pct) if pct > 0 else 0,
                                 ) if pct > 0 else ft.Container(),
                                 ft.Container(
-                                    height=8,
+                                    height=6,
                                     expand=int(100 - pct) if pct < 100 else 0,
                                 ) if pct < 100 else ft.Container(),
                             ], spacing=0),
                         ),
-                        ft.Text(t["insight"], size=10, color=ft.Colors.ON_SURFACE_VARIANT),
+                        ft.Text(t["insight"], size=9.5, color=ft.Colors.ON_SURFACE_VARIANT, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                     ], spacing=2),
                 )
             )
@@ -220,22 +238,22 @@ async def playlist_analytics_view(page: ft.Page, org_id: str, playlist_id: str):
             bgcolor=ft.Colors.SURFACE,
             border_radius=14,
             border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
-            padding=ft.Padding.all(16),
+            padding=ft.Padding.all(12),
             content=ft.Column([
                 _section_header("PATHWAY PROGRESSION DISTRIBUTION", "Learner advancement through the complete track"),
-                ft.Container(height=8),
+                ft.Container(height=6),
                 ft.Container(
-                    padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+                    padding=ft.Padding.symmetric(horizontal=10, vertical=7),
                     border_radius=8,
                     bgcolor=diag_bg,
                     content=ft.Row([
-                        ft.Icon(ft.Icons.LIGHTBULB_ROUNDED, size=16, color=diag_color),
-                        ft.Text(diag_text, size=11, weight=ft.FontWeight.W_500, color=diag_color, expand=True),
-                    ], spacing=8),
+                        ft.Icon(ft.Icons.LIGHTBULB_ROUNDED, size=15, color=diag_color),
+                        ft.Text(diag_text, size=10.5, weight=ft.FontWeight.W_500, color=diag_color, expand=True),
+                    ], spacing=6),
                 ),
-                ft.Container(height=12),
+                ft.Container(height=10),
                 ft.Column(tier_rows, spacing=0),
-            ], spacing=4),
+            ], spacing=3),
         )
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -247,11 +265,11 @@ async def playlist_analytics_view(page: ft.Page, org_id: str, playlist_id: str):
                 bgcolor=ft.Colors.SURFACE,
                 border_radius=14,
                 border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
-                padding=24,
+                padding=20,
                 alignment=ft.Alignment.CENTER,
                 content=ft.Column([
-                    ft.Icon(ft.Icons.LAYERS_CLEAR_ROUNDED, size=36, color=ft.Colors.with_opacity(0.3, ft.Colors.ON_SURFACE)),
-                    ft.Text("No courses mapped to this pathway yet.", size=12, color=ft.Colors.ON_SURFACE_VARIANT),
+                    ft.Icon(ft.Icons.LAYERS_CLEAR_ROUNDED, size=32, color=ft.Colors.with_opacity(0.3, ft.Colors.ON_SURFACE)),
+                    ft.Text("No courses mapped to this pathway yet.", size=11, color=ft.Colors.ON_SURFACE_VARIANT),
                 ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=6),
             )
 
@@ -273,56 +291,66 @@ async def playlist_analytics_view(page: ft.Page, org_id: str, playlist_id: str):
 
             course_rows.append(
                 ft.Container(
-                    margin=ft.Margin.only(bottom=10),
-                    padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+                    margin=ft.Margin.only(bottom=8),
+                    padding=ft.Padding.symmetric(horizontal=10, vertical=8),
                     border_radius=10,
                     bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
                     content=ft.Column([
                         ft.Row([
                             ft.Row([
                                 ft.Container(
-                                    width=24, height=24, border_radius=12,
+                                    width=22, height=22, border_radius=11,
                                     bgcolor=ft.Colors.with_opacity(0.12, m_color),
                                     alignment=ft.Alignment.CENTER,
-                                    content=ft.Text(str(idx + 1), size=11, weight=ft.FontWeight.BOLD, color=m_color),
+                                    content=ft.Text(str(idx + 1), size=10, weight=ft.FontWeight.BOLD, color=m_color),
                                 ),
-                                ft.Text(c_name, size=13, weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
-                            ], spacing=8, expand=True),
+                                ft.Text(
+                                    c_name,
+                                    size=12,
+                                    weight=ft.FontWeight.W_600,
+                                    color=ft.Colors.ON_SURFACE,
+                                    max_lines=1,
+                                    overflow=ft.TextOverflow.ELLIPSIS,
+                                    expand=True,
+                                ),
+                            ], spacing=6, expand=True),
                             ft.IconButton(
                                 ft.Icons.OPEN_IN_NEW_ROUNDED,
-                                icon_size=16,
+                                icon_size=15,
                                 icon_color=ft.Colors.ON_SURFACE_VARIANT,
                                 tooltip=f"Open {c_name}",
                                 on_click=lambda _, cid=c_id: page.go(f"/courses/{cid}"),
                             ),
                         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                        ft.Container(height=4),
+                        ft.Container(height=3),
                         # Fluid non-shrinking milestone bar
                         ft.Row([
                             ft.Container(
-                                height=6,
+                                height=5,
                                 border_radius=3,
                                 bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
                                 expand=True,
                                 content=ft.Row([
                                     ft.Container(
-                                        height=6,
+                                        height=5,
                                         border_radius=3,
                                         bgcolor=m_color,
                                         expand=int(pct_milestone) if pct_milestone > 0 else 0,
                                     ) if pct_milestone > 0 else ft.Container(),
                                     ft.Container(
-                                        height=6,
+                                        height=5,
                                         expand=int(100 - pct_milestone) if pct_milestone < 100 else 0,
                                     ) if pct_milestone < 100 else ft.Container(),
                                 ], spacing=0),
                             ),
-                            ft.Text(f"{int(pct_milestone)}% reached", size=10, weight=ft.FontWeight.BOLD, color=m_color),
-                        ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                            ft.Text(f"{int(pct_milestone)}% reached", size=9.5, weight=ft.FontWeight.BOLD, color=m_color),
+                        ], spacing=6, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                         ft.Text(
-                            "Primary gateway milestone" if is_gateway else f"Sequential milestone {idx + 1} of {total_courses}",
-                            size=10,
+                            "Primary gateway milestone" if is_gateway else f"Milestone {idx + 1} of {total_courses}",
+                            size=9.5,
                             color=ft.Colors.ON_SURFACE_VARIANT,
+                            max_lines=1,
+                            overflow=ft.TextOverflow.ELLIPSIS,
                         ),
                     ], spacing=2),
                 )
@@ -332,12 +360,12 @@ async def playlist_analytics_view(page: ft.Page, org_id: str, playlist_id: str):
             bgcolor=ft.Colors.SURFACE,
             border_radius=14,
             border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
-            padding=ft.Padding.all(16),
+            padding=ft.Padding.all(12),
             content=ft.Column([
                 _section_header("COURSE-BY-COURSE MILESTONE FUNNEL", f"{len(courses_list)} milestones sequenced along roadmap"),
-                ft.Container(height=8),
+                ft.Container(height=6),
                 ft.Column(course_rows, spacing=0),
-            ], spacing=4),
+            ], spacing=3),
         )
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -370,7 +398,7 @@ async def playlist_analytics_view(page: ft.Page, org_id: str, playlist_id: str):
             page.go("/nu-chat")
 
         return ft.Container(
-            padding=ft.Padding.all(12),
+            padding=ft.Padding.all(10),
             margin=ft.Margin.only(bottom=8),
             border_radius=12,
             border=ft.Border.all(1, ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE)),
@@ -380,53 +408,53 @@ async def playlist_analytics_view(page: ft.Page, org_id: str, playlist_id: str):
                 ft.Row([
                     ft.Row([
                         ft.CircleAvatar(
-                            content=ft.Text(initials, size=12, weight=ft.FontWeight.BOLD),
+                            content=ft.Text(initials, size=11, weight=ft.FontWeight.BOLD),
                             bgcolor=ft.Colors.with_opacity(0.12, theme_color),
                             color=theme_color,
-                            radius=18,
+                            radius=16,
                         ),
                         ft.Column([
-                            ft.Text(name, size=13, weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                            ft.Text(name, size=12.5, weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                             ft.Text(
                                 f"Enrolled {enrolled_raw[:10]}" if enrolled_raw else "Enrolled in pathway",
-                                size=11, color=ft.Colors.ON_SURFACE_VARIANT, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
+                                size=10, color=ft.Colors.ON_SURFACE_VARIANT, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
                             ),
-                        ], spacing=2, expand=True),
-                    ], spacing=10, expand=True),
+                        ], spacing=1, expand=True),
+                    ], spacing=8, expand=True),
                     ft.Row([
                         ft.IconButton(
                             ft.Icons.PERSON_OUTLINE_ROUNDED,
-                            icon_size=17,
+                            icon_size=16,
                             icon_color=ft.Colors.ON_SURFACE_VARIANT,
                             tooltip="View Profile",
                             on_click=lambda _, sid=uid: page.go(f"/member/{sid}") if sid else None,
                         ),
                         ft.IconButton(
                             ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED,
-                            icon_size=17,
+                            icon_size=16,
                             icon_color=theme_color,
                             tooltip=f"Direct Message {name}",
                             on_click=lambda e, sid=uid: page.run_task(_message, e, sid),
                         ),
                     ], spacing=0),
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                ft.Container(height=6),
+                ft.Container(height=4),
                 # Row 2: Full width progress bar with status pill & percentage
                 ft.Row([
                     ft.Container(
-                        height=6,
+                        height=5,
                         border_radius=3,
                         bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
                         expand=True,
                         content=ft.ProgressBar(value=p_ratio, color=prog_color, bgcolor=ft.Colors.TRANSPARENT),
                     ),
                     ft.Container(
-                        padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+                        padding=ft.Padding.symmetric(horizontal=5, vertical=2),
                         border_radius=6,
                         bgcolor=ft.Colors.with_opacity(0.1, prog_color),
-                        content=ft.Text(f"{int(p_val)}%", size=10, weight=ft.FontWeight.BOLD, color=prog_color),
+                        content=ft.Text(f"{int(p_val)}%", size=9.5, weight=ft.FontWeight.BOLD, color=prog_color),
                     ),
-                ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                ], spacing=6, vertical_alignment=ft.CrossAxisAlignment.CENTER),
             ], spacing=0),
         )
 
@@ -485,7 +513,7 @@ async def playlist_analytics_view(page: ft.Page, org_id: str, playlist_id: str):
 
         # ── HERO HEADER CARD ───────────────────────────────────────────────────
         hero_card = ft.Container(
-            margin=ft.Margin.symmetric(horizontal=16, vertical=8),
+            margin=ft.Margin.symmetric(horizontal=12, vertical=6),
             border_radius=16,
             bgcolor=ft.Colors.SURFACE,
             border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
@@ -499,7 +527,7 @@ async def playlist_analytics_view(page: ft.Page, org_id: str, playlist_id: str):
                         end=ft.Alignment(1, 1),
                         colors=[theme_color, ft.Colors.PRIMARY],
                     ),
-                    padding=ft.Padding.only(top=10, left=12, right=12, bottom=12),
+                    padding=ft.Padding.only(top=8, left=10, right=10, bottom=8),
                     content=ft.Row([
                         ft.Row([
                             ft.IconButton(
@@ -509,48 +537,56 @@ async def playlist_analytics_view(page: ft.Page, org_id: str, playlist_id: str):
                                 tooltip="Back to Academy",
                                 on_click=_go_back,
                             ),
-                            ft.Text("Learning Path Telemetry & Analytics", size=13, weight=ft.FontWeight.W_600, color=ft.Colors.WHITE),
-                        ], spacing=4),
+                            ft.Text(
+                                "Pathway Analytics",
+                                size=13,
+                                weight=ft.FontWeight.W_600,
+                                color=ft.Colors.WHITE,
+                                max_lines=1,
+                                overflow=ft.TextOverflow.ELLIPSIS,
+                                expand=True,
+                            ),
+                        ], spacing=2, expand=True),
                         ft.Row([
                             ft.IconButton(
                                 ft.Icons.EDIT_ROAD_ROUNDED,
                                 icon_color=ft.Colors.WHITE,
-                                icon_size=17,
+                                icon_size=16,
                                 tooltip="Roadmap Builder",
                                 on_click=lambda _: page.go(f"/playlists/{playlist_id}/build"),
                             ),
                             ft.IconButton(
                                 ft.Icons.SETTINGS_OUTLINED,
                                 icon_color=ft.Colors.WHITE,
-                                icon_size=17,
+                                icon_size=16,
                                 tooltip="Path Settings",
                                 on_click=lambda _: page.go(f"/playlists/{playlist_id}/settings"),
                             ),
                             ft.IconButton(
                                 ft.Icons.VISIBILITY_OUTLINED,
                                 icon_color=ft.Colors.WHITE,
-                                icon_size=17,
+                                icon_size=16,
                                 tooltip="View Pathway",
                                 on_click=lambda _: page.go(f"/playlists/{playlist_id}"),
                             ),
-                        ], spacing=2),
+                        ], spacing=0),
                     ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                 ),
                 # Header Body
                 ft.Container(
-                    padding=ft.Padding.all(16),
+                    padding=ft.Padding.all(12),
                     content=ft.Column([
-                        ft.Text(title, size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
-                        ft.Text(desc, size=12, color=ft.Colors.ON_SURFACE_VARIANT, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
-                        ft.Container(height=4),
+                        ft.Text(title, size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
+                        ft.Text(desc, size=11.5, color=ft.Colors.ON_SURFACE_VARIANT, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
+                        ft.Container(height=2),
                         ft.Row([
                             status_badge,
                             ft.Row([
                                 ft.Icon(ft.Icons.LAYERS_ROUNDED, size=13, color=ft.Colors.ON_SURFACE_VARIANT),
-                                ft.Text(f"{course_count} Curated Courses in Pathway", size=11, color=ft.Colors.ON_SURFACE_VARIANT, weight=ft.FontWeight.W_500),
+                                ft.Text(f"{course_count} Courses in Track", size=11, color=ft.Colors.ON_SURFACE_VARIANT, weight=ft.FontWeight.W_500),
                             ], spacing=4),
                         ], spacing=8, wrap=True),
-                    ], spacing=6),
+                    ], spacing=4),
                 ),
             ], spacing=0),
         )
@@ -580,25 +616,25 @@ async def playlist_analytics_view(page: ft.Page, org_id: str, playlist_id: str):
             is_sel = (active_tab == key)
             return ft.Container(
                 data=key,
-                padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+                padding=ft.Padding.symmetric(horizontal=10, vertical=6),
                 border_radius=10,
                 bgcolor=theme_color if is_sel else ft.Colors.TRANSPARENT,
                 ink=True,
                 on_click=lambda _, k=key: switch_tab(k),
                 content=ft.Row([
-                    ft.Icon(icon, size=14, color=ft.Colors.WHITE if is_sel else ft.Colors.ON_SURFACE_VARIANT),
-                    ft.Text(title, size=12, weight=ft.FontWeight.BOLD if is_sel else ft.FontWeight.NORMAL, color=ft.Colors.WHITE if is_sel else ft.Colors.ON_SURFACE),
-                ], spacing=6, tight=True),
+                    ft.Icon(icon, size=13, color=ft.Colors.WHITE if is_sel else ft.Colors.ON_SURFACE_VARIANT),
+                    ft.Text(title, size=11.5, weight=ft.FontWeight.BOLD if is_sel else ft.FontWeight.NORMAL, color=ft.Colors.WHITE if is_sel else ft.Colors.ON_SURFACE),
+                ], spacing=5, tight=True),
             )
 
         tab_buttons = ft.Row([
-            tab_btn("Pathway Performance", "performance", ft.Icons.INSIGHTS_ROUNDED),
-            tab_btn("Curriculum Milestones", "milestones", ft.Icons.MAP_ROUNDED),
-            tab_btn(f"Pathfinder Cohort ({total_learners})", "learners", ft.Icons.PEOPLE_ROUNDED),
-        ], spacing=6, scroll=ft.ScrollMode.AUTO)
+            tab_btn("Performance", "performance", ft.Icons.INSIGHTS_ROUNDED),
+            tab_btn("Milestones", "milestones", ft.Icons.MAP_ROUNDED),
+            tab_btn(f"Pathfinders ({total_learners})", "learners", ft.Icons.PEOPLE_ROUNDED),
+        ], spacing=4, scroll=ft.ScrollMode.AUTO)
 
         tabs_bar = ft.Container(
-            padding=ft.Padding.symmetric(horizontal=16, vertical=4),
+            padding=ft.Padding.symmetric(horizontal=12, vertical=4),
             content=tab_buttons,
         )
 
@@ -608,34 +644,34 @@ async def playlist_analytics_view(page: ft.Page, org_id: str, playlist_id: str):
                 ft.ResponsiveRow([
                     bento_stat(
                         ft.Icons.EXPLORE_ROUNDED,
-                        "ENROLLED LEARNERS",
+                        "LEARNERS",
                         str(total_learners),
                         f"{in_progress} active learners",
                         ft.Colors.BLUE_500,
                     ),
                     bento_stat(
                         ft.Icons.WORKSPACE_PREMIUM_ROUNDED,
-                        "TRACK COMPLETIONS",
+                        "COMPLETION",
                         f"{pct_completed}%",
                         f"{completions} path graduates",
                         ft.Colors.GREEN_600,
                     ),
                     bento_stat(
                         ft.Icons.TRENDING_UP_ROUNDED,
-                        "AVG. PATH PROGRESS",
+                        "AVG. PROGRESS",
                         avg_prog_str,
-                        f"Across {course_count} track courses",
+                        f"Across {course_count} courses",
                         _progress_color(avg_progress / 100.0),
                     ),
                     bento_stat(
                         ft.Icons.TIMELAPSE_ROUNDED,
                         "ACTIVE RATE",
                         f"{pct_active}%",
-                        f"{in_progress} learners in motion",
+                        f"{in_progress} in motion",
                         ft.Colors.AMBER_600,
                     ),
-                ], spacing=12, run_spacing=12),
-                ft.Container(height=12),
+                ], spacing=8, run_spacing=8),
+                ft.Container(height=8),
                 build_pathway_tier_distribution(analytics_data),
             ], spacing=0)
 
@@ -664,11 +700,11 @@ async def playlist_analytics_view(page: ft.Page, org_id: str, playlist_id: str):
             if not l_list:
                 return [
                     ft.Container(
-                        padding=32,
+                        padding=24,
                         alignment=ft.Alignment.CENTER,
                         content=ft.Column([
-                            ft.Icon(ft.Icons.GROUPS_ROUNDED, size=36, color=ft.Colors.with_opacity(0.3, ft.Colors.ON_SURFACE)),
-                            ft.Text("No pathfinders match this filter criteria.", size=12, color=ft.Colors.ON_SURFACE_VARIANT),
+                            ft.Icon(ft.Icons.GROUPS_ROUNDED, size=32, color=ft.Colors.with_opacity(0.3, ft.Colors.ON_SURFACE)),
+                            ft.Text("No pathfinders match this filter.", size=11, color=ft.Colors.ON_SURFACE_VARIANT),
                         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=6),
                     )
                 ]
@@ -707,14 +743,14 @@ async def playlist_analytics_view(page: ft.Page, org_id: str, playlist_id: str):
             is_active = (learner_filter_status == key)
             return ft.Container(
                 data=key,
-                padding=ft.Padding.symmetric(horizontal=10, vertical=5),
-                border_radius=14,
+                padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+                border_radius=12,
                 bgcolor=theme_color if is_active else ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
                 ink=True,
                 on_click=lambda _, k=key: set_learner_filter(k),
                 content=ft.Text(
                     label,
-                    size=11,
+                    size=10.5,
                     weight=ft.FontWeight.BOLD if is_active else ft.FontWeight.NORMAL,
                     color=ft.Colors.WHITE if is_active else ft.Colors.ON_SURFACE,
                 ),
@@ -725,14 +761,15 @@ async def playlist_analytics_view(page: ft.Page, org_id: str, playlist_id: str):
             learner_chip(f"Completed ({completions})", "completed"),
             learner_chip(f"In Progress ({in_progress})", "in_progress"),
             learner_chip(f"Not Started ({not_started})", "not_started"),
-        ], spacing=6, scroll=ft.ScrollMode.AUTO)
+        ], spacing=5, scroll=ft.ScrollMode.AUTO)
 
         search_box = ft.TextField(
-            hint_text="Search pathfinders by student name…",
+            hint_text="Search pathfinders…",
             prefix_icon=ft.Icons.SEARCH_ROUNDED,
             border_radius=10,
             dense=True,
-            content_padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+            text_size=12,
+            content_padding=ft.Padding.symmetric(horizontal=10, vertical=6),
             on_change=on_learner_search_change,
             width=float("inf"),
         )
@@ -742,14 +779,14 @@ async def playlist_analytics_view(page: ft.Page, org_id: str, playlist_id: str):
                 bgcolor=ft.Colors.SURFACE,
                 border_radius=14,
                 border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
-                padding=ft.Padding.all(16),
+                padding=ft.Padding.all(12),
                 content=ft.Column([
                     _section_header("PATHFINDER COHORT", f"{total_learners} students pursuing learning pathway"),
                     search_box,
                     learner_filter_chips,
-                    ft.Container(height=4),
+                    ft.Container(height=2),
                     learners_column,
-                ], spacing=10),
+                ], spacing=8),
             )
 
         def get_active_tab_content():
@@ -760,7 +797,7 @@ async def playlist_analytics_view(page: ft.Page, org_id: str, playlist_id: str):
             return build_performance_tab()
 
         tab_content_container = ft.Container(
-            padding=ft.Padding.symmetric(horizontal=16),
+            padding=ft.Padding.symmetric(horizontal=12),
             content=get_active_tab_content(),
         )
 
@@ -770,7 +807,7 @@ async def playlist_analytics_view(page: ft.Page, org_id: str, playlist_id: str):
             controls=[
                 hero_card,
                 tabs_bar,
-                ft.Container(height=8),
+                ft.Container(height=4),
                 tab_content_container,
                 ft.Container(height=32),
             ],
