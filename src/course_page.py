@@ -118,10 +118,15 @@ async def course_learner_view(
         course_data = await get_course_curriculum(token, course_id)
         return course_data
 
+    persisted_lesson_ids = set()
+
     async def api_save_progress(course_id: str, lesson_id: str):
         if save_progress is not None:
-            return await save_progress(course_id, lesson_id)
-        res = await mark_complete(token, course_id, lesson_id)
+            res = await save_progress(course_id, lesson_id)
+        else:
+            res = await mark_complete(token, course_id, lesson_id)
+        if res and isinstance(res, dict) and "error" not in res:
+            persisted_lesson_ids.add(lesson_id)
         return res
 
     async def api_verify_module_completion(module_id: str):
@@ -2357,6 +2362,51 @@ async def course_learner_view(
 
                 if current_module_idx >= len(course_data["modules"]) - 1:
                     # ============================================================
+                    # COURSE COMPLETION CHECK: Verify ALL modules and lessons are complete
+                    # ============================================================
+                    incomplete_info = None
+                    for m_idx, mod in enumerate(course_data.get("modules", [])):
+                        for l_idx, les in enumerate(mod.get("lessons", [])):
+                            if not les.get("is_done", False):
+                                incomplete_info = (m_idx, l_idx, mod, les)
+                                break
+                        if incomplete_info:
+                            break
+
+                    if incomplete_info:
+                        m_i, l_i, incomp_mod, incomp_les = incomplete_info
+                        msg = f"Almost there! Please complete '{incomp_les.get('title', 'lesson')}' in '{incomp_mod.get('title', 'module')}' to conclude the course."
+                        snack = ft.SnackBar(
+                            content=ft.Text(msg, size=13),
+                            bgcolor=ft.Colors.AMBER_800,
+                            duration=4000,
+                        )
+                        if hasattr(page, "open"):
+                            page.open(snack)
+                        else:
+                            page.overlay.append(snack)
+                            snack.open = True
+                            page.update()
+                        jump_to_lesson(m_i, l_i)
+                        return
+
+                    # Ensure all completed lessons are confirmed synced to the backend
+                    all_lessons = [
+                        les for mod in course_data.get("modules", [])
+                        for les in mod.get("lessons", [])
+                        if les.get("id")
+                    ]
+                    unsynced = [les for les in all_lessons if les["id"] not in persisted_lesson_ids]
+                    if unsynced:
+                        for u_les in unsynced:
+                            try:
+                                sync_res = await api_save_progress(course_id, u_les["id"])
+                                if sync_res and isinstance(sync_res, dict) and "error" not in sync_res:
+                                    persisted_lesson_ids.add(u_les["id"])
+                            except Exception as ex:
+                                print(f"[CourseSync] Notice syncing lesson {u_les['id']}: {ex}")
+
+                    # ============================================================
                     # COMPLETION OVERLAY — Certificate generation + display
                     # ============================================================
                     token = await page.shared_preferences.get("auth_token")
@@ -2376,7 +2426,7 @@ async def course_learner_view(
                                     ],
                                     spacing=2,
                                     expand=True,
-                                ),
+                                    ),
                             ],
                             spacing=12,
                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -2455,6 +2505,17 @@ async def course_learner_view(
                         page.update()
                         
                         res = await rate_course(token, course_id, float(rating_val))
+                        # If rating fails due to completion/progress check, auto-heal sync and retry once
+                        if "error" in res and any(w in str(res.get("error", "")).lower() for w in ["complete", "progress", "concluded"]):
+                            for mod in course_data.get("modules", []):
+                                for les in mod.get("lessons", []):
+                                    if les.get("id"):
+                                        try:
+                                            await api_save_progress(course_id, les["id"])
+                                        except Exception:
+                                            pass
+                            res = await rate_course(token, course_id, float(rating_val))
+
                         if "error" not in res:
                             rating_action_container.content = ft.Container(
                                 padding=ft.Padding.symmetric(horizontal=14, vertical=12),
@@ -2917,6 +2978,14 @@ async def course_learner_view(
             and current_lesson_idx == len(active_mod["lessons"]) - 1
         )
 
+        all_other_lessons_done = all(
+            les.get("is_done", False)
+            for mod in course_data.get("modules", [])
+            for les in mod.get("lessons", [])
+            if les.get("id") != active_les.get("id")
+        )
+        is_course_concluding_lesson = is_last_overall and all_other_lessons_done
+
         is_completed = active_les.get("is_done", False)
 
         # =========================================================
@@ -2932,12 +3001,12 @@ async def course_learner_view(
                 action_button.color = ft.Colors.ON_SURFACE_VARIANT
                 action_button.disabled = True
             else:
-                next_btn_text = "Submit & Finish Course" if is_last_overall else "Submit Assessment"
+                next_btn_text = "Submit & Finish Course" if is_course_concluding_lesson else "Submit Assessment"
                 action_button.bgcolor = UI_ACCENT
                 action_button.color = ft.Colors.SURFACE
                 action_button.disabled = False
         else:
-            next_btn_text = "Finish Course" if is_last_overall else "Next Lesson"
+            next_btn_text = "Finish Course" if is_course_concluding_lesson else ("Next Lesson" if not is_last_overall else "Next Unfinished Lesson")
             action_button.bgcolor = UI_ACCENT
             action_button.color = ft.Colors.SURFACE
             action_button.disabled = False
@@ -3501,6 +3570,8 @@ async def course_learner_view(
             return
 
         completed_ids = course_data.get("completed_lesson_ids", [])
+        if completed_ids:
+            persisted_lesson_ids.update(completed_ids)
         for mod in course_data["modules"]:
             for les in mod.get("lessons", []):
                 les["is_done"] = les.get("id") in completed_ids
