@@ -282,7 +282,7 @@ async def dashboard_view(page: ft.Page):
                             size=18,
                             weight=ft.FontWeight.BOLD,
                             color=ft.Colors.PRIMARY,
-                            letter_spacing=0.8,
+                            style=ft.TextStyle(letter_spacing=0.8),
                         ),
                     ],
                 ),
