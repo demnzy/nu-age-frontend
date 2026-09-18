@@ -306,3 +306,19 @@ async def export_exam_gradebook_csv(token: str, org_id: str, cohort_id: str, exa
             return ""
     except Exception as e:
         return ""
+
+
+# ── Learner Flow ─────────────────────────────────────────────────────────
+
+async def get_learner_cohorts(token: str) -> dict:
+    url = f"{api_url}/organisations/learner/my-cohorts"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
+            res = await client.get(url, headers=headers)
+            if res.status_code == 200:
+                return res.json()
+            return {"cohorts": [], "active_urgent_exams": []}
+    except Exception as e:
+        print(f"get_learner_cohorts error: {e}")
+        return {"cohorts": [], "active_urgent_exams": []}

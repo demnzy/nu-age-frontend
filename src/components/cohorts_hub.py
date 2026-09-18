@@ -829,6 +829,16 @@ def build_cohorts_tab(
                 close_field = ft.TextField(label="Closes At (YYYY-MM-DD HH:MM) *", value=later_iso, **_INPUT)
 
                 attempts_field = ft.TextField(label="Max Attempts", value="1", **_INPUT)
+                security_dd = ft.Dropdown(
+                    label="Anti-Cheat Security Policy *",
+                    options=[
+                        ft.dropdown.Option("monitored", "Monitored Mode (2 Warnings before auto-submit)"),
+                        ft.dropdown.Option("strict", "Strict Mode (Immediate auto-submit on app/window switch)"),
+                        ft.dropdown.Option("relaxed", "Relaxed Mode (Practice / no auto-submit)"),
+                    ],
+                    value="monitored",
+                    border_radius=10,
+                )
                 shuffle_chk = ft.Checkbox(label="Shuffle Question Order", value=True)
                 immediate_chk = ft.Checkbox(label="Show Immediate Results to Candidate", value=True)
 
@@ -855,6 +865,7 @@ def build_cohorts_tab(
                         "duration_minutes": int(dur_field.value or 60),
                         "pass_percentage": float(pass_field.value or 70),
                         "max_attempts": int(attempts_field.value or 1),
+                        "security_mode": security_dd.value or "monitored",
                         "shuffle_questions": shuffle_chk.value,
                         "show_immediate_results": immediate_chk.value,
                     }
@@ -885,6 +896,7 @@ def build_cohorts_tab(
                                 ft.Container(pass_field, expand=True),
                                 ft.Container(attempts_field, expand=True),
                             ], spacing=10),
+                            security_dd,
                             shuffle_chk,
                             immediate_chk,
                         ], scroll=ft.ScrollMode.AUTO, spacing=10),
@@ -1095,6 +1107,27 @@ def build_cohorts_tab(
 
                 sc_str = f"{r.get('percentage')}%" if r.get('percentage') is not None else "—"
                 dur_min = round(r["duration_seconds"] / 60, 1) if r.get("duration_seconds") else "—"
+                v_count = r.get("violations_count", 0)
+
+                status_widgets = [
+                    ft.Container(
+                        padding=ft.Padding.symmetric(horizontal=8, vertical=2),
+                        border_radius=6, bgcolor=ft.Colors.with_opacity(0.1, col),
+                        content=ft.Text(st, size=10, weight=ft.FontWeight.BOLD, color=col),
+                    )
+                ]
+                if v_count > 0:
+                    status_widgets.append(
+                        ft.Container(
+                            padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+                            border_radius=4,
+                            bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.RED_700),
+                            content=ft.Row([
+                                ft.Icon(ft.Icons.SECURITY_ROUNDED, size=11, color=ft.Colors.RED_700),
+                                ft.Text(f"{v_count} strikes", size=9, weight=ft.FontWeight.BOLD, color=ft.Colors.RED_700),
+                            ], spacing=2, tight=True),
+                        )
+                    )
 
                 rows.append(
                     ft.Container(
@@ -1105,11 +1138,7 @@ def build_cohorts_tab(
                                 ft.Text(r.get("name", ""), size=12, weight=ft.FontWeight.BOLD),
                                 ft.Text(r.get("email", ""), size=10, color=ft.Colors.ON_SURFACE_VARIANT),
                             ], spacing=1, expand=True),
-                            ft.Container(
-                                padding=ft.Padding.symmetric(horizontal=8, vertical=2),
-                                border_radius=6, bgcolor=ft.Colors.with_opacity(0.1, col),
-                                content=ft.Text(st, size=10, weight=ft.FontWeight.BOLD, color=col),
-                            ),
+                            ft.Row(status_widgets, spacing=4, tight=True),
                             ft.Text(sc_str, size=12, weight=ft.FontWeight.BOLD, width=45, text_align=ft.TextAlign.RIGHT),
                             ft.Text(f"{dur_min}m" if dur_min != "—" else "—", size=10, color=ft.Colors.ON_SURFACE_VARIANT, width=35, text_align=ft.TextAlign.RIGHT),
                         ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),

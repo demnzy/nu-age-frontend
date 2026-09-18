@@ -2863,7 +2863,16 @@ async def organisations_view(page: ft.Page):
             if org_data:
                 await show_dashboard(org_data)
             else:
-                show_promo_view()
+                try:
+                    memberships = await asyncio.wait_for(
+                        get_joined_organisations(token), timeout=10
+                    )
+                except Exception:
+                    memberships = []
+                if memberships:
+                    show_teacher_view(memberships)
+                else:
+                    show_promo_view()
 
         except asyncio.TimeoutError:
             content_socket.content = ft.Container(

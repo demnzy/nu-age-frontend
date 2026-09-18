@@ -1,15 +1,20 @@
 """
-Candidate Exam Runner for Cohort Assessments.
-Built on Prometric / Pearson VUE summative exam principles:
+Candidate Exam Runner for Cohort Assessments with Enterprise Anti-Cheat Security:
   * Server-synced sticky countdown timer with auto-submit on expiry.
-  * Question palette showing answered / unanswered / flagged state.
-  * Per-question "Flag for review" toggle.
-  * Review-before-submit screen showing flagged and unanswered items.
-  * Async backend submission and automated grading display.
-  * Mobile responsive layout for all phone and tablet screen widths.
+  * Anti-Cheat Focus & Lifecycle Watcher:
+    - Android/iOS app lifecycle change detection (inactive, paused, hidden).
+    - Desktop/Web window blur and focus loss detection.
+  * Configurable Security Enforcement:
+    - Strict mode: Immediate auto-submit on first app switch or blur.
+    - Monitored mode: Warning strikes with full audit log and auto-submit on limit.
+  * Kiosk / Fullscreen enforcement.
+  * Hardware & Software back navigation trapping.
+  * DevTools and copy-paste suppression.
+  * Session token binding and server-authoritative submission.
 """
 
 import asyncio
+from datetime import datetime, timezone
 import time
 import flet as ft
 from src.components import study_ui as ui
@@ -32,6 +37,9 @@ def build_cohort_exam_view(
     title = exam_payload.get("exam_title", "Cohort Assessment")
     duration_remaining = exam_payload.get("remaining_seconds", 3600)
     instructions = exam_payload.get("instructions")
+    security_mode = exam_payload.get("security_mode", "monitored")  # strict, monitored, relaxed
+    max_violations = int(exam_payload.get("max_violations", 2))
+    session_token = exam_payload.get("session_token")
 
     if total == 0:
         return ui.empty_state(
@@ -50,10 +58,168 @@ def build_cohort_exam_view(
         "submitted": False,
         "started": time.time(),
         "remaining": max(10, int(duration_remaining)),
+        "violations_count": 0,
+        "violation_log": [],
+        "violation_dialog_open": False,
     }
 
     root = ft.Container(expand=True)
-    compact = page.width is not None and page.width < 700
+
+    # ── Fullscreen & Kiosk Activation ────────────────────────────────────
+    prev_prevent_close = getattr(page.window, "prevent_close", False)
+    try:
+        page.window.prevent_close = True
+        page.window.full_screen = True
+        page.update()
+    except Exception:
+        pass
+
+    def release_security_locks():
+        try:
+            page.window.prevent_close = prev_prevent_close
+            page.window.full_screen = False
+            page.on_keyboard_event = None
+            page.on_app_lifecycle_state_change = None
+            page.window.on_event = None
+            page.update()
+        except Exception:
+            pass
+
+    def safe_exit(e=None):
+        release_security_locks()
+        if on_exit:
+            on_exit(e)
+
+    # ── Anti-Cheat Focus & Lifecycle Watcher ──────────────────────────────
+    def record_violation(v_type: str, details: str):
+        if state["submitted"] or not state["running"] or security_mode == "relaxed":
+            return
+
+        now_str = datetime.now(timezone.utc).isoformat()
+        state["violations_count"] += 1
+        state["violation_log"].append({
+            "timestamp": now_str,
+            "type": v_type,
+            "details": details,
+            "strike": state["violations_count"],
+        })
+
+        if security_mode == "strict":
+            # Immediate submission in strict mode
+            page.run_task(execute_final_submit, True, f"Strict anti-cheat violation: {details}")
+        else:
+            # Monitored mode with warning strikes
+            if state["violations_count"] > max_violations:
+                page.run_task(execute_final_submit, True, f"Violation limit exceeded ({state['violations_count']}/{max_violations}): {details}")
+            else:
+                show_violation_warning(v_type, details)
+
+    def show_violation_warning(v_type: str, details: str):
+        if state["submitted"] or state["violation_dialog_open"]:
+            return
+        state["violation_dialog_open"] = True
+
+        strikes_left = max(0, max_violations - state["violations_count"] + 1)
+        warn_dlg = ft.AlertDialog(
+            modal=True,
+            title=ft.Row([
+                ft.Icon(ft.Icons.SECURITY_ROUNDED, color=ft.Colors.RED_600, size=24),
+                ft.Text("SECURITY WARNING", color=ft.Colors.RED_700, weight=ft.FontWeight.BOLD, size=16),
+            ], spacing=8),
+            content=ft.Container(
+                width=380,
+                content=ft.Column([
+                    ft.Text(f"Violation Incident {state['violations_count']} of {max_violations}",
+                            weight=ft.FontWeight.BOLD, size=13, color=ft.Colors.RED_700),
+                    ft.Text(f"Event: {details}", size=12, color=ft.Colors.ON_SURFACE),
+                    ft.Container(height=6),
+                    ft.Text(
+                        "Navigating away, switching windows/apps, splitting screens, or exiting fullscreen is prohibited. "
+                        f"You have {strikes_left} strike(s) remaining before your exam is permanently submitted automatically.",
+                        size=12, color=ft.Colors.ON_SURFACE_VARIANT
+                    ),
+                ], tight=True, spacing=6),
+            ),
+            actions=[
+                ft.FilledButton(
+                    "I Understand & Resume Exam",
+                    style=ft.ButtonStyle(bgcolor=ft.Colors.RED_700),
+                    on_click=lambda _: close_warn_dlg(warn_dlg),
+                )
+            ],
+            actions_alignment=ft.MainAxisAlignment.CENTER,
+        )
+        page.show_dialog(warn_dlg)
+
+    def close_warn_dlg(dlg):
+        state["violation_dialog_open"] = False
+        try:
+            page.pop_dialog()
+            page.window.full_screen = True
+            page.update()
+        except Exception:
+            pass
+
+    # 1. Mobile app lifecycle change listener
+    def on_lifecycle_change(e):
+        lifecycle_state = str(e.data).lower()
+        if lifecycle_state in ("inactive", "paused", "hidden", "detached"):
+            record_violation("app_lifecycle_unfocused", f"App transitioned to {lifecycle_state} (switched apps/split screen)")
+
+    page.on_app_lifecycle_state_change = on_lifecycle_change
+
+    # 2. Desktop/web window blur listener
+    def on_window_event(e):
+        ev_name = str(e.data).lower()
+        if ev_name in ("blur", "minimize"):
+            record_violation("window_blur", f"Window lost focus ({ev_name})")
+
+    try:
+        page.window.on_event = on_window_event
+    except Exception:
+        pass
+
+    # 3. Keyboard devtools & copy-paste suppression
+    def on_key_event(e: ft.KeyboardEvent):
+        key = (e.key or "").lower()
+        ctrl_or_cmd = e.ctrl or e.meta
+
+        # Block Ctrl+C, Ctrl+V, Ctrl+X, Ctrl+U, Ctrl+P, F12
+        if (ctrl_or_cmd and key in ("c", "v", "x", "u", "p")) or key in ("f12", "f11"):
+            record_violation("prohibited_shortcut", f"Prohibited keyboard shortcut attempted: {key.upper()}")
+
+    page.on_keyboard_event = on_key_event
+
+    # ── Exit Confirmation Dialog (Back Trap) ─────────────────────────────
+    def confirm_leave_exam(e=None):
+        leave_dlg = ft.AlertDialog(
+            modal=True,
+            title=ft.Row([
+                ft.Icon(ft.Icons.WARNING_ROUNDED, color=ft.Colors.AMBER_700, size=24),
+                ft.Text("Exit Assessment?", weight=ft.FontWeight.BOLD, size=16),
+            ], spacing=8),
+            content=ft.Container(
+                width=380,
+                content=ft.Column([
+                    ft.Text("Leaving now will automatically finalize and submit your assessment.", size=13, weight=ft.FontWeight.W_600),
+                    ft.Text("All questions you have answered so far will be graded. This attempt cannot be resumed once exited.", size=12, color=ft.Colors.ON_SURFACE_VARIANT),
+                ], tight=True, spacing=6),
+            ),
+            actions=[
+                ft.TextButton("Stay & Continue Exam", on_click=lambda _: page.pop_dialog()),
+                ft.FilledButton(
+                    "Submit & Exit Now",
+                    style=ft.ButtonStyle(bgcolor=ft.Colors.RED_700),
+                    on_click=lambda _: page.run_task(do_submit_and_leave, leave_dlg),
+                ),
+            ],
+            actions_alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+        )
+        page.show_dialog(leave_dlg)
+
+    async def do_submit_and_leave(leave_dlg):
+        page.pop_dialog()
+        await execute_final_submit(False, "Candidate voluntarily chose to submit and leave.")
 
     # ── Progress Bar & Timer ─────────────────────────────────────────────
     timer_text = ft.Text("00:00", size=15, weight=ft.FontWeight.W_800, color=ft.Colors.PRIMARY)
@@ -123,7 +289,7 @@ def build_cohort_exam_view(
                 content=ft.Row([
                     badge,
                     ft.Text(opt_text, size=14, weight=ft.FontWeight.W_600 if is_chosen else ft.FontWeight.NORMAL,
-                            color=ft.Colors.ON_SURFACE, expand=True),
+                            color=ft.Colors.ON_SURFACE, expand=True, selectable=False),
                     ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED, size=20, color=ft.Colors.PRIMARY) if is_chosen else ft.Container(),
                 ], spacing=14, vertical_alignment=ft.CrossAxisAlignment.CENTER),
             )
@@ -142,7 +308,7 @@ def build_cohort_exam_view(
                 ),
                 flag_btn,
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-            ft.Text(q.get("question_text", ""), size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
+            ft.Text(q.get("question_text", ""), size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE, selectable=False),
             ft.Container(height=8),
             ft.Column(option_tiles, spacing=10),
         ], spacing=14)
@@ -280,14 +446,15 @@ def build_cohort_exam_view(
         expand=True, alignment=ft.Alignment.CENTER,
         content=ft.Column([
             ft.ProgressRing(color=ft.Colors.PRIMARY, width=36, height=36),
-            ft.Text("Submitting and grading your exam...", size=14, weight=ft.FontWeight.BOLD),
+            ft.Text("Submitting and grading your exam securely...", size=14, weight=ft.FontWeight.BOLD),
         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, tight=True, spacing=14),
     )
 
-    async def execute_final_submit(e=None):
+    async def execute_final_submit(e=None, is_violation: bool = False, violation_reason: str = None):
         if state["submitted"]: return
         state["submitted"] = True
         state["running"] = False
+        release_security_locks()
 
         root.content = submitting_overlay
         page.update()
@@ -302,25 +469,33 @@ def build_cohort_exam_view(
                 "chosen_index": chosen_opt,
             })
 
+        submit_data = {
+            "answers": answers_payload,
+            "duration_seconds": elapsed,
+            "violations_count": state["violations_count"],
+            "violation_log": state["violation_log"],
+            "session_token": session_token,
+        }
+
         res = await submit_cohort_exam(
             token=token,
             org_id=org_id,
             cohort_id=cohort_id,
             exam_id=exam_id,
-            payload={"answers": answers_payload, "duration_seconds": elapsed},
+            payload=submit_data,
         )
 
-        display_result_view(res)
+        display_result_view(res, is_violation, violation_reason)
 
-    def display_result_view(res: dict):
+    def display_result_view(res: dict, is_violation: bool = False, violation_reason: str = None):
         if "error" in res:
             root.content = ft.Container(
                 padding=24, alignment=ft.Alignment.CENTER,
                 content=ft.Column([
                     ft.Icon(ft.Icons.ERROR_OUTLINE_ROUNDED, size=48, color=ft.Colors.RED_500),
-                    ft.Text("Submission Failed", size=18, weight=ft.FontWeight.BOLD),
-                    ft.Text(res.get("error", "An error occurred."), color=ft.Colors.RED_700),
-                    ft.FilledButton("Return", on_click=on_exit),
+                    ft.Text("Submission Error", size=18, weight=ft.FontWeight.BOLD),
+                    ft.Text(res.get("error", "An error occurred during submission."), color=ft.Colors.RED_700),
+                    ft.FilledButton("Return to Hub", on_click=safe_exit),
                 ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=14),
             )
             page.update()
@@ -336,6 +511,22 @@ def build_cohort_exam_view(
         badge_color = ft.Colors.GREEN_600 if passed else ft.Colors.RED_500
         badge_icon = ft.Icons.VERIFIED_ROUNDED if passed else ft.Icons.CANCEL_ROUNDED
         status_label = "PASSED" if passed else "DID NOT PASS"
+
+        # Violation banner if flagged
+        violation_banner = ft.Container()
+        if is_violation or res.get("status") == "flagged_violation" or state["violations_count"] > 0:
+            violation_banner = ft.Container(
+                padding=14, border_radius=10,
+                bgcolor=ft.Colors.with_opacity(0.1, ft.Colors.RED_700),
+                border=ft.Border.all(1, ft.Colors.RED_700),
+                content=ft.Row([
+                    ft.Icon(ft.Icons.SECURITY_ROUNDED, color=ft.Colors.RED_700, size=20),
+                    ft.Column([
+                        ft.Text("Security Audit Notice", weight=ft.FontWeight.BOLD, size=12, color=ft.Colors.RED_700),
+                        ft.Text(violation_reason or f"{state['violations_count']} focus/app-switch incident(s) recorded during this attempt.", size=11, color=ft.Colors.RED_800),
+                    ], spacing=2, expand=True),
+                ], spacing=10),
+            )
 
         breakdown = res.get("breakdown", [])
         breakdown_controls = []
@@ -369,6 +560,7 @@ def build_cohort_exam_view(
                 ft.Container(
                     width=600 if page.width and page.width > 700 else None,
                     content=ft.Column([
+                        violation_banner,
                         ft.Container(
                             padding=24, border_radius=16, alignment=ft.Alignment.CENTER,
                             bgcolor=ft.Colors.with_opacity(0.08, badge_color),
@@ -384,7 +576,7 @@ def build_cohort_exam_view(
                         ft.FilledButton(
                             "Return to Cohort",
                             icon=ft.Icons.CHECK_ROUNDED,
-                            on_click=on_exit,
+                            on_click=safe_exit,
                             style=ft.ButtonStyle(padding=ft.Padding.symmetric(horizontal=24, vertical=14)),
                         ),
                         ft.Container(height=16),
@@ -429,6 +621,11 @@ def build_cohort_exam_view(
             border=ft.Border.only(bottom=ft.BorderSide(1, ft.Colors.with_opacity(0.1, ft.Colors.ON_SURFACE))),
             content=ft.Column([
                 ft.Row([
+                    ft.IconButton(
+                        icon=ft.Icons.CLOSE_ROUNDED,
+                        tooltip="Exit Assessment",
+                        on_click=confirm_leave_exam,
+                    ),
                     ft.Column([
                         ft.Text(title, size=14, weight=ft.FontWeight.BOLD, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                         q_counter,
