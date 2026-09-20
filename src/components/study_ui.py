@@ -863,6 +863,16 @@ def build_results_view(
 # EMPTY STATE
 # ─────────────────────────────────────────────────────────────────────────────
 def empty_state(icon, title: str, message: str, action_label: str, on_action):
+    def _do_action(e=None):
+        if on_action and callable(on_action):
+            try:
+                on_action(e)
+            except TypeError:
+                try:
+                    on_action()
+                except Exception:
+                    pass
+
     return ft.Container(
         expand=True,
         alignment=ft.Alignment.CENTER,
@@ -886,7 +896,7 @@ def empty_state(icon, title: str, message: str, action_label: str, on_action):
                 ft.Text(message, size=12, color=muted(0.55),
                         text_align=ft.TextAlign.CENTER),
                 ft.Container(height=4),
-                primary_button(action_label, lambda _: on_action(),
+                primary_button(action_label, _do_action,
                                icon=ft.Icons.ARROW_BACK_ROUNDED),
             ],
         ),

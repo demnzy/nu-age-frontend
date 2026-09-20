@@ -146,7 +146,7 @@ def _empty_state(icon, title: str, subtitle: str,
                     shape=ft.RoundedRectangleBorder(radius=20),
                     elevation=0,
                 ),
-                on_click=lambda _: on_action(),
+                on_click=lambda e: on_action(e) if on_action and getattr(on_action, "__code__", None) and on_action.__code__.co_argcount > 0 else (on_action() if on_action else None),
             ),
         ]
     return ft.Container(

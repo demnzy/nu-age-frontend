@@ -520,7 +520,7 @@ async def organisations_view(page: ft.Page):
                                     ft.Text(f"Course '{t_val}' created!", color=ft.Colors.WHITE, size=13),
                                 ], spacing=8),
                                 action="Build Curriculum",
-                                on_action=lambda _: page.go(f"/courses/{cid}/manage"),
+                                on_action=lambda *_: page.go(f"/courses/{cid}/manage"),
                                 bgcolor=ft.Colors.GREEN_700,
                                 duration=5000,
                             )
@@ -708,7 +708,7 @@ async def organisations_view(page: ft.Page):
                                     ft.Text(f"Learning Track '{t_val}' created!", color=ft.Colors.WHITE, size=13),
                                 ], spacing=8),
                                 action="Build Track",
-                                on_action=lambda _: page.go(f"/playlists/{pid}/build"),
+                                on_action=lambda *_: page.go(f"/playlists/{pid}/build"),
                                 bgcolor=ft.Colors.GREEN_700,
                                 duration=5000,
                             )
