@@ -9,7 +9,7 @@ Organisation Cohorts & Trainings Hub:
 """
 
 import asyncio
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, time
 import flet as ft
 
 from src.components.cohort_exam_runner import build_cohort_exam_view
@@ -120,15 +120,15 @@ def build_cohorts_tab(
         start_btn_text = ft.Text(start_date_val[0].strftime("%b %d, %Y"), size=13, weight=ft.FontWeight.W_600)
         end_btn_text = ft.Text(end_date_val[0].strftime("%b %d, %Y"), size=13, weight=ft.FontWeight.W_600)
 
-        def on_start_change(e):
-            if e.control.value:
+        def on_start_change(e=None):
+            if e and getattr(e, "control", None) and e.control.value:
                 val = e.control.value
                 start_date_val[0] = val.date() if isinstance(val, datetime) else val
                 start_btn_text.value = start_date_val[0].strftime("%b %d, %Y")
                 page.update()
 
-        def on_end_change(e):
-            if e.control.value:
+        def on_end_change(e=None):
+            if e and getattr(e, "control", None) and e.control.value:
                 val = e.control.value
                 end_date_val[0] = val.date() if isinstance(val, datetime) else val
                 end_btn_text.value = end_date_val[0].strftime("%b %d, %Y")
@@ -203,10 +203,11 @@ def build_cohorts_tab(
             m_role = m.get("role", "student")
             member_checks.append(ft.Checkbox(label=f"{m_name} ({m_role})", data=m_id, value=False))
 
-        def select_all_members(e):
-            for chk in member_checks:
-                chk.value = e.control.value
-            page.update()
+        def select_all_members(e=None):
+            if e and getattr(e, "control", None):
+                for chk in member_checks:
+                    chk.value = e.control.value
+                page.update()
 
         all_members_toggle = ft.Checkbox(label="Select All Members", value=False, on_change=select_all_members)
 
@@ -367,10 +368,11 @@ def build_cohorts_tab(
         ], spacing=6, scroll=ft.ScrollMode.AUTO)
 
         # Search box
-        def on_search_change(e):
-            state["search"] = e.control.value.strip()
-            render_main_cohorts_view()
-            page.update()
+        def on_search_change(e=None):
+            if e and getattr(e, "control", None) and e.control.value is not None:
+                state["search"] = e.control.value.strip()
+                render_main_cohorts_view()
+                page.update()
 
         search_input = ft.TextField(
             hint_text="Search cohort name or topic...",
@@ -598,7 +600,7 @@ def build_cohorts_tab(
 
                 checks = [ft.Checkbox(label=c.get("name", "Course"), data=str(c.get("id"))) for c in eligible]
 
-                async def do_add(e):
+                async def do_add(e=None):
                     selected = [chk.data for chk in checks if chk.value]
                     if not selected:
                         show_snack("Select at least one course.", is_error=True)
@@ -706,7 +708,7 @@ def build_cohorts_tab(
                     for m in eligible
                 ]
 
-                async def do_add(e):
+                async def do_add(e=None):
                     selected = [chk.data for chk in checks if chk.value]
                     if not selected:
                         show_snack("Select at least one member.", is_error=True)
@@ -884,114 +886,267 @@ def build_cohorts_tab(
                 )
                 exam_cards.append(card)
 
-            # Schedule New Exam Dialog
+            # Schedule New Exam Dialog with Exact Date & Time Picker
             def open_schedule_exam_dlg(e=None):
-                title_field = ft.TextField(label="Exam Title *", hint_text="e.g. Mid-term Assessment", **_INPUT)
-                inst_field = ft.TextField(label="Candidate Instructions", hint_text="Rules, prohibited materials, single attempt warning...", multiline=True, min_lines=2, **_INPUT)
-                dur_field = ft.TextField(label="Duration (Minutes) *", value="60", **_INPUT)
-                pass_field = ft.TextField(label="Pass Mark (%) *", value="70", **_INPUT)
+                title_field = ft.TextField(
+                    label="Exam Title *",
+                    hint_text="e.g. Mid-Term Assessment / Final Certification Exam",
+                    **_INPUT,
+                )
+                inst_field = ft.TextField(
+                    label="Candidate Instructions & Rules",
+                    hint_text="Explain allowed attempts, time limit, proctoring warnings...",
+                    multiline=True,
+                    min_lines=2,
+                    max_lines=4,
+                    **_INPUT,
+                )
 
+                dur_field = ft.TextField(
+                    label="Duration (Minutes) *",
+                    value="60",
+                    keyboard_type=ft.KeyboardType.NUMBER,
+                    **_INPUT,
+                )
+                pass_field = ft.TextField(
+                    label="Pass Mark (%) *",
+                    value="70",
+                    keyboard_type=ft.KeyboardType.NUMBER,
+                    **_INPUT,
+                )
+                attempts_field = ft.TextField(
+                    label="Max Allowed Attempts *",
+                    value="1",
+                    keyboard_type=ft.KeyboardType.NUMBER,
+                    **_INPUT,
+                )
+
+                # Duration preset chips
+                def set_dur(m: int):
+                    dur_field.value = str(m)
+                    page.update()
+
+                dur_chips = ft.Row([
+                    ft.Text("Quick select:", size=11, color=ft.Colors.ON_SURFACE_VARIANT),
+                    ft.TextButton("30m", on_click=lambda _: set_dur(30)),
+                    ft.TextButton("45m", on_click=lambda _: set_dur(45)),
+                    ft.TextButton("60m", on_click=lambda _: set_dur(60)),
+                    ft.TextButton("90m", on_click=lambda _: set_dur(90)),
+                    ft.TextButton("120m", on_click=lambda _: set_dur(120)),
+                ], spacing=4, scroll=ft.ScrollMode.AUTO)
+
+                # Pass mark preset chips
+                def set_pass(p: int):
+                    pass_field.value = str(p)
+                    page.update()
+
+                pass_chips = ft.Row([
+                    ft.Text("Quick select:", size=11, color=ft.Colors.ON_SURFACE_VARIANT),
+                    ft.TextButton("50%", on_click=lambda _: set_pass(50)),
+                    ft.TextButton("60%", on_click=lambda _: set_pass(60)),
+                    ft.TextButton("70%", on_click=lambda _: set_pass(70)),
+                    ft.TextButton("80%", on_click=lambda _: set_pass(80)),
+                ], spacing=4, scroll=ft.ScrollMode.AUTO)
+
+                # State variables for exact Date and Time
                 now_ex_dt = datetime.now()
                 later_ex_dt = now_ex_dt + timedelta(days=7)
 
                 open_date_val = [now_ex_dt.date()]
+                open_time_val = [time(hour=9, minute=0)]
                 close_date_val = [later_ex_dt.date()]
+                close_time_val = [time(hour=17, minute=0)]
 
-                open_btn_text = ft.Text(open_date_val[0].strftime("%b %d, %Y"), size=13, weight=ft.FontWeight.W_600)
-                close_btn_text = ft.Text(close_date_val[0].strftime("%b %d, %Y"), size=13, weight=ft.FontWeight.W_600)
+                open_date_btn_text = ft.Text(open_date_val[0].strftime("%b %d, %Y"), size=12, weight=ft.FontWeight.W_600)
+                open_time_btn_text = ft.Text(open_time_val[0].strftime("%I:%M %p"), size=12, weight=ft.FontWeight.W_600)
+                close_date_btn_text = ft.Text(close_date_val[0].strftime("%b %d, %Y"), size=12, weight=ft.FontWeight.W_600)
+                close_time_btn_text = ft.Text(close_time_val[0].strftime("%I:%M %p"), size=12, weight=ft.FontWeight.W_600)
 
-                def on_open_date_change(e):
-                    if e.control.value:
+                def on_open_date_change(e=None):
+                    if e and getattr(e, "control", None) and e.control.value:
                         val = e.control.value
                         open_date_val[0] = val.date() if isinstance(val, datetime) else val
-                        open_btn_text.value = open_date_val[0].strftime("%b %d, %Y")
+                        open_date_btn_text.value = open_date_val[0].strftime("%b %d, %Y")
                         page.update()
 
-                def on_close_date_change(e):
-                    if e.control.value:
+                def on_open_time_change(e=None):
+                    if e and getattr(e, "control", None) and e.control.value:
+                        open_time_val[0] = e.control.value
+                        open_time_btn_text.value = open_time_val[0].strftime("%I:%M %p")
+                        page.update()
+
+                def on_close_date_change(e=None):
+                    if e and getattr(e, "control", None) and e.control.value:
                         val = e.control.value
                         close_date_val[0] = val.date() if isinstance(val, datetime) else val
-                        close_btn_text.value = close_date_val[0].strftime("%b %d, %Y")
+                        close_date_btn_text.value = close_date_val[0].strftime("%b %d, %Y")
                         page.update()
 
-                open_picker = ft.DatePicker(
+                def on_close_time_change(e=None):
+                    if e and getattr(e, "control", None) and e.control.value:
+                        close_time_val[0] = e.control.value
+                        close_time_btn_text.value = close_time_val[0].strftime("%I:%M %p")
+                        page.update()
+
+                open_date_picker = ft.DatePicker(
                     value=now_ex_dt,
                     first_date=now_ex_dt - timedelta(days=365),
                     last_date=now_ex_dt + timedelta(days=365 * 5),
                     on_change=on_open_date_change,
                 )
-                close_picker = ft.DatePicker(
+                open_time_picker = ft.TimePicker(
+                    value=open_time_val[0],
+                    help_text="Select Exam Opening Time",
+                    on_change=on_open_time_change,
+                )
+                close_date_picker = ft.DatePicker(
                     value=later_ex_dt,
                     first_date=now_ex_dt - timedelta(days=365),
                     last_date=now_ex_dt + timedelta(days=365 * 5),
                     on_change=on_close_date_change,
                 )
-                page.overlay.extend([open_picker, close_picker])
+                close_time_picker = ft.TimePicker(
+                    value=close_time_val[0],
+                    help_text="Select Exam Closing Time",
+                    on_change=on_close_time_change,
+                )
+                page.overlay.extend([open_date_picker, open_time_picker, close_date_picker, close_time_picker])
 
-                def open_start_exam_picker(_):
-                    open_picker.open = True
+                def open_start_date_dlg(_=None):
+                    open_date_picker.open = True
                     page.update()
 
-                def open_close_exam_picker(_):
-                    close_picker.open = True
+                def open_start_time_dlg(_=None):
+                    open_time_picker.open = True
                     page.update()
 
-                open_picker_btn = ft.Container(
-                    padding=ft.Padding.symmetric(horizontal=12, vertical=10),
-                    border_radius=10,
-                    border=ft.Border.all(1, ft.Colors.with_opacity(0.18, ft.Colors.ON_SURFACE)),
-                    bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
-                    ink=True,
-                    on_click=open_start_exam_picker,
-                    content=ft.Row([
-                        ft.Icon(ft.Icons.CALENDAR_MONTH_ROUNDED, size=18, color=theme_color),
-                        ft.Column([
-                            ft.Text("Opens Date", size=10, color=ft.Colors.ON_SURFACE_VARIANT),
-                            open_btn_text,
-                        ], spacing=1, expand=True),
+                def open_close_date_dlg(_=None):
+                    close_date_picker.open = True
+                    page.update()
+
+                def open_close_time_dlg(_=None):
+                    close_time_picker.open = True
+                    page.update()
+
+                # Card for Assessment Window: Opens At
+                opens_card = ft.Container(
+                    padding=12,
+                    border_radius=12,
+                    bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.GREEN_700),
+                    border=ft.Border.all(1, ft.Colors.with_opacity(0.2, ft.Colors.GREEN_700)),
+                    content=ft.Column([
+                        ft.Row([
+                            ft.Icon(ft.Icons.LOCK_OPEN_ROUNDED, size=16, color=ft.Colors.GREEN_700),
+                            ft.Text("Exam Window Opens", size=12, weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_800),
+                        ], spacing=6),
+                        ft.Row([
+                            ft.Container(
+                                padding=ft.Padding.symmetric(horizontal=10, vertical=8),
+                                border_radius=8,
+                                border=ft.Border.all(1, ft.Colors.with_opacity(0.18, ft.Colors.ON_SURFACE)),
+                                bgcolor=ft.Colors.SURFACE,
+                                ink=True,
+                                on_click=open_start_date_dlg,
+                                expand=3,
+                                content=ft.Row([
+                                    ft.Icon(ft.Icons.CALENDAR_MONTH_ROUNDED, size=16, color=theme_color),
+                                    ft.Column([
+                                        ft.Text("Date", size=9, color=ft.Colors.ON_SURFACE_VARIANT),
+                                        open_date_btn_text,
+                                    ], spacing=1, expand=True),
+                                ], spacing=6),
+                            ),
+                            ft.Container(
+                                padding=ft.Padding.symmetric(horizontal=10, vertical=8),
+                                border_radius=8,
+                                border=ft.Border.all(1, ft.Colors.with_opacity(0.18, ft.Colors.ON_SURFACE)),
+                                bgcolor=ft.Colors.SURFACE,
+                                ink=True,
+                                on_click=open_start_time_dlg,
+                                expand=2,
+                                content=ft.Row([
+                                    ft.Icon(ft.Icons.ACCESS_TIME_ROUNDED, size=16, color=theme_color),
+                                    ft.Column([
+                                        ft.Text("Time", size=9, color=ft.Colors.ON_SURFACE_VARIANT),
+                                        open_time_btn_text,
+                                    ], spacing=1, expand=True),
+                                ], spacing=6),
+                            ),
+                        ], spacing=8),
                     ], spacing=8),
                 )
 
-                close_picker_btn = ft.Container(
-                    padding=ft.Padding.symmetric(horizontal=12, vertical=10),
-                    border_radius=10,
-                    border=ft.Border.all(1, ft.Colors.with_opacity(0.18, ft.Colors.ON_SURFACE)),
-                    bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
-                    ink=True,
-                    on_click=open_close_exam_picker,
-                    content=ft.Row([
-                        ft.Icon(ft.Icons.EVENT_BUSY_ROUNDED, size=18, color=theme_color),
-                        ft.Column([
-                            ft.Text("Closes Date", size=10, color=ft.Colors.ON_SURFACE_VARIANT),
-                            close_btn_text,
-                        ], spacing=1, expand=True),
+                # Card for Assessment Window: Closes At
+                closes_card = ft.Container(
+                    padding=12,
+                    border_radius=12,
+                    bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.RED_700),
+                    border=ft.Border.all(1, ft.Colors.with_opacity(0.2, ft.Colors.RED_700)),
+                    content=ft.Column([
+                        ft.Row([
+                            ft.Icon(ft.Icons.LOCK_CLOCK_ROUNDED, size=16, color=ft.Colors.RED_700),
+                            ft.Text("Exam Window Closes", size=12, weight=ft.FontWeight.BOLD, color=ft.Colors.RED_800),
+                        ], spacing=6),
+                        ft.Row([
+                            ft.Container(
+                                padding=ft.Padding.symmetric(horizontal=10, vertical=8),
+                                border_radius=8,
+                                border=ft.Border.all(1, ft.Colors.with_opacity(0.18, ft.Colors.ON_SURFACE)),
+                                bgcolor=ft.Colors.SURFACE,
+                                ink=True,
+                                on_click=open_close_date_dlg,
+                                expand=3,
+                                content=ft.Row([
+                                    ft.Icon(ft.Icons.EVENT_BUSY_ROUNDED, size=16, color=theme_color),
+                                    ft.Column([
+                                        ft.Text("Date", size=9, color=ft.Colors.ON_SURFACE_VARIANT),
+                                        close_date_btn_text,
+                                    ], spacing=1, expand=True),
+                                ], spacing=6),
+                            ),
+                            ft.Container(
+                                padding=ft.Padding.symmetric(horizontal=10, vertical=8),
+                                border_radius=8,
+                                border=ft.Border.all(1, ft.Colors.with_opacity(0.18, ft.Colors.ON_SURFACE)),
+                                bgcolor=ft.Colors.SURFACE,
+                                ink=True,
+                                on_click=open_close_time_dlg,
+                                expand=2,
+                                content=ft.Row([
+                                    ft.Icon(ft.Icons.ACCESS_TIME_ROUNDED, size=16, color=theme_color),
+                                    ft.Column([
+                                        ft.Text("Time", size=9, color=ft.Colors.ON_SURFACE_VARIANT),
+                                        close_time_btn_text,
+                                    ], spacing=1, expand=True),
+                                ], spacing=6),
+                            ),
+                        ], spacing=8),
                     ], spacing=8),
                 )
 
-                attempts_field = ft.TextField(label="Max Attempts", value="1", **_INPUT)
                 security_dd = ft.Dropdown(
                     label="Anti-Cheat Security Policy *",
                     options=[
-                        ft.dropdown.Option("monitored", "Monitored Mode (2 Warnings before auto-submit)"),
-                        ft.dropdown.Option("strict", "Strict Mode (Immediate auto-submit on app/window switch)"),
-                        ft.dropdown.Option("relaxed", "Relaxed Mode (Practice / no auto-submit)"),
+                        ft.dropdown.Option("monitored", "🛡️ Monitored Mode (2 Warnings before auto-submit)"),
+                        ft.dropdown.Option("strict", "🔒 Strict Mode (Immediate auto-submit on app/window switch)"),
+                        ft.dropdown.Option("relaxed", "🟢 Relaxed Mode (Practice / no auto-submit)"),
                     ],
                     value="monitored",
                     border_radius=10,
                 )
-                shuffle_chk = ft.Checkbox(label="Shuffle Question Order", value=True)
-                immediate_chk = ft.Checkbox(label="Show Immediate Results to Candidate", value=True)
+                shuffle_chk = ft.Checkbox(label="Shuffle Questions for Each Candidate", value=True)
+                immediate_chk = ft.Checkbox(label="Show Immediate Results & Explanations upon Submission", value=True)
 
                 async def do_schedule(e=None):
                     if not title_field.value or not title_field.value.strip():
                         show_snack("Exam title is required.", is_error=True)
                         return
 
-                    o_dt = datetime.combine(open_date_val[0], datetime.min.time()).replace(tzinfo=timezone.utc)
-                    c_dt = datetime.combine(close_date_val[0], datetime.max.time()).replace(tzinfo=timezone.utc)
+                    o_dt = datetime.combine(open_date_val[0], open_time_val[0]).replace(tzinfo=timezone.utc)
+                    c_dt = datetime.combine(close_date_val[0], close_time_val[0]).replace(tzinfo=timezone.utc)
 
                     if c_dt <= o_dt:
-                        show_snack("Close date must be after open date.", is_error=True)
+                        show_snack("Closing date and time must be after opening date and time.", is_error=True)
                         return
 
                     payload = {
@@ -1017,22 +1172,37 @@ def build_cohorts_tab(
 
                 dlg = ft.AlertDialog(
                     modal=True,
-                    title=ft.Row([ft.Icon(ft.Icons.TIMER_ROUNDED, color=theme_color, size=22), ft.Text("Schedule Timed Exam", weight=ft.FontWeight.BOLD, size=15)], spacing=8),
+                    title=ft.Row([
+                        ft.Container(
+                            padding=8,
+                            border_radius=10,
+                            bgcolor=ft.Colors.with_opacity(0.12, theme_color),
+                            content=ft.Icon(ft.Icons.TIMER_ROUNDED, color=theme_color, size=22),
+                        ),
+                        ft.Column([
+                            ft.Text("Schedule Timed Assessment", weight=ft.FontWeight.BOLD, size=16),
+                            ft.Text("Configure exact assessment window, duration & proctoring", size=11, color=ft.Colors.ON_SURFACE_VARIANT),
+                        ], spacing=1),
+                    ], spacing=10),
                     content=ft.Container(
-                        width=min(getattr(page, "width", 800) - 32, 500),
-                        height=420,
+                        width=min(getattr(page, "width", 800) - 24, 560),
+                        height=480,
                         content=ft.Column([
                             title_field,
                             inst_field,
+                            opens_card,
+                            closes_card,
+                            ft.Container(height=4),
+                            ft.Text("Test Parameters", size=12, weight=ft.FontWeight.BOLD),
                             ft.Row([
-                                ft.Container(open_picker_btn, expand=True),
-                                ft.Container(close_picker_btn, expand=True),
-                            ], spacing=10),
-                            ft.Row([
-                                ft.Container(dur_field, expand=True),
-                                ft.Container(pass_field, expand=True),
-                                ft.Container(attempts_field, expand=True),
-                            ], spacing=10),
+                                ft.Container(dur_field, expand=2),
+                                ft.Container(pass_field, expand=2),
+                                ft.Container(attempts_field, expand=1),
+                            ], spacing=8),
+                            dur_chips,
+                            pass_chips,
+                            ft.Container(height=4),
+                            ft.Text("Security & Anti-Cheat", size=12, weight=ft.FontWeight.BOLD),
                             security_dd,
                             shuffle_chk,
                             immediate_chk,
@@ -1040,7 +1210,12 @@ def build_cohorts_tab(
                     ),
                     actions=[
                         ft.TextButton("Cancel", on_click=lambda _: page.pop_dialog()),
-                        ft.FilledButton("Schedule Exam", on_click=lambda _: page.run_task(do_schedule), style=ft.ButtonStyle(bgcolor=theme_color)),
+                        ft.FilledButton(
+                            "Schedule Assessment",
+                            icon=ft.Icons.CHECK_ROUNDED,
+                            on_click=lambda _: page.run_task(do_schedule),
+                            style=ft.ButtonStyle(bgcolor=theme_color, padding=ft.Padding.symmetric(horizontal=18, vertical=12)),
+                        ),
                     ],
                 )
                 page.show_dialog(dlg)
@@ -1071,7 +1246,7 @@ def build_cohorts_tab(
             q_list = exam_data.get("questions", [])
 
             # File upload via FilePicker service
-            async def pick_excel_file(e):
+            async def pick_excel_file(e=None):
                 file_picker = ft.FilePicker()
                 result = await file_picker.pick_files(
                     dialog_title="Select Questions Spreadsheet (.xlsx or .csv)",
@@ -1112,7 +1287,7 @@ def build_cohorts_tab(
                 )
                 expl_field = ft.TextField(label="Explanation (optional)", multiline=True, **_INPUT)
 
-                async def do_save_q(e):
+                async def do_save_q(e=None):
                     if not q_text.value or not opt_a.value or not opt_b.value:
                         show_snack("Question and at least Options A and B are required.", is_error=True)
                         return
@@ -1150,7 +1325,7 @@ def build_cohorts_tab(
                 page.show_dialog(add_dlg)
 
             # Template download
-            async def do_download_template(e):
+            async def do_download_template(e=None):
                 csv_text = await get_exam_question_template_csv(token, org_id, c_id)
                 if csv_text:
                     show_snack("Template copied / downloaded.")
@@ -1226,7 +1401,7 @@ def build_cohorts_tab(
             pass_rt = gradebook.get("pass_rate", 0.0)
             top_sc = gradebook.get("top_score", 0.0)
 
-            async def do_export(e):
+            async def do_export(e=None):
                 csv_str = await export_exam_gradebook_csv(token, org_id, c_id, ex_id)
                 show_snack("Gradebook exported successfully.")
 
