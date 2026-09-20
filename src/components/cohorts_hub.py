@@ -1555,16 +1555,21 @@ def build_cohorts_tab(
                 page.show_dialog(add_dlg)
 
             async def pick_excel_file(e=None):
-                file_picker = ft.FilePicker()
-                result = await file_picker.pick_files(
-                    dialog_title="Select Questions Spreadsheet (.xlsx or .csv)",
-                    file_type=ft.FilePickerFileType.CUSTOM,
-                    allowed_extensions=["xlsx", "xls", "csv"],
-                )
-                if result and result.files:
-                    picked = result.files[0]
-                    file_path = picked.path
+                try:
+                    files = await ft.FilePicker().pick_files(
+                        dialog_title="Select Questions Spreadsheet (.xlsx or .csv)",
+                        file_type=ft.FilePickerFileType.CUSTOM,
+                        allowed_extensions=["xlsx", "xls", "csv"],
+                        allow_multiple=False,
+                        with_data=True,
+                    )
+                except Exception as picker_err:
+                    show_snack(f"File picker error: {picker_err}", is_error=True)
+                    return
+                if files:
+                    picked = files[0]
                     b_data = None
+                    file_path = getattr(picked, "path", None)
                     if file_path:
                         try:
                             with open(file_path, "rb") as f:
@@ -1572,7 +1577,7 @@ def build_cohorts_tab(
                         except Exception as ex:
                             show_snack(f"File read error: {ex}", is_error=True)
                             return
-                    elif hasattr(picked, "bytes") and picked.bytes:
+                    if not b_data and hasattr(picked, "bytes") and picked.bytes:
                         b_data = picked.bytes
 
                     if b_data:
