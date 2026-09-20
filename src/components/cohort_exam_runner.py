@@ -87,8 +87,11 @@ def build_cohort_exam_view(
 
     def safe_exit(e=None):
         release_security_locks()
-        if on_exit:
-            on_exit(e)
+        if on_exit and callable(on_exit):
+            try:
+                on_exit(e)
+            except TypeError:
+                on_exit()
 
     # ── Anti-Cheat Focus & Lifecycle Watcher ──────────────────────────────
     def record_violation(v_type: str, details: str):

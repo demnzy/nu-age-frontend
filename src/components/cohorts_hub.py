@@ -815,7 +815,7 @@ def build_cohorts_tab(
                             cohort_id=c_id,
                             exam_id=target_ex_id,
                             token=token,
-                            on_exit=lambda _: page.run_task(open_cohort_details, c_id),
+                            on_exit=lambda *_: page.run_task(open_cohort_details, c_id),
                         )
                         container.content = exam_view
                         page.update()

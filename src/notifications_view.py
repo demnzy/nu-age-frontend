@@ -101,7 +101,7 @@ async def notifications_view(page: ft.Page) -> ft.View:
                                 cohort_id=target_ex.get("cohort_id"),
                                 exam_id=target_ex.get("id"),
                                 token=token,
-                                on_exit=lambda _: page.go("/dashboard"),
+                                on_exit=lambda *_: page.go("/dashboard"),
                             )
                             content_socket.content = exam_runner
                             page.update()
