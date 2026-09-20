@@ -28,6 +28,7 @@ from src.requests.Cohorts import (
     update_cohort_exam,
     delete_cohort_exam,
     add_exam_question,
+    update_exam_question,
     delete_exam_question,
     upload_exam_questions_file,
     get_exam_question_template_csv,
@@ -921,32 +922,6 @@ def build_cohorts_tab(
                     **_INPUT,
                 )
 
-                # Duration preset chips
-                def set_dur(m: int):
-                    dur_field.value = str(m)
-                    page.update()
-
-                dur_chips = ft.Row([
-                    ft.Text("Quick select:", size=11, color=ft.Colors.ON_SURFACE_VARIANT),
-                    ft.TextButton("30m", on_click=lambda _: set_dur(30)),
-                    ft.TextButton("45m", on_click=lambda _: set_dur(45)),
-                    ft.TextButton("60m", on_click=lambda _: set_dur(60)),
-                    ft.TextButton("90m", on_click=lambda _: set_dur(90)),
-                    ft.TextButton("120m", on_click=lambda _: set_dur(120)),
-                ], spacing=4, scroll=ft.ScrollMode.AUTO)
-
-                # Pass mark preset chips
-                def set_pass(p: int):
-                    pass_field.value = str(p)
-                    page.update()
-
-                pass_chips = ft.Row([
-                    ft.Text("Quick select:", size=11, color=ft.Colors.ON_SURFACE_VARIANT),
-                    ft.TextButton("50%", on_click=lambda _: set_pass(50)),
-                    ft.TextButton("60%", on_click=lambda _: set_pass(60)),
-                    ft.TextButton("70%", on_click=lambda _: set_pass(70)),
-                    ft.TextButton("80%", on_click=lambda _: set_pass(80)),
-                ], spacing=4, scroll=ft.ScrollMode.AUTO)
 
                 # State variables for exact Date and Time
                 now_ex_dt = datetime.now()
@@ -1199,8 +1174,6 @@ def build_cohorts_tab(
                                 ft.Container(pass_field, expand=2),
                                 ft.Container(attempts_field, expand=1),
                             ], spacing=8),
-                            dur_chips,
-                            pass_chips,
                             ft.Container(height=4),
                             ft.Text("Security & Anti-Cheat", size=12, weight=ft.FontWeight.BOLD),
                             security_dd,
@@ -1243,9 +1216,344 @@ def build_cohorts_tab(
                 show_snack("Could not load exam questions.", is_error=True)
                 return
 
-            q_list = exam_data.get("questions", [])
+            q_list = list(exam_data.get("questions", []))
+            ex_title = exam_data.get("title", "Assessment")
 
-            # File upload via FilePicker service
+            title_text = ft.Text(f"Question Bank ({len(q_list)})", weight=ft.FontWeight.BOLD, size=15)
+
+            upload_status = ft.Container(
+                visible=False,
+                padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+                border_radius=8,
+                bgcolor=ft.Colors.with_opacity(0.1, theme_color),
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.25, theme_color)),
+                content=ft.Row([
+                    ft.ProgressRing(width=16, height=16, stroke_width=2, color=theme_color),
+                    ft.Text("Uploading and parsing questions spreadsheet...", size=12, color=theme_color, weight=ft.FontWeight.W_500),
+                ], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            )
+
+            questions_list_view = ft.ListView(expand=True, spacing=10)
+            search_query = [""]
+
+            def build_question_cards():
+                cards = []
+                q_text_match = search_query[0].lower().strip()
+                filtered = [
+                    q for q in q_list
+                    if not q_text_match or (
+                        q_text_match in q.get("question_text", "").lower()
+                        or any(q_text_match in str(opt).lower() for opt in q.get("options", []))
+                    )
+                ]
+
+                if not filtered:
+                    empty_msg = "No questions in bank yet. Upload a CSV or add questions below." if not q_list else "No questions match your search."
+                    return [
+                        ft.Container(
+                            alignment=ft.Alignment.CENTER,
+                            padding=30,
+                            content=ft.Column([
+                                ft.Icon(ft.Icons.QUIZ_OUTLINED, size=38, color=ft.Colors.GREY_400),
+                                ft.Text(empty_msg, italic=True, size=12, color=ft.Colors.ON_SURFACE_VARIANT, text_align=ft.TextAlign.CENTER),
+                            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=6),
+                        )
+                    ]
+
+                _opt_letters = ["A", "B", "C", "D", "E", "F"]
+                for idx, q in enumerate(filtered):
+                    q_id = str(q.get("id"))
+                    prompt = q.get("question_text", "")
+                    opts = q.get("options", [])
+                    c_idx = q.get("correct_index", 0)
+                    pts = q.get("points", 1.0)
+                    expl = q.get("explanation")
+
+                    option_rows = []
+                    for o_i, opt_text in enumerate(opts):
+                        is_correct = (o_i == c_idx)
+                        let = _opt_letters[o_i] if o_i < len(_opt_letters) else str(o_i + 1)
+                        if is_correct:
+                            bg_col = ft.Colors.with_opacity(0.12, ft.Colors.GREEN_600)
+                            border_col = ft.Colors.with_opacity(0.4, ft.Colors.GREEN_600)
+                            text_col = ft.Colors.GREEN_700
+                            icon_prefix = ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED, size=14, color=ft.Colors.GREEN_600)
+                        else:
+                            bg_col = ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE)
+                            border_col = ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE)
+                            text_col = ft.Colors.ON_SURFACE
+                            icon_prefix = ft.Container(
+                                width=18, height=18, border_radius=9,
+                                bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
+                                alignment=ft.Alignment.CENTER,
+                                content=ft.Text(let, size=10, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE_VARIANT),
+                            )
+
+                        option_rows.append(
+                            ft.Container(
+                                padding=ft.Padding.symmetric(horizontal=10, vertical=6),
+                                border_radius=8,
+                                bgcolor=bg_col,
+                                border=ft.Border.all(1, border_col),
+                                content=ft.Row([
+                                    icon_prefix,
+                                    ft.Text(f"{let}. {opt_text}", size=12, color=text_col, weight=ft.FontWeight.W_600 if is_correct else ft.FontWeight.NORMAL, expand=True),
+                                    ft.Container(
+                                        padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+                                        border_radius=4,
+                                        bgcolor=ft.Colors.with_opacity(0.2, ft.Colors.GREEN_600),
+                                        content=ft.Text("CORRECT", size=9, weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_800),
+                                        visible=is_correct,
+                                    ),
+                                ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                            )
+                        )
+
+                    expl_block = ft.Container(
+                        visible=bool(expl),
+                        padding=ft.Padding.symmetric(horizontal=10, vertical=6),
+                        border_radius=8,
+                        bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.BLUE_600),
+                        border=ft.Border.all(1, ft.Colors.with_opacity(0.2, ft.Colors.BLUE_600)),
+                        content=ft.Row([
+                            ft.Icon(ft.Icons.INFO_OUTLINE_ROUNDED, size=14, color=ft.Colors.BLUE_600),
+                            ft.Text(f"Explanation: {expl or ''}", size=11, color=ft.Colors.BLUE_800, expand=True),
+                        ], spacing=6, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                    )
+
+                    def make_edit_handler(target_q):
+                        return lambda _: open_edit_q(target_q)
+
+                    def make_delete_handler(target_qid):
+                        return lambda _: page.run_task(delete_q, target_qid)
+
+                    card = ft.Container(
+                        padding=12,
+                        border_radius=10,
+                        bgcolor=ft.Colors.SURFACE,
+                        border=ft.Border.all(1, ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)),
+                        content=ft.Column([
+                            ft.Row([
+                                ft.Row([
+                                    ft.Container(
+                                        padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+                                        border_radius=6,
+                                        bgcolor=ft.Colors.with_opacity(0.12, theme_color),
+                                        content=ft.Text(f"#{idx + 1}", size=11, weight=ft.FontWeight.BOLD, color=theme_color),
+                                    ),
+                                    ft.Container(
+                                        padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+                                        border_radius=6,
+                                        bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
+                                        content=ft.Text(f"{pts} pt{'s' if pts != 1 else ''}", size=11, weight=ft.FontWeight.W_500, color=ft.Colors.ON_SURFACE_VARIANT),
+                                    ),
+                                ], spacing=6, tight=True),
+                                ft.Row([
+                                    ft.IconButton(
+                                        icon=ft.Icons.EDIT_OUTLINED,
+                                        icon_size=17,
+                                        tooltip="Edit Question",
+                                        on_click=make_edit_handler(q),
+                                    ),
+                                    ft.IconButton(
+                                        icon=ft.Icons.DELETE_OUTLINE_ROUNDED,
+                                        icon_size=17,
+                                        icon_color=ft.Colors.RED_500,
+                                        tooltip="Delete Question",
+                                        on_click=make_delete_handler(q_id),
+                                    ),
+                                ], spacing=2, tight=True),
+                            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                            ft.Text(prompt, size=13, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
+                            ft.Column(option_rows, spacing=4),
+                            expl_block,
+                        ], spacing=8),
+                    )
+                    cards.append(card)
+                return cards
+
+            def refresh_ui():
+                questions_list_view.controls = build_question_cards()
+                title_text.value = f"Question Bank ({len(q_list)})"
+                page.update()
+
+            refresh_ui()
+
+            def on_search(e=None):
+                if e and getattr(e, "control", None) and e.control.value is not None:
+                    search_query[0] = e.control.value.strip()
+                    refresh_ui()
+
+            search_bar = ft.TextField(
+                hint_text="Search questions...",
+                prefix_icon=ft.Icons.SEARCH_ROUNDED,
+                height=38,
+                text_size=12,
+                content_padding=ft.Padding.symmetric(horizontal=10, vertical=0),
+                border_radius=8,
+                border_color=ft.Colors.with_opacity(0.15, ft.Colors.ON_SURFACE),
+                on_change=on_search,
+                expand=True,
+            )
+
+            async def delete_q(target_qid):
+                res = await delete_exam_question(token, org_id, c_id, ex_id, target_qid)
+                if "error" in res:
+                    show_snack(res["error"], is_error=True)
+                else:
+                    nonlocal q_list
+                    q_list = [item for item in q_list if str(item.get("id")) != target_qid]
+                    refresh_ui()
+                    show_snack("Question deleted.")
+
+            def open_edit_q(target_q):
+                target_qid = str(target_q.get("id"))
+                opts = list(target_q.get("options", []))
+                prompt_input = ft.TextField(label="Question Prompt *", value=target_q.get("question_text", ""), multiline=True, min_lines=2, **_INPUT)
+                opt_a_in = ft.TextField(label="Option A *", value=opts[0] if len(opts) > 0 else "", **_INPUT)
+                opt_b_in = ft.TextField(label="Option B *", value=opts[1] if len(opts) > 1 else "", **_INPUT)
+                opt_c_in = ft.TextField(label="Option C (optional)", value=opts[2] if len(opts) > 2 else "", **_INPUT)
+                opt_d_in = ft.TextField(label="Option D (optional)", value=opts[3] if len(opts) > 3 else "", **_INPUT)
+
+                curr_c_idx = str(target_q.get("correct_index", 0))
+                ans_dropdown = ft.Dropdown(
+                    label="Correct Option *",
+                    options=[
+                        ft.dropdown.Option("0", "Option A"),
+                        ft.dropdown.Option("1", "Option B"),
+                        ft.dropdown.Option("2", "Option C"),
+                        ft.dropdown.Option("3", "Option D"),
+                    ],
+                    value=curr_c_idx,
+                    border_radius=10,
+                )
+                points_input = ft.TextField(label="Points", value=str(target_q.get("points", 1.0)), keyboard_type=ft.KeyboardType.NUMBER, **_INPUT)
+                expl_input = ft.TextField(label="Explanation (optional)", value=target_q.get("explanation") or "", multiline=True, **_INPUT)
+
+                async def do_save_edit(e=None):
+                    if not prompt_input.value or not opt_a_in.value or not opt_b_in.value:
+                        show_snack("Question and at least Options A and B are required.", is_error=True)
+                        return
+                    new_opts = [opt_a_in.value.strip(), opt_b_in.value.strip()]
+                    if opt_c_in.value and opt_c_in.value.strip():
+                        new_opts.append(opt_c_in.value.strip())
+                    if opt_d_in.value and opt_d_in.value.strip():
+                        new_opts.append(opt_d_in.value.strip())
+
+                    c_val = int(ans_dropdown.value or 0)
+                    if c_val >= len(new_opts):
+                        show_snack("Selected correct answer does not correspond to an available option.", is_error=True)
+                        return
+
+                    payload = {
+                        "question_text": prompt_input.value.strip(),
+                        "options": new_opts,
+                        "correct_index": c_val,
+                        "explanation": expl_input.value.strip() if expl_input.value else None,
+                        "points": float(points_input.value or 1.0),
+                    }
+                    res = await update_exam_question(token, org_id, c_id, ex_id, target_qid, payload)
+                    if "error" in res:
+                        show_snack(res["error"], is_error=True)
+                    else:
+                        page.pop_dialog()
+                        for item in q_list:
+                            if str(item.get("id")) == target_qid:
+                                item["question_text"] = payload["question_text"]
+                                item["options"] = payload["options"]
+                                item["correct_index"] = payload["correct_index"]
+                                item["explanation"] = payload["explanation"]
+                                item["points"] = payload["points"]
+                                break
+                        refresh_ui()
+                        show_snack("Question updated successfully.")
+
+                edit_dlg = ft.AlertDialog(
+                    modal=True,
+                    title=ft.Row([
+                        ft.Icon(ft.Icons.EDIT_ROUNDED, color=theme_color, size=20),
+                        ft.Text("Edit Question", weight=ft.FontWeight.BOLD, size=15),
+                    ], spacing=8),
+                    content=ft.Container(
+                        width=460, height=420,
+                        content=ft.Column([
+                            prompt_input,
+                            opt_a_in,
+                            opt_b_in,
+                            opt_c_in,
+                            opt_d_in,
+                            ans_dropdown,
+                            points_input,
+                            expl_input,
+                        ], scroll=ft.ScrollMode.AUTO, spacing=8),
+                    ),
+                    actions=[
+                        ft.TextButton("Cancel", on_click=lambda _: page.pop_dialog()),
+                        ft.FilledButton("Save Changes", on_click=lambda _: page.run_task(do_save_edit), style=ft.ButtonStyle(bgcolor=theme_color)),
+                    ],
+                )
+                page.show_dialog(edit_dlg)
+
+            def open_add_single_q(e=None):
+                q_text = ft.TextField(label="Question Prompt *", multiline=True, min_lines=2, **_INPUT)
+                opt_a = ft.TextField(label="Option A *", **_INPUT)
+                opt_b = ft.TextField(label="Option B *", **_INPUT)
+                opt_c = ft.TextField(label="Option C (optional)", **_INPUT)
+                opt_d = ft.TextField(label="Option D (optional)", **_INPUT)
+                ans_dd = ft.Dropdown(
+                    label="Correct Option *",
+                    options=[ft.dropdown.Option("0", "Option A"), ft.dropdown.Option("1", "Option B"),
+                             ft.dropdown.Option("2", "Option C"), ft.dropdown.Option("3", "Option D")],
+                    value="0",
+                    border_radius=10,
+                )
+                points_f = ft.TextField(label="Points", value="1.0", keyboard_type=ft.KeyboardType.NUMBER, **_INPUT)
+                expl_field = ft.TextField(label="Explanation (optional)", multiline=True, **_INPUT)
+
+                async def do_save_q(e=None):
+                    if not q_text.value or not opt_a.value or not opt_b.value:
+                        show_snack("Question and at least Options A and B are required.", is_error=True)
+                        return
+                    opts = [opt_a.value.strip(), opt_b.value.strip()]
+                    if opt_c.value and opt_c.value.strip(): opts.append(opt_c.value.strip())
+                    if opt_d.value and opt_d.value.strip(): opts.append(opt_d.value.strip())
+
+                    payload = {
+                        "question_text": q_text.value.strip(),
+                        "options": opts,
+                        "correct_index": int(ans_dd.value or 0),
+                        "explanation": expl_field.value.strip() if expl_field.value else None,
+                        "points": float(points_f.value or 1.0),
+                    }
+                    res = await add_exam_question(token, org_id, c_id, ex_id, payload)
+                    if "error" in res:
+                        show_snack(res["error"], is_error=True)
+                    else:
+                        page.pop_dialog()
+                        fresh = await get_cohort_exam(token, org_id, c_id, ex_id)
+                        if "questions" in fresh:
+                            nonlocal q_list
+                            q_list = list(fresh["questions"])
+                        refresh_ui()
+                        show_snack("Question added!")
+
+                add_dlg = ft.AlertDialog(
+                    modal=True,
+                    title=ft.Row([
+                        ft.Icon(ft.Icons.ADD_CIRCLE_OUTLINE_ROUNDED, color=theme_color, size=20),
+                        ft.Text("Add Single Question", weight=ft.FontWeight.BOLD, size=15),
+                    ], spacing=8),
+                    content=ft.Container(
+                        width=460, height=420,
+                        content=ft.Column([q_text, opt_a, opt_b, opt_c, opt_d, ans_dd, points_f, expl_field], scroll=ft.ScrollMode.AUTO, spacing=8),
+                    ),
+                    actions=[
+                        ft.TextButton("Cancel", on_click=lambda _: page.pop_dialog()),
+                        ft.FilledButton("Save Question", on_click=lambda _: page.run_task(do_save_q), style=ft.ButtonStyle(bgcolor=theme_color)),
+                    ],
+                )
+                page.show_dialog(add_dlg)
+
             async def pick_excel_file(e=None):
                 file_picker = ft.FilePicker()
                 result = await file_picker.pick_files(
@@ -1268,71 +1576,26 @@ def build_cohorts_tab(
                         b_data = picked.bytes
 
                     if b_data:
-                        show_snack("Uploading and parsing question sheet...")
+                        upload_status.visible = True
+                        page.update()
+
                         up_res = await upload_exam_questions_file(token, org_id, c_id, ex_id, b_data, picked.name)
+                        upload_status.visible = False
+
                         if "error" in up_res:
+                            page.update()
                             show_snack(up_res["error"], is_error=True)
                         else:
-                            show_snack(f"Imported {up_res.get('imported_count', 0)} questions!")
-                            page.pop_dialog()
-                            await show_question_bank_modal(ex_id)
+                            fresh = await get_cohort_exam(token, org_id, c_id, ex_id)
+                            if "questions" in fresh:
+                                nonlocal q_list
+                                q_list = list(fresh["questions"])
+                            refresh_ui()
+                            imported_count = up_res.get("imported_count", len(q_list))
+                            show_snack(f"Successfully imported {imported_count} questions into bank!")
                     else:
                         show_snack("No file data could be read.", is_error=True)
 
-            # Manual question add
-            def open_add_single_q(e=None):
-                q_text = ft.TextField(label="Question Prompt *", multiline=True, min_lines=2, **_INPUT)
-                opt_a = ft.TextField(label="Option A *", **_INPUT)
-                opt_b = ft.TextField(label="Option B *", **_INPUT)
-                opt_c = ft.TextField(label="Option C (optional)", **_INPUT)
-                opt_d = ft.TextField(label="Option D (optional)", **_INPUT)
-                ans_dd = ft.Dropdown(
-                    label="Correct Option *",
-                    options=[ft.dropdown.Option("0", "Option A"), ft.dropdown.Option("1", "Option B"),
-                             ft.dropdown.Option("2", "Option C"), ft.dropdown.Option("3", "Option D")],
-                    value="0",
-                    border_radius=10,
-                )
-                expl_field = ft.TextField(label="Explanation (optional)", multiline=True, **_INPUT)
-
-                async def do_save_q(e=None):
-                    if not q_text.value or not opt_a.value or not opt_b.value:
-                        show_snack("Question and at least Options A and B are required.", is_error=True)
-                        return
-                    opts = [opt_a.value.strip(), opt_b.value.strip()]
-                    if opt_c.value and opt_c.value.strip(): opts.append(opt_c.value.strip())
-                    if opt_d.value and opt_d.value.strip(): opts.append(opt_d.value.strip())
-
-                    payload = {
-                        "question_text": q_text.value.strip(),
-                        "options": opts,
-                        "correct_index": int(ans_dd.value or 0),
-                        "explanation": expl_field.value.strip() if expl_field.value else None,
-                        "points": 1.0,
-                    }
-                    res = await add_exam_question(token, org_id, c_id, ex_id, payload)
-                    if "error" in res:
-                        show_snack(res["error"], is_error=True)
-                    else:
-                        show_snack("Question added!")
-                        page.pop_dialog()
-                        await show_question_bank_modal(ex_id)
-
-                add_dlg = ft.AlertDialog(
-                    modal=True,
-                    title=ft.Text("Add Single Question", weight=ft.FontWeight.BOLD, size=15),
-                    content=ft.Container(
-                        width=420, height=380,
-                        content=ft.Column([q_text, opt_a, opt_b, opt_c, opt_d, ans_dd, expl_field], scroll=ft.ScrollMode.AUTO, spacing=8),
-                    ),
-                    actions=[
-                        ft.TextButton("Cancel", on_click=lambda _: page.pop_dialog()),
-                        ft.FilledButton("Save Question", on_click=lambda _: page.run_task(do_save_q), style=ft.ButtonStyle(bgcolor=theme_color)),
-                    ],
-                )
-                page.show_dialog(add_dlg)
-
-            # Template download
             async def do_download_template(e=None):
                 csv_text = await get_exam_question_template_csv(token, org_id, c_id)
                 if not csv_text or not csv_text.strip():
@@ -1361,55 +1624,39 @@ def build_cohorts_tab(
                 else:
                     show_snack("Template CSV copied to clipboard!")
 
-            q_tiles = []
-            for idx, q in enumerate(q_list):
-                q_id = str(q["id"])
-                c_idx = q.get("correct_index", 0)
-                opts = q.get("options", [])
-                correct_str = opts[c_idx] if c_idx < len(opts) else "—"
-
-                def delete_q(target_qid):
-                    async def _do(_):
-                        await delete_exam_question(token, org_id, c_id, ex_id, target_qid)
-                        page.pop_dialog()
-                        await show_question_bank_modal(ex_id)
-                    return _do
-
-                q_tiles.append(
-                    ft.Container(
-                        padding=10, border_radius=8, bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
-                        content=ft.Row([
-                            ft.Column([
-                                ft.Text(f"Q{idx + 1}: {q.get('question_text')}", size=12, weight=ft.FontWeight.BOLD),
-                                ft.Text(f"Correct: {correct_str} · ({len(opts)} options)", size=11, color=ft.Colors.GREEN_700),
-                            ], spacing=2, expand=True),
-                            ft.IconButton(ft.Icons.DELETE_OUTLINE_ROUNDED, icon_size=16, icon_color=ft.Colors.RED_500, on_click=delete_q(q_id)),
-                        ], spacing=8),
-                    )
-                )
-
             q_bank_dlg = ft.AlertDialog(
                 modal=True,
                 title=ft.Row([
-                    ft.Icon(ft.Icons.QUIZ_ROUNDED, color=theme_color, size=20),
-                    ft.Text(f"Question Bank ({len(q_list)})", weight=ft.FontWeight.BOLD, size=15),
-                ], spacing=8),
+                    ft.Icon(ft.Icons.QUIZ_ROUNDED, color=theme_color, size=22),
+                    ft.Column([
+                        title_text,
+                        ft.Text(f"Exam: {ex_title}", size=11, color=ft.Colors.ON_SURFACE_VARIANT),
+                    ], spacing=1, expand=True),
+                ], spacing=10),
                 content=ft.Container(
-                    width=min(getattr(page, "width", 800) - 32, 520),
-                    height=440,
+                    width=min(getattr(page, "width", 800) - 24, 620),
+                    height=520,
                     content=ft.Column([
                         ft.Row([
                             ft.OutlinedButton("Download Template", icon=ft.Icons.DOWNLOAD_ROUNDED, on_click=lambda e: page.run_task(do_download_template, e)),
-                            ft.FilledButton("Bulk Upload Excel/CSV", icon=ft.Icons.UPLOAD_FILE_ROUNDED,
-                                            style=ft.ButtonStyle(bgcolor=ft.Colors.DEEP_PURPLE_500),
-                                            on_click=lambda e: page.run_task(pick_excel_file, e)),
-                        ], spacing=8),
-                        ft.FilledButton("+ Add Single Question", icon=ft.Icons.ADD_ROUNDED,
-                                        style=ft.ButtonStyle(bgcolor=theme_color),
-                                        on_click=open_add_single_q),
+                            ft.FilledButton(
+                                "Bulk Upload Excel/CSV",
+                                icon=ft.Icons.UPLOAD_FILE_ROUNDED,
+                                style=ft.ButtonStyle(bgcolor=ft.Colors.DEEP_PURPLE_500),
+                                on_click=lambda e: page.run_task(pick_excel_file, e),
+                            ),
+                            ft.FilledButton(
+                                "+ Add Question",
+                                icon=ft.Icons.ADD_ROUNDED,
+                                style=ft.ButtonStyle(bgcolor=theme_color),
+                                on_click=open_add_single_q,
+                            ),
+                        ], spacing=8, scroll=ft.ScrollMode.AUTO),
+                        upload_status,
+                        search_bar,
                         ft.Divider(height=1),
-                        ft.Column(q_tiles if q_tiles else [ft.Text("No questions in bank yet.", italic=True, size=12)], scroll=ft.ScrollMode.AUTO),
-                    ], spacing=10),
+                        questions_list_view,
+                    ], spacing=10, expand=True),
                 ),
                 actions=[
                     ft.TextButton("Close", on_click=lambda _: page.pop_dialog()),

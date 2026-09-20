@@ -202,6 +202,22 @@ async def add_exam_question(token: str, org_id: str, cohort_id: str, exam_id: st
         return {"error": str(e)}
 
 
+async def update_exam_question(token: str, org_id: str, cohort_id: str, exam_id: str, q_id: str, payload: dict) -> dict:
+    url = f"{api_url}/organisations/{org_id}/cohorts/{cohort_id}/exams/{exam_id}/questions/{q_id}"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
+            res = await client.put(url, headers=headers, json=payload)
+            if res.status_code == 200:
+                return res.json()
+            try:
+                return {"error": res.json().get("detail", res.text)}
+            except Exception:
+                return {"error": res.text}
+    except Exception as e:
+        return {"error": str(e)}
+
+
 async def delete_exam_question(token: str, org_id: str, cohort_id: str, exam_id: str, q_id: str) -> dict:
     url = f"{api_url}/organisations/{org_id}/cohorts/{cohort_id}/exams/{exam_id}/questions/{q_id}"
     headers = {"Authorization": f"Bearer {token}"}
@@ -238,12 +254,18 @@ async def get_exam_question_template_csv(token: str, org_id: str, cohort_id: str
     try:
         async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
             res = await client.get(url, headers=headers)
-            if res.status_code == 200:
+            if res.status_code == 200 and res.text.strip():
                 return res.text
-            return ""
-    except Exception as e:
-        print(f"template download error: {e}")
-        return ""
+    except Exception:
+        pass
+    
+    # Standalone robust fallback
+    return (
+        "Question,Option A,Option B,Option C,Option D,Correct Answer,Explanation,Points\n"
+        "What is the output of print(type([])) in Python?,<class 'list'>,<class 'dict'>,<class 'tuple'>,<class 'set'>,A,Square brackets define a list.,1.0\n"
+        "Which HTTP status code signifies that a resource was successfully created?,201 Created,200 OK,204 No Content,400 Bad Request,A,201 Created is the standard REST status.,1.0\n"
+        "What data structure operates on a Last-In First-Out (LIFO) basis?,Stack,Queue,Array,Linked List,A,A stack operates on LIFO order.,1.0\n"
+    )
 
 
 # ── Candidate Flow ───────────────────────────────────────────────────────
