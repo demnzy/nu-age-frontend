@@ -1256,20 +1256,28 @@ def build_cohorts_tab(
                 if result and result.files:
                     picked = result.files[0]
                     file_path = picked.path
+                    b_data = None
                     if file_path:
                         try:
                             with open(file_path, "rb") as f:
                                 b_data = f.read()
-                            show_snack("Uploading and parsing question sheet...")
-                            up_res = await upload_exam_questions_file(token, org_id, c_id, ex_id, b_data, picked.name)
-                            if "error" in up_res:
-                                show_snack(up_res["error"], is_error=True)
-                            else:
-                                show_snack(f"Imported {up_res.get('imported_count', 0)} questions!")
-                                page.pop_dialog()
-                                await show_question_bank_modal(ex_id)
                         except Exception as ex:
                             show_snack(f"File read error: {ex}", is_error=True)
+                            return
+                    elif hasattr(picked, "bytes") and picked.bytes:
+                        b_data = picked.bytes
+
+                    if b_data:
+                        show_snack("Uploading and parsing question sheet...")
+                        up_res = await upload_exam_questions_file(token, org_id, c_id, ex_id, b_data, picked.name)
+                        if "error" in up_res:
+                            show_snack(up_res["error"], is_error=True)
+                        else:
+                            show_snack(f"Imported {up_res.get('imported_count', 0)} questions!")
+                            page.pop_dialog()
+                            await show_question_bank_modal(ex_id)
+                    else:
+                        show_snack("No file data could be read.", is_error=True)
 
             # Manual question add
             def open_add_single_q(e=None):
@@ -1327,10 +1335,31 @@ def build_cohorts_tab(
             # Template download
             async def do_download_template(e=None):
                 csv_text = await get_exam_question_template_csv(token, org_id, c_id)
-                if csv_text:
-                    show_snack("Template copied / downloaded.")
+                if not csv_text or not csv_text.strip():
+                    show_snack("Could not fetch template from server.", is_error=True)
+                    return
+
+                saved_to_disk = False
+                try:
+                    import os
+                    dl_dir = os.path.join(os.path.expanduser("~"), "Downloads")
+                    if os.path.exists(dl_dir):
+                        target_file = os.path.join(dl_dir, "exam_questions_template.csv")
+                        with open(target_file, "w", encoding="utf-8") as f:
+                            f.write(csv_text)
+                        saved_to_disk = True
+                except Exception:
+                    pass
+
+                try:
+                    await ft.Clipboard().set(csv_text)
+                except Exception:
+                    pass
+
+                if saved_to_disk:
+                    show_snack("Template saved to Downloads/exam_questions_template.csv & copied to clipboard!")
                 else:
-                    show_snack("Could not fetch template.", is_error=True)
+                    show_snack("Template CSV copied to clipboard!")
 
             q_tiles = []
             for idx, q in enumerate(q_list):
