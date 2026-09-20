@@ -835,7 +835,7 @@ async def dashboard_view(page: ft.Page):
                             content=ft.Column([
                                 ft.Icon(ft.Icons.ERROR_OUTLINE_ROUNDED, size=40, color=ft.Colors.RED_500),
                                 ft.Text(exam_payload["error"], size=13, color=ft.Colors.RED_700),
-                                ft.FilledButton("Return to Dashboard", on_click=lambda *_: page.run_task(_load_data)),
+                                ft.FilledButton("Return to Dashboard", on_click=lambda *_: page.run_task(fetch_dashboard_data)),
                             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10),
                         )
                         page.update()
@@ -848,7 +848,7 @@ async def dashboard_view(page: ft.Page):
                         cohort_id=ex_cohort_id,
                         exam_id=ex_id,
                         token=token,
-                        on_exit=lambda *_: page.run_task(_load_data),
+                        on_exit=lambda *_: page.run_task(fetch_dashboard_data),
                     )
                     content_socket.content = exam_view
                     page.update()

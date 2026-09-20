@@ -268,6 +268,35 @@ class AdaptiveVideoPlayer(ft.Container):
                 except Exception:
                     self._mount_offline_card()
 
+        thumbnail_url = get_youtube_thumbnail_url(self._video_id, quality="maxres") if self._video_id else ""
+
+        poster_layer = ft.Container(
+            left=0,
+            top=0,
+            right=0,
+            bottom=0,
+            content=ft.Image(
+                src=thumbnail_url,
+                fit=ft.BoxFit.COVER,
+                opacity=0.20,
+            ) if thumbnail_url else None,
+        )
+
+        overlay_tint = ft.Container(
+            left=0,
+            top=0,
+            right=0,
+            bottom=0,
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment.TOP_CENTER,
+                end=ft.Alignment.BOTTOM_CENTER,
+                colors=[
+                    ft.Colors.with_opacity(0.50, ft.Colors.BLACK),
+                    ft.Colors.with_opacity(0.90, ft.Colors.BLACK),
+                ],
+            ),
+        )
+
         top_bar = ft.Container(
             padding=ft.Padding.only(left=12, top=10, right=12),
             content=ft.Row(
