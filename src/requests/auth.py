@@ -187,7 +187,7 @@ async def verify_password(email: str, new_password: str, otp: str):
 
 async def refresh_access_token_request(refresh_token: str):
     limits = httpx.Timeout(connect=3.5, read=10.0, write=10.0, pool=5.0)
-    async with httpx.AsyncClient(timeout=limits) as client:
+    async with httpx.AsyncClient(timeout=limits, verify=ssl_context) as client:
         resp = await client.post(
             f"{api_url}/users/auth/refresh",
             json={"refresh_token": refresh_token},
@@ -196,7 +196,7 @@ async def refresh_access_token_request(refresh_token: str):
 
 async def logout_request(refresh_token: str):
     limits = httpx.Timeout(connect=3.5, read=5.0, write=5.0, pool=3.0)
-    async with httpx.AsyncClient(timeout=limits) as client:
+    async with httpx.AsyncClient(timeout=limits, verify=ssl_context) as client:
         try:
             resp = await client.post(
                 f"{api_url}/users/auth/logout",

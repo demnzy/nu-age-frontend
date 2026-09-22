@@ -261,10 +261,10 @@ async def get_exam_question_template_csv(token: str, org_id: str, cohort_id: str
     
     # Standalone robust fallback
     return (
-        "Question,Option A,Option B,Option C,Option D,Correct Answer,Explanation,Points\n"
-        "What is the output of print(type([])) in Python?,<class 'list'>,<class 'dict'>,<class 'tuple'>,<class 'set'>,A,Square brackets define a list.,1.0\n"
-        "Which HTTP status code signifies that a resource was successfully created?,201 Created,200 OK,204 No Content,400 Bad Request,A,201 Created is the standard REST status.,1.0\n"
-        "What data structure operates on a Last-In First-Out (LIFO) basis?,Stack,Queue,Array,Linked List,A,A stack operates on LIFO order.,1.0\n"
+        "Scenario (Optional),Question,Option A,Option B,Option C,Option D,Correct Answer,Explanation,Points\n"
+        "\"A 45-year-old patient presents to the clinic with sudden onset severe retrosternal chest pain radiating to the left jaw. Blood pressure is 85/50 mmHg, heart rate is 112 bpm, and ECG reveals ST-elevation in leads II, III, and aVF.\",Which coronary artery is most likely occluded based on the clinical presentation and ECG findings?,Right Coronary Artery (RCA),Left Anterior Descending (LAD),Left Circumflex (LCx),Left Main Coronary Artery,A,\"ST-elevation in leads II, III, and aVF indicates an inferior wall myocardial infarction, typically supplied by the RCA.\",2.0\n"
+        ",What is the primary time complexity of binary search on a sorted array of length N?,O(log N),O(N),O(1),O(N log N),A,Binary search repeatedly divides the search interval in half.,1.0\n"
+        "\"A financial analyst is evaluating two mutually exclusive projects with cost of capital 10%. Project Alpha NPV is $45k and IRR is 18%. Project Beta NPV is $52k and IRR is 14%.\",Which project should the firm select and why?,Project Beta because it yields the higher Net Present Value (NPV),Project Alpha because it has a superior Internal Rate of Return (IRR),Both projects simultaneously,Neither project,A,NPV is the preferred metric for mutually exclusive projects as it maximizes total value.,1.5\n"
     )
 
 

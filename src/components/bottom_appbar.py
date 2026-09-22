@@ -1,9 +1,9 @@
 import flet as ft
+from src.components.notifications_drawer import NotificationManager
 
 
 class PersistentBottomAppBar:
     """Persistent, stateful bottom navigation bar that updates active indicators in-place
-
     without re-creating controls or triggering Scaffold transitions.
     """
 
@@ -11,6 +11,8 @@ class PersistentBottomAppBar:
         self.page = page
         self.current_route = page.route or "/dashboard"
         self.items = []
+        self._notif_badge_container = None
+        self._notif_badge_text = None
         self._nav_row = ft.Row(
             alignment=ft.MainAxisAlignment.SPACE_AROUND,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -29,6 +31,10 @@ class PersistentBottomAppBar:
             ),
         )
         self.refresh()
+        try:
+            NotificationManager.subscribe(self._update_unread_badge)
+        except Exception:
+            pass
 
     def _is_match(self, item_route: str, route: str) -> bool:
         if not route:
@@ -47,6 +53,16 @@ class PersistentBottomAppBar:
         if item_route == "/profile":
             return clean in ("/profile", "/edit-profile")
         return clean == item_route
+
+    def _update_unread_badge(self):
+        try:
+            count = NotificationManager.get_unread_count()
+            if self._notif_badge_container and self._notif_badge_text:
+                self._notif_badge_text.value = str(count) if count <= 99 else "99+"
+                self._notif_badge_container.visible = (count > 0)
+                self.page.update()
+        except Exception:
+            pass
 
     def _build_nav_item(self, icon_name, route, is_rotated=False):
         is_active = self._is_match(route, self.current_route)
@@ -82,11 +98,38 @@ class PersistentBottomAppBar:
             weight=ft.FontWeight.BOLD if is_active else ft.FontWeight.NORMAL,
         )
         self.items.append((route, btn, txt))
+
+        if route == "/notifications":
+            unread_cnt = NotificationManager.get_unread_count()
+            self._notif_badge_text = ft.Text(
+                str(unread_cnt) if unread_cnt <= 99 else "99+",
+                size=9,
+                weight=ft.FontWeight.BOLD,
+                color=ft.Colors.WHITE,
+            )
+            self._notif_badge_container = ft.Container(
+                content=self._notif_badge_text,
+                bgcolor=ft.Colors.RED_600,
+                border_radius=10,
+                padding=ft.Padding.symmetric(horizontal=4, vertical=1),
+                top=1,
+                right=1,
+                visible=(unread_cnt > 0),
+            )
+            btn_widget = ft.Stack(
+                controls=[btn, self._notif_badge_container],
+                width=42,
+                height=40,
+                alignment=ft.Alignment.CENTER,
+            )
+        else:
+            btn_widget = btn
+
         return ft.Column(
             spacing=0,
             tight=True,
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            controls=[btn, txt],
+            controls=[btn_widget, txt],
         )
 
     def refresh(self):
@@ -110,6 +153,13 @@ class PersistentBottomAppBar:
             self._build_nav_item(ft.Icons.ACCOUNT_CIRCLE, "/profile")
         )
         self._nav_row.controls = nav_controls
+        self._update_unread_badge()
+        if self.current_route:
+            self.set_active_route(self.current_route)
+        try:
+            self.bar.update()
+        except Exception:
+            pass
 
     def set_active_route(self, new_route: str):
         self.current_route = new_route

@@ -12,10 +12,9 @@ from src.requests.enrollments import get_enrollments
 from src.requests.chats import get_all_users
 from src.utils.quotes import get_random_quote, get_random_greeting, get_random_tip
 from src.utils.db_manager import get_weekly_activity, log_daily_activity
+from src.requests.Cohorts import get_learner_cohorts
+from src.components.learner_cohorts_hub import open_learner_cohorts_modal
 from src.local_db import has_any_downloaded_courses
-from src.components.notifications_drawer import get_notification_bell, NotificationManager
-from src.requests.Cohorts import get_learner_cohorts, start_cohort_exam
-from src.components.cohort_exam_runner import build_cohort_exam_view
 
 # ─────────────────────────────────────────────────────────────────────────────
 # HELPERS
@@ -256,44 +255,6 @@ async def dashboard_view(page: ft.Page):
                     tip_container,
                 ],
             )
-
-    notif_bell = get_notification_bell(page, on_open=lambda: page.go("/notifications"))
-
-    dashboard_top_bar = ft.Container(
-        padding=ft.Padding.only(left=20, right=16, top=10, bottom=4),
-        content=ft.Row(
-            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            controls=[
-                ft.Row(
-                    spacing=8,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                    controls=[
-                        ft.Container(
-                            width=32,
-                            height=32,
-                            border_radius=8,
-                            bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY),
-                            alignment=ft.Alignment.CENTER,
-                            content=ft.Icon(ft.Icons.SCHOOL_ROUNDED, size=18, color=ft.Colors.PRIMARY),
-                        ),
-                        ft.Text(
-                            "NU-AGE",
-                            size=18,
-                            weight=ft.FontWeight.BOLD,
-                            color=ft.Colors.PRIMARY,
-                            style=ft.TextStyle(letter_spacing=0.8),
-                        ),
-                    ],
-                ),
-                ft.Container(
-                    border_radius=22,
-                    bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
-                    content=notif_bell,
-                ),
-            ],
-        ),
-    )
 
     header = ft.Container(
         bgcolor=ft.Colors.SECONDARY,  # Matches theme secondary color (#37BF14) & hero_graduation.png background
@@ -781,135 +742,23 @@ async def dashboard_view(page: ft.Page):
         active_count = len(enrolled_list)
         finished_count = sum(1 for c in enrolled_list if c.get("progress", 0.0) >= 100)
 
-        # ── Fetch Learner Cohorts & Active Urgent Exams ───────────────────────
-        learner_cohorts_res = {"cohorts": [], "active_urgent_exams": []}
+        # ── Fetch Learner Cohorts ────────────────────────────────────────────
+        learner_cohorts_res = {"cohorts": []}
         try:
             learner_cohorts_res = await asyncio.wait_for(get_learner_cohorts(token), timeout=4.0)
             if not isinstance(learner_cohorts_res, dict):
-                learner_cohorts_res = {"cohorts": [], "active_urgent_exams": []}
+                learner_cohorts_res = {"cohorts": []}
         except Exception:
             pass
 
-        active_exams = learner_cohorts_res.get("active_urgent_exams", [])
         my_cohorts = learner_cohorts_res.get("cohorts", [])
-
-        # Sync notifications for active/urgent exams
-        for ex in active_exams:
-            if ex.get("status") == "OPEN_NOW":
-                NotificationManager.add(
-                    title=f"Assessment Open: {ex.get('title')}",
-                    body=f"{ex.get('org_name')} assessment is live now ({ex.get('duration_minutes')}m).",
-                    category="exams",
-                    icon=ft.Icons.TIMER_ROUNDED,
-                )
-
-        # ── Urgent Assessment Banner Card ─────────────────────────────────────
-        urgent_assessment_card = ft.Container()
-        if active_exams:
-            primary_exam = active_exams[0]
-            is_open = primary_exam.get("status") == "OPEN_NOW"
-            ex_title = primary_exam.get("title", "Assessment")
-            ex_org = primary_exam.get("org_name", "Training Organisation")
-            ex_dur = primary_exam.get("duration_minutes", 60)
-            ex_org_id = primary_exam.get("org_id")
-            ex_cohort_id = primary_exam.get("cohort_id")
-            ex_id = primary_exam.get("id")
-
-            def launch_exam_from_banner(_):
-                async def _launch():
-                    content_socket.content = ft.Container(
-                        alignment=ft.Alignment.CENTER,
-                        padding=40,
-                        content=ft.Column([
-                            ft.ProgressRing(color=ft.Colors.PRIMARY, width=36, height=36),
-                            ft.Text("Setting up secure testing environment...", size=14, weight=ft.FontWeight.BOLD),
-                        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, tight=True, spacing=12),
-                    )
-                    page.update()
-
-                    exam_payload = await start_cohort_exam(token, ex_org_id, ex_cohort_id, ex_id)
-                    if "error" in exam_payload:
-                        content_socket.content = ft.Container(
-                            alignment=ft.Alignment.CENTER,
-                            padding=30,
-                            content=ft.Column([
-                                ft.Icon(ft.Icons.ERROR_OUTLINE_ROUNDED, size=40, color=ft.Colors.RED_500),
-                                ft.Text(exam_payload["error"], size=13, color=ft.Colors.RED_700),
-                                ft.FilledButton("Return to Dashboard", on_click=lambda *_: page.run_task(fetch_dashboard_data)),
-                            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10),
-                        )
-                        page.update()
-                        return
-
-                    exam_view = build_cohort_exam_view(
-                        page=page,
-                        exam_payload=exam_payload,
-                        org_id=ex_org_id,
-                        cohort_id=ex_cohort_id,
-                        exam_id=ex_id,
-                        token=token,
-                        on_exit=lambda *_: page.run_task(fetch_dashboard_data),
-                    )
-                    content_socket.content = exam_view
-                    page.update()
-
-                page.run_task(_launch)
-
-            if is_open:
-                urgent_assessment_card = ft.Container(
-                    padding=16,
-                    border_radius=16,
-                    bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.RED_600),
-                    border=ft.Border.all(1.5, ft.Colors.RED_600),
-                    content=ft.Column([
-                        ft.Row([
-                            ft.Container(
-                                padding=ft.Padding.symmetric(horizontal=8, vertical=3),
-                                border_radius=6, bgcolor=ft.Colors.RED_600,
-                                content=ft.Row([
-                                    ft.Container(width=6, height=6, border_radius=3, bgcolor=ft.Colors.WHITE),
-                                    ft.Text("LIVE ASSESSMENT", size=10, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
-                                ], spacing=4, tight=True),
-                            ),
-                            ft.Text(f"{ex_dur} Minutes Limit", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.RED_700),
-                        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                        ft.Text(ex_title, size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
-                        ft.Text(f"Organized by {ex_org} · Strict anti-cheat proctoring active.", size=12, color=ft.Colors.ON_SURFACE_VARIANT),
-                        ft.Container(height=4),
-                        ft.FilledButton(
-                            content=ft.Row([
-                                ft.Icon(ft.Icons.PLAY_ARROW_ROUNDED, size=18, color=ft.Colors.WHITE),
-                                ft.Text("Begin Assessment Now", size=13, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
-                            ], tight=True, spacing=6),
-                            style=ft.ButtonStyle(bgcolor=ft.Colors.RED_700, padding=ft.Padding.symmetric(horizontal=16, vertical=12)),
-                            on_click=launch_exam_from_banner,
-                        ),
-                    ], spacing=8),
-                )
-            else:
-                urgent_assessment_card = ft.Container(
-                    padding=14,
-                    border_radius=14,
-                    bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.BLUE_600),
-                    border=ft.Border.all(1, ft.Colors.with_opacity(0.2, ft.Colors.BLUE_600)),
-                    content=ft.Row([
-                        ft.Container(
-                            padding=8, border_radius=10, bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.BLUE_600),
-                            content=ft.Icon(ft.Icons.EVENT_AVAILABLE_ROUNDED, size=20, color=ft.Colors.BLUE_700),
-                        ),
-                        ft.Column([
-                            ft.Text("Upcoming Assessment Scheduled", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_700),
-                            ft.Text(ex_title, size=13, weight=ft.FontWeight.BOLD),
-                            ft.Text(f"{ex_org} · Opens soon", size=11, color=ft.Colors.ON_SURFACE_VARIANT),
-                        ], spacing=2, expand=True),
-                    ], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                )
 
         # ── Learner Training Cohorts Card ─────────────────────────────────────
         learner_cohorts_card = ft.Container()
         if my_cohorts:
             cohort_tiles = []
             for c in my_cohorts[:3]:
+                c_id_str = str(c.get("id", ""))
                 c_name = c.get("name", "Cohort")
                 c_org = c.get("organisation_name", "Organisation")
                 c_courses = c.get("courses", [])
@@ -917,12 +766,15 @@ async def dashboard_view(page: ft.Page):
                 if c_courses:
                     avg_p = round(sum(crs.get("progress", 0) for crs in c_courses) / len(c_courses))
 
+                def make_cohort_click(target_cid):
+                    return lambda _: page.go(f"/cohorts/{target_cid}")
+
                 cohort_tiles.append(
                     ft.Container(
                         padding=12, border_radius=12, bgcolor=ft.Colors.SURFACE,
                         border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
                         ink=True,
-                        on_click=lambda _: page.go("/organisations"),
+                        on_click=make_cohort_click(c_id_str),
                         content=ft.Row([
                             ft.Container(
                                 padding=8, border_radius=8, bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.PRIMARY),
@@ -948,7 +800,7 @@ async def dashboard_view(page: ft.Page):
                             ft.Icon(ft.Icons.GROUPS_ROUNDED, size=18, color=ft.Colors.PRIMARY),
                             ft.Text("My Training Cohorts", size=15, weight=ft.FontWeight.BOLD),
                         ], spacing=8, tight=True),
-                        ft.TextButton("View All →", on_click=lambda _: page.go("/organisations")),
+                        ft.TextButton("View All →", on_click=lambda _: page.go("/cohorts")),
                     ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                     ft.Column(cohort_tiles, spacing=8),
                 ], spacing=10),
@@ -1346,7 +1198,6 @@ async def dashboard_view(page: ft.Page):
             expand=True,
             spacing=0,
             controls=[
-                dashboard_top_bar,
                 ft.Column(
                     expand=True,
                     scroll=ft.ScrollMode.AUTO,
@@ -1360,7 +1211,6 @@ async def dashboard_view(page: ft.Page):
                             content=ft.Column(
                                 spacing=16,
                                 controls=[
-                                    urgent_assessment_card,     # Live / Upcoming Assessment Banner
                                     trackers_container,         # 1. Dual Course Mastery & Learning Focus Trackers
                                     learner_cohorts_card,       # 2. My Training Cohorts Track
                                     self_study_card,            # 3. Self-Study Hub

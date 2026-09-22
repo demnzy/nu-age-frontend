@@ -206,6 +206,7 @@ async def main(page: ft.Page):
     # App Shell View. Content above the bar transitions smoothly inside an
     # AnimatedSwitcher, completely eliminating tab sliding/flickering.
     persistent_nav_bar = PersistentBottomAppBar(page)
+    page.persistent_nav_bar = persistent_nav_bar
     shell_history = []
 
     shell_content = ft.AnimatedSwitcher(
@@ -1388,11 +1389,14 @@ async def main(page: ft.Page):
 
         in_shell_route_flag = is_shell_route(page.route)
         current_user = page.session.store.get("current_user") if hasattr(page, "session") and hasattr(page.session, "store") else None
+        cached_token = page.session.store.get("session_auth_token") if hasattr(page, "session") and hasattr(page.session, "store") else None
+        stored_token = await page.shared_preferences.get("auth_token")
+
         needs_auth_check = (
             not is_public_route(page.route)
             and not is_offline_capable_route(page.route)
             and not await is_route_for_downloaded_course(page.route)
-            and (current_user is None)
+            and (current_user is None or not stored_token or cached_token != stored_token)
         )
         if needs_auth_check:
             # Show the skeleton IMMEDIATELY for cold-open / unverified session auth check
@@ -1428,6 +1432,12 @@ async def main(page: ft.Page):
 
             if not token:
                 shimmer_task.cancel()
+                if hasattr(page, "session") and hasattr(page.session, "store"):
+                    try:
+                        page.session.store.clear()
+                    except Exception:
+                        pass
+                persistent_nav_bar.refresh()
                 # Pop the skeleton, but NEVER leave page.views empty here.
                 # If this is the very first route of the session (cold
                 # open straight into a protected route), page.views was
@@ -1469,6 +1479,7 @@ async def main(page: ft.Page):
 
             if status == 200:
                 page.session.store.set("current_user", user_data)
+                page.session.store.set("session_auth_token", token)
                 persistent_nav_bar.refresh()
             elif status in (401, 403):
                 # Access token expired/invalid — this is now the EXPECTED
@@ -1496,6 +1507,7 @@ async def main(page: ft.Page):
 
                     if status == 200:
                         page.session.store.set("current_user", user_data)
+                        page.session.store.set("session_auth_token", new_token)
                         persistent_nav_bar.refresh()
                         # Fall through to the normal view-render path below
                         # (do NOT return here) — this is now a success case.
@@ -1516,6 +1528,12 @@ async def main(page: ft.Page):
                             page.update()
                         await page.shared_preferences.remove("auth_token")
                         await page.shared_preferences.remove("refresh_token")
+                        if hasattr(page, "session") and hasattr(page.session, "store"):
+                            try:
+                                page.session.store.clear()
+                            except Exception:
+                                pass
+                        persistent_nav_bar.refresh()
                         await show_session_expired_dialog(
                             "Your session has ended. Please log in again to continue."
                         )
@@ -1544,6 +1562,12 @@ async def main(page: ft.Page):
                         page.update()
                     await page.shared_preferences.remove("auth_token")
                     await page.shared_preferences.remove("refresh_token")
+                    if hasattr(page, "session") and hasattr(page.session, "store"):
+                        try:
+                            page.session.store.clear()
+                        except Exception:
+                            pass
+                    persistent_nav_bar.refresh()
                     await show_session_expired_dialog(
                         "Your session has ended. Please log in again to continue."
                     )
@@ -1579,6 +1603,13 @@ async def main(page: ft.Page):
             active_skeleton = None
             active_shimmer_task = None
 
+        if not is_public_route(page.route):
+            try:
+                from src.services.notification_service import sync_learner_notifications
+                page.run_task(sync_learner_notifications, page, False)
+            except Exception:
+                pass
+
         # --- VIEW MAPPING ---
         #
         # NOTE on why public routes (/, /login, /signup) clear page.views
@@ -1600,10 +1631,15 @@ async def main(page: ft.Page):
         # replacing it.
         if page.route == "/dashboard":
             await load_view_and_report(dashboard_view(page), page.route, active_skeleton, active_shimmer_task)
-        elif page.route == "/":
-            page.views.clear()
-            page.views.append(login_view(page))
-        elif page.route == "/login":
+        elif page.route in ("/", "/login"):
+            token = await page.shared_preferences.get("auth_token")
+            if not token:
+                if hasattr(page, "session") and hasattr(page.session, "store"):
+                    try:
+                        page.session.store.clear()
+                    except Exception:
+                        pass
+                persistent_nav_bar.refresh()
             page.views.clear()
             page.views.append(login_view(page))
         elif page.route == "/signup":
@@ -1777,6 +1813,20 @@ async def main(page: ft.Page):
                 course_details_view(page, troute.course_id, back_target=target_back), page.route,
                 active_skeleton, active_shimmer_task,
             )
+        elif troute.match("/cohorts/:cohort_id"):
+            from src.cohort_page import cohort_page_view
+            target_back = previous_route if (previous_route and not previous_route.endswith("/view") and not previous_route.endswith("/offline")) else "/dashboard"
+            await load_view_and_report(
+                cohort_page_view(page, troute.cohort_id, back_target=target_back),
+                page.route, active_skeleton, active_shimmer_task
+            )
+        elif page.route == "/cohorts":
+            from src.cohort_page import cohort_page_view
+            target_back = previous_route if (previous_route and not previous_route.endswith("/view") and not previous_route.endswith("/offline")) else "/dashboard"
+            await load_view_and_report(
+                cohort_page_view(page, None, back_target=target_back),
+                page.route, active_skeleton, active_shimmer_task
+            )
 
         elif active_skeleton is not None:
             active_shimmer_task.cancel()
@@ -1827,7 +1877,7 @@ async def main(page: ft.Page):
         # Kept in sync with is_public_route() inside _route_change_inner —
         # duplicated here because that one is a nested closure scoped to
         # a single route_change() call, not reachable from this handler.
-        return route in ["/", "/signup"] or (route or "").startswith("/accept-invite/")
+        return route in ["/", "/login", "/signup"] or (route or "").startswith("/accept-invite/")
 
     async def on_window_event(e: ft.WindowEvent):
         if e.data not in ("focus", "restore", "show"):
@@ -1921,6 +1971,12 @@ async def main(page: ft.Page):
             print(f"initial shared_preferences read failed: {ex!r}")
             has_token = None
         page.route = "/dashboard" if has_token else "/"
+        if has_token:
+            try:
+                from src.services.notification_service import sync_learner_notifications
+                page.run_task(sync_learner_notifications, page, True)
+            except Exception:
+                pass
 
     await route_change(None)
     # Belt-and-suspenders: if for any reason the manual call above didn't

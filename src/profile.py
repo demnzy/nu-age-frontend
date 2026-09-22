@@ -2,7 +2,7 @@ import flet as ft
 import urllib.parse
 import asyncio
 from datetime import datetime
-from src.components.bottom_appbar import get_bottom_appbar
+from src.components.bottom_appbar import get_bottom_appbar, NotificationManager
 from src.requests.auth import logout_request
 from src.requests.enrollments import get_enrollments
 
@@ -47,11 +47,38 @@ async def profile_view(page: ft.Page):
         if refresh_token:
             try:
                 await logout_request(refresh_token)
+            except Exception as ex:
+                print(f"[Logout] Server logout notification error: {ex!r}")
+
+        # 1. Clear tokens and cached user preferences in shared preferences
+        for key in ["refresh_token", "auth_token", "user_id", "user_role", "user_interests", "daily_study_goal"]:
+            try:
+                await page.shared_preferences.remove(key)
             except Exception:
                 pass
-        await page.shared_preferences.remove("refresh_token")
-        await page.shared_preferences.remove("auth_token")
-        page.go("/")
+
+        # 2. Clear all transient in-memory session data
+        if hasattr(page, "session") and hasattr(page.session, "store"):
+            try:
+                page.session.store.clear()
+            except Exception:
+                pass
+
+        # 3. Clear reactive notification badges & cache
+        try:
+            NotificationManager.clear_all()
+        except Exception:
+            pass
+
+        # 4. Refresh persistent navigation bar for logged-out state
+        nav_bar = getattr(page, "persistent_nav_bar", None)
+        if nav_bar:
+            try:
+                nav_bar.refresh()
+            except Exception:
+                pass
+
+        page.go("/login")
         page.update()
 
     def create_logout_dialog(is_dark: bool) -> ft.AlertDialog:

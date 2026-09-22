@@ -48,6 +48,57 @@ _INPUT = {
 }
 
 
+
+def get_effective_cohort_status(cohort: dict) -> str:
+    raw = (cohort.get("status") or "").lower()
+    if raw in ("archived", "cancelled"):
+        return raw.upper()
+    start_str = cohort.get("start_date")
+    end_str = cohort.get("end_date")
+    if not start_str or not end_str:
+        return (raw or "upcoming").upper()
+    try:
+        now = datetime.now(timezone.utc)
+        s_dt = datetime.fromisoformat(str(start_str).replace("Z", "+00:00"))
+        if s_dt.tzinfo is None:
+            s_dt = s_dt.replace(tzinfo=timezone.utc)
+        e_dt = datetime.fromisoformat(str(end_str).replace("Z", "+00:00"))
+        if e_dt.tzinfo is None:
+            e_dt = e_dt.replace(tzinfo=timezone.utc)
+        if now < s_dt:
+            return "UPCOMING"
+        elif s_dt <= now <= e_dt:
+            return "ACTIVE"
+        else:
+            return "COMPLETED"
+    except Exception:
+        return (raw or "upcoming").upper()
+
+
+def get_effective_exam_status(exam: dict) -> str:
+    raw = (exam.get("status") or "").upper()
+    open_str = exam.get("opens_at")
+    close_str = exam.get("closes_at")
+    if not open_str or not close_str:
+        return raw or "SCHEDULED"
+    try:
+        now = datetime.now(timezone.utc)
+        o_dt = datetime.fromisoformat(str(open_str).replace("Z", "+00:00"))
+        if o_dt.tzinfo is None:
+            o_dt = o_dt.replace(tzinfo=timezone.utc)
+        c_dt = datetime.fromisoformat(str(close_str).replace("Z", "+00:00"))
+        if c_dt.tzinfo is None:
+            c_dt = c_dt.replace(tzinfo=timezone.utc)
+        if now < o_dt:
+            return "SCHEDULED"
+        elif o_dt <= now <= c_dt:
+            return "OPEN_NOW"
+        else:
+            return "CLOSED"
+    except Exception:
+        return raw or "SCHEDULED"
+
+
 def build_cohorts_tab(
     page: ft.Page,
     org_id: str,
@@ -78,14 +129,49 @@ def build_cohorts_tab(
         snack = ft.SnackBar(
             content=ft.Text(text, size=13, color=ft.Colors.WHITE),
             bgcolor=ft.Colors.RED_700 if is_error else ft.Colors.GREEN_700,
-            duration=3500,
+            duration=3200,
+            behavior=ft.SnackBarBehavior.FLOATING,
         )
-        if hasattr(page, "open"):
-            page.open(snack)
-        else:
+        try:
             page.overlay.append(snack)
             snack.open = True
             page.update()
+        except Exception:
+            pass
+
+    def show_confirm_dialog(title: str, message: str, confirm_label: str, on_confirm, is_destructive: bool = True):
+        def do_action(e):
+            try:
+                page.pop_dialog()
+            except Exception:
+                pass
+            page.run_task(on_confirm)
+
+        dlg = ft.AlertDialog(
+            modal=True,
+            title=ft.Row([
+                ft.Icon(
+                    ft.Icons.WARNING_AMBER_ROUNDED if is_destructive else ft.Icons.INFO_OUTLINE_ROUNDED,
+                    color=ft.Colors.RED_500 if is_destructive else theme_color,
+                    size=22,
+                ),
+                ft.Text(title, weight=ft.FontWeight.BOLD, size=16),
+            ], spacing=8),
+            content=ft.Text(message, size=13, color=ft.Colors.ON_SURFACE_VARIANT),
+            actions=[
+                ft.TextButton("Cancel", on_click=lambda _: page.pop_dialog()),
+                ft.FilledButton(
+                    confirm_label,
+                    style=ft.ButtonStyle(
+                        bgcolor=ft.Colors.RED_600 if is_destructive else theme_color,
+                        color=ft.Colors.WHITE,
+                    ),
+                    on_click=do_action,
+                ),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        page.show_dialog(dlg)
 
     def format_date_str(iso_str: str) -> str:
         if not iso_str: return "—"
@@ -240,9 +326,9 @@ def build_cohorts_tab(
             if "error" in res:
                 show_snack(f"Failed to create cohort: {res['error']}", is_error=True)
             else:
-                show_snack("Cohort created successfully!")
                 if hasattr(page, "pop_dialog"):
                     page.pop_dialog()
+                show_snack("Cohort created successfully!")
                 await load_cohorts_data()
 
         dialog_content = ft.Container(
@@ -303,7 +389,7 @@ def build_cohorts_tab(
         all_cohorts = state["cohorts"]
         filtered = []
         for c in all_cohorts:
-            st = (c.get("status") or "upcoming").upper()
+            st = get_effective_cohort_status(c)
             if state["filter"] != "ALL" and st != state["filter"]:
                 continue
             if state["search"]:
@@ -313,28 +399,30 @@ def build_cohorts_tab(
             filtered.append(c)
 
         # KPI Counter Cards
-        active_count = sum(1 for c in all_cohorts if (c.get("status") or "").upper() == "ACTIVE")
-        upcoming_count = sum(1 for c in all_cohorts if (c.get("status") or "").upper() == "UPCOMING")
-        completed_count = sum(1 for c in all_cohorts if (c.get("status") or "").upper() == "COMPLETED")
+        active_count = sum(1 for c in all_cohorts if get_effective_cohort_status(c) == "ACTIVE")
+        upcoming_count = sum(1 for c in all_cohorts if get_effective_cohort_status(c) == "UPCOMING")
+        completed_count = sum(1 for c in all_cohorts if get_effective_cohort_status(c) == "COMPLETED")
 
         def kpi_card(label: str, count: int, icon_name, color):
             return ft.Container(
                 expand=True,
                 padding=ft.Padding.symmetric(horizontal=14, vertical=12),
-                border_radius=12,
+                border_radius=14,
                 bgcolor=ft.Colors.with_opacity(0.06, color),
-                border=ft.Border.all(1, ft.Colors.with_opacity(0.15, color)),
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.18, color)),
+                shadow=ft.BoxShadow(blur_radius=10, color=ft.Colors.with_opacity(0.04, color), offset=ft.Offset(0, 2)),
                 content=ft.Row([
                     ft.Container(
-                        padding=8, border_radius=10,
+                        width=38, height=38, border_radius=10,
                         bgcolor=ft.Colors.with_opacity(0.15, color),
-                        content=ft.Icon(icon_name, size=18, color=color),
+                        alignment=ft.Alignment.CENTER,
+                        content=ft.Icon(icon_name, size=19, color=color),
                     ),
                     ft.Column([
-                        ft.Text(str(count), size=18, weight=ft.FontWeight.BOLD, color=color),
-                        ft.Text(label, size=11, color=ft.Colors.ON_SURFACE_VARIANT),
+                        ft.Text(str(count), size=20, weight=ft.FontWeight.BOLD, color=color),
+                        ft.Text(label, size=11, color=ft.Colors.ON_SURFACE_VARIANT, weight=ft.FontWeight.W_500),
                     ], spacing=1),
-                ], spacing=10),
+                ], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER),
             )
 
         kpis = ft.Row([
@@ -347,9 +435,11 @@ def build_cohorts_tab(
         def filter_pill(label: str, key: str):
             is_sel = state["filter"] == key
             return ft.Container(
-                padding=ft.Padding.symmetric(horizontal=12, vertical=6),
+                padding=ft.Padding.symmetric(horizontal=14, vertical=7),
                 border_radius=20,
                 bgcolor=theme_color if is_sel else ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
+                border=ft.Border.all(1, theme_color if is_sel else ft.Colors.with_opacity(0.1, ft.Colors.ON_SURFACE)),
+                shadow=ft.BoxShadow(blur_radius=6, color=ft.Colors.with_opacity(0.25, theme_color)) if is_sel else None,
                 ink=True,
                 on_click=lambda _, k=key: set_filter(k),
                 content=ft.Text(label, size=11, weight=ft.FontWeight.BOLD if is_sel else ft.FontWeight.W_500,
@@ -376,13 +466,14 @@ def build_cohorts_tab(
                 page.update()
 
         search_input = ft.TextField(
-            hint_text="Search cohort name or topic...",
+            hint_text="Search cohort by name or topic...",
             prefix_icon=ft.Icons.SEARCH_ROUNDED,
             border_radius=10,
             text_size=12,
-            height=40,
-            content_padding=ft.Padding.symmetric(horizontal=10, vertical=0),
-            border_color=ft.Colors.with_opacity(0.15, ft.Colors.ON_SURFACE),
+            height=42,
+            content_padding=ft.Padding.symmetric(horizontal=12, vertical=0),
+            border_color=ft.Colors.with_opacity(0.18, ft.Colors.ON_SURFACE),
+            focused_border_color=theme_color,
             on_change=on_search_change,
             expand=True,
         )
@@ -392,7 +483,7 @@ def build_cohorts_tab(
                 ft.Icon(ft.Icons.ADD_ROUNDED, size=16, color=ft.Colors.WHITE),
                 ft.Text("New Cohort", size=12, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
             ], tight=True, spacing=6),
-            style=ft.ButtonStyle(bgcolor=theme_color, padding=ft.Padding.symmetric(horizontal=14, vertical=10)),
+            style=ft.ButtonStyle(bgcolor=theme_color, padding=ft.Padding.symmetric(horizontal=16, vertical=11)),
             on_click=open_create_cohort_dialog,
         )
 
@@ -402,7 +493,7 @@ def build_cohorts_tab(
             c_id = str(c["id"])
             c_name = c.get("name", "Untitled Cohort")
             c_desc = c.get("description") or "No description provided."
-            c_status = (c.get("status") or "upcoming").upper()
+            c_status = get_effective_cohort_status(c)
             s_date = format_date_str(c.get("start_date"))
             e_date = format_date_str(c.get("end_date"))
             m_count = c.get("members_count", 0)
@@ -411,19 +502,39 @@ def build_cohorts_tab(
 
             if c_status == "ACTIVE":
                 badge_bg, badge_fg = ft.Colors.with_opacity(0.12, ft.Colors.GREEN_600), ft.Colors.GREEN_700
+                stripe_color = ft.Colors.GREEN_600
             elif c_status == "COMPLETED":
-                badge_bg, badge_fg = ft.Colors.with_opacity(0.12, ft.Colors.GREY_600), ft.Colors.GREY_700
+                badge_bg, badge_fg = ft.Colors.with_opacity(0.10, ft.Colors.GREY_600), ft.Colors.GREY_700
+                stripe_color = ft.Colors.GREY_600
             else:
                 badge_bg, badge_fg = ft.Colors.with_opacity(0.12, ft.Colors.BLUE_600), ft.Colors.BLUE_700
+                stripe_color = ft.Colors.BLUE_600
 
             def make_open_handler(target_id):
                 return lambda _: page.run_task(open_cohort_details, target_id)
+
+            def meta_badge(icon_name, text_val, tint):
+                return ft.Container(
+                    padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+                    border_radius=8,
+                    bgcolor=ft.Colors.with_opacity(0.06, tint),
+                    content=ft.Row([
+                        ft.Icon(icon_name, size=13, color=tint),
+                        ft.Text(text_val, size=11, weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE),
+                    ], spacing=5, tight=True),
+                )
 
             card = ft.Container(
                 padding=16,
                 border_radius=14,
                 bgcolor=ft.Colors.SURFACE,
-                border=ft.Border.all(1, ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE)),
+                border=ft.Border(
+                    left=ft.BorderSide(4, stripe_color),
+                    top=ft.BorderSide(1, ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE)),
+                    right=ft.BorderSide(1, ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE)),
+                    bottom=ft.BorderSide(1, ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE)),
+                ),
+                shadow=ft.BoxShadow(blur_radius=12, color=ft.Colors.with_opacity(0.04, ft.Colors.BLACK), offset=ft.Offset(0, 2)),
                 ink=True,
                 on_click=make_open_handler(c_id),
                 content=ft.Column([
@@ -442,19 +553,10 @@ def build_cohorts_tab(
                     ft.Text(c_desc, size=12, color=ft.Colors.ON_SURFACE_VARIANT, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
                     ft.Divider(height=1, color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
                     ft.Row([
-                        ft.Row([
-                            ft.Icon(ft.Icons.PEOPLE_ROUNDED, size=14, color=theme_color),
-                            ft.Text(f"{m_count} Members", size=11, weight=ft.FontWeight.W_600),
-                        ], spacing=4, tight=True),
-                        ft.Row([
-                            ft.Icon(ft.Icons.AUTO_STORIES_ROUNDED, size=14, color=theme_color),
-                            ft.Text(f"{crs_count} Courses", size=11, weight=ft.FontWeight.W_600),
-                        ], spacing=4, tight=True),
-                        ft.Row([
-                            ft.Icon(ft.Icons.TIMER_ROUNDED, size=14, color=theme_color),
-                            ft.Text(f"{ex_count} Exams", size=11, weight=ft.FontWeight.W_600),
-                        ], spacing=4, tight=True),
-                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                        meta_badge(ft.Icons.PEOPLE_ROUNDED, f"{m_count} Members", theme_color),
+                        meta_badge(ft.Icons.AUTO_STORIES_ROUNDED, f"{crs_count} Courses", theme_color),
+                        meta_badge(ft.Icons.TIMER_ROUNDED, f"{ex_count} Assessments", theme_color),
+                    ], spacing=8),
                 ], spacing=10),
             )
             cohort_cards.append(card)
@@ -509,7 +611,7 @@ def build_cohorts_tab(
         c_desc = data.get("description") or ""
         s_date = format_date_str(data.get("start_date"))
         e_date = format_date_str(data.get("end_date"))
-        c_status = (data.get("status") or "upcoming").upper()
+        c_status = get_effective_cohort_status(data)
 
         sub_tab = {"key": "overview"}
 
@@ -558,21 +660,29 @@ def build_cohorts_tab(
                 crs_name = crs.get("name", "Untitled Course")
                 crs_lessons = crs.get("total_lessons", 0)
 
-                def remove_crs(c_target):
-                    async def _do(_):
+                def remove_crs(c_target, crs_title):
+                    async def _do():
                         res = await remove_cohort_course(token, org_id, c_id, c_target)
                         if "error" in res:
                             show_snack(res["error"], is_error=True)
                         else:
                             show_snack("Course removed from cohort.")
                             await open_cohort_details(c_id)
-                    return _do
+                    return lambda _: show_confirm_dialog(
+                        "Remove Course",
+                        f"Are you sure you want to remove '{crs_title}' from this cohort? Candidates will lose course access.",
+                        "Remove Course",
+                        _do,
+                        is_destructive=True,
+                    )
 
                 cards.append(
                     ft.Container(
                         padding=12, border_radius=12,
                         bgcolor=ft.Colors.SURFACE,
                         border=ft.Border.all(1, ft.Colors.with_opacity(0.1, ft.Colors.ON_SURFACE)),
+                        ink=True,
+                        on_click=lambda _, cid=crs_id: page.go(f"/courses/{cid}"),
                         content=ft.Row([
                             ft.Container(
                                 padding=8, border_radius=8, bgcolor=ft.Colors.with_opacity(0.08, theme_color),
@@ -583,11 +693,18 @@ def build_cohorts_tab(
                                 ft.Text(f"{crs_lessons} Lessons · Auto-enrolled for cohort candidates", size=11, color=ft.Colors.ON_SURFACE_VARIANT),
                             ], spacing=2, expand=True),
                             ft.IconButton(
+                                icon=ft.Icons.PLAY_ARROW_ROUNDED,
+                                icon_color=theme_color,
+                                icon_size=20,
+                                tooltip="Study course",
+                                on_click=lambda _, cid=crs_id: page.go(f"/courses/{cid}"),
+                            ),
+                            ft.IconButton(
                                 icon=ft.Icons.DELETE_OUTLINE_ROUNDED,
                                 icon_color=ft.Colors.RED_500,
                                 icon_size=18,
                                 tooltip="Remove from cohort",
-                                on_click=remove_crs(crs_id),
+                                on_click=remove_crs(crs_id, crs_name),
                                 visible=is_admin,
                             ),
                         ], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER),
@@ -600,6 +717,28 @@ def build_cohorts_tab(
                 eligible = [c for c in org_courses if str(c.get("id")) not in existing_ids]
 
                 checks = [ft.Checkbox(label=c.get("name", "Course"), data=str(c.get("id"))) for c in eligible]
+                course_col = ft.Column(scroll=ft.ScrollMode.AUTO, spacing=4)
+
+                def filter_courses(ev=None):
+                    q = (crs_search_f.value or "").strip().lower() if crs_search_f.value else ""
+                    matched = [chk for chk in checks if not q or q in (chk.label or "").lower()]
+                    course_col.controls = matched if matched else [
+                        ft.Container(
+                            padding=20, alignment=ft.Alignment.CENTER,
+                            content=ft.Text("No matching courses found.", italic=True, size=11, color=ft.Colors.ON_SURFACE_VARIANT),
+                        )
+                    ] if checks else [ft.Text("All org courses are already registered.", italic=True, size=11)]
+                    page.update()
+
+                crs_search_f = ft.TextField(
+                    hint_text="Search courses by name...",
+                    prefix_icon=ft.Icons.SEARCH_ROUNDED,
+                    height=40, text_size=12,
+                    content_padding=ft.Padding.symmetric(horizontal=10, vertical=0),
+                    border_radius=8,
+                    on_change=filter_courses,
+                )
+                filter_courses()
 
                 async def do_add(e=None):
                     selected = [chk.data for chk in checks if chk.value]
@@ -610,16 +749,24 @@ def build_cohorts_tab(
                     if "error" in res:
                         show_snack(res["error"], is_error=True)
                     else:
+                        if hasattr(page, "pop_dialog"):
+                            page.pop_dialog()
                         show_snack("Courses added to cohort successfully.")
-                        page.pop_dialog()
                         await open_cohort_details(c_id)
 
                 dlg = ft.AlertDialog(
                     modal=True,
-                    title=ft.Text("Add Courses to Cohort", weight=ft.FontWeight.BOLD, size=15),
+                    title=ft.Row([
+                        ft.Icon(ft.Icons.AUTO_STORIES_ROUNDED, color=theme_color, size=20),
+                        ft.Text("Add Courses to Cohort", weight=ft.FontWeight.BOLD, size=15),
+                    ], spacing=8),
                     content=ft.Container(
-                        width=380, height=260,
-                        content=ft.Column(checks if checks else [ft.Text("All org courses are already registered.")], scroll=ft.ScrollMode.AUTO),
+                        width=420, height=320,
+                        content=ft.Column([
+                            crs_search_f,
+                            ft.Divider(height=1, color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                            ft.Container(content=course_col, expand=True),
+                        ], spacing=8),
                     ),
                     actions=[
                         ft.TextButton("Cancel", on_click=lambda _: page.pop_dialog()),
@@ -654,15 +801,21 @@ def build_cohorts_tab(
                 m_name = f"{m.get('first_name', '')} {m.get('last_name', '')}".strip() or m.get("email", "")
                 m_prog = m.get("avg_progress", 0.0)
 
-                def remove_mem(u_target):
-                    async def _do(_):
+                def remove_mem(u_target, m_label):
+                    async def _do():
                         res = await remove_cohort_member(token, org_id, c_id, u_target)
                         if "error" in res:
                             show_snack(res["error"], is_error=True)
                         else:
                             show_snack("Member removed from cohort.")
                             await open_cohort_details(c_id)
-                    return _do
+                    return lambda _: show_confirm_dialog(
+                        "Remove Member",
+                        f"Are you sure you want to remove {m_label} from this cohort?",
+                        "Remove Member",
+                        _do,
+                        is_destructive=True,
+                    )
 
                 member_rows.append(
                     ft.Container(
@@ -689,7 +842,7 @@ def build_cohorts_tab(
                                 icon_color=ft.Colors.RED_500,
                                 icon_size=18,
                                 tooltip="Remove member",
-                                on_click=remove_mem(m_uid),
+                                on_click=remove_mem(m_uid, m_name),
                                 visible=is_admin,
                             ),
                         ], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER),
@@ -708,6 +861,35 @@ def build_cohorts_tab(
                     )
                     for m in eligible
                 ]
+                members_col = ft.Column(scroll=ft.ScrollMode.AUTO, spacing=4)
+
+                def filter_members(ev=None):
+                    q = (mem_search_f.value or "").strip().lower() if mem_search_f.value else ""
+                    matched = [chk for chk in checks if not q or q in (chk.label or "").lower()]
+                    members_col.controls = matched if matched else [
+                        ft.Container(
+                            padding=20, alignment=ft.Alignment.CENTER,
+                            content=ft.Text("No matching members found.", italic=True, size=11, color=ft.Colors.ON_SURFACE_VARIANT),
+                        )
+                    ] if checks else [ft.Text("All org members are already enrolled.", italic=True, size=11)]
+                    page.update()
+
+                def select_all_eligible(ev=None):
+                    if ev and getattr(ev, "control", None):
+                        for chk in checks:
+                            chk.value = ev.control.value
+                        page.update()
+
+                mem_search_f = ft.TextField(
+                    hint_text="Search candidates by name or email...",
+                    prefix_icon=ft.Icons.SEARCH_ROUNDED,
+                    height=40, text_size=12,
+                    content_padding=ft.Padding.symmetric(horizontal=10, vertical=0),
+                    border_radius=8,
+                    on_change=filter_members,
+                )
+                all_chk_toggle = ft.Checkbox(label="Select All", value=False, on_change=select_all_eligible)
+                filter_members()
 
                 async def do_add(e=None):
                     selected = [chk.data for chk in checks if chk.value]
@@ -718,16 +900,25 @@ def build_cohorts_tab(
                     if "error" in res:
                         show_snack(res["error"], is_error=True)
                     else:
+                        if hasattr(page, "pop_dialog"):
+                            page.pop_dialog()
                         show_snack("Members enrolled into cohort successfully.")
-                        page.pop_dialog()
                         await open_cohort_details(c_id)
 
                 dlg = ft.AlertDialog(
                     modal=True,
-                    title=ft.Text("Enroll Members into Cohort", weight=ft.FontWeight.BOLD, size=15),
+                    title=ft.Row([
+                        ft.Icon(ft.Icons.PERSON_ADD_ROUNDED, color=theme_color, size=20),
+                        ft.Text("Enroll Members into Cohort", weight=ft.FontWeight.BOLD, size=15),
+                    ], spacing=8),
                     content=ft.Container(
-                        width=380, height=280,
-                        content=ft.Column(checks if checks else [ft.Text("All org members are already enrolled.")], scroll=ft.ScrollMode.AUTO),
+                        width=420, height=340,
+                        content=ft.Column([
+                            mem_search_f,
+                            ft.Row([all_chk_toggle], alignment=ft.MainAxisAlignment.END),
+                            ft.Divider(height=1, color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                            ft.Container(content=members_col, expand=True),
+                        ], spacing=6),
                     ),
                     actions=[
                         ft.TextButton("Cancel", on_click=lambda _: page.pop_dialog()),
@@ -763,7 +954,7 @@ def build_cohorts_tab(
                 ex_dur = ex.get("duration_minutes", 60)
                 ex_pass = ex.get("pass_percentage", 70.0)
                 ex_q_count = ex.get("question_count", 0)
-                ex_status = ex.get("status", "SCHEDULED")
+                ex_status = get_effective_exam_status(ex)
                 o_time = format_date_str(ex.get("opens_at"))
                 c_time = format_date_str(ex.get("closes_at"))
                 user_sub = ex.get("user_submission")
@@ -805,8 +996,49 @@ def build_cohorts_tab(
 
                         exam_run_payload = await start_cohort_exam(token, org_id, c_id, target_ex_id)
                         if "error" in exam_run_payload:
-                            show_snack(exam_run_payload["error"], is_error=True)
-                            await open_cohort_details(c_id)
+                            err_msg = exam_run_payload["error"]
+                            container.content = ft.Container(
+                                expand=True,
+                                alignment=ft.Alignment.CENTER,
+                                padding=24,
+                                content=ft.Container(
+                                    width=480,
+                                    padding=32,
+                                    border_radius=18,
+                                    bgcolor=ft.Colors.SURFACE,
+                                    border=ft.Border.all(1, ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)),
+                                    content=ft.Column([
+                                        ft.Container(
+                                            width=56, height=56, border_radius=28,
+                                            bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.AMBER_700),
+                                            alignment=ft.Alignment.CENTER,
+                                            content=ft.Icon(ft.Icons.LOCK_CLOCK_ROUNDED, size=28, color=ft.Colors.AMBER_700),
+                                        ),
+                                        ft.Text("Assessment Notice", size=18, weight=ft.FontWeight.BOLD),
+                                        ft.Text(
+                                            err_msg,
+                                            size=13,
+                                            color=ft.Colors.ON_SURFACE,
+                                            text_align=ft.TextAlign.CENTER,
+                                        ),
+                                        ft.Container(height=4),
+                                        ft.Text(
+                                            "If you require an additional attempt or have questions regarding your assessment eligibility, please reach out to your instructor or cohort administrator.",
+                                            size=11,
+                                            color=ft.Colors.ON_SURFACE_VARIANT,
+                                            text_align=ft.TextAlign.CENTER,
+                                        ),
+                                        ft.Container(height=12),
+                                        ft.FilledButton(
+                                            "Return to Cohort",
+                                            icon=ft.Icons.ARROW_BACK_ROUNDED,
+                                            on_click=lambda _: page.run_task(open_cohort_details, c_id),
+                                            style=ft.ButtonStyle(padding=ft.Padding.symmetric(horizontal=24, vertical=12)),
+                                        ),
+                                    ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10),
+                                ),
+                            )
+                            page.update()
                             return
 
                         exam_view = build_cohort_exam_view(
@@ -829,15 +1061,21 @@ def build_cohorts_tab(
                 def open_grades(target_ex_id):
                     return lambda _: page.run_task(show_gradebook_modal, target_ex_id)
 
-                def delete_ex(target_ex_id):
-                    async def _do(_):
+                def delete_ex(target_ex_id, target_title):
+                    async def _do():
                         res = await delete_cohort_exam(token, org_id, c_id, target_ex_id)
                         if "error" in res:
                             show_snack(res["error"], is_error=True)
                         else:
                             show_snack("Exam deleted.")
                             await open_cohort_details(c_id)
-                    return _do
+                    return lambda _: show_confirm_dialog(
+                        "Delete Assessment",
+                        f"Are you sure you want to delete exam '{target_title}' and all its candidate submissions?",
+                        "Delete Exam",
+                        _do,
+                        is_destructive=True,
+                    )
 
                 # Candidate CTA Button
                 if user_sub and user_sub.get("status") in ("submitted", "graded"):
@@ -876,13 +1114,36 @@ def build_cohorts_tab(
                         ft.Row([
                             cta_btn,
                             ft.Row([
-                                ft.OutlinedButton("Questions", icon=ft.Icons.QUIZ_ROUNDED, on_click=open_q_bank(ex_id), visible=is_admin),
-                                ft.FilledButton("Gradebook", icon=ft.Icons.ANALYTICS_ROUNDED, on_click=open_grades(ex_id),
-                                                style=ft.ButtonStyle(bgcolor=theme_color), visible=is_admin),
-                                ft.IconButton(ft.Icons.DELETE_OUTLINE_ROUNDED, icon_color=ft.Colors.RED_500, icon_size=18,
-                                              on_click=delete_ex(ex_id), visible=is_admin),
-                            ], spacing=6, tight=True),
-                        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                                ft.OutlinedButton(
+                                    content=ft.Row([ft.Icon(ft.Icons.QUIZ_ROUNDED, size=13), ft.Text("Questions", size=11)], tight=True, spacing=4),
+                                    on_click=open_q_bank(ex_id),
+                                    style=ft.ButtonStyle(padding=ft.Padding.symmetric(horizontal=10, vertical=6)),
+                                    visible=is_admin,
+                                ),
+                                ft.FilledButton(
+                                    content=ft.Row([ft.Icon(ft.Icons.ANALYTICS_ROUNDED, size=13), ft.Text("Gradebook", size=11)], tight=True, spacing=4),
+                                    on_click=open_grades(ex_id),
+                                    style=ft.ButtonStyle(bgcolor=theme_color, padding=ft.Padding.symmetric(horizontal=10, vertical=6)),
+                                    visible=is_admin,
+                                ),
+                                ft.IconButton(
+                                    icon=ft.Icons.EDIT_OUTLINED,
+                                    icon_color=theme_color,
+                                    icon_size=18,
+                                    tooltip="Edit Exam",
+                                    on_click=lambda _, x=ex: open_edit_exam_dialog(x),
+                                    visible=is_admin,
+                                ),
+                                ft.IconButton(
+                                    icon=ft.Icons.DELETE_OUTLINE_ROUNDED,
+                                    icon_color=ft.Colors.RED_500,
+                                    icon_size=18,
+                                    tooltip="Delete Exam",
+                                    on_click=delete_ex(ex_id, ex_title),
+                                    visible=is_admin,
+                                ),
+                            ], spacing=4, wrap=True, tight=True),
+                        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER, wrap=True),
                     ], spacing=10),
                 )
                 exam_cards.append(card)
@@ -1109,8 +1370,31 @@ def build_cohorts_tab(
                     value="monitored",
                     border_radius=10,
                 )
-                shuffle_chk = ft.Checkbox(label="Shuffle Questions for Each Candidate", value=True)
-                immediate_chk = ft.Checkbox(label="Show Immediate Results & Explanations upon Submission", value=True)
+                calc_dd = ft.Dropdown(
+                    label="Permitted In-Exam Calculator *",
+                    options=[
+                        ft.dropdown.Option("none", "🚫 No Calculator (Calculations not permitted)"),
+                        ft.dropdown.Option("basic", "🔢 Basic Calculator (+, −, ×, ÷, %)"),
+                        ft.dropdown.Option("scientific", "🧪 Scientific Calculator (Trig, Sqrt, Powers, Log)"),
+                    ],
+                    value="none",
+                )
+                review_mode_chk = ft.Checkbox(
+                    value=True,
+                    scale=0.9,
+                )
+                review_mode_card = ft.Container(
+                    padding=ft.Padding.symmetric(horizontal=10, vertical=8),
+                    border_radius=8,
+                    bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
+                    content=ft.Row([
+                        review_mode_chk,
+                        ft.Column([
+                            ft.Text("Confidential Grading Protocol", size=11, weight=ft.FontWeight.BOLD),
+                            ft.Text("Release score and solutions only after instructor audit (no instant score reveal).", size=10, color=ft.Colors.ON_SURFACE_VARIANT),
+                        ], spacing=1, expand=True),
+                    ], spacing=6, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                )
 
                 async def do_schedule(e=None):
                     if not title_field.value or not title_field.value.strip():
@@ -1133,16 +1417,18 @@ def build_cohorts_tab(
                         "pass_percentage": float(pass_field.value or 70),
                         "max_attempts": int(attempts_field.value or 1),
                         "security_mode": security_dd.value or "monitored",
-                        "shuffle_questions": shuffle_chk.value,
-                        "show_immediate_results": immediate_chk.value,
+                        "shuffle_questions": True,
+                        "show_immediate_results": not review_mode_chk.value,
+                        "calculator_type": calc_dd.value or "none",
                     }
 
                     res = await create_cohort_exam(token, org_id, c_id, payload)
                     if "error" in res:
                         show_snack(res["error"], is_error=True)
                     else:
+                        if hasattr(page, "pop_dialog"):
+                            page.pop_dialog()
                         show_snack("Exam scheduled successfully.")
-                        page.pop_dialog()
                         await open_cohort_details(c_id)
 
                 dlg = ft.AlertDialog(
@@ -1161,7 +1447,7 @@ def build_cohorts_tab(
                     ], spacing=10),
                     content=ft.Container(
                         width=min(getattr(page, "width", 800) - 24, 560),
-                        height=480,
+                        height=500,
                         content=ft.Column([
                             title_field,
                             inst_field,
@@ -1175,10 +1461,10 @@ def build_cohorts_tab(
                                 ft.Container(attempts_field, expand=1),
                             ], spacing=8),
                             ft.Container(height=4),
-                            ft.Text("Security & Anti-Cheat", size=12, weight=ft.FontWeight.BOLD),
+                            ft.Text("Tools & Policies", size=12, weight=ft.FontWeight.BOLD),
+                            calc_dd,
                             security_dd,
-                            shuffle_chk,
-                            immediate_chk,
+                            review_mode_card,
                         ], scroll=ft.ScrollMode.AUTO, spacing=10),
                     ),
                     actions=[
@@ -1192,6 +1478,255 @@ def build_cohorts_tab(
                     ],
                 )
                 page.show_dialog(dlg)
+
+            # Edit Existing Exam Dialog
+            def open_edit_exam_dialog(target_ex):
+                edit_ex_id = str(target_ex["id"])
+                edit_title_f = ft.TextField(label="Exam Title *", value=target_ex.get("title", ""), **_INPUT)
+                edit_inst_f = ft.TextField(label="Candidate Instructions & Rules", value=target_ex.get("instructions") or "", multiline=True, min_lines=2, max_lines=4, **_INPUT)
+                edit_dur_f = ft.TextField(label="Duration (Minutes) *", value=str(target_ex.get("duration_minutes", 60)), keyboard_type=ft.KeyboardType.NUMBER, **_INPUT)
+                edit_pass_f = ft.TextField(label="Pass Mark (%) *", value=str(target_ex.get("pass_percentage", 70.0)), keyboard_type=ft.KeyboardType.NUMBER, **_INPUT)
+                edit_att_f = ft.TextField(label="Max Allowed Attempts *", value=str(target_ex.get("max_attempts", 1)), keyboard_type=ft.KeyboardType.NUMBER, **_INPUT)
+
+                o_raw = target_ex.get("opens_at")
+                c_raw = target_ex.get("closes_at")
+                try:
+                    init_o = datetime.fromisoformat(str(o_raw).replace("Z", "+00:00")) if o_raw else datetime.now()
+                except Exception:
+                    init_o = datetime.now()
+                try:
+                    init_c = datetime.fromisoformat(str(c_raw).replace("Z", "+00:00")) if c_raw else (init_o + timedelta(days=7))
+                except Exception:
+                    init_c = init_o + timedelta(days=7)
+
+                edit_open_date = [init_o.date() if isinstance(init_o, datetime) else init_o]
+                edit_open_time = [init_o.time() if isinstance(init_o, datetime) else time(9, 0)]
+                edit_close_date = [init_c.date() if isinstance(init_c, datetime) else init_c]
+                edit_close_time = [init_c.time() if isinstance(init_c, datetime) else time(17, 0)]
+
+                e_o_date_txt = ft.Text(edit_open_date[0].strftime("%b %d, %Y"), size=12, weight=ft.FontWeight.W_600)
+                e_o_time_txt = ft.Text(edit_open_time[0].strftime("%I:%M %p"), size=12, weight=ft.FontWeight.W_600)
+                e_c_date_txt = ft.Text(edit_close_date[0].strftime("%b %d, %Y"), size=12, weight=ft.FontWeight.W_600)
+                e_c_time_txt = ft.Text(edit_close_time[0].strftime("%I:%M %p"), size=12, weight=ft.FontWeight.W_600)
+
+                def on_e_o_d(e=None):
+                    if e and getattr(e, "control", None) and e.control.value:
+                        v = e.control.value
+                        edit_open_date[0] = v.date() if isinstance(v, datetime) else v
+                        e_o_date_txt.value = edit_open_date[0].strftime("%b %d, %Y")
+                        page.update()
+
+                def on_e_o_t(e=None):
+                    if e and getattr(e, "control", None) and e.control.value:
+                        edit_open_time[0] = e.control.value
+                        e_o_time_txt.value = edit_open_time[0].strftime("%I:%M %p")
+                        page.update()
+
+                def on_e_c_d(e=None):
+                    if e and getattr(e, "control", None) and e.control.value:
+                        v = e.control.value
+                        edit_close_date[0] = v.date() if isinstance(v, datetime) else v
+                        e_c_date_txt.value = edit_close_date[0].strftime("%b %d, %Y")
+                        page.update()
+
+                def on_e_c_t(e=None):
+                    if e and getattr(e, "control", None) and e.control.value:
+                        edit_close_time[0] = e.control.value
+                        e_c_time_txt.value = edit_close_time[0].strftime("%I:%M %p")
+                        page.update()
+
+                ed_od_picker = ft.DatePicker(value=init_o, first_date=datetime.now() - timedelta(days=365 * 2), last_date=datetime.now() + timedelta(days=365 * 5), on_change=on_e_o_d)
+                ed_ot_picker = ft.TimePicker(value=edit_open_time[0], help_text="Select Exam Opening Time", on_change=on_e_o_t)
+                ed_cd_picker = ft.DatePicker(value=init_c, first_date=datetime.now() - timedelta(days=365 * 2), last_date=datetime.now() + timedelta(days=365 * 5), on_change=on_e_c_d)
+                ed_ct_picker = ft.TimePicker(value=edit_close_time[0], help_text="Select Exam Closing Time", on_change=on_e_c_t)
+                page.overlay.extend([ed_od_picker, ed_ot_picker, ed_cd_picker, ed_ct_picker])
+
+                e_opens_card = ft.Container(
+                    padding=12, border_radius=10,
+                    bgcolor=ft.Colors.with_opacity(0.03, ft.Colors.GREEN_700),
+                    border=ft.Border.all(1, ft.Colors.with_opacity(0.15, ft.Colors.GREEN_700)),
+                    expand=True,
+                    content=ft.Column([
+                        ft.Row([ft.Icon(ft.Icons.LOCK_OPEN_ROUNDED, size=15, color=ft.Colors.GREEN_700), ft.Text("Window Opens", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_800)], spacing=5),
+                        ft.Row([
+                            ft.Container(padding=ft.Padding.symmetric(horizontal=8, vertical=6), border_radius=6, border=ft.Border.all(1, ft.Colors.with_opacity(0.15, ft.Colors.ON_SURFACE)), bgcolor=ft.Colors.SURFACE, ink=True, on_click=lambda _: setattr(ed_od_picker, "open", True) or page.update(), expand=3, content=ft.Row([ft.Icon(ft.Icons.CALENDAR_MONTH_ROUNDED, size=14, color=theme_color), ft.Column([ft.Text("Date", size=8, color=ft.Colors.ON_SURFACE_VARIANT), e_o_date_txt], spacing=0, expand=True)], spacing=5)),
+                            ft.Container(padding=ft.Padding.symmetric(horizontal=8, vertical=6), border_radius=6, border=ft.Border.all(1, ft.Colors.with_opacity(0.15, ft.Colors.ON_SURFACE)), bgcolor=ft.Colors.SURFACE, ink=True, on_click=lambda _: setattr(ed_ot_picker, "open", True) or page.update(), expand=2, content=ft.Row([ft.Icon(ft.Icons.ACCESS_TIME_ROUNDED, size=14, color=theme_color), ft.Column([ft.Text("Time", size=8, color=ft.Colors.ON_SURFACE_VARIANT), e_o_time_txt], spacing=0, expand=True)], spacing=5)),
+                        ], spacing=6),
+                    ], spacing=6),
+                )
+                e_closes_card = ft.Container(
+                    padding=12, border_radius=10,
+                    bgcolor=ft.Colors.with_opacity(0.03, ft.Colors.RED_700),
+                    border=ft.Border.all(1, ft.Colors.with_opacity(0.15, ft.Colors.RED_700)),
+                    expand=True,
+                    content=ft.Column([
+                        ft.Row([ft.Icon(ft.Icons.LOCK_CLOCK_ROUNDED, size=15, color=ft.Colors.RED_700), ft.Text("Window Closes", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.RED_800)], spacing=5),
+                        ft.Row([
+                            ft.Container(padding=ft.Padding.symmetric(horizontal=8, vertical=6), border_radius=6, border=ft.Border.all(1, ft.Colors.with_opacity(0.15, ft.Colors.ON_SURFACE)), bgcolor=ft.Colors.SURFACE, ink=True, on_click=lambda _: setattr(ed_cd_picker, "open", True) or page.update(), expand=3, content=ft.Row([ft.Icon(ft.Icons.EVENT_BUSY_ROUNDED, size=14, color=theme_color), ft.Column([ft.Text("Date", size=8, color=ft.Colors.ON_SURFACE_VARIANT), e_c_date_txt], spacing=0, expand=True)], spacing=5)),
+                            ft.Container(padding=ft.Padding.symmetric(horizontal=8, vertical=6), border_radius=6, border=ft.Border.all(1, ft.Colors.with_opacity(0.15, ft.Colors.ON_SURFACE)), bgcolor=ft.Colors.SURFACE, ink=True, on_click=lambda _: setattr(ed_ct_picker, "open", True) or page.update(), expand=2, content=ft.Row([ft.Icon(ft.Icons.ACCESS_TIME_ROUNDED, size=14, color=theme_color), ft.Column([ft.Text("Time", size=8, color=ft.Colors.ON_SURFACE_VARIANT), e_c_time_txt], spacing=0, expand=True)], spacing=5)),
+                        ], spacing=6),
+                    ], spacing=6),
+                )
+                e_sec_dd = ft.Dropdown(
+                    label="Anti-Cheat Security Mode",
+                    options=[
+                        ft.dropdown.Option("monitored", "Monitored Mode (2 Warnings before auto-submit)"),
+                        ft.dropdown.Option("strict", "Strict Mode (Immediate auto-submit on app switch)"),
+                        ft.dropdown.Option("relaxed", "Relaxed Mode (Practice session / no auto-submit)"),
+                    ],
+                    value=target_ex.get("security_mode") or "monitored",
+                    border_radius=8,
+                    dense=True,
+                )
+                e_calc_dd = ft.Dropdown(
+                    label="Permitted In-Exam Calculator",
+                    options=[
+                        ft.dropdown.Option("none", "Closed Book (No calculator allowed)"),
+                        ft.dropdown.Option("basic", "Basic Calculator (+, −, ×, ÷, %)"),
+                        ft.dropdown.Option("scientific", "Scientific Calculator (Trig, Powers, Logs, Sqrt)"),
+                    ],
+                    value=target_ex.get("calculator_type") or "none",
+                    border_radius=8,
+                    dense=True,
+                )
+                e_review_mode_chk = ft.Checkbox(
+                    value=not target_ex.get("show_immediate_results", False),
+                    scale=0.9,
+                )
+                e_review_card = ft.Container(
+                    padding=ft.Padding.symmetric(horizontal=10, vertical=8),
+                    border_radius=8,
+                    bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
+                    content=ft.Row([
+                        e_review_mode_chk,
+                        ft.Column([
+                            ft.Text("Confidential Grading Protocol", size=11, weight=ft.FontWeight.BOLD),
+                            ft.Text("Release exam score and feedback only after instructor review (no instant score reveal).", size=10, color=ft.Colors.ON_SURFACE_VARIANT),
+                        ], spacing=1, expand=True),
+                    ], spacing=6, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                )
+
+                async def do_save_exam(e=None):
+                    if not edit_title_f.value or not edit_title_f.value.strip():
+                        show_snack("Exam title is required.", is_error=True)
+                        return
+                    o_dt = datetime.combine(edit_open_date[0], edit_open_time[0]).replace(tzinfo=timezone.utc)
+                    c_dt = datetime.combine(edit_close_date[0], edit_close_time[0]).replace(tzinfo=timezone.utc)
+                    if c_dt <= o_dt:
+                        show_snack("Closing date and time must be after opening date and time.", is_error=True)
+                        return
+
+                    payload = {
+                        "title": edit_title_f.value.strip(),
+                        "instructions": edit_inst_f.value.strip() if edit_inst_f.value else None,
+                        "opens_at": o_dt.isoformat(),
+                        "closes_at": c_dt.isoformat(),
+                        "duration_minutes": int(edit_dur_f.value or 60),
+                        "pass_percentage": float(edit_pass_f.value or 70),
+                        "max_attempts": int(edit_att_f.value or 1),
+                        "security_mode": e_sec_dd.value or "monitored",
+                        "shuffle_questions": True,
+                        "show_immediate_results": not e_review_mode_chk.value,
+                        "calculator_type": e_calc_dd.value or "none",
+                    }
+                    res = await update_cohort_exam(token, org_id, c_id, edit_ex_id, payload)
+                    if "error" in res:
+                        show_snack(res["error"], is_error=True)
+                    else:
+                        if hasattr(page, "pop_dialog"):
+                            page.pop_dialog()
+                        show_snack("Exam updated successfully.")
+                        await open_cohort_details(c_id)
+
+                # Modern Minimalist Grouped Cards
+                card_basic_info = ft.Container(
+                    padding=14, border_radius=10,
+                    bgcolor=ft.Colors.with_opacity(0.02, ft.Colors.ON_SURFACE),
+                    border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                    content=ft.Column([
+                        ft.Row([ft.Icon(ft.Icons.DESCRIPTION_OUTLINED, size=15, color=theme_color), ft.Text("Basic Information", size=12, weight=ft.FontWeight.BOLD)], spacing=6),
+                        edit_title_f,
+                        edit_inst_f,
+                    ], spacing=10),
+                )
+
+                card_schedule = ft.Container(
+                    padding=14, border_radius=10,
+                    bgcolor=ft.Colors.with_opacity(0.02, ft.Colors.ON_SURFACE),
+                    border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                    content=ft.Column([
+                        ft.Row([ft.Icon(ft.Icons.DATE_RANGE_ROUNDED, size=15, color=theme_color), ft.Text("Availability Window", size=12, weight=ft.FontWeight.BOLD)], spacing=6),
+                        ft.Row([e_opens_card, e_closes_card], spacing=8),
+                    ], spacing=10),
+                )
+
+                card_parameters = ft.Container(
+                    padding=14, border_radius=10,
+                    bgcolor=ft.Colors.with_opacity(0.02, ft.Colors.ON_SURFACE),
+                    border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                    content=ft.Column([
+                        ft.Row([ft.Icon(ft.Icons.SPEED_ROUNDED, size=15, color=theme_color), ft.Text("Timing & Scoring Benchmark", size=12, weight=ft.FontWeight.BOLD)], spacing=6),
+                        ft.Row([
+                            ft.Container(edit_dur_f, expand=2),
+                            ft.Container(edit_pass_f, expand=2),
+                            ft.Container(edit_att_f, expand=1),
+                        ], spacing=8),
+                    ], spacing=10),
+                )
+
+                card_tools_security = ft.Container(
+                    padding=14, border_radius=10,
+                    bgcolor=ft.Colors.with_opacity(0.02, ft.Colors.ON_SURFACE),
+                    border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                    content=ft.Column([
+                        ft.Row([ft.Icon(ft.Icons.SECURITY_ROUNDED, size=15, color=theme_color), ft.Text("Security Policy & Candidate Tools", size=12, weight=ft.FontWeight.BOLD)], spacing=6),
+                        ft.Row([
+                            ft.Container(e_calc_dd, expand=1),
+                            ft.Container(e_sec_dd, expand=1),
+                        ], spacing=8),
+                        ft.Divider(height=1, color=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE)),
+                        e_review_card,
+                    ], spacing=10),
+                )
+
+                ed_dlg = ft.AlertDialog(
+                    modal=True,
+                    title=ft.Row([
+                        ft.Row([
+                            ft.Container(
+                                width=32, height=32, border_radius=8,
+                                bgcolor=ft.Colors.with_opacity(0.1, theme_color),
+                                alignment=ft.Alignment.CENTER,
+                                content=ft.Icon(ft.Icons.EDIT_ROUNDED, color=theme_color, size=18),
+                            ),
+                            ft.Column([
+                                ft.Text("Edit Assessment Configuration", weight=ft.FontWeight.BOLD, size=15),
+                                ft.Text("Configure schedule, security rules, and candidate tools.", size=11, color=ft.Colors.ON_SURFACE_VARIANT),
+                            ], spacing=1),
+                        ], spacing=10, tight=True),
+                        ft.IconButton(ft.Icons.CLOSE_ROUNDED, icon_size=18, tooltip="Close", on_click=lambda _: page.pop_dialog()),
+                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                    content=ft.Container(
+                        width=min(getattr(page, "width", 800) - 24, 600),
+                        height=500,
+                        content=ft.Column([
+                            card_basic_info,
+                            card_schedule,
+                            card_parameters,
+                            card_tools_security,
+                        ], scroll=ft.ScrollMode.AUTO, spacing=12),
+                    ),
+                    actions=[
+                        ft.TextButton("Cancel", on_click=lambda _: page.pop_dialog()),
+                        ft.FilledButton(
+                            "Save Assessment",
+                            icon=ft.Icons.CHECK_ROUNDED,
+                            on_click=lambda _: page.run_task(do_save_exam),
+                            style=ft.ButtonStyle(bgcolor=theme_color, padding=ft.Padding.symmetric(horizontal=20, vertical=12)),
+                        ),
+                    ],
+                )
+                page.show_dialog(ed_dlg)
 
             return ft.Column([
                 ft.Row([
@@ -1243,6 +1778,7 @@ def build_cohorts_tab(
                     q for q in q_list
                     if not q_text_match or (
                         q_text_match in q.get("question_text", "").lower()
+                        or q_text_match in (q.get("scenario_text") or "").lower()
                         or any(q_text_match in str(opt).lower() for opt in q.get("options", []))
                     )
                 ]
@@ -1321,6 +1857,22 @@ def build_cohorts_tab(
                         ], spacing=6, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                     )
 
+                    scen_text = (q.get("scenario_text") or "").strip()
+                    scen_block = ft.Container(
+                        visible=bool(scen_text),
+                        padding=ft.Padding.all(8),
+                        border_radius=6,
+                        bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.PRIMARY),
+                        border=ft.Border(left=ft.BorderSide(3, ft.Colors.PRIMARY)),
+                        content=ft.Column([
+                            ft.Row([
+                                ft.Icon(ft.Icons.MENU_BOOK_ROUNDED, size=12, color=ft.Colors.PRIMARY),
+                                ft.Text("Scenario / Case Context", size=10, weight=ft.FontWeight.BOLD, color=ft.Colors.PRIMARY),
+                            ], spacing=4),
+                            ft.Text(scen_text, size=11, color=ft.Colors.ON_SURFACE_VARIANT, italic=True),
+                        ], spacing=4),
+                    )
+
                     def make_edit_handler(target_q):
                         return lambda _: open_edit_q(target_q)
 
@@ -1347,6 +1899,16 @@ def build_cohorts_tab(
                                         bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
                                         content=ft.Text(f"{pts} pt{'s' if pts != 1 else ''}", size=11, weight=ft.FontWeight.W_500, color=ft.Colors.ON_SURFACE_VARIANT),
                                     ),
+                                    ft.Container(
+                                        visible=bool(scen_text),
+                                        padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+                                        border_radius=6,
+                                        bgcolor=ft.Colors.with_opacity(0.1, ft.Colors.PRIMARY),
+                                        content=ft.Row([
+                                            ft.Icon(ft.Icons.MENU_BOOK_ROUNDED, size=11, color=ft.Colors.PRIMARY),
+                                            ft.Text("Scenario", size=10, weight=ft.FontWeight.BOLD, color=ft.Colors.PRIMARY),
+                                        ], spacing=4, tight=True),
+                                    ),
                                 ], spacing=6, tight=True),
                                 ft.Row([
                                     ft.IconButton(
@@ -1364,6 +1926,7 @@ def build_cohorts_tab(
                                     ),
                                 ], spacing=2, tight=True),
                             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                            scen_block,
                             ft.Text(prompt, size=13, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
                             ft.Column(option_rows, spacing=4),
                             expl_block,
@@ -1372,7 +1935,14 @@ def build_cohorts_tab(
                     cards.append(card)
                 return cards
 
+            def sync_exam_question_count():
+                for e_item in data.get("exams", []):
+                    if str(e_item.get("id")) == str(ex_id):
+                        e_item["question_count"] = len(q_list)
+                        break
+
             def refresh_ui():
+                sync_exam_question_count()
                 questions_list_view.controls = build_question_cards()
                 title_text.value = f"Question Bank ({len(q_list)})"
                 page.update()
@@ -1393,10 +1963,9 @@ def build_cohorts_tab(
                 border_radius=8,
                 border_color=ft.Colors.with_opacity(0.15, ft.Colors.ON_SURFACE),
                 on_change=on_search,
-                expand=True,
             )
 
-            async def delete_q(target_qid):
+            async def _do_delete_q(target_qid):
                 res = await delete_exam_question(token, org_id, c_id, ex_id, target_qid)
                 if "error" in res:
                     show_snack(res["error"], is_error=True)
@@ -1406,9 +1975,26 @@ def build_cohorts_tab(
                     refresh_ui()
                     show_snack("Question deleted.")
 
+            def delete_q(target_qid):
+                show_confirm_dialog(
+                    "Delete Question",
+                    "Are you sure you want to delete this question from the bank?",
+                    "Delete Question",
+                    lambda: _do_delete_q(target_qid),
+                    is_destructive=True,
+                )
+
             def open_edit_q(target_q):
                 target_qid = str(target_q.get("id"))
                 opts = list(target_q.get("options", []))
+                scenario_input = ft.TextField(
+                    label="Scenario / Case Context (optional)",
+                    value=target_q.get("scenario_text") or "",
+                    multiline=True,
+                    min_lines=2,
+                    hint_text="Background context, clinical vignette, passage, or case details...",
+                    **_INPUT,
+                )
                 prompt_input = ft.TextField(label="Question Prompt *", value=target_q.get("question_text", ""), multiline=True, min_lines=2, **_INPUT)
                 opt_a_in = ft.TextField(label="Option A *", value=opts[0] if len(opts) > 0 else "", **_INPUT)
                 opt_b_in = ft.TextField(label="Option B *", value=opts[1] if len(opts) > 1 else "", **_INPUT)
@@ -1446,6 +2032,7 @@ def build_cohorts_tab(
                         return
 
                     payload = {
+                        "scenario_text": scenario_input.value.strip() if scenario_input.value and scenario_input.value.strip() else None,
                         "question_text": prompt_input.value.strip(),
                         "options": new_opts,
                         "correct_index": c_val,
@@ -1459,6 +2046,7 @@ def build_cohorts_tab(
                         page.pop_dialog()
                         for item in q_list:
                             if str(item.get("id")) == target_qid:
+                                item["scenario_text"] = payload["scenario_text"]
                                 item["question_text"] = payload["question_text"]
                                 item["options"] = payload["options"]
                                 item["correct_index"] = payload["correct_index"]
@@ -1475,8 +2063,9 @@ def build_cohorts_tab(
                         ft.Text("Edit Question", weight=ft.FontWeight.BOLD, size=15),
                     ], spacing=8),
                     content=ft.Container(
-                        width=460, height=420,
+                        width=460, height=440,
                         content=ft.Column([
+                            scenario_input,
                             prompt_input,
                             opt_a_in,
                             opt_b_in,
@@ -1495,6 +2084,13 @@ def build_cohorts_tab(
                 page.show_dialog(edit_dlg)
 
             def open_add_single_q(e=None):
+                scenario_f = ft.TextField(
+                    label="Scenario / Case Context (optional)",
+                    multiline=True,
+                    min_lines=2,
+                    hint_text="Background context, clinical vignette, passage, or case details...",
+                    **_INPUT,
+                )
                 q_text = ft.TextField(label="Question Prompt *", multiline=True, min_lines=2, **_INPUT)
                 opt_a = ft.TextField(label="Option A *", **_INPUT)
                 opt_b = ft.TextField(label="Option B *", **_INPUT)
@@ -1519,6 +2115,7 @@ def build_cohorts_tab(
                     if opt_d.value and opt_d.value.strip(): opts.append(opt_d.value.strip())
 
                     payload = {
+                        "scenario_text": scenario_f.value.strip() if scenario_f.value and scenario_f.value.strip() else None,
                         "question_text": q_text.value.strip(),
                         "options": opts,
                         "correct_index": int(ans_dd.value or 0),
@@ -1544,8 +2141,8 @@ def build_cohorts_tab(
                         ft.Text("Add Single Question", weight=ft.FontWeight.BOLD, size=15),
                     ], spacing=8),
                     content=ft.Container(
-                        width=460, height=420,
-                        content=ft.Column([q_text, opt_a, opt_b, opt_c, opt_d, ans_dd, points_f, expl_field], scroll=ft.ScrollMode.AUTO, spacing=8),
+                        width=460, height=440,
+                        content=ft.Column([scenario_f, q_text, opt_a, opt_b, opt_c, opt_d, ans_dd, points_f, expl_field], scroll=ft.ScrollMode.AUTO, spacing=8),
                     ),
                     actions=[
                         ft.TextButton("Cancel", on_click=lambda _: page.pop_dialog()),
@@ -1620,7 +2217,10 @@ def build_cohorts_tab(
                     pass
 
                 try:
-                    await ft.Clipboard().set(csv_text)
+                    if hasattr(page, "set_clipboard"):
+                        await page.set_clipboard(csv_text)
+                    elif hasattr(page, "clipboard"):
+                        await page.clipboard.set(csv_text)
                 except Exception:
                     pass
 
@@ -1663,10 +2263,19 @@ def build_cohorts_tab(
                         questions_list_view,
                     ], spacing=10, expand=True),
                 ),
-                actions=[
-                    ft.TextButton("Close", on_click=lambda _: page.pop_dialog()),
-                ],
             )
+
+            def on_close_q_bank(_=None):
+                sync_exam_question_count()
+                if hasattr(page, "pop_dialog"):
+                    page.pop_dialog()
+                if sub_tab["key"] == "exams":
+                    sub_tab_container.content = render_sub_exams()
+                    page.update()
+
+            q_bank_dlg.actions = [
+                ft.TextButton("Close", on_click=on_close_q_bank),
+            ]
             page.show_dialog(q_bank_dlg)
 
         # ── GRADEBOOK & RESULTS MODAL ────────────────────────────────────
@@ -1684,59 +2293,120 @@ def build_cohorts_tab(
 
             async def do_export(e=None):
                 csv_str = await export_exam_gradebook_csv(token, org_id, c_id, ex_id)
-                show_snack("Gradebook exported successfully.")
+                if not csv_str or not csv_str.strip():
+                    show_snack("No gradebook data to export.", is_error=True)
+                    return
 
-            rows = []
-            for r in roster:
-                st = r.get("status", "NOT_ATTEMPTED")
-                if st == "PASSED":
-                    col = ft.Colors.GREEN_700
-                elif st == "FAILED":
-                    col = ft.Colors.RED_700
-                elif st == "IN_PROGRESS":
-                    col = ft.Colors.AMBER_800
+                saved_to_disk = False
+                try:
+                    import os
+                    dl_dir = os.path.join(os.path.expanduser("~"), "Downloads")
+                    if os.path.exists(dl_dir):
+                        clean_ex_id = str(ex_id)[:8]
+                        target_file = os.path.join(dl_dir, f"gradebook_exam_{clean_ex_id}.csv")
+                        with open(target_file, "w", encoding="utf-8") as f:
+                            f.write(csv_str)
+                        saved_to_disk = True
+                except Exception:
+                    pass
+
+                try:
+                    if hasattr(page, "set_clipboard"):
+                        await page.set_clipboard(csv_str)
+                    elif hasattr(page, "clipboard"):
+                        await page.clipboard.set(csv_str)
+                except Exception:
+                    pass
+
+                if saved_to_disk:
+                    show_snack(f"Gradebook exported to Downloads/gradebook_exam_{str(ex_id)[:8]}.csv & copied to clipboard!")
                 else:
-                    col = ft.Colors.GREY_600
+                    show_snack("Gradebook CSV copied to clipboard!")
 
-                sc_str = f"{r.get('percentage')}%" if r.get('percentage') is not None else "—"
-                dur_min = round(r["duration_seconds"] / 60, 1) if r.get("duration_seconds") else "—"
-                v_count = r.get("violations_count", 0)
+            gb_search_q = [""]
+            rows_col = ft.Column(scroll=ft.ScrollMode.AUTO, spacing=6)
 
-                status_widgets = [
-                    ft.Container(
-                        padding=ft.Padding.symmetric(horizontal=8, vertical=2),
-                        border_radius=6, bgcolor=ft.Colors.with_opacity(0.1, col),
-                        content=ft.Text(st, size=10, weight=ft.FontWeight.BOLD, color=col),
-                    )
-                ]
-                if v_count > 0:
-                    status_widgets.append(
+            def rebuild_gradebook_rows():
+                q = gb_search_q[0].lower().strip()
+                matched_rows = []
+                for r in roster:
+                    cand_name = (r.get("name") or "").lower()
+                    cand_email = (r.get("email") or "").lower()
+                    if q and (q not in cand_name and q not in cand_email):
+                        continue
+                    st = r.get("status", "NOT_ATTEMPTED")
+                    if st == "PASSED":
+                        col = ft.Colors.GREEN_700
+                    elif st == "FAILED":
+                        col = ft.Colors.RED_700
+                    elif st == "IN_PROGRESS":
+                        col = ft.Colors.AMBER_800
+                    else:
+                        col = ft.Colors.GREY_600
+
+                    sc_str = f"{r.get('percentage')}%" if r.get('percentage') is not None else "—"
+                    dur_min = round(r["duration_seconds"] / 60, 1) if r.get("duration_seconds") else "—"
+                    v_count = r.get("violations_count", 0)
+
+                    status_widgets = [
                         ft.Container(
-                            padding=ft.Padding.symmetric(horizontal=6, vertical=2),
-                            border_radius=4,
-                            bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.RED_700),
+                            padding=ft.Padding.symmetric(horizontal=8, vertical=2),
+                            border_radius=6, bgcolor=ft.Colors.with_opacity(0.1, col),
+                            content=ft.Text(st, size=10, weight=ft.FontWeight.BOLD, color=col),
+                        )
+                    ]
+                    if v_count > 0:
+                        status_widgets.append(
+                            ft.Container(
+                                padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+                                border_radius=4,
+                                bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.RED_700),
+                                content=ft.Row([
+                                    ft.Icon(ft.Icons.SECURITY_ROUNDED, size=11, color=ft.Colors.RED_700),
+                                    ft.Text(f"{v_count} strikes", size=9, weight=ft.FontWeight.BOLD, color=ft.Colors.RED_700),
+                                ], spacing=2, tight=True),
+                            )
+                        )
+
+                    matched_rows.append(
+                        ft.Container(
+                            padding=10, border_radius=8, bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
                             content=ft.Row([
-                                ft.Icon(ft.Icons.SECURITY_ROUNDED, size=11, color=ft.Colors.RED_700),
-                                ft.Text(f"{v_count} strikes", size=9, weight=ft.FontWeight.BOLD, color=ft.Colors.RED_700),
-                            ], spacing=2, tight=True),
+                                ft.Text(f"#{r.get('rank', '-')}", size=12, weight=ft.FontWeight.BOLD, width=28),
+                                ft.Column([
+                                    ft.Text(r.get("name", ""), size=12, weight=ft.FontWeight.BOLD),
+                                    ft.Text(r.get("email", ""), size=10, color=ft.Colors.ON_SURFACE_VARIANT),
+                                ], spacing=1, expand=True),
+                                ft.Row(status_widgets, spacing=4, tight=True),
+                                ft.Text(sc_str, size=12, weight=ft.FontWeight.BOLD, width=45, text_align=ft.TextAlign.RIGHT),
+                                ft.Text(f"{dur_min}m" if dur_min != "—" else "—", size=10, color=ft.Colors.ON_SURFACE_VARIANT, width=35, text_align=ft.TextAlign.RIGHT),
+                            ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                         )
                     )
-
-                rows.append(
+                rows_col.controls = matched_rows if matched_rows else [
                     ft.Container(
-                        padding=10, border_radius=8, bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
-                        content=ft.Row([
-                            ft.Text(f"#{r.get('rank', '-')}", size=12, weight=ft.FontWeight.BOLD, width=28),
-                            ft.Column([
-                                ft.Text(r.get("name", ""), size=12, weight=ft.FontWeight.BOLD),
-                                ft.Text(r.get("email", ""), size=10, color=ft.Colors.ON_SURFACE_VARIANT),
-                            ], spacing=1, expand=True),
-                            ft.Row(status_widgets, spacing=4, tight=True),
-                            ft.Text(sc_str, size=12, weight=ft.FontWeight.BOLD, width=45, text_align=ft.TextAlign.RIGHT),
-                            ft.Text(f"{dur_min}m" if dur_min != "—" else "—", size=10, color=ft.Colors.ON_SURFACE_VARIANT, width=35, text_align=ft.TextAlign.RIGHT),
-                        ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                        alignment=ft.Alignment.CENTER,
+                        padding=20,
+                        content=ft.Text("No matching candidates found.", italic=True, size=12, color=ft.Colors.ON_SURFACE_VARIANT),
                     )
-                )
+                ] if roster else [ft.Text("No candidates enrolled.", italic=True, size=12)]
+                page.update()
+
+            def on_gb_search(ev):
+                if ev and getattr(ev, "control", None):
+                    gb_search_q[0] = ev.control.value or ""
+                    rebuild_gradebook_rows()
+
+            gb_search_f = ft.TextField(
+                hint_text="Search candidate by name or email...",
+                prefix_icon=ft.Icons.SEARCH_ROUNDED,
+                height=38, text_size=12,
+                content_padding=ft.Padding.symmetric(horizontal=10, vertical=0),
+                border_radius=8,
+                on_change=on_gb_search,
+                expand=True,
+            )
+            rebuild_gradebook_rows()
 
             gb_dlg = ft.AlertDialog(
                 modal=True,
@@ -1745,8 +2415,8 @@ def build_cohorts_tab(
                     ft.Text(f"Gradebook: {gradebook.get('exam_title', 'Exam')}", weight=ft.FontWeight.BOLD, size=15),
                 ], spacing=8),
                 content=ft.Container(
-                    width=min(getattr(page, "width", 800) - 32, 540),
-                    height=440,
+                    width=min(getattr(page, "width", 800) - 32, 580),
+                    height=460,
                     content=ft.Column([
                         ft.Row([
                             ft.Container(
@@ -1767,13 +2437,13 @@ def build_cohorts_tab(
                             ),
                         ], spacing=6),
                         ft.Row([
-                            ft.Text("Candidate Results", size=12, weight=ft.FontWeight.BOLD),
+                            gb_search_f,
                             ft.FilledButton("Export CSV", icon=ft.Icons.DOWNLOAD_ROUNDED,
                                             style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_700, padding=ft.Padding.symmetric(horizontal=10, vertical=4)),
                                             on_click=lambda e: page.run_task(do_export, e)),
-                        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                        ft.Divider(height=1),
-                        ft.Column(rows if rows else [ft.Text("No candidates enrolled.", italic=True, size=12)], scroll=ft.ScrollMode.AUTO),
+                        ], spacing=8),
+                        ft.Divider(height=1, color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                        ft.Container(content=rows_col, expand=True),
                     ], spacing=10),
                 ),
                 actions=[ft.TextButton("Close", on_click=lambda _: page.pop_dialog())],
@@ -1794,25 +2464,33 @@ def build_cohorts_tab(
                 sub_tab_container.content = render_sub_exams()
             page.update()
 
-        sub_tab_buttons = ft.Row(spacing=6, scroll=ft.ScrollMode.AUTO)
+        sub_tab_row = ft.Row(spacing=4, scroll=ft.ScrollMode.AUTO)
+        sub_tab_buttons = ft.Container(
+            padding=4,
+            border_radius=12,
+            bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
+            content=sub_tab_row,
+        )
 
         def refresh_sub_tabs():
             def sub_btn(label: str, key: str, icon_name):
                 is_sel = sub_tab["key"] == key
                 return ft.Container(
-                    padding=ft.Padding.symmetric(horizontal=12, vertical=6),
-                    border_radius=8,
-                    bgcolor=theme_color if is_sel else ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
+                    padding=ft.Padding.symmetric(horizontal=14, vertical=7),
+                    border_radius=10,
+                    bgcolor=ft.Colors.SURFACE if is_sel else ft.Colors.TRANSPARENT,
+                    shadow=ft.BoxShadow(blur_radius=4, color=ft.Colors.with_opacity(0.06, ft.Colors.BLACK)) if is_sel else None,
+                    border=ft.Border.all(1, ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE)) if is_sel else None,
                     ink=True,
                     on_click=lambda _, k=key: switch_sub_tab(k),
                     content=ft.Row([
-                        ft.Icon(icon_name, size=14, color=ft.Colors.WHITE if is_sel else ft.Colors.ON_SURFACE),
+                        ft.Icon(icon_name, size=14, color=theme_color if is_sel else ft.Colors.ON_SURFACE_VARIANT),
                         ft.Text(label, size=11, weight=ft.FontWeight.BOLD if is_sel else ft.FontWeight.W_500,
-                                color=ft.Colors.WHITE if is_sel else ft.Colors.ON_SURFACE),
-                    ], spacing=4, tight=True),
+                                color=theme_color if is_sel else ft.Colors.ON_SURFACE),
+                    ], spacing=5, tight=True),
                 )
 
-            sub_tab_buttons.controls = [
+            sub_tab_row.controls = [
                 sub_btn("Overview", "overview", ft.Icons.INFO_OUTLINE_ROUNDED),
                 sub_btn("Courses", "courses", ft.Icons.AUTO_STORIES_ROUNDED),
                 sub_btn("Members", "members", ft.Icons.PEOPLE_ROUNDED),
@@ -1822,20 +2500,163 @@ def build_cohorts_tab(
         refresh_sub_tabs()
         sub_tab_container.content = render_sub_overview()
 
-        # Delete cohort
-        async def do_delete_cohort(_):
-            res = await delete_cohort(token, org_id, c_id)
-            if "error" in res:
-                show_snack(res["error"], is_error=True)
-            else:
-                show_snack("Cohort deleted.")
-                await load_cohorts_data()
+        # Edit cohort dialog
+        def open_edit_cohort_dialog(e=None):
+            edit_name_field = ft.TextField(label="Cohort Name *", value=data.get("name", ""), **_INPUT)
+            edit_desc_field = ft.TextField(label="Description", value=data.get("description") or "", multiline=True, min_lines=2, max_lines=3, **_INPUT)
+
+            s_iso = data.get("start_date")
+            e_iso = data.get("end_date")
+            try:
+                init_s = datetime.fromisoformat(str(s_iso).replace("Z", "+00:00")) if s_iso else datetime.now()
+            except Exception:
+                init_s = datetime.now()
+            try:
+                init_e = datetime.fromisoformat(str(e_iso).replace("Z", "+00:00")) if e_iso else (init_s + timedelta(days=90))
+            except Exception:
+                init_e = init_s + timedelta(days=90)
+
+            edit_start_val = [init_s.date() if isinstance(init_s, datetime) else init_s]
+            edit_end_val = [init_e.date() if isinstance(init_e, datetime) else init_e]
+
+            edit_start_btn_text = ft.Text(edit_start_val[0].strftime("%b %d, %Y"), size=13, weight=ft.FontWeight.W_600)
+            edit_end_btn_text = ft.Text(edit_end_val[0].strftime("%b %d, %Y"), size=13, weight=ft.FontWeight.W_600)
+
+            def on_edit_s_change(ev=None):
+                if ev and getattr(ev, "control", None) and ev.control.value:
+                    val = ev.control.value
+                    edit_start_val[0] = val.date() if isinstance(val, datetime) else val
+                    edit_start_btn_text.value = edit_start_val[0].strftime("%b %d, %Y")
+                    page.update()
+
+            def on_edit_e_change(ev=None):
+                if ev and getattr(ev, "control", None) and ev.control.value:
+                    val = ev.control.value
+                    edit_end_val[0] = val.date() if isinstance(val, datetime) else val
+                    edit_end_btn_text.value = edit_end_val[0].strftime("%b %d, %Y")
+                    page.update()
+
+            edit_s_picker = ft.DatePicker(
+                value=init_s if isinstance(init_s, datetime) else datetime.combine(init_s, datetime.min.time()),
+                first_date=datetime.now() - timedelta(days=365 * 3),
+                last_date=datetime.now() + timedelta(days=365 * 5),
+                on_change=on_edit_s_change,
+            )
+            edit_e_picker = ft.DatePicker(
+                value=init_e if isinstance(init_e, datetime) else datetime.combine(init_e, datetime.max.time()),
+                first_date=datetime.now() - timedelta(days=365 * 3),
+                last_date=datetime.now() + timedelta(days=365 * 5),
+                on_change=on_edit_e_change,
+            )
+            page.overlay.extend([edit_s_picker, edit_e_picker])
+
+            edit_start_btn = ft.Container(
+                padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+                border_radius=10,
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.18, ft.Colors.ON_SURFACE)),
+                bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
+                ink=True,
+                on_click=lambda _: setattr(edit_s_picker, "open", True) or page.update(),
+                content=ft.Row([
+                    ft.Icon(ft.Icons.CALENDAR_MONTH_ROUNDED, size=18, color=theme_color),
+                    ft.Column([
+                        ft.Text("Start Date", size=10, color=ft.Colors.ON_SURFACE_VARIANT),
+                        edit_start_btn_text,
+                    ], spacing=1, expand=True),
+                ], spacing=8),
+            )
+
+            edit_end_btn = ft.Container(
+                padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+                border_radius=10,
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.18, ft.Colors.ON_SURFACE)),
+                bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
+                ink=True,
+                on_click=lambda _: setattr(edit_e_picker, "open", True) or page.update(),
+                content=ft.Row([
+                    ft.Icon(ft.Icons.EVENT_REPEAT_ROUNDED, size=18, color=theme_color),
+                    ft.Column([
+                        ft.Text("End Date", size=10, color=ft.Colors.ON_SURFACE_VARIANT),
+                        edit_end_btn_text,
+                    ], spacing=1, expand=True),
+                ], spacing=8),
+            )
+
+            async def do_save_cohort(ev=None):
+                if not edit_name_field.value or not edit_name_field.value.strip():
+                    show_snack("Cohort name is required.", is_error=True)
+                    return
+                s_dt = datetime.combine(edit_start_val[0], datetime.min.time()).replace(tzinfo=timezone.utc)
+                e_dt = datetime.combine(edit_end_val[0], datetime.max.time()).replace(tzinfo=timezone.utc)
+                if e_dt <= s_dt:
+                    show_snack("End date must be after start date.", is_error=True)
+                    return
+
+                payload = {
+                    "name": edit_name_field.value.strip(),
+                    "description": edit_desc_field.value.strip() if edit_desc_field.value else None,
+                    "start_date": s_dt.isoformat(),
+                    "end_date": e_dt.isoformat(),
+                }
+                res = await update_cohort(token, org_id, c_id, payload)
+                if "error" in res:
+                    show_snack(f"Failed to update cohort: {res['error']}", is_error=True)
+                else:
+                    if hasattr(page, "pop_dialog"):
+                        page.pop_dialog()
+                    show_snack("Cohort updated successfully!")
+                    await open_cohort_details(c_id)
+
+            dlg = ft.AlertDialog(
+                modal=True,
+                title=ft.Row([
+                    ft.Icon(ft.Icons.EDIT_ROUNDED, color=theme_color, size=22),
+                    ft.Text("Edit Cohort Details", weight=ft.FontWeight.BOLD, size=16),
+                ], spacing=8),
+                content=ft.Container(
+                    width=min(getattr(page, "width", 800) - 32, 500),
+                    height=300,
+                    content=ft.Column([
+                        edit_name_field,
+                        edit_desc_field,
+                        ft.Row([
+                            ft.Container(content=edit_start_btn, expand=True),
+                            ft.Container(content=edit_end_btn, expand=True),
+                        ], spacing=10),
+                    ], scroll=ft.ScrollMode.AUTO, spacing=12),
+                ),
+                actions=[
+                    ft.TextButton("Cancel", on_click=lambda _: page.pop_dialog()),
+                    ft.FilledButton("Save Changes", on_click=lambda _: page.run_task(do_save_cohort), style=ft.ButtonStyle(bgcolor=theme_color)),
+                ],
+                actions_alignment=ft.MainAxisAlignment.END,
+            )
+            page.show_dialog(dlg)
+
+        # Delete cohort with confirmation
+        def confirm_delete_cohort(e=None):
+            async def _do():
+                res = await delete_cohort(token, org_id, c_id)
+                if "error" in res:
+                    show_snack(res["error"], is_error=True)
+                else:
+                    show_snack("Cohort deleted.")
+                    await load_cohorts_data()
+
+            show_confirm_dialog(
+                "Delete Cohort",
+                f"Are you sure you want to delete cohort '{c_name}'? All candidate records, exam schedules, and question banks will be permanently removed.",
+                "Delete Cohort",
+                _do,
+                is_destructive=True,
+            )
 
         top_header = ft.Container(
-            padding=ft.Padding.symmetric(horizontal=14, vertical=10),
+            padding=ft.Padding.symmetric(horizontal=16, vertical=12),
             bgcolor=ft.Colors.SURFACE,
-            border_radius=12,
-            border=ft.Border.all(1, ft.Colors.with_opacity(0.1, ft.Colors.ON_SURFACE)),
+            border_radius=14,
+            border=ft.Border.all(1, ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)),
+            shadow=ft.BoxShadow(blur_radius=10, color=ft.Colors.with_opacity(0.04, ft.Colors.BLACK)),
             content=ft.Row([
                 ft.IconButton(
                     icon=ft.Icons.ARROW_BACK_ROUNDED,
@@ -1843,17 +2664,33 @@ def build_cohorts_tab(
                     on_click=lambda _: render_main_cohorts_view() or page.update(),
                 ),
                 ft.Column([
-                    ft.Text(c_name, size=15, weight=ft.FontWeight.BOLD, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
-                    ft.Text(f"{s_date} – {e_date} · {c_status}", size=11, color=ft.Colors.ON_SURFACE_VARIANT),
-                ], spacing=1, expand=True),
-                ft.IconButton(
-                    icon=ft.Icons.DELETE_OUTLINE_ROUNDED,
-                    icon_color=ft.Colors.RED_500,
-                    tooltip="Delete cohort",
-                    on_click=lambda e: page.run_task(do_delete_cohort, e),
-                    visible=is_admin,
-                ),
-            ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                    ft.Row([
+                        ft.Text("Cohorts", size=11, color=ft.Colors.ON_SURFACE_VARIANT, weight=ft.FontWeight.W_500),
+                        ft.Text("/", size=11, color=ft.Colors.ON_SURFACE_VARIANT),
+                        ft.Text(c_name, size=16, weight=ft.FontWeight.BOLD, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                    ], spacing=4, tight=True),
+                    ft.Row([
+                        ft.Icon(ft.Icons.CALENDAR_MONTH_ROUNDED, size=12, color=ft.Colors.ON_SURFACE_VARIANT),
+                        ft.Text(f"{s_date} – {e_date} · {c_status}", size=11, color=ft.Colors.ON_SURFACE_VARIANT),
+                    ], spacing=4, tight=True),
+                ], spacing=2, expand=True),
+                ft.Row([
+                    ft.IconButton(
+                        icon=ft.Icons.EDIT_OUTLINED,
+                        icon_color=theme_color,
+                        tooltip="Edit cohort details",
+                        on_click=open_edit_cohort_dialog,
+                        visible=is_admin,
+                    ),
+                    ft.IconButton(
+                        icon=ft.Icons.DELETE_OUTLINE_ROUNDED,
+                        icon_color=ft.Colors.RED_500,
+                        tooltip="Delete cohort",
+                        on_click=confirm_delete_cohort,
+                        visible=is_admin,
+                    ),
+                ], spacing=4, tight=True),
+            ], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER),
         )
 
         container.content = ft.Column([
