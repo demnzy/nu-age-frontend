@@ -259,21 +259,33 @@ async def update_course_settings(token: str, course_id: str, setting: dict):
 
             elif response.status_code == 404:
                 print("Course not found.")
-                return {"error": "not_found"}
+                return {"error": "not_found", "details": "Course not found."}
 
             elif response.status_code == 401:
-                return {"error": "unauthorized"}
+                return {"error": "unauthorized", "details": "Session expired or unauthorized."}
+            elif response.status_code == 403:
+                try:
+                    err_json = response.json()
+                    detail = err_json.get("detail", "You do not have permission to modify this course.")
+                except Exception:
+                    detail = "You do not have permission to modify this course."
+                return {"error": "forbidden", "details": detail}
             else:
-                return {"error": "server_fail", "details": response.text}
+                try:
+                    err_json = response.json()
+                    detail = err_json.get("detail", response.text)
+                except Exception:
+                    detail = response.text
+                return {"error": "server_fail", "details": detail}
     except httpx.TimeoutException:
         print("update_course_settings timed out.")
-        return {"error": "Connection failed"}
+        return {"error": "Connection timed out"}
     except httpx.RequestError as e:
         print(f"Request Error: {e}")
-        return {"error": "Connection failed"}
+        return {"error": f"Connection failed: {e}"}
     except Exception as e:
         print(f"Unexpected Error: {e}")
-        return {"error": "Connection failed"}
+        return {"error": f"Unexpected error: {e}"}
 
 
 async def delete_course(token: str, course_id: str):

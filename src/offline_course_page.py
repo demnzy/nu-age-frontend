@@ -52,12 +52,13 @@ import json
 import sqlite3
 import flet as ft
 from src.course_page import course_learner_view
-from src.local_db import get_local_db  # adjust import to wherever your sqlite connection helper lives
+from src.local_db import get_local_db
+from src.utils.youtube import is_youtube_url
 
 
 async def offline_course_learner_view(page: ft.Page, course_id: str, back_target: str = "/courses"):
     async def fetch_course_data(c_id: str):
-        db = get_local_db()
+        db = get_local_db(page)
 
         course_row = db.execute(
             "SELECT id, name FROM downloaded_courses WHERE id = ?", (c_id,)
@@ -87,14 +88,21 @@ async def offline_course_learner_view(page: ft.Page, course_id: str, back_target
             lessons = []
             for l_id, l_title, l_type, l_content_json in lesson_rows:
                 content = json.loads(l_content_json)
+                # Safeguard: if video_url points to a local file that was an HTML YouTube download,
+                # restore the original remote YouTube URL so AdaptiveVideoPlayer can handle it
+                if l_type == "video" and content.get("video_url") and not is_youtube_url(content["video_url"]):
+                    asset_row = db.execute(
+                        "SELECT remote_url FROM downloaded_assets WHERE lesson_id = ? AND (remote_url LIKE '%youtube%' OR remote_url LIKE '%youtu.be%')",
+                        (l_id,),
+                    ).fetchone()
+                    if asset_row and is_youtube_url(asset_row[0]):
+                        content["video_url"] = asset_row[0]
+
                 lessons.append({
                     "id": l_id,
                     "title": l_title,
                     "type": l_type,
-                    "content": content,  # asset paths already rewritten to
-                                          # local paths at download time —
-                                          # see the download manager's
-                                          # asset-rewrite step
+                    "content": content,
                 })
 
             modules.append({"id": m_id, "title": m_title, "lessons": lessons})

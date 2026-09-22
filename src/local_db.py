@@ -84,6 +84,12 @@ def _resolve_db_path() -> str:
         base = _platform_storage_dir
     else:
         base = os.environ.get("FLET_APP_STORAGE_DATA")
+        if not base and os.name == "nt":
+            appdata = os.environ.get("APPDATA")
+            if appdata:
+                candidate = os.path.join(appdata, "Appveyor Systems Inc", "Flet")
+                if os.path.exists(candidate):
+                    base = candidate
         if not base:
             base = os.path.join(os.getcwd(), "app_data")
     return os.path.join(base, "courses_offline.db")
@@ -172,6 +178,38 @@ def _run_migrations(conn: sqlite3.Connection):
         """
     )
     conn.commit()
+
+    # ── Self-Healing Migration: Restore YouTube URLs mistakenly downloaded as HTML stubs ──
+    try:
+        cur = conn.cursor()
+        bad_assets = cur.execute(
+            """
+            SELECT a.id, a.lesson_id, a.remote_url, a.local_path, l.content
+            FROM downloaded_assets a
+            JOIN downloaded_lessons l ON l.id = a.lesson_id
+            WHERE a.remote_url LIKE '%youtube.com%' OR a.remote_url LIKE '%youtu.be%'
+            """
+        ).fetchall()
+        for a_id, lesson_id, remote_url, local_path, content_json in bad_assets:
+            if content_json:
+                import json
+                try:
+                    c = json.loads(content_json)
+                    if c.get("video_url") == local_path:
+                        c["video_url"] = remote_url
+                        cur.execute("UPDATE downloaded_lessons SET content = ? WHERE id = ?", (json.dumps(c), lesson_id))
+                except Exception:
+                    pass
+            # Remove the HTML file from disk if it exists
+            if local_path and os.path.isfile(local_path):
+                try:
+                    os.remove(local_path)
+                except Exception:
+                    pass
+            cur.execute("DELETE FROM downloaded_assets WHERE id = ?", (a_id,))
+        conn.commit()
+    except Exception:
+        pass
 
 
 def close_local_db():

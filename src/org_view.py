@@ -14,6 +14,7 @@ from src.requests.organisations import (
 from src.requests.Courses import create_course, get_categories
 from src.requests.playlists import get_org_playlists, create_playlist
 from src.utils.file_opener import show_page_snackbar
+from src.components.cohorts_hub import build_cohorts_tab
 
 # The shared "Nu Age" account every freelance course is filed under.
 # /courses now scopes TEACHER-role requests against this org_id down to
@@ -71,6 +72,8 @@ async def organisations_view(page: ft.Page):
         org_address = org_data.get("address", "")
         org_logo = org_data.get("logo", "")
         owner_id = str(org_data.get("owner_id", ""))
+        current_user_id = str(user_data.get("id", ""))
+        is_admin = (owner_id == current_user_id) or (role in ("TEACHER", "INSTRUCTOR", "STAFF", "ADMIN", "OWNER"))
         theme_color = org_data.get("theme_color") or ft.Colors.PRIMARY
 
         if not org_id:
@@ -291,9 +294,19 @@ async def organisations_view(page: ft.Page):
 
             category_dropdown = ft.Dropdown(
                 label="Category *",
-                border_color=ft.Colors.GREY_300,
+                border_color=ft.Colors.with_opacity(0.20, ft.Colors.ON_SURFACE),
                 focused_border_color=theme_color,
-                border_radius=10,
+                border_radius=8,
+                dense=True,
+                text_size=13,
+                menu_height=260,
+                menu_style=ft.MenuStyle(
+                    bgcolor=ft.Colors.SURFACE,
+                    elevation=8,
+                    shape=ft.RoundedRectangleBorder(radius=10),
+                    side=ft.BorderSide(1, ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)),
+                ),
+                content_padding=ft.Padding.symmetric(horizontal=12, vertical=8),
                 width=float("inf"),
                 options=[ft.dropdown.Option(c["id"], c["name"]) for c in categories_cache if isinstance(c, dict) and "id" in c and "name" in c],
                 hint_text="Select a category",
@@ -311,26 +324,46 @@ async def organisations_view(page: ft.Page):
 
             teacher_dropdown = ft.Dropdown(
                 label="Assign Instructor (Optional)",
-                border_color=ft.Colors.GREY_300,
+                border_color=ft.Colors.with_opacity(0.20, ft.Colors.ON_SURFACE),
                 focused_border_color=theme_color,
-                border_radius=10,
+                border_radius=8,
+                dense=True,
+                text_size=13,
+                menu_height=260,
+                menu_style=ft.MenuStyle(
+                    bgcolor=ft.Colors.SURFACE,
+                    elevation=8,
+                    shape=ft.RoundedRectangleBorder(radius=10),
+                    side=ft.BorderSide(1, ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)),
+                ),
+                content_padding=ft.Padding.symmetric(horizontal=12, vertical=8),
                 width=float("inf"),
                 options=staff_options,
                 hint_text="Assign a faculty member",
             )
 
-            # Visibility: Campus (organisation) vs Public (true) vs Draft (false)
+            # Visibility: Draft (false) vs Campus (organisation) vs Public (true)
             visibility_dropdown = ft.Dropdown(
                 label="Access & Visibility *",
-                value="organisation",  # Default to Campus for organizations
-                border_color=ft.Colors.GREY_300,
+                value="false",  # Default to Draft (Private / Unpublished) until curriculum is configured
+                border_color=ft.Colors.with_opacity(0.20, ft.Colors.ON_SURFACE),
                 focused_border_color=theme_color,
-                border_radius=10,
+                border_radius=8,
+                dense=True,
+                text_size=13,
+                menu_height=260,
+                menu_style=ft.MenuStyle(
+                    bgcolor=ft.Colors.SURFACE,
+                    elevation=8,
+                    shape=ft.RoundedRectangleBorder(radius=10),
+                    side=ft.BorderSide(1, ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)),
+                ),
+                content_padding=ft.Padding.symmetric(horizontal=12, vertical=8),
                 width=float("inf"),
                 options=[
+                    ft.dropdown.Option("false", "Draft (Private / Unpublished)"),
                     ft.dropdown.Option("organisation", "Campus (Academy Members Only)"),
                     ft.dropdown.Option("true", "Public (Global Student Network)"),
-                    ft.dropdown.Option("false", "Draft (Private / Unpublished)"),
                 ],
             )
 
@@ -455,7 +488,7 @@ async def organisations_view(page: ft.Page):
                         "name": t_val,
                         "category_id": category_dropdown.value,
                         "description": desc_input.value.strip() if desc_input.value else t_val,
-                        "public": visibility_dropdown.value or "organisation",
+                        "public": visibility_dropdown.value if visibility_dropdown.value else "false",
                         "objectives": objectives_list,
                         "image_bytes": logo_b64,
                         "image_filename": selected_logo_name,
@@ -487,7 +520,7 @@ async def organisations_view(page: ft.Page):
                                     ft.Text(f"Course '{t_val}' created!", color=ft.Colors.WHITE, size=13),
                                 ], spacing=8),
                                 action="Build Curriculum",
-                                on_action=lambda _: page.go(f"/courses/{cid}/manage"),
+                                on_action=lambda *_: page.go(f"/courses/{cid}/manage"),
                                 bgcolor=ft.Colors.GREEN_700,
                                 duration=5000,
                             )
@@ -675,7 +708,7 @@ async def organisations_view(page: ft.Page):
                                     ft.Text(f"Learning Track '{t_val}' created!", color=ft.Colors.WHITE, size=13),
                                 ], spacing=8),
                                 action="Build Track",
-                                on_action=lambda _: page.go(f"/playlists/{pid}/build"),
+                                on_action=lambda *_: page.go(f"/playlists/{pid}/build"),
                                 bgcolor=ft.Colors.GREEN_700,
                                 duration=5000,
                             )
@@ -1468,6 +1501,17 @@ async def organisations_view(page: ft.Page):
                 tab_content_container.content = render_courses_tab()
             elif active_tab == "members":
                 tab_content_container.content = render_members_tab()
+            elif active_tab == "cohorts":
+                tab_content_container.content = build_cohorts_tab(
+                    page=page,
+                    org_id=org_id,
+                    org_data=org_data,
+                    token=token,
+                    is_admin=is_admin,
+                    org_courses=courses,
+                    org_members=members,
+                    theme_color=theme_color,
+                )
             elif active_tab == "playlists":
                 tab_content_container.content = render_playlists_tab()
             elif active_tab == "info":
@@ -1477,6 +1521,7 @@ async def organisations_view(page: ft.Page):
             tab_buttons.controls = [
                 tab_button("Courses", "courses", ft.Icons.AUTO_STORIES_ROUNDED, len(courses)),
                 tab_button("Members", "members", ft.Icons.GROUPS_ROUNDED, len(members)),
+                tab_button("Cohorts & Exams", "cohorts", ft.Icons.SCHOOL_ROUNDED),
                 tab_button("Learning Paths", "playlists", ft.Icons.PLAYLIST_PLAY_ROUNDED, len(playlists)),
                 tab_button("Organization Details", "info", ft.Icons.INFO_OUTLINE_ROUNDED),
             ]
@@ -1506,6 +1551,7 @@ async def organisations_view(page: ft.Page):
         tab_buttons = ft.Row([
             tab_button("Courses", "courses", ft.Icons.AUTO_STORIES_ROUNDED, len(courses)),
             tab_button("Members", "members", ft.Icons.GROUPS_ROUNDED, len(members)),
+            tab_button("Cohorts & Exams", "cohorts", ft.Icons.SCHOOL_ROUNDED),
             tab_button("Learning Paths", "playlists", ft.Icons.PLAYLIST_PLAY_ROUNDED, len(playlists)),
             tab_button("Organization Details", "info", ft.Icons.INFO_OUTLINE_ROUNDED),
         ], scroll=ft.ScrollMode.AUTO, spacing=8)
@@ -2817,7 +2863,16 @@ async def organisations_view(page: ft.Page):
             if org_data:
                 await show_dashboard(org_data)
             else:
-                show_promo_view()
+                try:
+                    memberships = await asyncio.wait_for(
+                        get_joined_organisations(token), timeout=10
+                    )
+                except Exception:
+                    memberships = []
+                if memberships:
+                    show_teacher_view(memberships)
+                else:
+                    show_promo_view()
 
         except asyncio.TimeoutError:
             content_socket.content = ft.Container(
