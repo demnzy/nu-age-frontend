@@ -983,75 +983,8 @@ def build_cohorts_tab(
 
                 # Candidate Take Exam Handler
                 def make_take_handler(target_ex_id):
-                    async def _do(_):
-                        container.content = ft.Container(
-                            alignment=ft.Alignment.CENTER,
-                            padding=40,
-                            content=ft.Column([
-                                ft.ProgressRing(color=theme_color, width=32, height=32),
-                                ft.Text("Setting up your assessment environment...", size=13),
-                            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, tight=True, spacing=12),
-                        )
-                        page.update()
-
-                        exam_run_payload = await start_cohort_exam(token, org_id, c_id, target_ex_id)
-                        if "error" in exam_run_payload:
-                            err_msg = exam_run_payload["error"]
-                            container.content = ft.Container(
-                                expand=True,
-                                alignment=ft.Alignment.CENTER,
-                                padding=24,
-                                content=ft.Container(
-                                    width=480,
-                                    padding=32,
-                                    border_radius=18,
-                                    bgcolor=ft.Colors.SURFACE,
-                                    border=ft.Border.all(1, ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)),
-                                    content=ft.Column([
-                                        ft.Container(
-                                            width=56, height=56, border_radius=28,
-                                            bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.AMBER_700),
-                                            alignment=ft.Alignment.CENTER,
-                                            content=ft.Icon(ft.Icons.LOCK_CLOCK_ROUNDED, size=28, color=ft.Colors.AMBER_700),
-                                        ),
-                                        ft.Text("Assessment Notice", size=18, weight=ft.FontWeight.BOLD),
-                                        ft.Text(
-                                            err_msg,
-                                            size=13,
-                                            color=ft.Colors.ON_SURFACE,
-                                            text_align=ft.TextAlign.CENTER,
-                                        ),
-                                        ft.Container(height=4),
-                                        ft.Text(
-                                            "If you require an additional attempt or have questions regarding your assessment eligibility, please reach out to your instructor or cohort administrator.",
-                                            size=11,
-                                            color=ft.Colors.ON_SURFACE_VARIANT,
-                                            text_align=ft.TextAlign.CENTER,
-                                        ),
-                                        ft.Container(height=12),
-                                        ft.FilledButton(
-                                            "Return to Cohort",
-                                            icon=ft.Icons.ARROW_BACK_ROUNDED,
-                                            on_click=lambda _: page.run_task(open_cohort_details, c_id),
-                                            style=ft.ButtonStyle(padding=ft.Padding.symmetric(horizontal=24, vertical=12)),
-                                        ),
-                                    ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10),
-                                ),
-                            )
-                            page.update()
-                            return
-
-                        exam_view = build_cohort_exam_view(
-                            page=page,
-                            exam_payload=exam_run_payload,
-                            org_id=org_id,
-                            cohort_id=c_id,
-                            exam_id=target_ex_id,
-                            token=token,
-                            on_exit=lambda *_: page.run_task(open_cohort_details, c_id),
-                        )
-                        container.content = exam_view
-                        page.update()
+                    def _do(_):
+                        page.go(f"/cohorts/{c_id}/exams/{target_ex_id}?org_id={org_id}")
                     return _do
 
                 # Admin Actions
@@ -1078,6 +1011,7 @@ def build_cohorts_tab(
                     )
 
                 # Candidate CTA Button
+                is_sub_in_progress = user_sub and user_sub.get("status") == "in_progress"
                 if user_sub and user_sub.get("status") in ("submitted", "graded"):
                     cta_btn = ft.Container(
                         padding=ft.Padding.symmetric(horizontal=10, vertical=4),
@@ -1085,6 +1019,13 @@ def build_cohorts_tab(
                         content=ft.Text(f"Completed · {user_sub.get('percentage')}% ({'PASSED' if user_sub.get('passed') else 'FAILED'})",
                                         size=11, weight=ft.FontWeight.BOLD,
                                         color=ft.Colors.GREEN_700 if user_sub.get("passed") else ft.Colors.RED_700),
+                    )
+                elif is_sub_in_progress:
+                    cta_btn = ft.FilledButton(
+                        "Resume Assessment",
+                        icon=ft.Icons.PLAY_CIRCLE_FILLED_ROUNDED,
+                        style=ft.ButtonStyle(bgcolor=ft.Colors.AMBER_800, padding=ft.Padding.symmetric(horizontal=12, vertical=6)),
+                        on_click=make_take_handler(ex_id),
                     )
                 elif ex_status == "OPEN_NOW":
                     cta_btn = ft.FilledButton(

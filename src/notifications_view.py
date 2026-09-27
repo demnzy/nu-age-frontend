@@ -117,109 +117,12 @@ async def notifications_view(page: ft.Page) -> ft.View:
 
         def make_exam_launcher(target_ex):
             def _launch(_):
-                async def _do():
-                    token = state["token"]
-                    if not token:
-                        return
-                    content_socket.content = ft.Container(
-                        alignment=ft.Alignment.CENTER,
-                        padding=40,
-                        content=ft.Column([
-                            ft.ProgressRing(color=theme_color, width=32, height=32),
-                            ft.Text("Setting up secure assessment environment...", size=13),
-                        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, tight=True, spacing=10),
-                    )
-                    page.update()
-
-                    def return_from_exam(*_):
-                        try:
-                            page.window.full_screen = False
-                            page.update()
-                        except Exception:
-                            pass
-                        content_socket.content = ft.Column([
-                            # Top App Bar
-                            ft.Container(
-                                padding=ft.Padding.symmetric(horizontal=16, vertical=12),
-                                content=ft.Row([
-                                    ft.IconButton(ft.Icons.ARROW_BACK_ROUNDED, on_click=lambda _: page.go("/dashboard")),
-                                    ft.Row([
-                                        ft.Text("Notifications & Cohorts", size=18, weight=ft.FontWeight.BOLD),
-                                        header_badge_container,
-                                    ], spacing=8, tight=True),
-                                    ft.Row([
-                                        ft.TextButton("Mark read", on_click=do_mark_all_read),
-                                        ft.IconButton(ft.Icons.DELETE_SWEEP_OUTLINED, tooltip="Clear all", on_click=do_clear_all),
-                                    ], spacing=2, tight=True),
-                                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                            ),
-                            ft.Container(padding=ft.Padding.symmetric(horizontal=16), content=tab_row),
-                            ft.Divider(height=1, color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
-                            ft.Container(padding=ft.Padding.symmetric(horizontal=16, vertical=8), expand=True, content=content_list),
-                        ], spacing=8, expand=True)
-                        page.run_task(load_active_data)
-
-                    payload = await start_cohort_exam(token, target_ex.get("org_id"), target_ex.get("cohort_id"), target_ex.get("id"))
-                    if "error" in payload:
-                        err_msg = payload["error"]
-                        content_socket.content = ft.Container(
-                            expand=True,
-                            alignment=ft.Alignment.CENTER,
-                            padding=24,
-                            content=ft.Container(
-                                width=480,
-                                padding=32,
-                                border_radius=18,
-                                bgcolor=ft.Colors.SURFACE,
-                                border=ft.Border.all(1, ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)),
-                                content=ft.Column([
-                                    ft.Container(
-                                        width=56, height=56, border_radius=28,
-                                        bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.AMBER_700),
-                                        alignment=ft.Alignment.CENTER,
-                                        content=ft.Icon(ft.Icons.LOCK_CLOCK_ROUNDED, size=28, color=ft.Colors.AMBER_700),
-                                    ),
-                                    ft.Text("Assessment Notice", size=18, weight=ft.FontWeight.BOLD),
-                                    ft.Text(
-                                        err_msg,
-                                        size=13,
-                                        color=ft.Colors.ON_SURFACE,
-                                        text_align=ft.TextAlign.CENTER,
-                                    ),
-                                    ft.Container(height=4),
-                                    ft.Text(
-                                        "If you require an additional attempt or have questions regarding your assessment eligibility, please reach out to your instructor or cohort administrator.",
-                                        size=11,
-                                        color=ft.Colors.ON_SURFACE_VARIANT,
-                                        text_align=ft.TextAlign.CENTER,
-                                    ),
-                                    ft.Container(height=12),
-                                    ft.FilledButton(
-                                        "Return to Learning Hub",
-                                        icon=ft.Icons.ARROW_BACK_ROUNDED,
-                                        on_click=return_from_exam,
-                                        style=ft.ButtonStyle(padding=ft.Padding.symmetric(horizontal=24, vertical=12)),
-                                    ),
-                                ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10),
-                            ),
-                        )
-                        page.update()
-                        return
-
-                    exam_runner = build_cohort_exam_view(
-                        page=page,
-                        exam_payload=payload,
-                        org_id=target_ex.get("org_id"),
-                        cohort_id=target_ex.get("cohort_id"),
-                        exam_id=target_ex.get("id"),
-                        token=token,
-                        on_exit=return_from_exam,
-                    )
-                    content_socket.content = exam_runner
-                    page.update()
-
-                page.run_task(_do)
+                c_id = target_ex.get("cohort_id")
+                ex_id = target_ex.get("id")
+                org_id = target_ex.get("org_id")
+                page.go(f"/cohorts/{c_id}/exams/{ex_id}?org_id={org_id}")
             return _launch
+
 
         # 1. Urgent live exam banner if any
         if state["active_exams"] and tab in ("all", "exams"):

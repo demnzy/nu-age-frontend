@@ -147,73 +147,8 @@ def build_learner_cohorts_view(
 
     # ── Candidate Take Exam Launcher ──────────────────────────────────────────
     def launch_candidate_exam(org_id: str, cohort_id: str, exam_id: str):
-        async def _do(_):
-            root_container.content = ft.Container(
-                alignment=ft.Alignment.CENTER,
-                padding=40,
-                content=ft.Column([
-                    ft.ProgressRing(color=theme_color, width=36, height=36),
-                    ft.Text("Preparing your secure assessment session...", size=13, weight=ft.FontWeight.W_500),
-                ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, tight=True, spacing=14),
-            )
-            page.update()
+        return lambda _: page.go(f"/cohorts/{cohort_id}/exams/{exam_id}?org_id={org_id}")
 
-            exam_payload = await start_cohort_exam(token, str(org_id), str(cohort_id), str(exam_id))
-            if "error" in exam_payload:
-                err_msg = exam_payload["error"]
-                root_container.content = ft.Container(
-                    expand=True,
-                    alignment=ft.Alignment.CENTER,
-                    padding=24,
-                    content=ft.Container(
-                        width=460,
-                        padding=28,
-                        border_radius=18,
-                        bgcolor=ft.Colors.SURFACE,
-                        border=ft.Border.all(1, ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)),
-                        shadow=ft.BoxShadow(blur_radius=20, color=ft.Colors.with_opacity(0.06, ft.Colors.BLACK)),
-                        content=ft.Column([
-                            ft.Container(
-                                width=52, height=52, border_radius=26,
-                                bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.AMBER_700),
-                                alignment=ft.Alignment.CENTER,
-                                content=ft.Icon(ft.Icons.LOCK_CLOCK_ROUNDED, size=26, color=ft.Colors.AMBER_700),
-                            ),
-                            ft.Text("Assessment Unavailable", size=17, weight=ft.FontWeight.BOLD),
-                            ft.Text(err_msg, size=13, color=ft.Colors.ON_SURFACE, text_align=ft.TextAlign.CENTER),
-                            ft.Text(
-                                "If you need an additional attempt or have questions about eligibility, please reach out to your instructor or cohort administrator.",
-                                size=11, color=ft.Colors.ON_SURFACE_VARIANT, text_align=ft.TextAlign.CENTER,
-                            ),
-                            ft.Container(height=8),
-                            ft.FilledButton(
-                                "Return to Cohort",
-                                icon=ft.Icons.ARROW_BACK_ROUNDED,
-                                on_click=lambda _: render_ui() or page.update(),
-                                style=ft.ButtonStyle(padding=ft.Padding.symmetric(horizontal=20, vertical=10)),
-                            ),
-                        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10),
-                    ),
-                )
-                page.update()
-                return
-
-            def on_exit_exam(*_):
-                page.run_task(load_data)
-
-            exam_view = build_cohort_exam_view(
-                page=page,
-                exam_payload=exam_payload,
-                org_id=str(org_id),
-                cohort_id=str(cohort_id),
-                exam_id=str(exam_id),
-                token=token,
-                on_exit=on_exit_exam,
-            )
-            root_container.content = exam_view
-            page.update()
-
-        return _do
 
     # ── Main Render UI ────────────────────────────────────────────────────────
     def render_ui():
@@ -301,17 +236,6 @@ def build_learner_cohorts_view(
         if c_courses:
             avg_prog = round(sum(crs.get("progress", 0) for crs in c_courses) / len(c_courses))
 
-        # Status badge styling
-        if c_status == "ACTIVE":
-            st_bg, st_fg = ft.Colors.with_opacity(0.12, ft.Colors.GREEN_600), ft.Colors.GREEN_700
-            dot_color = ft.Colors.GREEN_600
-        elif c_status == "COMPLETED":
-            st_bg, st_fg = ft.Colors.with_opacity(0.10, ft.Colors.GREY_600), ft.Colors.GREY_700
-            dot_color = ft.Colors.GREY_600
-        else:
-            st_bg, st_fg = ft.Colors.with_opacity(0.12, ft.Colors.BLUE_600), ft.Colors.BLUE_700
-            dot_color = ft.Colors.BLUE_600
-
         # Cohort switcher chips (if learner belongs to multiple cohorts)
         cohort_switcher_chips = []
         if len(cohorts) > 1:
@@ -351,67 +275,79 @@ def build_learner_cohorts_view(
                     )
                 )
 
-        # ── Hero Cohort Banner ────────────────────────────────────────────────
+        # ── Branded Cohort Hero Showcase ──────────────────────────────────────
+        header_tags = [
+            ft.Container(
+                padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+                border_radius=6,
+                bgcolor=ft.Colors.with_opacity(0.22, ft.Colors.BLACK),
+                content=ft.Row([
+                    ft.Container(width=6, height=6, border_radius=3, bgcolor=ft.Colors.WHITE),
+                    ft.Text(c_status, size=10, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+                ], spacing=4, tight=True),
+            )
+        ]
+        if c_org:
+            header_tags.append(
+                ft.Container(
+                    padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+                    border_radius=6,
+                    bgcolor=ft.Colors.with_opacity(0.22, ft.Colors.BLACK),
+                    content=ft.Row([
+                        ft.Icon(ft.Icons.BUSINESS_ROUNDED, size=11, color=ft.Colors.WHITE),
+                        ft.Text(c_org, size=10, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+                    ], spacing=4, tight=True),
+                )
+            )
+
         hero_banner = ft.Container(
-            padding=20,
-            border_radius=18,
-            bgcolor=ft.Colors.SURFACE,
-            border=ft.Border.all(1, ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE)),
-            shadow=ft.BoxShadow(blur_radius=16, color=ft.Colors.with_opacity(0.04, ft.Colors.BLACK)),
+            padding=18,
+            border_radius=16,
+            gradient=ft.LinearGradient(
+                colors=[theme_color, ft.Colors.SECONDARY],
+                begin=ft.Alignment.TOP_LEFT,
+                end=ft.Alignment.BOTTOM_RIGHT,
+            ),
+            shadow=ft.BoxShadow(
+                blur_radius=14,
+                color=ft.Colors.with_opacity(0.18, theme_color),
+                offset=ft.Offset(0, 5),
+            ),
             content=ft.Column([
                 ft.Row([
+                    ft.Row(header_tags, spacing=6, tight=True),
                     ft.Row([
-                        ft.Container(
-                            padding=ft.Padding.symmetric(horizontal=8, vertical=3),
-                            border_radius=12,
-                            bgcolor=st_bg,
-                            content=ft.Row([
-                                ft.Container(width=6, height=6, border_radius=3, bgcolor=dot_color),
-                                ft.Text(c_status, size=10, weight=ft.FontWeight.BOLD, color=st_fg),
-                            ], spacing=4, tight=True),
-                        ),
-                        ft.Container(
-                            padding=ft.Padding.symmetric(horizontal=8, vertical=3),
-                            border_radius=12,
-                            bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
-                            content=ft.Row([
-                                ft.Icon(ft.Icons.BUSINESS_ROUNDED, size=11, color=ft.Colors.ON_SURFACE_VARIANT),
-                                ft.Text(c_org, size=10, weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE),
-                            ], spacing=4, tight=True),
-                        ),
-                    ], spacing=6, tight=True),
-                    ft.Row([
-                        ft.Icon(ft.Icons.DATE_RANGE_ROUNDED, size=12, color=ft.Colors.ON_SURFACE_VARIANT),
-                        ft.Text(f"{s_date} – {e_date}", size=11, color=ft.Colors.ON_SURFACE_VARIANT, weight=ft.FontWeight.W_500),
-                    ], spacing=4, tight=True),
+                        ft.Icon(ft.Icons.CALENDAR_MONTH_ROUNDED, size=12, color=ft.Colors.WHITE),
+                        ft.Text(f"{s_date} – {e_date}", size=11, color=ft.Colors.WHITE, weight=ft.FontWeight.BOLD),
+                    ], spacing=4, tight=True) if (s_date or e_date) else ft.Container(),
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                ft.Text(c_name, size=20, weight=ft.FontWeight.BOLD),
-                ft.Text(c_desc if c_desc else "Comprehensive training track organized for cohort members.", size=12, color=ft.Colors.ON_SURFACE_VARIANT) if c_desc else ft.Container(),
+                ft.Text(c_name, size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+                ft.Text(c_desc, size=12, color=ft.Colors.with_opacity(0.92, ft.Colors.WHITE)) if c_desc else ft.Container(),
                 ft.Container(height=4),
                 # Overall Curriculum Progress Ribbon
                 ft.Container(
-                    padding=ft.Padding.symmetric(horizontal=14, vertical=10),
+                    padding=ft.Padding.symmetric(horizontal=14, vertical=12),
                     border_radius=12,
-                    bgcolor=ft.Colors.with_opacity(0.04, theme_color),
-                    border=ft.Border.all(1, ft.Colors.with_opacity(0.10, theme_color)),
+                    bgcolor=ft.Colors.with_opacity(0.18, ft.Colors.BLACK),
+                    border=ft.Border.all(1, ft.Colors.with_opacity(0.18, ft.Colors.WHITE)),
                     content=ft.Row([
                         ft.Column([
                             ft.Row([
-                                ft.Text("Curriculum Track Completion", size=11, weight=ft.FontWeight.W_600, color=theme_color),
-                                ft.Text(f"{avg_prog}%", size=12, weight=ft.FontWeight.BOLD, color=theme_color),
+                                ft.Text("Curriculum Track Completion", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+                                ft.Text(f"{avg_prog}%", size=12, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
                             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                            ft.ProgressBar(value=avg_prog / 100.0, color=theme_color, bgcolor=ft.Colors.with_opacity(0.12, theme_color), height=6, border_radius=3),
+                            ft.ProgressBar(value=avg_prog / 100.0, color=ft.Colors.WHITE, bgcolor=ft.Colors.with_opacity(0.28, ft.Colors.WHITE), height=6, border_radius=3),
                         ], spacing=4, expand=True),
                         ft.Container(width=16),
                         ft.Row([
                             ft.Column([
-                                ft.Text("Courses", size=10, color=ft.Colors.ON_SURFACE_VARIANT),
-                                ft.Text(str(len(c_courses)), size=14, weight=ft.FontWeight.BOLD),
+                                ft.Text("Courses", size=10, color=ft.Colors.with_opacity(0.85, ft.Colors.WHITE)),
+                                ft.Text(str(len(c_courses)), size=15, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
                             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=1),
-                            ft.Container(width=1, height=24, bgcolor=ft.Colors.with_opacity(0.1, ft.Colors.ON_SURFACE)),
+                            ft.Container(width=1, height=24, bgcolor=ft.Colors.with_opacity(0.25, ft.Colors.WHITE)),
                             ft.Column([
-                                ft.Text("Assessments", size=10, color=ft.Colors.ON_SURFACE_VARIANT),
-                                ft.Text(str(len(c_exams)), size=14, weight=ft.FontWeight.BOLD),
+                                ft.Text("Assessments", size=10, color=ft.Colors.with_opacity(0.85, ft.Colors.WHITE)),
+                                ft.Text(str(len(c_exams)), size=15, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
                             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=1),
                         ], spacing=10),
                     ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
@@ -430,15 +366,15 @@ def build_learner_cohorts_view(
 
         subtab_switcher = ft.Container(
             padding=3,
-            border_radius=12,
-            bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
+            border_radius=10,
+            bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
             content=ft.Row([
                 ft.Container(
                     expand=True,
                     padding=ft.Padding.symmetric(vertical=8),
-                    border_radius=10,
-                    bgcolor=ft.Colors.SURFACE if curriculum_active else ft.Colors.TRANSPARENT,
-                    shadow=ft.BoxShadow(blur_radius=4, color=ft.Colors.with_opacity(0.06, ft.Colors.BLACK)) if curriculum_active else None,
+                    border_radius=8,
+                    bgcolor=theme_color if curriculum_active else ft.Colors.TRANSPARENT,
+                    shadow=ft.BoxShadow(blur_radius=4, color=ft.Colors.with_opacity(0.2, theme_color), offset=ft.Offset(0, 1)) if curriculum_active else None,
                     alignment=ft.Alignment.CENTER,
                     ink=True,
                     on_click=lambda _: set_subtab("curriculum"),
@@ -446,22 +382,22 @@ def build_learner_cohorts_view(
                         ft.Icon(
                             ft.Icons.AUTO_STORIES_ROUNDED,
                             size=15,
-                            color=theme_color if curriculum_active else ft.Colors.ON_SURFACE_VARIANT,
+                            color=ft.Colors.WHITE if curriculum_active else ft.Colors.ON_SURFACE_VARIANT,
                         ),
                         ft.Text(
                             f"Curriculum Track ({len(c_courses)})",
                             size=12,
                             weight=ft.FontWeight.BOLD if curriculum_active else ft.FontWeight.W_500,
-                            color=ft.Colors.ON_SURFACE if curriculum_active else ft.Colors.ON_SURFACE_VARIANT,
+                            color=ft.Colors.WHITE if curriculum_active else ft.Colors.ON_SURFACE_VARIANT,
                         ),
                     ], tight=True, spacing=6),
                 ),
                 ft.Container(
                     expand=True,
                     padding=ft.Padding.symmetric(vertical=8),
-                    border_radius=10,
-                    bgcolor=ft.Colors.SURFACE if assessments_active else ft.Colors.TRANSPARENT,
-                    shadow=ft.BoxShadow(blur_radius=4, color=ft.Colors.with_opacity(0.06, ft.Colors.BLACK)) if assessments_active else None,
+                    border_radius=8,
+                    bgcolor=theme_color if assessments_active else ft.Colors.TRANSPARENT,
+                    shadow=ft.BoxShadow(blur_radius=4, color=ft.Colors.with_opacity(0.2, theme_color), offset=ft.Offset(0, 1)) if assessments_active else None,
                     alignment=ft.Alignment.CENTER,
                     ink=True,
                     on_click=lambda _: set_subtab("assessments"),
@@ -469,13 +405,13 @@ def build_learner_cohorts_view(
                         ft.Icon(
                             ft.Icons.TIMER_ROUNDED,
                             size=15,
-                            color=theme_color if assessments_active else ft.Colors.ON_SURFACE_VARIANT,
+                            color=ft.Colors.WHITE if assessments_active else ft.Colors.ON_SURFACE_VARIANT,
                         ),
                         ft.Text(
-                            f"Assessments & Certifications ({len(c_exams)})",
+                            f"Assessments & Exams ({len(c_exams)})",
                             size=12,
                             weight=ft.FontWeight.BOLD if assessments_active else ft.FontWeight.W_500,
-                            color=ft.Colors.ON_SURFACE if assessments_active else ft.Colors.ON_SURFACE_VARIANT,
+                            color=ft.Colors.WHITE if assessments_active else ft.Colors.ON_SURFACE_VARIANT,
                         ),
                     ], tight=True, spacing=6),
                 ),
@@ -488,41 +424,58 @@ def build_learner_cohorts_view(
             crs_id = str(crs.get("id"))
             crs_name = crs.get("name", "Untitled Course")
             crs_prog = crs.get("progress", 0)
-            crs_lessons = crs.get("total_lessons", 0)
+            crs_img = crs.get("image_url")
+            crs_desc = crs.get("description")
+
+            thumb = ft.Image(
+                src=crs_img,
+                width=44,
+                height=44,
+                fit=ft.BoxFit.COVER,
+                border_radius=ft.BorderRadius.all(10),
+                error_content=ft.Container(
+                    width=44, height=44, border_radius=10,
+                    bgcolor=ft.Colors.with_opacity(0.12, theme_color),
+                    alignment=ft.Alignment.CENTER,
+                    content=ft.Icon(ft.Icons.AUTO_STORIES_ROUNDED, size=22, color=theme_color),
+                ),
+            ) if crs_img else ft.Container(
+                width=44, height=44, border_radius=10,
+                bgcolor=ft.Colors.with_opacity(0.10, theme_color),
+                alignment=ft.Alignment.CENTER,
+                content=ft.Icon(ft.Icons.AUTO_STORIES_ROUNDED, size=22, color=theme_color),
+            )
+
+            desc_control = ft.Text(crs_desc, size=11, color=ft.Colors.ON_SURFACE_VARIANT, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS) if crs_desc else ft.Container()
 
             card = ft.Container(
                 padding=14,
-                border_radius=14,
+                border_radius=12,
                 bgcolor=ft.Colors.SURFACE,
-                border=ft.Border.all(1, ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE)),
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)),
+                shadow=ft.BoxShadow(blur_radius=6, color=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE), offset=ft.Offset(0, 2)),
                 ink=True,
                 on_click=lambda _, cid=crs_id: page.go(f"/courses/{cid}"),
                 content=ft.Row([
-                    ft.Container(
-                        width=42, height=42, border_radius=10,
-                        bgcolor=ft.Colors.with_opacity(0.10, theme_color),
-                        alignment=ft.Alignment.CENTER,
-                        content=ft.Icon(ft.Icons.AUTO_STORIES_ROUNDED, size=22, color=theme_color),
-                    ),
+                    thumb,
                     ft.Column([
                         ft.Text(crs_name, size=13, weight=ft.FontWeight.BOLD, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                        desc_control,
                         ft.Row([
-                            ft.Text(f"{crs_lessons} Lessons", size=11, color=ft.Colors.ON_SURFACE_VARIANT),
-                            ft.Text("·", size=11, color=ft.Colors.ON_SURFACE_VARIANT),
                             ft.Text(f"{crs_prog}% Completed", size=11, weight=ft.FontWeight.W_600, color=theme_color),
                         ], spacing=4),
                         ft.ProgressBar(
                             value=crs_prog / 100.0,
                             color=theme_color,
-                            bgcolor=ft.Colors.with_opacity(0.10, theme_color),
+                            bgcolor=ft.Colors.with_opacity(0.12, theme_color),
                             height=4,
                             border_radius=2,
                         ),
-                    ], spacing=4, expand=True),
+                    ], spacing=3, expand=True),
                     ft.FilledButton(
                         "Resume" if crs_prog > 0 else "Study",
                         icon=ft.Icons.PLAY_ARROW_ROUNDED,
-                        style=ft.ButtonStyle(bgcolor=theme_color, padding=ft.Padding.symmetric(horizontal=12, vertical=6)),
+                        style=ft.ButtonStyle(bgcolor=theme_color, color=ft.Colors.ON_PRIMARY, shape=ft.RoundedRectangleBorder(radius=8), padding=ft.Padding.symmetric(horizontal=12, vertical=6)),
                         on_click=lambda _, cid=crs_id: page.go(f"/courses/{cid}"),
                     ),
                 ], spacing=12, vertical_alignment=ft.CrossAxisAlignment.CENTER),
@@ -553,92 +506,188 @@ def build_learner_cohorts_view(
             ex_pass = ex.get("pass_percentage", 70.0)
             ex_q_count = ex.get("question_count", 0)
             ex_max_attempts = ex.get("max_attempts", 1)
+            completed_attempts = ex.get("completed_attempts")
+            user_sub = ex.get("user_submission") or ex.get("submission")
+            if completed_attempts is None:
+                completed_attempts = 1 if user_sub and user_sub.get("status") in ("submitted", "graded", "flagged_violation", "timed_out") else 0
+            attempts_left = ex.get("attempts_left")
+            if attempts_left is None:
+                attempts_left = max(0, ex_max_attempts - completed_attempts)
+            can_retry = (completed_attempts < ex_max_attempts) and (attempts_left > 0)
             ex_status = _get_effective_exam_status(ex)
             o_time = _format_datetime(ex.get("opens_at"))
             c_time = _format_datetime(ex.get("closes_at"))
-            user_sub = ex.get("user_submission")
+            is_active_attempt = bool(ex.get("is_in_progress") or (user_sub and user_sub.get("status") == "in_progress") or ex.get("in_progress_submission"))
 
             # Status pill
-            if ex_status == "OPEN_NOW":
+            if is_active_attempt:
                 ex_badge = ft.Container(
                     padding=ft.Padding.symmetric(horizontal=8, vertical=3),
-                    border_radius=6, bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.GREEN_600),
+                    border_radius=6, bgcolor=ft.Colors.with_opacity(0.15, ft.Colors.AMBER_700),
                     content=ft.Row([
-                        ft.Container(width=6, height=6, border_radius=3, bgcolor=ft.Colors.GREEN_600),
-                        ft.Text("OPEN NOW", size=10, weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_700),
+                        ft.Icon(ft.Icons.TIMER_ROUNDED, size=12, color=ft.Colors.AMBER_800),
+                        ft.Text("IN PROGRESS · RESUME", size=10, weight=ft.FontWeight.BOLD, color=ft.Colors.AMBER_900),
                     ], spacing=4, tight=True),
+                )
+            elif completed_attempts == 0:
+                if ex_status == "OPEN_NOW":
+                    ex_badge = ft.Container(
+                        padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+                        border_radius=6, bgcolor=ft.Colors.with_opacity(0.12, theme_color),
+                        content=ft.Row([
+                            ft.Container(width=6, height=6, border_radius=3, bgcolor=theme_color),
+                            ft.Text("NOT STARTED · OPEN", size=10, weight=ft.FontWeight.BOLD, color=theme_color),
+                        ], spacing=4, tight=True),
+                    )
+                elif ex_status == "SCHEDULED":
+                    ex_badge = ft.Container(
+                        padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+                        border_radius=6, bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
+                        content=ft.Row([
+                            ft.Icon(ft.Icons.LOCK_CLOCK_ROUNDED, size=11, color=ft.Colors.ON_SURFACE_VARIANT),
+                            ft.Text("NOT STARTED · SCHEDULED", size=10, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE_VARIANT),
+                        ], spacing=4, tight=True),
+                    )
+                else:
+                    ex_badge = ft.Container(
+                        padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+                        border_radius=6, bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
+                        content=ft.Text("NOT STARTED · CLOSED", size=10, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE_VARIANT),
+                    )
+            elif completed_attempts > 0 and can_retry and ex_status == "OPEN_NOW":
+                ex_badge = ft.Container(
+                    padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+                    border_radius=6, bgcolor=ft.Colors.with_opacity(0.12, theme_color),
+                    content=ft.Row([
+                        ft.Icon(ft.Icons.REFRESH_ROUNDED, size=11, color=theme_color),
+                        ft.Text(f"ATTEMPT {completed_attempts + 1} AVAILABLE", size=10, weight=ft.FontWeight.BOLD, color=theme_color),
+                    ], spacing=4, tight=True),
+                )
+            elif completed_attempts >= ex_max_attempts:
+                ex_badge = ft.Container(
+                    padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+                    border_radius=6, bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
+                    content=ft.Text("COMPLETED", size=10, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE_VARIANT),
                 )
             elif ex_status == "CLOSED":
                 ex_badge = ft.Container(
                     padding=ft.Padding.symmetric(horizontal=8, vertical=3),
-                    border_radius=6, bgcolor=ft.Colors.with_opacity(0.10, ft.Colors.GREY_600),
-                    content=ft.Text("CLOSED", size=10, weight=ft.FontWeight.BOLD, color=ft.Colors.GREY_700),
+                    border_radius=6, bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
+                    content=ft.Text("CLOSED", size=10, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE_VARIANT),
                 )
             else:
                 ex_badge = ft.Container(
                     padding=ft.Padding.symmetric(horizontal=8, vertical=3),
-                    border_radius=6, bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.BLUE_600),
-                    content=ft.Text("SCHEDULED", size=10, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_700),
+                    border_radius=6, bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
+                    content=ft.Text("SCHEDULED", size=10, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE_VARIANT),
                 )
 
             # Submission and CTA handling
-            if user_sub and user_sub.get("status") in ("submitted", "graded"):
+            if is_active_attempt:
+                action_btn = ft.FilledButton(
+                    "Resume Assessment",
+                    icon=ft.Icons.PLAY_ARROW_ROUNDED,
+                    style=ft.ButtonStyle(bgcolor=ft.Colors.AMBER_700, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8), padding=ft.Padding.symmetric(horizontal=14, vertical=8)),
+                    on_click=launch_candidate_exam(c_org_id, c_id, ex_id),
+                )
+            elif user_sub and user_sub.get("status") in ("submitted", "graded", "flagged_violation", "timed_out"):
                 passed = user_sub.get("passed", False)
                 score = user_sub.get("percentage", 0.0)
                 sub_pill = ft.Container(
                     padding=ft.Padding.symmetric(horizontal=10, vertical=5),
                     border_radius=8,
-                    bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.GREEN_600 if passed else ft.Colors.RED_600),
+                    bgcolor=ft.Colors.with_opacity(0.12, theme_color if passed else ft.Colors.RED_600),
                     content=ft.Row([
                         ft.Icon(
                             ft.Icons.CHECK_CIRCLE_ROUNDED if passed else ft.Icons.CANCEL_ROUNDED,
                             size=14,
-                            color=ft.Colors.GREEN_700 if passed else ft.Colors.RED_700,
+                            color=theme_color if passed else ft.Colors.RED_700,
                         ),
                         ft.Text(
-                            f"Completed · {score}% ({'PASSED' if passed else 'FAILED'})",
+                            f"Score: {score}% ({'PASSED' if passed else 'FAILED'})",
                             size=11, weight=ft.FontWeight.BOLD,
-                            color=ft.Colors.GREEN_700 if passed else ft.Colors.RED_700,
+                            color=theme_color if passed else ft.Colors.RED_700,
                         ),
                     ], spacing=5, tight=True),
                 )
-                action_btn = sub_pill
+                if can_retry and ex_status == "OPEN_NOW":
+                    action_btn = ft.Row([
+                        sub_pill,
+                        ft.FilledButton(
+                            f"Retake ({completed_attempts + 1}/{ex_max_attempts})",
+                            icon=ft.Icons.REFRESH_ROUNDED,
+                            style=ft.ButtonStyle(bgcolor=theme_color, color=ft.Colors.ON_PRIMARY, shape=ft.RoundedRectangleBorder(radius=8), padding=ft.Padding.symmetric(horizontal=12, vertical=8)),
+                            on_click=launch_candidate_exam(c_org_id, c_id, ex_id),
+                        ),
+                    ], spacing=8, tight=True)
+                elif completed_attempts >= ex_max_attempts:
+                    action_btn = ft.Row([
+                        sub_pill,
+                        ft.Container(
+                            padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+                            border_radius=6,
+                            bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
+                            content=ft.Text(f"All {ex_max_attempts} attempts used", size=10, color=ft.Colors.ON_SURFACE_VARIANT, weight=ft.FontWeight.W_500),
+                        ),
+                    ], spacing=6, tight=True)
+                else:
+                    action_btn = sub_pill
             elif ex_status == "OPEN_NOW":
                 action_btn = ft.FilledButton(
-                    "Take Assessment",
+                    "Start Assessment",
                     icon=ft.Icons.PLAY_ARROW_ROUNDED,
-                    style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_700, padding=ft.Padding.symmetric(horizontal=14, vertical=8)),
+                    style=ft.ButtonStyle(bgcolor=theme_color, color=ft.Colors.ON_PRIMARY, shape=ft.RoundedRectangleBorder(radius=8), padding=ft.Padding.symmetric(horizontal=14, vertical=8)),
                     on_click=launch_candidate_exam(c_org_id, c_id, ex_id),
                 )
             elif ex_status == "SCHEDULED":
                 action_btn = ft.Container(
                     padding=ft.Padding.symmetric(horizontal=10, vertical=5),
                     border_radius=8,
-                    bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.BLUE_600),
+                    bgcolor=ft.Colors.with_opacity(0.06, theme_color),
                     content=ft.Row([
-                        ft.Icon(ft.Icons.LOCK_CLOCK_ROUNDED, size=13, color=ft.Colors.BLUE_700),
-                        ft.Text(f"Opens: {o_time}", size=11, color=ft.Colors.BLUE_700, weight=ft.FontWeight.W_500),
+                        ft.Icon(ft.Icons.LOCK_CLOCK_ROUNDED, size=13, color=theme_color),
+                        ft.Text(f"Opens: {o_time}", size=11, color=theme_color, weight=ft.FontWeight.W_500),
                     ], spacing=5, tight=True),
                 )
             else:
                 action_btn = ft.Container(
                     padding=ft.Padding.symmetric(horizontal=10, vertical=5),
                     border_radius=8,
-                    bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.GREY_600),
-                    content=ft.Text("Exam Window Closed", size=11, color=ft.Colors.GREY_700, italic=True),
+                    bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
+                    content=ft.Text("Exam Window Closed", size=11, color=ft.Colors.ON_SURFACE_VARIANT, italic=True),
                 )
+
+            # Metadata capsules
+            meta_chips = [
+                ft.Container(
+                    padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+                    border_radius=6, bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
+                    content=ft.Text(f"Pass Mark: {ex_pass}%", size=10, weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE_VARIANT),
+                ),
+            ]
+            if ex_max_attempts > 1:
+                meta_chips.append(
+                    ft.Container(
+                        padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+                        border_radius=6, bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
+                        content=ft.Text(f"Attempts: {completed_attempts}/{ex_max_attempts} Used", size=10, weight=ft.FontWeight.W_600, color=theme_color if can_retry else ft.Colors.ON_SURFACE_VARIANT),
+                    )
+                )
+
+            q_label = f" · {ex_q_count} Questions" if ex_q_count > 0 else ""
 
             card = ft.Container(
                 padding=16,
-                border_radius=14,
+                border_radius=12,
                 bgcolor=ft.Colors.SURFACE,
-                border=ft.Border.all(1, ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE)),
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)),
+                shadow=ft.BoxShadow(blur_radius=6, color=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE), offset=ft.Offset(0, 2)),
                 content=ft.Column([
                     ft.Row([
                         ex_badge,
                         ft.Row([
                             ft.Icon(ft.Icons.TIMER_OUTLINED, size=13, color=ft.Colors.ON_SURFACE_VARIANT),
-                            ft.Text(f"{ex_dur} Mins · {ex_q_count} Questions", size=11, color=ft.Colors.ON_SURFACE_VARIANT),
+                            ft.Text(f"{ex_dur} Mins{q_label}", size=11, color=ft.Colors.ON_SURFACE_VARIANT),
                         ], spacing=4, tight=True),
                     ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                     ft.Text(ex_title, size=15, weight=ft.FontWeight.BOLD),
@@ -646,18 +695,7 @@ def build_learner_cohorts_view(
                         ft.Icon(ft.Icons.CALENDAR_MONTH_ROUNDED, size=13, color=ft.Colors.ON_SURFACE_VARIANT),
                         ft.Text(f"Active Window: {o_time} to {c_time}", size=11, color=ft.Colors.ON_SURFACE_VARIANT),
                     ], spacing=4, tight=True),
-                    ft.Row([
-                        ft.Container(
-                            padding=ft.Padding.symmetric(horizontal=6, vertical=2),
-                            border_radius=6, bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
-                            content=ft.Text(f"Pass Mark: {ex_pass}%", size=10, weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE_VARIANT),
-                        ),
-                        ft.Container(
-                            padding=ft.Padding.symmetric(horizontal=6, vertical=2),
-                            border_radius=6, bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
-                            content=ft.Text(f"Max Attempts: {ex_max_attempts}", size=10, weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE_VARIANT),
-                        ),
-                    ], spacing=6),
+                    ft.Row(meta_chips, spacing=6),
                     ft.Divider(height=1, color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
                     ft.Row([
                         action_btn,
@@ -684,30 +722,58 @@ def build_learner_cohorts_view(
         active_tab_body = curriculum_content if curriculum_active else assessments_content
 
         # ── Assemble Overall Layout ───────────────────────────────────────────
-        top_appbar = ft.Row([
-            ft.IconButton(
-                icon=ft.Icons.ARROW_BACK_ROUNDED,
-                tooltip="Back to Dashboard",
-                on_click=lambda _: on_back() if on_back else page.go("/dashboard"),
-            ),
-            ft.Column([
-                ft.Text("Training Cohort Hub", size=16, weight=ft.FontWeight.BOLD),
-                ft.Text("Curriculum, progress tracking & assessments", size=11, color=ft.Colors.ON_SURFACE_VARIANT),
-            ], spacing=1, expand=True),
-            ft.IconButton(
-                icon=ft.Icons.REFRESH_ROUNDED,
-                tooltip="Refresh Data",
-                on_click=lambda _: page.run_task(load_data),
-            ),
-        ], vertical_alignment=ft.CrossAxisAlignment.CENTER)
+        top_appbar = ft.Container(
+            padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+            content=ft.Row([
+                ft.Row([
+                    ft.IconButton(
+                        icon=ft.Icons.ARROW_BACK_ROUNDED,
+                        icon_size=20,
+                        tooltip="Back to Dashboard",
+                        on_click=lambda _: on_back() if on_back else page.go("/dashboard"),
+                    ),
+                    ft.Column([
+                        ft.Row([
+                            ft.Text("Cohorts", size=11, color=ft.Colors.ON_SURFACE_VARIANT, weight=ft.FontWeight.W_500),
+                            ft.Text("·", size=11, color=ft.Colors.ON_SURFACE_VARIANT),
+                            ft.Text(c_org if c_org else "Training Hub", size=11, color=theme_color, weight=ft.FontWeight.BOLD),
+                        ], spacing=4, tight=True),
+                        ft.Text(c_name, size=18, weight=ft.FontWeight.BOLD),
+                    ], spacing=1, tight=True),
+                ], spacing=6, tight=True, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                ft.IconButton(
+                    icon=ft.Icons.REFRESH_ROUNDED,
+                    icon_size=18,
+                    tooltip="Refresh Data",
+                    on_click=lambda _: page.run_task(load_data),
+                ),
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+        )
 
-        root_container.content = ft.Column([
-            top_appbar,
-            ft.Row(cohort_switcher_chips, spacing=6, scroll=ft.ScrollMode.AUTO) if cohort_switcher_chips else ft.Container(),
-            hero_banner,
-            subtab_switcher,
-            active_tab_body,
-        ], spacing=14, scroll=ft.ScrollMode.AUTO)
+        pw = getattr(page, "width", None)
+        content_max_w = min(pw - 32, 1000) if pw and pw > 720 else None
+        h_pad = 12 if is_mobile() else 20
+
+        inner_layout = ft.Container(
+            content=ft.Column([
+                top_appbar,
+                ft.Row(cohort_switcher_chips, spacing=6, scroll=ft.ScrollMode.AUTO) if cohort_switcher_chips else ft.Container(),
+                hero_banner,
+                subtab_switcher,
+                active_tab_body,
+                ft.Container(height=20),
+            ], spacing=14, scroll=ft.ScrollMode.AUTO),
+            width=content_max_w,
+            alignment=ft.Alignment.TOP_CENTER,
+            padding=ft.Padding.symmetric(horizontal=h_pad, vertical=16),
+            expand=True,
+        )
+
+        root_container.content = ft.Container(
+            content=inner_layout,
+            alignment=ft.Alignment.TOP_CENTER,
+            expand=True,
+        )
 
     page.run_task(load_data)
     return root_container
@@ -728,9 +794,10 @@ def open_learner_cohorts_modal(page: ft.Page, token: str, initial_cohort_id: str
 
     dlg = ft.AlertDialog(
         modal=True,
+        content_padding=ft.Padding.all(12),
         content=ft.Container(
-            width=min(w_val - 24, 760),
-            height=min(h_val - 60, 680),
+            width=min(w_val - 24, 860),
+            height=min(h_val - 60, 720),
             content=hub,
         ),
         actions=[],

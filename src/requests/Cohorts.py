@@ -302,6 +302,20 @@ async def submit_cohort_exam(token: str, org_id: str, cohort_id: str, exam_id: s
         return {"error": str(e)}
 
 
+async def save_cohort_exam_progress(token: str, org_id: str, cohort_id: str, exam_id: str, payload: dict) -> dict:
+    url = f"{api_url}/organisations/{org_id}/cohorts/{cohort_id}/exams/{exam_id}/save-progress"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(10.0), verify=ssl_context) as client:
+            res = await client.post(url, headers=headers, json=payload)
+            if res.status_code == 200:
+                return res.json()
+            return {"error": f"Save error ({res.status_code})"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+
 # ── Gradebook & Results ──────────────────────────────────────────────────
 
 async def get_exam_gradebook(token: str, org_id: str, cohort_id: str, exam_id: str) -> dict:

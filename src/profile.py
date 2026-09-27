@@ -1,3 +1,4 @@
+import os
 import flet as ft
 import urllib.parse
 import asyncio
@@ -5,6 +6,11 @@ from datetime import datetime
 from src.components.bottom_appbar import get_bottom_appbar, NotificationManager
 from src.requests.auth import logout_request
 from src.requests.enrollments import get_enrollments
+
+
+def _is_platform_super_admin(username: str, email: str = "") -> bool:
+    """Checks whether the logged in user is the platform super admin (username == 'nu-admin')."""
+    return (username or "").strip().lower() == "nu-admin"
 
 
 def get_profile_palette(is_dark: bool) -> dict:
@@ -64,9 +70,22 @@ async def profile_view(page: ft.Page):
             except Exception:
                 pass
 
+        try:
+            from src.services.auth_session import AuthSession
+            await AuthSession.get_instance().clear_tokens()
+        except Exception:
+            pass
+
         # 3. Clear reactive notification badges & cache
         try:
             NotificationManager.clear_all()
+        except Exception:
+            pass
+
+        # Unbind push notification identity
+        try:
+            from src.services.push_notification_service import unbind_user_push_identity
+            page.run_task(unbind_user_push_identity, page)
         except Exception:
             pass
 
@@ -615,24 +634,75 @@ async def profile_view(page: ft.Page):
             for h in heading_registry:
                 h.color = p["text_muted"]
 
+            # 6. Update Admin Card text
+            admin_title.color = p["text_primary"]
+            admin_sub.color = p["text_muted"]
+
+        # Super Admin Control Plane Access Card (Locked by default, verified via credentials)
+        admin_title = ft.Text("Platform Super Admin Panel", size=13, weight=ft.FontWeight.BOLD, color=palette["text_primary"])
+        admin_sub = ft.Text("User management, Excel export, bulk messaging & platform analytics.", size=11, color=palette["text_muted"])
+        admin_card = ft.Container(
+            ink=True,
+            on_click=lambda _: page.go("/platform-admin"),
+            border_radius=16,
+            border=ft.Border.all(1.2, ft.Colors.AMBER_400),
+            bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.AMBER_500),
+            padding=ft.Padding.all(16),
+            shadow=ft.BoxShadow(blur_radius=10, color=ft.Colors.with_opacity(0.1, ft.Colors.AMBER_700), offset=ft.Offset(0, 3)),
+            content=ft.Row([
+                ft.Container(
+                    width=42, height=42, border_radius=12,
+                    bgcolor=ft.Colors.with_opacity(0.18, ft.Colors.AMBER_500),
+                    alignment=ft.Alignment.CENTER,
+                    content=ft.Icon(ft.Icons.ADMIN_PANEL_SETTINGS_ROUNDED, color=ft.Colors.AMBER_500, size=22)
+                ),
+                ft.Column([
+                    ft.Row([
+                        admin_title,
+                        ft.Container(
+                            content=ft.Text("RESTRICTED", size=9, weight=ft.FontWeight.BOLD, color=ft.Colors.AMBER_500),
+                            bgcolor=ft.Colors.with_opacity(0.15, ft.Colors.AMBER_500),
+                            padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+                            border_radius=4,
+                        ),
+                    ], spacing=6, tight=True),
+                    admin_sub
+                ], spacing=2, expand=True),
+                ft.Icon(ft.Icons.CHEVRON_RIGHT_ROUNDED, color=ft.Colors.AMBER_500, size=20)
+            ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=14)
+        )
+
         # ── Content Assembly ──────────────────────────────────────────────────
+        is_super_admin = _is_platform_super_admin(username, email)
+
+        content_items = [
+            referral_card,
+            ft.Container(height=4),
+            ft.Column([section_heading("Learning Momentum", ft.Icons.QUERY_STATS_ROUNDED), stats_layout], spacing=10),
+            ft.Container(height=4),
+            ft.Column([section_heading("Quick Hub Shortcuts", ft.Icons.GRID_VIEW_ROUNDED), shortcuts_grid], spacing=10),
+            ft.Container(height=4),
+            ft.Column([section_heading("Account & Academic Details", ft.Icons.BADGE_ROUNDED), account_card], spacing=10),
+        ]
+
+        if is_super_admin:
+            content_items.extend([
+                ft.Container(height=4),
+                ft.Column([section_heading("Administration & Security", ft.Icons.ADMIN_PANEL_SETTINGS_ROUNDED), admin_card], spacing=10),
+            ])
+
+        content_items.extend([
+            ft.Container(height=4),
+            ft.Column([section_heading("System Settings", ft.Icons.TUNE_ROUNDED), theme_card], spacing=10),
+            ft.Container(height=24),
+        ])
+
         main_content = ft.Container(
             alignment=ft.Alignment.TOP_CENTER,
             content=ft.Container(
                 width=min(page.width or 800, 780),
                 padding=ft.Padding.symmetric(horizontal=16, vertical=20),
-                content=ft.Column([
-                    referral_card,
-                    ft.Container(height=4),
-                    ft.Column([section_heading("Learning Momentum", ft.Icons.QUERY_STATS_ROUNDED), stats_layout], spacing=10),
-                    ft.Container(height=4),
-                    ft.Column([section_heading("Quick Hub Shortcuts", ft.Icons.GRID_VIEW_ROUNDED), shortcuts_grid], spacing=10),
-                    ft.Container(height=4),
-                    ft.Column([section_heading("Account & Academic Details", ft.Icons.BADGE_ROUNDED), account_card], spacing=10),
-                    ft.Container(height=4),
-                    ft.Column([section_heading("System Settings", ft.Icons.TUNE_ROUNDED), theme_card], spacing=10),
-                    ft.Container(height=24)
-                ], spacing=18)
+                content=ft.Column(content_items, spacing=18)
             )
         )
 

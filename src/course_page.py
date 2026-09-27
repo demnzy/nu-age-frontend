@@ -5,13 +5,19 @@ import flet as ft
 from flet_video import Video, VideoMedia
 import asyncio
 from src.requests.Courses import get_course_curriculum, mark_complete, generate_course_certificate, rate_course
-from src.utils.file_opener import open_or_download_asset
+from src.utils.file_opener import open_or_download_asset, open_web_preview_modal
 import os
 import tempfile
 import re
-import base64
-from src.utils.code_runner import execute_python, execute_sql, execute_remote_code, execute_html, run_code_lab_tests, parse_cloze_text
-
+from src.utils.code_runner import (
+    execute_python,
+    execute_sql,
+    execute_remote_code,
+    execute_html,
+    run_code_lab_tests,
+    parse_cloze_text,
+    detects_stdin,
+)
 
 def heal_markdown(text: str) -> str:
     """Auto-heals legacy markdown anomalies such as truncated Mermaid URLs."""
@@ -1966,13 +1972,61 @@ async def course_learner_view(
             text_style=ft.TextStyle(font_family="monospace", size=13, color=ft.Colors.GREEN_300),
         )
 
+        has_stdin = detects_stdin(language, starter_code)
+        stdin_hint_card = ft.Container(
+            visible=has_stdin and not is_sql and not is_html,
+            padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+            border_radius=8,
+            bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.AMBER_400),
+            border=ft.Border.all(1, ft.Colors.with_opacity(0.35, ft.Colors.AMBER_400)),
+            content=ft.Row(
+                spacing=8,
+                controls=[
+                    ft.Icon(ft.Icons.TIPS_AND_UPDATES_ROUNDED, size=18, color=ft.Colors.AMBER_400),
+                    ft.Text(
+                        "Beginner Tip: Your code requests user input! Enter your answers in the 'Program Input (stdin)' box below before clicking 'Run Code' (put each response on a new line).",
+                        size=11,
+                        weight=ft.FontWeight.W_500,
+                        color=ft.Colors.AMBER_300,
+                        expand=True,
+                    ),
+                ],
+            ),
+        )
+
         stdin_field = ft.TextField(
             label="Program Input (stdin)",
-            hint_text="Input text to pass to stdin calls (optional)...",
+            hint_text="Enter responses before clicking Run (e.g. Alice)...",
+            multiline=True,
+            min_lines=1,
+            max_lines=4,
             dense=True,
             border_radius=8,
+            text_style=ft.TextStyle(font_family="monospace", size=12, color=ft.Colors.CYAN_200),
+            label_style=ft.TextStyle(size=12, color=ft.Colors.PRIMARY),
+            hint_style=ft.TextStyle(size=11, color=ft.Colors.ON_SURFACE_VARIANT),
+        )
+
+        def _on_code_change(e):
+            if not is_sql and not is_html:
+                detected = detects_stdin(language, code_input.value)
+                if stdin_hint_card.visible != detected:
+                    stdin_hint_card.visible = detected
+                    page.update()
+
+        code_input.on_change = _on_code_change
+
+        stdin_section = ft.Container(
             visible=(not is_sql and not is_html),
-            text_style=ft.TextStyle(font_family="monospace", size=12),
+            padding=ft.Padding.only(top=4, bottom=4),
+            content=ft.Column(
+                spacing=6,
+                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+                controls=[
+                    stdin_hint_card,
+                    stdin_field,
+                ],
+            ),
         )
 
         console_output = ft.Text("Click 'Run Code' to execute in sandbox...", font_family="monospace", size=12, color=ft.Colors.ON_SURFACE_VARIANT)
@@ -2128,6 +2182,7 @@ async def course_learner_view(
         def reset_code(e):
             code_input.value = starter_code
             stdin_field.value = ""
+            stdin_hint_card.visible = detects_stdin(language, starter_code) and not is_sql and not is_html
             console_output.value = "Code reset to starter template."
             console_output.color = ft.Colors.ON_SURFACE_VARIANT
             test_results_col.controls.clear()
@@ -2136,14 +2191,10 @@ async def course_learner_view(
 
         async def launch_browser_preview(e):
             current_html = code_input.value or "<h1>Empty HTML Document</h1>"
-            tmp_dir = tempfile.gettempdir()
-            tmp_path = os.path.join(tmp_dir, f"nu_lab_preview_{lesson.get('id', 'temp')}.html")
-            with open(tmp_path, "w", encoding="utf-8") as f:
-                f.write(current_html)
-            file_url = f"file:///{tmp_path.replace(os.sep, '/')}"
-            res = page.launch_url(file_url)
-            if asyncio.iscoroutine(res):
-                await res
+            try:
+                open_web_preview_modal(page, current_html, title=f"Preview: {lesson.get('title', 'Web Lesson')}")
+            except Exception as ex:
+                print(f"[course_page] Error launching web preview: {ex}")
 
         action_buttons = [
             ft.OutlinedButton("Reset Code", icon=ft.Icons.REFRESH_ROUNDED, on_click=reset_code),
@@ -2200,7 +2251,7 @@ async def course_learner_view(
                         ),
                     ),
                     code_input,
-                    stdin_field,
+                    stdin_section,
                     ft.Row(
                         action_buttons,
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,

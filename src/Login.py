@@ -192,6 +192,13 @@ def login_view(page: ft.Page):
                         pass
                     await page.shared_preferences.set("auth_token", token)
                     await page.shared_preferences.set("refresh_token", l_data["refresh_token"])
+                    try:
+                        from src.services.auth_session import AuthSession
+                        session = AuthSession.get_instance()
+                        session.init(page)
+                        await session.set_tokens(token, l_data["refresh_token"])
+                    except Exception as ex:
+                        print(f"[Login] Error updating AuthSession: {ex}")
                     log_daily_activity()
                     nav_bar = getattr(page, "persistent_nav_bar", None)
                     if nav_bar:
@@ -349,6 +356,13 @@ def login_view(page: ft.Page):
                     pass
                 await page.shared_preferences.set("auth_token", token)
                 await page.shared_preferences.set("refresh_token", data["refresh_token"])
+                try:
+                    from src.services.auth_session import AuthSession
+                    session = AuthSession.get_instance()
+                    session.init(page)
+                    await session.set_tokens(token, data["refresh_token"])
+                except Exception as ex:
+                    print(f"[Login] Error updating AuthSession: {ex}")
                 log_daily_activity()
                 nav_bar = getattr(page, "persistent_nav_bar", None)
                 if nav_bar:
@@ -359,6 +373,12 @@ def login_view(page: ft.Page):
                 try:
                     from src.services.notification_service import sync_learner_notifications
                     page.run_task(sync_learner_notifications, page, True)
+                except Exception:
+                    pass
+                try:
+                    from src.services.push_notification_service import init_push_notifications, setup_user_push_notifications
+                    page.run_task(init_push_notifications, page)
+                    page.run_task(setup_user_push_notifications, page, token)
                 except Exception:
                     pass
                 page.go("/dashboard")

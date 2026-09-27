@@ -17,10 +17,11 @@ import asyncio
 from datetime import datetime, timezone
 import time
 from typing import Optional
+import json
 import flet as ft
 from src.components import study_ui as ui
 from src.components.exam_calculator import build_exam_calculator
-from src.requests.Cohorts import submit_cohort_exam
+from src.requests.Cohorts import submit_cohort_exam, save_cohort_exam_progress
 
 _LETTERS = ["A", "B", "C", "D", "E", "F"]
 
@@ -74,9 +75,70 @@ def build_cohort_exam_view(
     last_violation_ts = [0.0]
     root = ft.Container(expand=True)
 
+    # ── Draft Answer Persistence & Restoration ───────────────────────────
+    draft_storage_key = f"cohort_exam_draft_{exam_id}"
+
+    # Pre-populate answers already known from server (e.g. on resume)
+    for i, q in enumerate(questions):
+        server_choice = q.get("chosen_index")
+        if server_choice is not None and isinstance(server_choice, int):
+            state["answers"][i] = server_choice
+
+    async def restore_draft_answers():
+        try:
+            raw = await page.shared_preferences.get(draft_storage_key)
+            if raw:
+                data = json.loads(raw)
+                for k, v in data.items():
+                    k_int = int(k)
+                    if 0 <= k_int < total and v is not None:
+                        state["answers"][k_int] = int(v)
+                refresh_jump_strip()
+                render_current_question()
+                page.update()
+        except Exception:
+            pass
+
+    page.run_task(restore_draft_answers)
+
+    async def persist_answers_locally():
+        try:
+            dump = {str(k): v for k, v in state["answers"].items()}
+            await page.shared_preferences.set(draft_storage_key, json.dumps(dump))
+        except Exception:
+            pass
+
+    async def sync_progress_to_server():
+        try:
+            payload_answers = []
+            for i, q in enumerate(questions):
+                qid = str(q.get("id"))
+                c_opt = state["answers"].get(i)
+                payload_answers.append({"question_id": qid, "chosen_index": c_opt})
+            await save_cohort_exam_progress(
+                token=token,
+                org_id=str(org_id),
+                cohort_id=str(cohort_id),
+                exam_id=str(exam_id),
+                payload={
+                    "answers": payload_answers,
+                    "violations_count": state["violations_count"],
+                    "violation_log": state["violation_log"],
+                },
+            )
+        except Exception:
+            pass
+
+    async def clear_local_draft():
+        try:
+            await page.shared_preferences.remove(draft_storage_key)
+        except Exception:
+            pass
+
     # ── Fullscreen & Kiosk Activation ────────────────────────────────────
     win = getattr(page, "window", None)
     prev_prevent_close = getattr(win, "prevent_close", False) if win else False
+    prev_window_event = getattr(win, "on_event", None) if win else None
 
     def apply_security_locks():
         try:
@@ -84,7 +146,17 @@ def build_cohort_exam_view(
             if w:
                 w.prevent_close = True
                 w.full_screen = True
-                w.on_event = on_window_event
+                def composite_window_event(e):
+                    try:
+                        on_window_event(e)
+                    except Exception:
+                        pass
+                    if prev_window_event and callable(prev_window_event):
+                        try:
+                            prev_window_event(e)
+                        except Exception:
+                            pass
+                w.on_event = composite_window_event
             page.on_keyboard_event = on_key_event
             page.on_app_lifecycle_state_change = on_lifecycle_change
             page.update()
@@ -97,7 +169,7 @@ def build_cohort_exam_view(
             if w:
                 w.prevent_close = prev_prevent_close
                 w.full_screen = False
-                w.on_event = None
+                w.on_event = prev_window_event
             page.on_keyboard_event = None
             page.on_app_lifecycle_state_change = None
             page.update()
@@ -105,12 +177,14 @@ def build_cohort_exam_view(
             pass
 
     def safe_exit(e=None):
+        page.run_task(clear_local_draft)
         release_security_locks()
         if on_exit and callable(on_exit):
             try:
                 on_exit(e)
             except TypeError:
                 on_exit()
+
 
     # ── Strike Badges & Telemetry ────────────────────────────────────────
     sidebar_strike_icon = ft.Icon(ft.Icons.SECURITY_ROUNDED, size=14, color=ft.Colors.ON_SURFACE_VARIANT)
@@ -421,9 +495,12 @@ def build_cohort_exam_view(
                 def select_opt(_):
                     if state["submitted"]: return
                     state["answers"][idx] = selected_index
+                    page.run_task(persist_answers_locally)
+                    page.run_task(sync_progress_to_server)
                     render_current_question()
                     page.update()
                 return select_opt
+
 
             badge = ft.Container(
                 width=30, height=30, border_radius=15,
@@ -756,6 +833,7 @@ def build_cohort_exam_view(
         if state["submitted"]: return
         state["submitted"] = True
         state["running"] = False
+        page.run_task(clear_local_draft)
         release_security_locks()
 
         root.content = submitting_overlay
@@ -1282,8 +1360,15 @@ def build_cohort_exam_view(
         page.update()
 
     def show_pre_exam_briefing():
-        dur_mins = duration_remaining // 60
-        max_att = exam_payload.get("max_attempts") or exam_payload.get("allowed_attempts") or 1
+        total_mins = int(exam_payload.get("total_duration_minutes") or (total_duration_sec // 60) or 60)
+        rem_mins = int(state["remaining"] // 60)
+        if rem_mins < total_mins and state["remaining"] < total_duration_sec - 120:
+            dur_display = f"{total_mins} Mins ({rem_mins}m left)"
+        else:
+            dur_display = f"{total_mins} Minutes"
+
+        max_att = int(exam_payload.get("max_attempts") or exam_payload.get("allowed_attempts") or 1)
+        current_attempt = int(exam_payload.get("attempt_number") or 1)
         security_label = "Strict (Zero Tolerance)" if security_mode == "strict" else ("Monitored (Warning Strikes)" if security_mode == "monitored" else "Practice (Relaxed)")
 
         # Metric Ribbon Capsules
@@ -1309,10 +1394,10 @@ def build_cohort_exam_view(
             )
 
         spec_ribbon = ft.Row([
-            _metric_capsule(ft.Icons.TIMER_OUTLINED, "Duration", f"{dur_mins} Minutes", ft.Colors.BLUE_600),
+            _metric_capsule(ft.Icons.TIMER_OUTLINED, "Duration", dur_display, ft.Colors.BLUE_600),
             _metric_capsule(ft.Icons.FORMAT_LIST_NUMBERED_ROUNDED, "Total Items", f"{total} Questions", ft.Colors.TEAL_600),
             _metric_capsule(ft.Icons.CHECK_CIRCLE_OUTLINE_ROUNDED, "Pass Mark", f"{pass_mark}%", ft.Colors.GREEN_600),
-            _metric_capsule(ft.Icons.REPEAT_ROUNDED, "Attempts Allowed", f"{max_att} Max", ft.Colors.AMBER_700),
+            _metric_capsule(ft.Icons.REPEAT_ROUNDED, "Attempt", f"{current_attempt} of {max_att}", ft.Colors.AMBER_700),
         ], spacing=10)
 
         # Permitted Calculator Pill
@@ -1431,13 +1516,22 @@ def build_cohort_exam_view(
         )
 
         # Section 3: Honor Code Pledge Card & Action Bar
+        is_resume = bool(
+            exam_payload.get("is_resumed")
+            or exam_payload.get("is_in_progress")
+            or (state["remaining"] < total_duration_sec - 120 and any(v is not None for v in state.get("answers", {}).values()))
+        )
+        btn_label = "Resume Assessment" if is_resume else "Begin Assessment"
+        btn_icon = ft.Icons.PLAY_ARROW_ROUNDED if is_resume else ft.Icons.ARROW_FORWARD_ROUNDED
+        btn_color = ft.Colors.AMBER_700 if is_resume else ft.Colors.GREEN_700
+
         start_btn = ft.FilledButton(
             content=ft.Row([
-                ft.Text("Begin Assessment", size=13, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
-                ft.Icon(ft.Icons.ARROW_FORWARD_ROUNDED, size=16, color=ft.Colors.WHITE),
+                ft.Text(btn_label, size=13, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+                ft.Icon(btn_icon, size=16, color=ft.Colors.WHITE),
             ], tight=True, spacing=6),
             style=ft.ButtonStyle(
-                bgcolor={ft.ControlState.DEFAULT: ft.Colors.GREEN_700, ft.ControlState.DISABLED: ft.Colors.with_opacity(0.3, ft.Colors.ON_SURFACE)},
+                bgcolor={ft.ControlState.DEFAULT: btn_color, ft.ControlState.DISABLED: ft.Colors.with_opacity(0.3, ft.Colors.ON_SURFACE)},
                 padding=ft.Padding.symmetric(horizontal=24, vertical=12),
             ),
             disabled=True,
