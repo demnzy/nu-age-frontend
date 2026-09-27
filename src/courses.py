@@ -9,6 +9,7 @@ from src.requests.Courses import get_courses
 from src.requests.enrollments import get_enrollments, enrol_user
 from src.requests.playlists import get_all_playlists
 from datetime import datetime
+from src.components.coding_playground import CodingPlayground
 
 # Section keys/order for navigation
 SECTION_ENROLLED = 0
@@ -16,6 +17,7 @@ SECTION_AVAILABLE = 1
 SECTION_PLAYLISTS = 2
 SECTION_COMPLETED = 3
 SECTION_ORG = 4
+SECTION_PLAYGROUND = 5
 
 
 def _is_mounted(control: ft.Control) -> bool:
@@ -336,7 +338,7 @@ async def courses_view(page: ft.Page):
     inst_chip = create_filter_chip("Instructor", lambda e: open_instructor_filter())
     org_chip = create_filter_chip("Organisation", lambda e: open_org_filter())
 
-    filter_row = ft.Row([cat_chip, inst_chip, org_chip], scroll=ft.ScrollMode.AUTO, spacing=8)
+    filter_row = ft.Row([cat_chip, inst_chip, org_chip], scroll=ft.ScrollMode.HIDDEN, spacing=8)
     App_bar = get_bottom_appbar(page)
 
     # ── Section Subtitles ──────────────────────────────────────────────────────
@@ -346,6 +348,7 @@ async def courses_view(page: ft.Page):
         SECTION_PLAYLISTS: "Curated learning tracks & playlists",
         SECTION_COMPLETED: "Track your completed courses and achievements",
         SECTION_ORG: "Courses exclusive to your organisation",
+        SECTION_PLAYGROUND: "Interactive sandbox for Python OOP, SQL, Web & algorithms",
     }
 
     section_subtitle_text = ft.Text(
@@ -501,9 +504,12 @@ async def courses_view(page: ft.Page):
         content=enrolled_section,
     )
 
+    playground_section = CodingPlayground(page)
+
     SECTION_CONTENT = {
         SECTION_ENROLLED: enrolled_section,
         SECTION_AVAILABLE: available_section,
+        SECTION_PLAYGROUND: playground_section,
         SECTION_PLAYLISTS: playlists_section,
         SECTION_COMPLETED: completed_section,
         SECTION_ORG: org_section,
@@ -513,6 +519,7 @@ async def courses_view(page: ft.Page):
     TABS_DATA = [
         {"index": SECTION_ENROLLED, "label": "My Courses", "icon": ft.Icons.AUTO_STORIES_ROUNDED},
         {"index": SECTION_AVAILABLE, "label": "Explore", "icon": ft.Icons.EXPLORE_ROUNDED},
+        {"index": SECTION_PLAYGROUND, "label": "Playground", "icon": ft.Icons.TERMINAL_ROUNDED},
         {"index": SECTION_PLAYLISTS, "label": "Playlists", "icon": ft.Icons.PLAYLIST_PLAY_ROUNDED},
         {"index": SECTION_COMPLETED, "label": "Completed", "icon": ft.Icons.CHECK_CIRCLE_ROUNDED},
         {"index": SECTION_ORG, "label": "Organisation", "icon": ft.Icons.BUSINESS_ROUNDED},
@@ -597,7 +604,7 @@ async def courses_view(page: ft.Page):
 
     tab_bar_scroll_row = ft.Row(
         spacing=8,
-        scroll=ft.ScrollMode.AUTO,
+        scroll=ft.ScrollMode.HIDDEN,
         controls=tab_pills,
     )
 
@@ -1005,6 +1012,10 @@ async def courses_view(page: ft.Page):
             page.update()
 
         page.run_task(animate_all_cards)
+
+    initial_route = str(getattr(page, "route", "") or "")
+    if "tab=playground" in initial_route.lower() or "/playground" in initial_route.lower():
+        show_section(SECTION_PLAYGROUND)
 
     page.run_task(populate_tabs)
 

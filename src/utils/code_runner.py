@@ -96,11 +96,123 @@ def check_python_safety(code: str):
                 raise SafetyViolationError(f"Use of restricted identifier '{node.id}' is not permitted.")
 
 
+SAFE_BUILTIN_NAMES = {
+    # Primitives & OOP
+    "__build_class__", "__name__", "__doc__", "object", "super", "property",
+    "classmethod", "staticmethod", "getattr", "setattr", "hasattr", "delattr",
+    "callable", "vars", "dir", "id", "isinstance", "issubclass", "type",
+    # Built-in Types & Functions
+    "abs", "all", "any", "ascii", "bin", "bool", "bytearray", "bytes", "chr",
+    "complex", "dict", "divmod", "enumerate", "filter", "float", "format",
+    "frozenset", "hash", "hex", "int", "iter", "len", "list", "map", "max",
+    "min", "next", "oct", "ord", "pow", "print", "range", "repr", "reversed",
+    "round", "set", "slice", "sorted", "str", "sum", "tuple", "zip",
+    # Common Built-in Exceptions
+    "BaseException", "Exception", "ArithmeticError", "AssertionError", "AttributeError",
+    "BufferError", "EOFError", "FloatingPointError", "GeneratorExit", "ImportError",
+    "IndexError", "KeyError", "LookupError", "MemoryError", "NameError",
+    "NotImplementedError", "OSError", "OverflowError", "ReferenceError", "RuntimeError",
+    "StopIteration", "StopAsyncIteration", "SyntaxError", "IndentationError",
+    "TabError", "SystemError", "TypeError", "UnboundLocalError", "UnicodeError",
+    "UnicodeEncodeError", "UnicodeDecodeError", "UnicodeTranslateError", "ValueError",
+    "ZeroDivisionError", "Warning", "UserWarning", "DeprecationWarning",
+    # Constants
+    "True", "False", "None", "Ellipsis", "NotImplemented",
+}
+
+
+def _safe_import(name, globals=None, locals=None, fromlist=(), level=0):
+    root_module = name.split(".")[0]
+    if root_module in DISALLOWED_MODULES:
+        raise SafetyViolationError(f"Importing '{name}' is not permitted in code lab exercises.")
+    return __import__(name, globals, locals, fromlist, level)
+
+
+def _build_safe_builtins(safe_input_fn):
+    import builtins
+    b_dict = {}
+    for name in SAFE_BUILTIN_NAMES:
+        if hasattr(builtins, name):
+            b_dict[name] = getattr(builtins, name)
+    b_dict["input"] = safe_input_fn
+    b_dict["__import__"] = _safe_import
+    return b_dict
+
+
+def _build_safe_globals(safe_input_fn):
+    import math
+    import random
+    import datetime
+    import collections
+    import itertools
+    import functools
+    import string
+    import heapq
+    import bisect
+    import copy
+    import time
+    import re
+    import json
+    import dataclasses
+    import typing
+
+    return {
+        "__name__": "__main__",
+        "__builtins__": _build_safe_builtins(safe_input_fn),
+        "math": math,
+        "random": random,
+        "datetime": datetime,
+        "collections": collections,
+        "itertools": itertools,
+        "functools": functools,
+        "string": string,
+        "heapq": heapq,
+        "bisect": bisect,
+        "copy": copy,
+        "time": time,
+        "re": re,
+        "json": json,
+        "dataclasses": dataclasses,
+        "typing": typing,
+    }
+
+
+def detects_stdin(language: str, code: str) -> bool:
+    """
+    Detects if the source code contains interactive input statements (e.g. input(), cin >>).
+    Used to automatically highlight or open the Stdin input drawer for users.
+    """
+    if not code:
+        return False
+    lang = (language or "python").lower().strip()
+    c = code.lower()
+
+    if lang in ("python", "py", "python3"):
+        return bool(re.search(r"\binput\s*\(", code)) or "sys.stdin" in code
+    elif lang in ("cpp", "c++", "cplusplus", "c"):
+        return ("cin >>" in code or "cin>>" in code or "getline(" in code
+                or "scanf(" in code or "fgets(" in code)
+    elif lang in ("javascript", "js", "typescript", "ts", "node", "nodejs"):
+        return ("readline" in c or "process.stdin" in c or "prompt(" in code)
+    elif lang in ("java", "jvm"):
+        return ("scanner" in c or "system.in" in c or "bufferedreader" in c)
+    elif lang in ("go", "golang"):
+        return ("scan(" in c or "scanln(" in c or "scanf(" in c or "bufio.newreader" in c)
+    elif lang in ("rust", "rs"):
+        return ("stdin()" in c or "read_line" in c)
+    return False
+
+
 def execute_python(code: str, test_input: str = "") -> dict:
     """
     Executes Python code in a sandboxed namespace and captures stdout/stderr.
     Pure client-side execution — works 100% offline.
+    Supports full OOP (classes, methods, inheritance, properties, dataclasses),
+    standard utility libraries, and enforces an infinite loop timeout guard.
     """
+    import time
+
+    start_time = time.time()
     try:
         check_python_safety(code)
     except SafetyViolationError as sve:
@@ -108,6 +220,7 @@ def execute_python(code: str, test_input: str = "") -> dict:
             "success": False,
             "output": "",
             "error": str(sve),
+            "duration_ms": 0.0,
         }
 
     stdout_capture = io.StringIO()
@@ -120,58 +233,69 @@ def execute_python(code: str, test_input: str = "") -> dict:
             stdout_capture.write(str(prompt))
         line = stdin_stream.readline()
         if not line:
-            return ""
+            raise EOFError("EOF when reading a line")
         return line.rstrip("\r\n")
 
-    safe_globals = {
-        "__builtins__": {
-            "abs": abs, "all": all, "any": any, "ascii": ascii, "bin": bin,
-            "bool": bool, "bytearray": bytearray, "bytes": bytes, "chr": chr,
-            "complex": complex, "dict": dict, "dir": dir, "divmod": divmod,
-            "enumerate": enumerate, "filter": filter, "float": float,
-            "format": format, "frozenset": frozenset, "hasattr": hasattr,
-            "hash": hash, "hex": hex, "id": id, "input": safe_input, "int": int,
-            "isinstance": isinstance, "issubclass": issubclass, "iter": iter,
-            "len": len, "list": list, "map": map, "max": max, "min": min,
-            "next": next, "oct": oct, "ord": ord, "pow": pow, "print": print,
-            "range": range, "repr": repr, "reversed": reversed, "round": round,
-            "set": set, "slice": slice, "sorted": sorted, "str": str,
-            "sum": sum, "tuple": tuple, "type": type, "zip": zip,
-            "Exception": Exception, "ValueError": ValueError, "TypeError": TypeError,
-            "IndexError": IndexError, "KeyError": KeyError, "ZeroDivisionError": ZeroDivisionError,
-            "AssertionError": AssertionError, "True": True, "False": False, "None": None,
-        },
-        "math": __import__("math"),
-        "random": __import__("random"),
-        "datetime": __import__("datetime"),
-        "collections": __import__("collections"),
-        "re": __import__("re"),
-        "json": __import__("json"),
-    }
+    safe_globals = _build_safe_globals(safe_input)
     safe_locals = {}
 
+    max_duration = 5.0
+    step_count = 0
+    max_steps = 1_000_000
+
+    def trace_guard(frame, event, arg):
+        nonlocal step_count
+        step_count += 1
+        if step_count % 1000 == 0:
+            if time.time() - start_time > max_duration:
+                raise TimeoutError("Execution timed out (exceeded 5.0s limit). Check for infinite loops or heavy recursion.")
+            if step_count > max_steps:
+                raise TimeoutError("Execution exceeded maximum operation limit (1,000,000 steps). Check for infinite loops.")
+        return trace_guard
+
     old_stdin = sys.stdin
+    sys.settrace(trace_guard)
     try:
         sys.stdin = stdin_stream
         with contextlib.redirect_stdout(stdout_capture), contextlib.redirect_stderr(stderr_capture):
             compiled = compile(code, "<code_lab>", "exec")
             exec(compiled, safe_globals, safe_locals)
+        duration_ms = round((time.time() - start_time) * 1000, 2)
         out = stdout_capture.getvalue()
         err = stderr_capture.getvalue()
         return {
             "success": not bool(err),
             "output": out,
             "error": err,
+            "duration_ms": duration_ms,
         }
-    except Exception as e:
-        err_msg = traceback.format_exc(limit=2)
-        clean_lines = [l for l in err_msg.splitlines() if "code_runner.py" not in l]
+    except TimeoutError as te:
+        duration_ms = round((time.time() - start_time) * 1000, 2)
         return {
             "success": False,
             "output": stdout_capture.getvalue(),
-            "error": "\n".join(clean_lines).strip() or str(e),
+            "error": str(te),
+            "duration_ms": duration_ms,
+        }
+    except Exception as e:
+        duration_ms = round((time.time() - start_time) * 1000, 2)
+        err_msg = traceback.format_exc(limit=2)
+        clean_lines = [l for l in err_msg.splitlines() if "code_runner.py" not in l]
+        err_text = "\n".join(clean_lines).strip() or str(e)
+        if isinstance(e, EOFError) or "EOF when reading a line" in err_text:
+            err_text += (
+                "\n\n💡 Beginner Tip: Your code asked for input() but the Program Input (stdin) box was "
+                "empty or ran out of lines. Enter your input into the Program Input (stdin) box before "
+                "clicking 'Run Code' (put each response on a new line)."
+            )
+        return {
+            "success": False,
+            "output": stdout_capture.getvalue(),
+            "error": err_text,
+            "duration_ms": duration_ms,
         }
     finally:
+        sys.settrace(None)
         sys.stdin = old_stdin
 
 
@@ -180,6 +304,8 @@ def execute_sql(query: str, setup_sql: str = "") -> dict:
     Executes SQL query against an in-memory SQLite database pre-seeded with setup_sql.
     Pure client-side execution — works 100% offline.
     """
+    import time
+    start_time = time.time()
     if not query.strip():
         return {
             "success": False,
@@ -187,6 +313,7 @@ def execute_sql(query: str, setup_sql: str = "") -> dict:
             "rows": [],
             "rowcount": 0,
             "error": "Query cannot be empty.",
+            "duration_ms": 0.0,
         }
 
     conn = None
@@ -197,27 +324,48 @@ def execute_sql(query: str, setup_sql: str = "") -> dict:
         if setup_sql and setup_sql.strip():
             cursor.executescript(setup_sql)
 
-        cursor.execute(query.strip().rstrip(";"))
+        # Support multi-statement SQL scripts (CREATE, INSERT, SELECT)
+        raw_statements = [s.strip() for s in query.strip().split(";") if s.strip()]
+        if not raw_statements:
+            return {
+                "success": True,
+                "columns": [],
+                "rows": [],
+                "rowcount": 0,
+                "error": "",
+                "duration_ms": round((time.time() - start_time) * 1000, 2),
+            }
+
+        if len(raw_statements) > 1:
+            pre_stmts = ";\n".join(raw_statements[:-1]) + ";"
+            cursor.executescript(pre_stmts)
+
+        final_stmt = raw_statements[-1]
+        cursor.execute(final_stmt)
         
         columns = [desc[0] for desc in cursor.description] if cursor.description else []
         rows = cursor.fetchall() if cursor.description else []
         rowcount = cursor.rowcount
 
         conn.commit()
+        duration_ms = round((time.time() - start_time) * 1000, 2)
         return {
             "success": True,
             "columns": columns,
             "rows": rows,
             "rowcount": rowcount,
             "error": "",
+            "duration_ms": duration_ms,
         }
     except Exception as e:
+        duration_ms = round((time.time() - start_time) * 1000, 2)
         return {
             "success": False,
             "columns": [],
             "rows": [],
             "rowcount": 0,
             "error": str(e),
+            "duration_ms": duration_ms,
         }
     finally:
         if conn:
@@ -238,12 +386,15 @@ def execute_remote_code(language: str, code: str, test_input: str = "") -> dict:
         "stdin": _b64_encode(test_input),
     }
 
+    import time
+    start_time = time.time()
     try:
         with httpx.Client(timeout=REMOTE_TIMEOUT) as client:
             resp = client.post(
                 "https://ce.judge0.com/submissions?base64_encoded=true&wait=true",
                 json=payload,
             )
+            duration_ms = round((time.time() - start_time) * 1000, 2)
             if resp.status_code in (200, 201):
                 data = resp.json()
                 status_info = data.get("status", {})
@@ -260,6 +411,7 @@ def execute_remote_code(language: str, code: str, test_input: str = "") -> dict:
                         "success": True,
                         "output": stdout,
                         "error": stderr or "",
+                        "duration_ms": duration_ms,
                     }
                 # Status 6 = Compilation Error
                 elif status_id == 6:
@@ -267,6 +419,7 @@ def execute_remote_code(language: str, code: str, test_input: str = "") -> dict:
                         "success": False,
                         "output": "",
                         "error": compile_output or stderr or "Compilation failed.",
+                        "duration_ms": duration_ms,
                     }
                 # Status 5 = Time Limit Exceeded
                 elif status_id == 5:
@@ -274,6 +427,7 @@ def execute_remote_code(language: str, code: str, test_input: str = "") -> dict:
                         "success": False,
                         "output": stdout,
                         "error": "Execution Timed Out (exceeded time limit). Check for infinite loops.",
+                        "duration_ms": duration_ms,
                     }
                 # Other errors (NZEC, Segfault, Out of Memory)
                 else:
@@ -282,27 +436,33 @@ def execute_remote_code(language: str, code: str, test_input: str = "") -> dict:
                         "success": False,
                         "output": stdout,
                         "error": err_detail,
+                        "duration_ms": duration_ms,
                     }
             else:
                 return {
                     "success": False,
                     "output": "",
                     "error": f"Execution service returned HTTP {resp.status_code}.",
+                    "duration_ms": duration_ms,
                 }
 
     except (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError) as net_err:
+        duration_ms = round((time.time() - start_time) * 1000, 2)
         lang_name = lang_key.upper()
         return {
             "success": False,
             "output": "",
             "error": f"An active internet connection is required to compile and run {lang_name} code.\n(Offline local execution is supported for Python and SQL).",
             "offline_blocked": True,
+            "duration_ms": duration_ms,
         }
     except Exception as ex:
+        duration_ms = round((time.time() - start_time) * 1000, 2)
         return {
             "success": False,
             "output": "",
             "error": f"Sandbox execution error: {str(ex)}",
+            "duration_ms": duration_ms,
         }
 
 
@@ -311,11 +471,14 @@ def execute_html(code: str) -> dict:
     Validates and analyzes HTML/CSS/JS web markup locally without headless runner.
     Works 100% offline.
     """
+    import time
+    start_time = time.time()
     if not code or not code.strip():
         return {
             "success": False,
             "output": "",
-            "error": "HTML code is empty."
+            "error": "HTML code is empty.",
+            "duration_ms": 0.0,
         }
 
     tags_found = re.findall(r"<([a-zA-Z0-9\-]+)", code)
@@ -343,11 +506,13 @@ def execute_html(code: str) -> dict:
     if "manifest" in code.lower():
         summary_lines.append("PWA Feature: Web App Manifest reference detected.")
 
+    duration_ms = round((time.time() - start_time) * 1000, 2)
     return {
         "success": True,
         "output": "\n".join(summary_lines),
         "error": "",
         "tags": unique_tags,
+        "duration_ms": duration_ms,
     }
 
 

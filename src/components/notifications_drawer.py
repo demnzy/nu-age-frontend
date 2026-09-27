@@ -29,6 +29,62 @@ def _format_relative_time(dt: datetime) -> str:
     return f"{days}d ago"
 
 
+def _format_notification_datetime(dt: datetime) -> dict:
+    """Returns standardized sectioning and time badges for notifications."""
+    if not isinstance(dt, datetime):
+        return {
+            "section": "Today",
+            "time_badge": "Just now",
+            "full_time": "",
+            "relative": "Just now",
+        }
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    now = datetime.now(timezone.utc)
+
+    diff = now - dt
+    total_sec = max(0, int(diff.total_seconds()))
+
+    try:
+        dt_local = dt.astimezone()
+        now_local = now.astimezone()
+    except Exception:
+        dt_local = dt
+        now_local = now
+
+    days_diff = (now_local.date() - dt_local.date()).days
+    if days_diff <= 0:
+        section = "Today"
+    elif days_diff == 1:
+        section = "Yesterday"
+    elif 1 < days_diff <= 7:
+        section = "Earlier this week"
+    elif 7 < days_diff <= 30:
+        section = "Earlier this month"
+    else:
+        section = dt_local.strftime("%B %Y")
+
+    time_badge = dt_local.strftime("%I:%M %p").lstrip("0")
+    full_date_time = dt_local.strftime("%b %d, %Y · %I:%M %p")
+
+    if total_sec < 60:
+        rel = "Just now"
+    elif total_sec < 3600:
+        rel = f"{total_sec // 60}m ago"
+    elif total_sec < 86400:
+        rel = f"{total_sec // 3600}h ago"
+    else:
+        rel = f"{days_diff}d ago" if days_diff > 0 else f"{total_sec // 86400}d ago"
+
+    return {
+        "section": section,
+        "time_badge": time_badge,
+        "full_time": full_date_time,
+        "relative": rel,
+        "raw_dt": dt,
+    }
+
+
 class NotificationManager:
     _listeners = []
 
@@ -42,9 +98,21 @@ class NotificationManager:
 
     @classmethod
     def add(cls, title: str, body: str, category: str = "general", icon=ft.Icons.NOTIFICATIONS_ROUNDED,
-            action_label: str = None, on_action=None):
+            action_label: str = None, on_action=None, notif_id: str = None):
+        if notif_id:
+            for n in _NOTIFICATIONS_STORE:
+                if n.get("id") == notif_id:
+                    n["title"] = title
+                    n["body"] = body
+                    n["category"] = category
+                    n["icon"] = icon
+                    n["action_label"] = action_label
+                    n["on_action"] = on_action
+                    cls._notify()
+                    return n
+
         notif = {
-            "id": str(len(_NOTIFICATIONS_STORE) + 1),
+            "id": notif_id or str(len(_NOTIFICATIONS_STORE) + 1),
             "title": title,
             "body": body,
             "category": category,   # "exams", "cohorts", "courses", "general"
@@ -57,6 +125,28 @@ class NotificationManager:
         _NOTIFICATIONS_STORE.insert(0, notif)
         cls._notify()
         return notif
+
+    @classmethod
+    def upsert(cls, notif_id: str, title: str, body: str, category: str = "general",
+               icon=ft.Icons.NOTIFICATIONS_ROUNDED, action_label: str = None, on_action=None):
+        return cls.add(title=title, body=body, category=category, icon=icon,
+                       action_label=action_label, on_action=on_action, notif_id=notif_id)
+
+    @classmethod
+    def remove(cls, notif_id: str):
+        global _NOTIFICATIONS_STORE
+        before = len(_NOTIFICATIONS_STORE)
+        _NOTIFICATIONS_STORE = [n for n in _NOTIFICATIONS_STORE if n.get("id") != notif_id]
+        if len(_NOTIFICATIONS_STORE) != before:
+            cls._notify()
+
+    @classmethod
+    def remove_by_category(cls, category: str):
+        global _NOTIFICATIONS_STORE
+        before = len(_NOTIFICATIONS_STORE)
+        _NOTIFICATIONS_STORE = [n for n in _NOTIFICATIONS_STORE if n.get("category") != category]
+        if len(_NOTIFICATIONS_STORE) != before:
+            cls._notify()
 
     @classmethod
     def mark_all_read(cls):
@@ -164,62 +254,108 @@ def open_notifications_drawer(page: ft.Page):
         else:
             filtered = items
 
+        # Sort newest first
+        filtered_sorted = sorted(
+            filtered,
+            key=lambda x: x.get("created_at") if isinstance(x.get("created_at"), datetime) else datetime.min.replace(tzinfo=timezone.utc),
+            reverse=True,
+        )
+
+        sections = {}
+        for n in filtered_sorted:
+            info = _format_notification_datetime(n.get("created_at"))
+            sec_name = info["section"]
+            if sec_name not in sections:
+                sections[sec_name] = []
+            sections[sec_name].append((n, info))
+
         tiles = []
-        for n in filtered:
-            n_id = n["id"]
-            is_unread = not n.get("is_read", False)
-            cat = n.get("category", "general")
-            time_label = _format_relative_time(n["created_at"])
+        for sec_name, group_items in sections.items():
+            tiles.append(
+                ft.Container(
+                    padding=ft.Padding.only(top=8, bottom=4),
+                    content=ft.Row([
+                        ft.Container(
+                            padding=ft.Padding.symmetric(horizontal=8, vertical=2),
+                            border_radius=6,
+                            bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.PRIMARY),
+                            content=ft.Text(sec_name.upper(), size=9, weight=ft.FontWeight.BOLD, color=ft.Colors.PRIMARY),
+                        ),
+                        ft.Divider(height=1, color=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE), expand=True),
+                    ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                )
+            )
 
-            if cat in ("exams", "cohorts"):
-                cat_color = ft.Colors.ORANGE_600
-            elif cat == "courses":
-                cat_color = ft.Colors.BLUE_600
-            else:
-                cat_color = ft.Colors.PRIMARY
+            for n, info in group_items:
+                n_id = n["id"]
+                is_unread = not n.get("is_read", False)
+                cat = n.get("category", "general")
 
-            def make_click_handler(target_n):
-                def _do(_):
-                    NotificationManager.mark_read(target_n["id"])
-                    if target_n.get("on_action"):
-                        target_n["on_action"]()
-                    render_notifications()
-                    page.update()
-                return _do
+                if cat in ("exams", "cohorts"):
+                    cat_color = ft.Colors.ORANGE_600
+                elif cat == "courses":
+                    cat_color = ft.Colors.BLUE_600
+                else:
+                    cat_color = ft.Colors.PRIMARY
 
-            action_btn = None
-            if n.get("action_label"):
-                action_btn = ft.TextButton(
-                    n["action_label"],
-                    style=ft.ButtonStyle(color=cat_color, padding=ft.Padding.symmetric(horizontal=8, vertical=4)),
-                    on_click=make_click_handler(n),
+                def make_click_handler(target_n):
+                    def _do(_):
+                        NotificationManager.mark_read(target_n["id"])
+                        if target_n.get("on_action"):
+                            target_n["on_action"]()
+                        render_notifications()
+                        page.update()
+                    return _do
+
+                action_btn = None
+                if n.get("action_label"):
+                    action_btn = ft.TextButton(
+                        n["action_label"],
+                        style=ft.ButtonStyle(color=cat_color, padding=ft.Padding.symmetric(horizontal=8, vertical=4)),
+                        on_click=make_click_handler(n),
+                    )
+
+                time_badge = ft.Container(
+                    padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+                    border_radius=4,
+                    bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
+                    content=ft.Text(f"{info['time_badge']} · {info['relative']}", size=9, weight=ft.FontWeight.W_500, color=ft.Colors.ON_SURFACE_VARIANT),
                 )
 
-            tile = ft.Container(
-                padding=12,
-                border_radius=12,
-                bgcolor=ft.Colors.with_opacity(0.06, cat_color) if is_unread else ft.Colors.SURFACE,
-                border=ft.Border.all(1, ft.Colors.with_opacity(0.18, cat_color) if is_unread else ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
-                ink=True,
-                on_click=make_click_handler(n),
-                content=ft.Row([
-                    ft.Container(
-                        padding=8,
-                        border_radius=10,
-                        bgcolor=ft.Colors.with_opacity(0.12, cat_color),
-                        content=ft.Icon(n.get("icon", ft.Icons.NOTIFICATIONS_ROUNDED), size=18, color=cat_color),
-                    ),
-                    ft.Column([
-                        ft.Row([
-                            ft.Text(n.get("title", ""), size=13, weight=ft.FontWeight.BOLD if is_unread else ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE, expand=True),
-                            ft.Text(time_label, size=10, color=ft.Colors.ON_SURFACE_VARIANT),
-                        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                        ft.Text(n.get("body", ""), size=12, color=ft.Colors.ON_SURFACE_VARIANT),
-                        ft.Row([action_btn], alignment=ft.MainAxisAlignment.END) if action_btn else ft.Container(),
-                    ], spacing=2, expand=True),
-                ], spacing=12, vertical_alignment=ft.CrossAxisAlignment.START),
-            )
-            tiles.append(tile)
+                unread_dot = ft.Container(
+                    width=7, height=7, border_radius=3.5,
+                    bgcolor=cat_color,
+                    visible=is_unread,
+                )
+
+                tile = ft.Container(
+                    padding=12,
+                    border_radius=12,
+                    bgcolor=ft.Colors.with_opacity(0.07, cat_color) if is_unread else ft.Colors.SURFACE,
+                    border=ft.Border.all(1.2 if is_unread else 1, ft.Colors.with_opacity(0.24, cat_color) if is_unread else ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                    ink=True,
+                    on_click=make_click_handler(n),
+                    content=ft.Row([
+                        ft.Container(
+                            padding=8,
+                            border_radius=10,
+                            bgcolor=ft.Colors.with_opacity(0.14 if is_unread else 0.08, cat_color),
+                            content=ft.Icon(n.get("icon", ft.Icons.NOTIFICATIONS_ROUNDED), size=18, color=cat_color),
+                        ),
+                        ft.Column([
+                            ft.Row([
+                                ft.Row([
+                                    unread_dot,
+                                    ft.Text(n.get("title", ""), size=13, weight=ft.FontWeight.BOLD if is_unread else ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE, expand=True),
+                                ], spacing=6, expand=True),
+                                time_badge,
+                            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                            ft.Text(n.get("body", ""), size=12, color=ft.Colors.ON_SURFACE_VARIANT),
+                            ft.Row([action_btn], alignment=ft.MainAxisAlignment.END) if action_btn else ft.Container(),
+                        ], spacing=3, expand=True),
+                    ], spacing=12, vertical_alignment=ft.CrossAxisAlignment.START),
+                )
+                tiles.append(tile)
 
         if not tiles:
             content_area.controls = [

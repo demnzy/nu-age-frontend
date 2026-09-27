@@ -8,6 +8,7 @@ from src.requests.auth import (
     resend_verification_otp_request,
 )
 from src.components.landing_navbar import get_landing_appbar
+from src.components.bottom_appbar import NotificationManager
 from src.utils.db_manager import log_daily_activity
 import asyncio
 from src.local_db import has_any_downloaded_courses
@@ -180,9 +181,31 @@ def login_view(page: ft.Page):
                 Submit.disabled = False
                 if l_status == 200:
                     token = l_data.get("access_token")
+                    if hasattr(page, "session") and hasattr(page.session, "store"):
+                        try:
+                            page.session.store.clear()
+                        except Exception:
+                            pass
+                    try:
+                        NotificationManager.clear_all()
+                    except Exception:
+                        pass
                     await page.shared_preferences.set("auth_token", token)
                     await page.shared_preferences.set("refresh_token", l_data["refresh_token"])
+                    try:
+                        from src.services.auth_session import AuthSession
+                        session = AuthSession.get_instance()
+                        session.init(page)
+                        await session.set_tokens(token, l_data["refresh_token"])
+                    except Exception as ex:
+                        print(f"[Login] Error updating AuthSession: {ex}")
                     log_daily_activity()
+                    nav_bar = getattr(page, "persistent_nav_bar", None)
+                    if nav_bar:
+                        try:
+                            nav_bar.refresh()
+                        except Exception:
+                            pass
                     page.go("/dashboard")
                     return
             set_error("Account verified successfully! Please click Sign In to continue.")
@@ -322,9 +345,42 @@ def login_view(page: ft.Page):
             Submit.content = ft.Text("Sign In", size=14, weight=ft.FontWeight.W_600)
             if status == 200:
                 token = data.get("access_token")
+                if hasattr(page, "session") and hasattr(page.session, "store"):
+                    try:
+                        page.session.store.clear()
+                    except Exception:
+                        pass
+                try:
+                    NotificationManager.clear_all()
+                except Exception:
+                    pass
                 await page.shared_preferences.set("auth_token", token)
                 await page.shared_preferences.set("refresh_token", data["refresh_token"])
+                try:
+                    from src.services.auth_session import AuthSession
+                    session = AuthSession.get_instance()
+                    session.init(page)
+                    await session.set_tokens(token, data["refresh_token"])
+                except Exception as ex:
+                    print(f"[Login] Error updating AuthSession: {ex}")
                 log_daily_activity()
+                nav_bar = getattr(page, "persistent_nav_bar", None)
+                if nav_bar:
+                    try:
+                        nav_bar.refresh()
+                    except Exception:
+                        pass
+                try:
+                    from src.services.notification_service import sync_learner_notifications
+                    page.run_task(sync_learner_notifications, page, True)
+                except Exception:
+                    pass
+                try:
+                    from src.services.push_notification_service import init_push_notifications, setup_user_push_notifications
+                    page.run_task(init_push_notifications, page)
+                    page.run_task(setup_user_push_notifications, page, token)
+                except Exception:
+                    pass
                 page.go("/dashboard")
 
             elif status == 404:
