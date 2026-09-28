@@ -1232,6 +1232,7 @@ async def organisations_view(page: ft.Page):
                         content=ft.Row([
                             ft.Row([
                                 ft.CircleAvatar(
+                                    foreground_image_src=m.get("profile_picture_url") if (m.get("profile_picture_url") and str(m.get("profile_picture_url")).startswith("http")) else None,
                                     content=ft.Text(initials, size=13, weight=ft.FontWeight.BOLD),
                                     bgcolor=ft.Colors.with_opacity(0.12, theme_color),
                                     color=theme_color,

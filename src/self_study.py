@@ -273,17 +273,17 @@ async def self_study_view(page: ft.Page):
     # ─────────────────────────────────────────────────────────────────────────
     sidebar_toggle = ft.IconButton(
         icon=ft.Icons.MENU_OPEN_ROUNDED,
-        icon_color=ft.Colors.ON_PRIMARY,
+        icon_color=ft.Colors.ON_SURFACE,
         tooltip="Toggle sidebar",
     )
 
     app_bar = ft.AppBar(
-        bgcolor=ft.Colors.PRIMARY,
-        title=ft.Text("Study Hub", color=ft.Colors.ON_PRIMARY,
+        bgcolor=ft.Colors.SURFACE,
+        title=ft.Text("Study Hub", color=ft.Colors.ON_SURFACE,
                       weight=ft.FontWeight.W_700, size=17),
         leading=ft.IconButton(
             icon=ft.Icons.ARROW_BACK_ROUNDED,
-            icon_color=ft.Colors.ON_PRIMARY,
+            icon_color=ft.Colors.ON_SURFACE,
             on_click=lambda _: page.go("/dashboard"),
         ),
         actions=[sidebar_toggle],

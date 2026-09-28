@@ -78,6 +78,7 @@ async def playlist_view(page: ft.Page, playlist_id: str, back_target: str = "/co
             ft.Container(width=8),
         ],
         elevation=0,
+        center_title=False,
     )
 
     # ── Data Loader ───────────────────────────────────────────────────────────

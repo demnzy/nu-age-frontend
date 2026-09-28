@@ -228,9 +228,16 @@ async def broadcast_bulk_push(
     title: str,
     body: str,
     action_route: Optional[str] = None,
+    subtitle: Optional[str] = None,
+    image_url: Optional[str] = None,
+    action_button_label: Optional[str] = None,
+    priority: int = 10,
+    ttl_seconds: int = 86400,
+    test_email: Optional[str] = None,
+    test_user_id: Optional[str] = None,
 ) -> Tuple[int, Dict[str, Any]]:
     """
-    Triggers a push notification broadcast via Firebase Cloud Messaging.
+    Triggers a rich push notification broadcast via OneSignal & Firebase Cloud Messaging.
     """
     url = f"{API_URL}/platform-admin/broadcast/push"
     headers = {"Authorization": f"Bearer {token}"}
@@ -239,6 +246,13 @@ async def broadcast_bulk_push(
         "title": title,
         "body": body,
         "action_route": action_route,
+        "subtitle": subtitle,
+        "image_url": image_url,
+        "action_button_label": action_button_label,
+        "priority": priority,
+        "ttl_seconds": ttl_seconds,
+        "test_email": test_email,
+        "test_user_id": test_user_id,
     }
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT, verify=ssl_context) as client:
@@ -251,6 +265,31 @@ async def broadcast_bulk_push(
     except Exception as ex:
         print(f"[platform_admin_api] broadcast_bulk_push failed: {ex}")
         return 503, {"detail": f"Connection error: {ex}"}
+
+
+async def get_broadcast_history(
+    token: str,
+    page: int = 1,
+    limit: int = 10,
+) -> Tuple[int, Dict[str, Any]]:
+    """
+    Fetches the paginated audit log of previously sent notification broadcasts.
+    """
+    url = f"{API_URL}/platform-admin/broadcast/history"
+    headers = {"Authorization": f"Bearer {token}"}
+    params = {"page": page, "limit": limit}
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT, verify=ssl_context) as client:
+            res = await client.get(url, headers=headers, params=params)
+            try:
+                data = res.json()
+            except Exception:
+                data = {"detail": res.text}
+            return res.status_code, data
+    except Exception as ex:
+        print(f"[platform_admin_api] get_broadcast_history failed: {ex}")
+        return 503, {"detail": f"Connection error: {ex}"}
+
 
 
 async def get_platform_health(token: str) -> Tuple[int, Dict[str, Any]]:

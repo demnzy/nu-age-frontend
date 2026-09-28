@@ -65,6 +65,7 @@ Check it out 👉 : nu-age.com.ng"""
             ft.Container(width=8),
         ],
         elevation=0,
+        center_title=False,
     )
 
     # ── enrol handler ─────────────────────────────────────────────────────────

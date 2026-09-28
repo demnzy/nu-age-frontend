@@ -190,19 +190,100 @@ async def dashboard_view(page: ft.Page):
     stat_finished = ft.Text("-", size=20, weight=ft.FontWeight.W_800, color=ft.Colors.SURFACE)
     stat_streak = ft.Text("-", size=20, weight=ft.FontWeight.W_800, color=ft.Colors.SURFACE)
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # 1. HEADER / HERO (Redesigned matching EduLearn & mobile inspo)
-    # ─────────────────────────────────────────────────────────────────────────
-    hero_art = ft.Container(
-        width=250,
-        height=170,
-        border_radius=ft.BorderRadius.all(16),
-        clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-        alignment=ft.Alignment.CENTER,
-        content=ft.Image(
-            src="hero_graduation.png",
-            fit=ft.BoxFit.CONTAIN,
+    user_init_data = page.session.store.get("current_user") or {}
+    dash_p_pic = user_init_data.get("profile_picture_url")
+    dash_fname = user_init_data.get("first_name", "")
+    dash_lname = user_init_data.get("last_name", "")
+    dash_inits = ((dash_fname[:1] if dash_fname else "") + (dash_lname[:1] if dash_lname else "")).upper() or "NU"
+    dash_has_pic = bool(dash_p_pic and isinstance(dash_p_pic, str) and dash_p_pic.startswith("http"))
+
+    # Desktop Showcase Avatar
+    dash_avatar_ctrl = ft.CircleAvatar(
+        radius=50,
+        bgcolor=ft.Colors.with_opacity(0.22, ft.Colors.WHITE),
+        foreground_image_src=dash_p_pic if dash_has_pic else None,
+        content=ft.Text(dash_inits, size=30, weight=ft.FontWeight.W_800, color=ft.Colors.WHITE),
+    )
+
+    dash_hero_avatar = ft.Container(
+        content=ft.Stack(
+            controls=[
+                ft.Container(
+                    content=dash_avatar_ctrl,
+                    border=ft.Border.all(3.5, ft.Colors.with_opacity(0.7, ft.Colors.WHITE)),
+                    border_radius=54,
+                    padding=2,
+                    shadow=ft.BoxShadow(
+                        blur_radius=22,
+                        color=ft.Colors.with_opacity(0.25, ft.Colors.BLACK),
+                        offset=ft.Offset(0, 6)
+                    ),
+                ),
+                ft.Container(
+                    content=ft.Container(
+                        content=ft.Icon(ft.Icons.EDIT_ROUNDED, size=13, color=ft.Colors.WHITE),
+                        width=28,
+                        height=28,
+                        border_radius=14,
+                        bgcolor=ft.Colors.PRIMARY,
+                        border=ft.Border.all(2, ft.Colors.WHITE),
+                        alignment=ft.Alignment.CENTER,
+                        shadow=ft.BoxShadow(blur_radius=6, color=ft.Colors.with_opacity(0.35, ft.Colors.BLACK), offset=ft.Offset(0, 2)),
+                    ),
+                    bottom=2,
+                    right=2,
+                )
+            ],
+            width=112,
+            height=112,
         ),
+        ink=True,
+        tooltip="View & Edit Profile",
+        on_click=lambda _: page.go("/profile"),
+    )
+
+    # Mobile Showcase Avatar
+    dash_avatar_mobile = ft.CircleAvatar(
+        radius=32,
+        bgcolor=ft.Colors.with_opacity(0.22, ft.Colors.WHITE),
+        foreground_image_src=dash_p_pic if dash_has_pic else None,
+        content=ft.Text(dash_inits, size=18, weight=ft.FontWeight.W_800, color=ft.Colors.WHITE),
+    )
+
+    dash_hero_avatar_mobile = ft.Container(
+        content=ft.Stack(
+            controls=[
+                ft.Container(
+                    content=dash_avatar_mobile,
+                    border=ft.Border.all(2.5, ft.Colors.with_opacity(0.7, ft.Colors.WHITE)),
+                    border_radius=36,
+                    padding=1.5,
+                    shadow=ft.BoxShadow(
+                        blur_radius=14,
+                        color=ft.Colors.with_opacity(0.2, ft.Colors.BLACK),
+                        offset=ft.Offset(0, 4)
+                    ),
+                ),
+                ft.Container(
+                    content=ft.Container(
+                        content=ft.Icon(ft.Icons.EDIT_ROUNDED, size=10, color=ft.Colors.WHITE),
+                        width=22,
+                        height=22,
+                        border_radius=11,
+                        bgcolor=ft.Colors.PRIMARY,
+                        border=ft.Border.all(1.5, ft.Colors.WHITE),
+                        alignment=ft.Alignment.CENTER,
+                    ),
+                    bottom=0,
+                    right=0,
+                )
+            ],
+            width=72,
+            height=72,
+        ),
+        ink=True,
+        tooltip="View & Edit Profile",
+        on_click=lambda _: page.go("/profile"),
     )
 
     def build_hero_content():
@@ -221,7 +302,10 @@ async def dashboard_view(page: ft.Page):
                             tip_container,
                         ],
                     ),
-                    hero_art,
+                    ft.Container(
+                        content=dash_hero_avatar,
+                        padding=ft.Padding.only(left=24, right=12),
+                    ),
                 ],
             )
         else:
@@ -240,14 +324,8 @@ async def dashboard_view(page: ft.Page):
                                 ],
                             ),
                             ft.Container(
-                                width=105,
-                                height=85,
-                                border_radius=ft.BorderRadius.all(12),
-                                clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-                                content=ft.Image(
-                                    src="hero_graduation.png",
-                                    fit=ft.BoxFit.CONTAIN,
-                                ),
+                                content=dash_hero_avatar_mobile,
+                                padding=ft.Padding.only(left=8),
                             ),
                         ],
                     ),
@@ -694,6 +772,19 @@ async def dashboard_view(page: ft.Page):
         user_data  = page.session.store.get("current_user") or {}
         first_name = user_data.get("first_name", "there")
         target_greeting = f"{get_random_greeting()} {first_name}!"
+
+        p_pic = user_data.get("profile_picture_url")
+        has_p = bool(p_pic and isinstance(p_pic, str) and p_pic.startswith("http"))
+        if has_p:
+            dash_avatar_ctrl.foreground_image_src = p_pic
+            dash_avatar_mobile.foreground_image_src = p_pic
+        else:
+            dash_avatar_ctrl.foreground_image_src = None
+            dash_avatar_mobile.foreground_image_src = None
+
+        dash_inits_updated = ((first_name[:1] if first_name else "") + (user_data.get("last_name", "")[:1] if user_data.get("last_name") else "")).upper() or "NU"
+        dash_avatar_ctrl.content.value = dash_inits_updated
+        dash_avatar_mobile.content.value = dash_inits_updated
 
         # Trigger fade animations immediately
         greeting_sub.opacity = 1

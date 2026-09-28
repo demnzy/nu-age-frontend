@@ -54,6 +54,7 @@ def _avatar(user: dict, radius: int = 24) -> ft.CircleAvatar:
     last  = user.get("last_name")  or "?"
     name  = f"{first} {last}".strip()
     img_url = (
+        user.get("profile_picture_url") or
         user.get("avatar") or
         user.get("profile_picture") or
         user.get("picture") or
@@ -414,7 +415,7 @@ async def network_view(page: ft.Page):
                                     padding=ft.Padding.symmetric(horizontal=12, vertical=0),
                                     alignment=ft.Alignment.CENTER,
                                     ink=True,
-                                    on_click=lambda _, u=uid: page.go("/nu-chat"),
+                                    on_click=lambda _, u=uid: page.go(f"/nu-chat?dm={u}"),
                                     content=ft.Row(
                                         tight=True,
                                         spacing=5,

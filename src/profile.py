@@ -205,22 +205,27 @@ async def profile_view(page: ft.Page):
             ]
         )
 
+        profile_picture_url = user_data.get("profile_picture_url")
+        has_avatar = bool(profile_picture_url and isinstance(profile_picture_url, str) and profile_picture_url.startswith("http"))
         avatar_monogram = ft.Container(
             width=92, height=92, border_radius=46,
             bgcolor=ft.Colors.WHITE,
             alignment=ft.Alignment.CENTER,
             shadow=ft.BoxShadow(blur_radius=18, color=ft.Colors.with_opacity(0.25, ft.Colors.BLACK), offset=ft.Offset(0, 4)),
-            content=ft.Container(
-                width=84, height=84, border_radius=42,
+            content=ft.CircleAvatar(
+                radius=42,
                 bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY),
-                alignment=ft.Alignment.CENTER,
+                foreground_image_src=profile_picture_url if has_avatar else None,
                 content=ft.Text(
                     initials, 
                     size=30, 
                     weight=ft.FontWeight.W_800, 
                     color=ft.Colors.PRIMARY
                 )
-            )
+            ),
+            ink=True,
+            tooltip="Edit Profile & Photo",
+            on_click=lambda _: page.go("/edit-profile"),
         )
 
         verified_badge = ft.Container(
@@ -289,7 +294,6 @@ async def profile_view(page: ft.Page):
                         ),
                         on_click=handle_logout_click
                     ),
-                    ft.Text("STUDENT PROFILE", size=11, weight=ft.FontWeight.W_800, color=ft.Colors.with_opacity(0.9, ft.Colors.WHITE)),
                     ft.IconButton(
                         icon=ft.Icons.EDIT_ROUNDED,
                         icon_color=ft.Colors.WHITE,
@@ -409,6 +413,13 @@ async def profile_view(page: ft.Page):
             # 1. Apply new palette tokens in-place immediately (0ms delay, no re-layout)
             apply_theme_palette(new_is_dark)
 
+            # Instantly update BottomAppBar colors to match new mode
+            try:
+                from src.components.bottom_appbar import BottomAppBarThemeManager
+                BottomAppBarThemeManager.notify_theme_changed(new_is_dark)
+            except Exception:
+                pass
+
             # 2. Sync global theme in main.py without duplicate render
             toggle_fn = page.data.get("toggle_dark_mode") if isinstance(page.data, dict) else None
             if toggle_fn:
@@ -527,7 +538,6 @@ async def profile_view(page: ft.Page):
             (ft.Icons.BADGE_ROUNDED, "Username", f"@{username}" if username != "—" else "—"),
             (ft.Icons.ACCOUNT_BALANCE_ROUNDED, "University / College", university if university else "Not specified"),
             (ft.Icons.PERSON_OUTLINE_ROUNDED, "Gender", gender.title() if gender != "—" else "Not specified"),
-            (ft.Icons.VERIFIED_USER_OUTLINED, "Account Standing", "Active & Verified" if is_verified else "Active Student")
         ]
 
         detail_controls = [detail_item(d[0], d[1], d[2], idx == len(details_list) - 1) for idx, d in enumerate(details_list)]

@@ -247,17 +247,11 @@ async def get_group_members(token: str, channel_id: str):
         async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
             response = await client.get(url, headers=headers)
             if response.status_code == 200:
-                return response.json().get("member_ids", [])
-            return []
-    except httpx.TimeoutException:
-        print("get_group_members timed out.")
-        return []
-    except httpx.RequestError as e:
-        print(f"get_group_members connection error: {e}")
-        return []
+                return response.json()
+            return {}
     except Exception as e:
-        print(f"get_group_members unknown error: {e}")
-        return []
+        print(f"get_group_members error: {e}")
+        return {}
 
 
 async def add_group_members(token: str, channel_id: str, member_ids: list):
@@ -304,20 +298,21 @@ async def delete_chat_channel(token: str, channel_id: str):
 
 
 async def leave_group_channel(token: str, channel_id: str):
-    """Hits the DELETE /{chat_id}/leave endpoint."""
-    url = f"{api_url}/chats/{channel_id}/leave"
+    """Hits the DELETE /chat/channels/{channel_id}/leave endpoint."""
+    url = f"{api_url}/chat/channels/{channel_id}/leave"
     headers = {"Authorization": f"Bearer {token}"}
 
     try:
         async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
             response = await client.delete(url, headers=headers)
-            response.raise_for_status()
-            return response.json()
-    except httpx.TimeoutException:
-        return {"error": "Connection failed"}
-    except httpx.HTTPStatusError as e:
-        return {"error": str(e)}
-    except httpx.RequestError as e:
-        return {"error": "Connection failed"}
+            if response.status_code == 200:
+                return response.json()
+            elif response.status_code == 400:
+                try:
+                    err_detail = response.json().get("detail", "Cannot leave this group.")
+                    return {"error": err_detail}
+                except Exception:
+                    return {"error": response.text}
+            return {"error": f"Failed with status {response.status_code}"}
     except Exception as e:
         return {"error": str(e)}

@@ -2429,6 +2429,84 @@ def build_offline_skeleton(page: ft.Page) -> ft.Control:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 22. NOTIFICATIONS SKELETON (/notifications) - High-Fidelity LinkedIn Style
+# ─────────────────────────────────────────────────────────────────────────────
+def build_notifications_skeleton(page: ft.Page | None = None) -> ft.Control:
+    """Builds a high-fidelity LinkedIn-style notification feed skeleton screen."""
+
+    def notif_item_skeleton():
+        return grey_card(
+            padding=12,
+            radius=12,
+            content=ft.Row([
+                # Avatar / Channel Icon placeholder
+                shimmer_box(radius=999, width=40, height=40, darker=True),
+                # Content lines
+                ft.Column([
+                    ft.Row([
+                        shimmer_box(radius=4, height=13, width=160),
+                        shimmer_box(radius=6, height=14, width=50),
+                        shimmer_box(radius=4, height=10, width=45),
+                    ], spacing=6, tight=True),
+                    shimmer_box(radius=4, height=11, width=280),
+                    shimmer_box(radius=4, height=10, width=190),
+                ], spacing=5, expand=True),
+                # Unread dot indicator
+                shimmer_box(radius=999, width=8, height=8, darker=True),
+            ], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+        )
+
+    # Category pills
+    pills_row = ft.Row([
+        shimmer_box(radius=16, height=30, width=50),
+        shimmer_box(radius=16, height=30, width=65),
+        shimmer_box(radius=16, height=30, width=130),
+        shimmer_box(radius=16, height=30, width=80),
+    ], spacing=8)
+
+    # Urgent Assessment Banner skeleton
+    exam_banner_skel = grey_card(
+        padding=16,
+        radius=14,
+        content=ft.Column([
+            ft.Row([
+                shimmer_box(radius=6, height=18, width=110, darker=True),
+                shimmer_box(radius=4, height=13, width=80),
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            shimmer_box(radius=4, height=16, width=220),
+            shimmer_box(radius=4, height=12, width=300),
+            ft.Container(height=4),
+            shimmer_box(radius=8, height=34, width=160, darker=True),
+        ], spacing=6),
+    )
+
+    return ft.ListView(
+        expand=True,
+        padding=ft.Padding.symmetric(horizontal=16, vertical=12),
+        spacing=10,
+        controls=[
+            # Top row with tabs
+            pills_row,
+            ft.Container(height=4),
+            # Assessment banner
+            exam_banner_skel,
+            ft.Container(height=2),
+            # Feed header placeholder
+            ft.Row([
+                shimmer_box(radius=4, height=14, width=70),
+                shimmer_box(radius=4, height=10, width=120),
+            ], spacing=8),
+            # 4 notification cards
+            notif_item_skeleton(),
+            notif_item_skeleton(),
+            notif_item_skeleton(),
+            notif_item_skeleton(),
+            ft.Container(height=20),
+        ],
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # ROUTE RESOLVER & SKELETON VIEW FACTORY
 # ─────────────────────────────────────────────────────────────────────────────
 def build_skeleton_view(route: str, page: ft.Page | None = None) -> ft.View:
@@ -2448,6 +2526,8 @@ def build_skeleton_view(route: str, page: ft.Page | None = None) -> ft.View:
         body = build_network_skeleton(page)
     elif clean_route == "/nu-chat":
         body = build_chat_skeleton(page)
+    elif clean_route == "/notifications":
+        body = build_notifications_skeleton(page)
     elif clean_route == "/organisations":
         body = build_organisations_skeleton(page)
     elif clean_route == "/profile":

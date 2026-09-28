@@ -717,6 +717,8 @@ async def offline_courses_view(page: ft.Page, back_target: str = None) -> ft.Vie
                 )
             ],
             bgcolor=ft.Colors.SURFACE,
+            elevation=0,
+            center_title=False,
         ),
         controls=[
             ft.SafeArea(

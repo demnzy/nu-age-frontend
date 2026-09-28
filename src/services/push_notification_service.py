@@ -7,8 +7,10 @@ with graceful fallback and zero-crash desktop/web protection.
 import os
 import sys
 import uuid
+import json
+import asyncio
 import httpx
-from typing import Optional, Callable
+from typing import Optional, Callable, Any, Union
 import flet as ft
 
 # Check if flet_onesignal is installed
@@ -22,12 +24,102 @@ from src.components.notifications_drawer import NotificationManager
 from src.requests.auth import api_url
 
 # Default fallback / placeholder App ID
-DEFAULT_ONESIGNAL_APP_ID = os.environ.get("ONESIGNAL_APP_ID", "")
-DEFAULT_ONESIGNAL_APP_ID = "36b0ae74-81fa-4bd4-bafd-09e8de69cdcc"
+DEFAULT_ONESIGNAL_APP_ID = os.environ.get("ONESIGNAL_APP_ID", "36b0ae74-81fa-4bd4-bafd-09e8de69cdcc")
 
 # Module-level reference to the active OneSignal instance
 _onesignal_instance = None
 _initialized_pages = set()
+
+
+def extract_notification_route_and_data(e: Any) -> tuple[str, dict]:
+    """Safely extracts target route and custom data dictionary from any notification
+
+    event shape (OSNotificationClickEvent, ControlEvent, dict, or raw JSON string).
+    """
+    payload = None
+    if hasattr(e, "notification") and getattr(e, "notification"):
+        payload = getattr(e, "notification")
+    elif hasattr(e, "data") and getattr(e, "data"):
+        d = getattr(e, "data")
+        if isinstance(d, str):
+            try:
+                payload = json.loads(d)
+            except Exception:
+                payload = d
+        else:
+            payload = d
+    elif isinstance(e, dict):
+        payload = e
+
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except Exception:
+            pass
+
+    if not isinstance(payload, dict):
+        return "/notifications", {}
+
+    # If payload is wrapped inside a "notification" key
+    notif = payload.get("notification") if isinstance(payload.get("notification"), dict) else payload
+
+    # Extract custom data from all possible OneSignal container keys
+    custom = (
+        notif.get("additionalData")
+        or notif.get("additional_data")
+        or notif.get("data")
+        or notif.get("custom", {}).get("a")
+        or {}
+    )
+    if isinstance(custom, str):
+        try:
+            custom = json.loads(custom)
+        except Exception:
+            custom = {}
+
+    route = (
+        custom.get("route")
+        or custom.get("action_route")
+        or custom.get("target_route")
+        or custom.get("url")
+        or notif.get("app_url")
+        or notif.get("route")
+        or notif.get("launchURL")
+        or notif.get("launchUrl")
+    )
+
+    if not route:
+        exam_id = custom.get("exam_id")
+        cohort_id = custom.get("cohort_id")
+        course_id = custom.get("course_id")
+        playlist_id = custom.get("playlist_id")
+        org_id = custom.get("org_id")
+
+        if exam_id and cohort_id:
+            route = f"/cohorts/{cohort_id}/exams/{exam_id}"
+        elif exam_id:
+            route = f"/cohorts/exams/{exam_id}"
+        elif course_id:
+            route = f"/courses/{course_id}"
+        elif playlist_id:
+            route = f"/playlists/{playlist_id}"
+        elif org_id:
+            route = f"/organisations/{org_id}"
+        else:
+            route = "/notifications"
+
+    route = str(route).strip()
+    if "://" in route:
+        parts = route.split("://", 1)[1]
+        if "/" in parts:
+            route = "/" + parts.split("/", 1)[1].lstrip("/")
+        else:
+            route = "/" + parts.lstrip("/")
+
+    if not route.startswith("/"):
+        route = "/" + route
+
+    return route, custom
 
 
 def is_push_supported(page: ft.Page) -> bool:
@@ -75,7 +167,7 @@ async def register_device_token_with_backend(
 async def init_push_notifications(
     page: ft.Page,
     app_id: Optional[str] = None,
-    on_navigate: Optional[Callable[[str], None]] = None,
+    on_navigate: Optional[Callable[[str], Any]] = None,
 ):
     """Initializes OneSignal push notification service on Android/iOS.
 
@@ -102,39 +194,75 @@ async def init_push_notifications(
         print("[PushService] NOTICE: ONESIGNAL_APP_ID is not configured. Set ONESIGNAL_APP_ID to enable mobile push.")
         return None
 
+    # Asynchronous navigation dispatcher with lifecycle settle guard
+    async def _dispatch_navigation(target_route: str):
+        print(f"[PushService] Executing navigation to target route: {target_route}")
+        try:
+            # 1. Allow native Android resume, window focus, and token validation to settle
+            await asyncio.sleep(0.35)
+
+            # 2. If dedicated on_navigate callback was provided (e.g. from main.py)
+            if on_navigate:
+                if asyncio.iscoroutinefunction(on_navigate):
+                    await on_navigate(target_route)
+                else:
+                    res = on_navigate(target_route)
+                    if asyncio.iscoroutine(res):
+                        await res
+                return
+
+            # 3. Fallback direct page navigation:
+            current_r = getattr(page, "route", None)
+            if current_r == target_route:
+                # If already on this route, trigger route_change so view refreshes
+                if hasattr(page, "on_route_change") and callable(page.on_route_change):
+                    ev = ft.RouteChangeEvent(route=target_route) if hasattr(ft, "RouteChangeEvent") else None
+                    if asyncio.iscoroutinefunction(page.on_route_change):
+                        await page.on_route_change(ev)
+                    else:
+                        page.on_route_change(ev)
+            elif hasattr(page, "go"):
+                page.go(target_route)
+        except Exception as nav_ex:
+            print(f"[PushService] Navigation dispatch error: {nav_ex!r}")
+            try:
+                if hasattr(page, "go"):
+                    page.go(target_route)
+            except Exception:
+                pass
+
     # Handle Notification Click (e.g. from System Tray when app is backgrounded or killed)
     def _handle_notification_click(e):
         try:
-            notif = e.notification or {}
-            # OneSignal packages additional payload in additionalData or custom dict
-            custom_data = notif.get("additionalData") or notif.get("additional_data") or notif.get("data") or {}
-            target_route = custom_data.get("route")
-            exam_id = custom_data.get("exam_id")
-            course_id = custom_data.get("course_id")
-
-            if not target_route:
-                if exam_id:
-                    target_route = f"/exam/{exam_id}"
-                elif course_id:
-                    target_route = f"/courses/{course_id}"
-                else:
-                    target_route = "/notifications"
-
-            print(f"[PushService] Notification clicked! Navigating to: {target_route}")
-            if on_navigate:
-                on_navigate(target_route)
-            elif hasattr(page, "go"):
-                page.go(target_route)
+            target_route, custom_data = extract_notification_route_and_data(e)
+            print(f"[PushService] Notification clicked! Resolved target route: {target_route} (payload: {custom_data})")
+            if hasattr(page, "run_task"):
+                page.run_task(_dispatch_navigation, target_route)
+            else:
+                asyncio.create_task(_dispatch_navigation(target_route))
         except Exception as ex:
             print(f"[PushService] Error processing notification click: {ex!r}")
+            try:
+                if hasattr(page, "go"):
+                    page.go("/notifications")
+            except Exception:
+                pass
 
     # Handle Notification in Foreground (When app is active and open)
     async def _handle_foreground_notification(e):
         try:
-            notif = e.notification or {}
-            title = notif.get("title") or "New Notification"
-            body = notif.get("body") or ""
-            custom_data = notif.get("additionalData") or notif.get("additional_data") or notif.get("data") or {}
+            target_route, custom_data = extract_notification_route_and_data(e)
+
+            payload = getattr(e, "notification", None) or getattr(e, "data", None) or (e if isinstance(e, dict) else {})
+            if isinstance(payload, str):
+                try:
+                    payload = json.loads(payload)
+                except Exception:
+                    payload = {}
+            notif = payload.get("notification") if isinstance(payload.get("notification"), dict) else payload
+
+            title = notif.get("title") or notif.get("heading") or "New Notification"
+            body = notif.get("body") or notif.get("content") or ""
             category = custom_data.get("category", "announcement")
             notif_id = custom_data.get("id") or f"push_{uuid.uuid4().hex[:8]}"
 
@@ -150,8 +278,10 @@ async def init_push_notifications(
             # 2. Present non-intrusive in-app SnackBar notification
             if hasattr(page, "overlay"):
                 def _open_route(ev):
-                    r = custom_data.get("route", "/notifications")
-                    page.go(r)
+                    if hasattr(page, "run_task"):
+                        page.run_task(_dispatch_navigation, target_route)
+                    else:
+                        asyncio.create_task(_dispatch_navigation(target_route))
 
                 snack = ft.SnackBar(
                     content=ft.Row(

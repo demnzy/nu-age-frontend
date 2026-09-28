@@ -213,10 +213,11 @@ async def course_learner_view(
         ink=True,
         on_click=toggle_sidebar,
         bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
+        border=ft.Border.all(1, ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)),
         content=ft.Row(
             [
-                ft.Icon(ft.Icons.MENU, size=16, color=ft.Colors.ON_PRIMARY),
-                ft.Text("Syllabus", size=12, weight=ft.FontWeight.W_600, color=ft.Colors.ON_PRIMARY),
+                ft.Icon(ft.Icons.MENU, size=16, color=ft.Colors.ON_SURFACE),
+                ft.Text("Syllabus", size=12, weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE),
             ],
             tight=True,
             spacing=6,
@@ -361,7 +362,7 @@ async def course_learner_view(
         "Loading Course...",
         size=15,
         weight=ft.FontWeight.BOLD,
-        color=ft.Colors.ON_PRIMARY,
+        color=ft.Colors.ON_SURFACE,
         max_lines=1,
         overflow=ft.TextOverflow.ELLIPSIS,
     )
@@ -370,7 +371,7 @@ async def course_learner_view(
         "",
         size=11,
         weight=ft.FontWeight.W_500,
-        color=ft.Colors.ON_PRIMARY,
+        color=ft.Colors.ON_SURFACE_VARIANT,
         max_lines=1,
         overflow=ft.TextOverflow.ELLIPSIS,
     )
@@ -378,7 +379,7 @@ async def course_learner_view(
     page_appbar = ft.AppBar(
         leading=ft.IconButton(
             ft.Icons.ARROW_BACK_ROUNDED,
-            icon_color=ft.Colors.ON_PRIMARY,
+            icon_color=ft.Colors.ON_SURFACE,
             tooltip="Back",
             on_click=lambda _: page.go(back_target),
         ),
@@ -391,11 +392,8 @@ async def course_learner_view(
             alignment=ft.MainAxisAlignment.CENTER,
         ),
         center_title=False,
-        bgcolor=ft.Colors.PRIMARY,
+        bgcolor=ft.Colors.SURFACE,
         elevation=0,
-        shape=ft.RoundedRectangleBorder(
-            radius=ft.BorderRadius.only(bottom_left=16, bottom_right=16)
-        ),
         actions=[
             top_progress_pill,
             ft.Container(width=4),

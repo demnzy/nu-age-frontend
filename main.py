@@ -343,6 +343,13 @@ async def main(page: ft.Page):
             splash_logo.width = 400
             splash_logo.height = 600
 
+        # Synchronize BottomAppBar instantaneously on theme change
+        try:
+            from src.components.bottom_appbar import BottomAppBarThemeManager
+            BottomAppBarThemeManager.notify_theme_changed(is_dark)
+        except Exception:
+            pass
+
         if trigger_update:
             page.update()
 
@@ -1684,8 +1691,20 @@ async def main(page: ft.Page):
             await load_view_and_report(organisations_view(page), page.route, active_skeleton, active_shimmer_task)
         elif page.route == "/network":
             await load_view_and_report(network_view(page), page.route, active_skeleton, active_shimmer_task)
-        elif page.route == "/nu-chat":
-            await load_view_and_report(chat_view(page), page.route, active_skeleton, active_shimmer_task)
+        elif page.route in ("/nu-chat", "/chat") or (page.route and (page.route.startswith("/nu-chat?") or page.route.startswith("/chat?"))):
+            target_dm = None
+            target_ch = None
+            if page.route and "?" in page.route:
+                q_str = page.route.split("?", 1)[1]
+                for part in q_str.split("&"):
+                    if part.startswith("dm="):
+                        target_dm = part.split("=", 1)[1]
+                    elif part.startswith("channel="):
+                        target_ch = part.split("=", 1)[1]
+            await load_view_and_report(
+                chat_view(page, target_dm_user_id=target_dm, target_channel_id=target_ch),
+                page.route, active_skeleton, active_shimmer_task
+            )
         elif page.route == "/notifications":
             await load_view_and_report(notifications_view(page), page.route, active_skeleton, active_shimmer_task)
         elif troute.match("/courses/:id/stats"):
@@ -1963,6 +1982,46 @@ async def main(page: ft.Page):
 
     page.window.on_event = on_window_event
 
+    # ── PUSH NOTIFICATION DEEP LINK ROUTER ──────────────────────────
+    async def navigate_from_push(target_route: str):
+        """Dedicated router for push notifications and cold-start deep links.
+
+        Ensures in-flight auth checks, window resume, and shell state synchronize cleanly.
+        """
+        if not target_route:
+            return
+
+        print(f"[PushRouter] Notification navigation requested to: {target_route}")
+
+        # 1. Ensure user is authenticated if target is protected
+        tok = None
+        if hasattr(page, "shared_preferences"):
+            try:
+                tok = await page.shared_preferences.get("auth_token")
+            except Exception:
+                tok = None
+
+        if not tok and not _is_public_route(target_route):
+            print(f"[PushRouter] Unauthenticated tap on protected route {target_route}; redirecting to login.")
+            page.go("/login")
+            return
+
+        # 2. Wait up to 1.2s for any in-flight route_change or resume token check to settle
+        for _ in range(12):
+            if not route_change_state["in_flight"] and not resume_check_state["in_flight"]:
+                break
+            await asyncio.sleep(0.1)
+
+        # 3. If already on the exact target route, force reload so user sees fresh content
+        if page.route == target_route:
+            print(f"[PushRouter] Already on route {target_route}; refreshing active view.")
+            if is_shell_route(target_route):
+                persistent_nav_bar.set_active_route(target_route)
+            await route_change(None)
+        else:
+            print(f"[PushRouter] Navigating page to {target_route}")
+            page.go(target_route)
+
     # --- BUG FIX: intermittent white screen on FIRST load (distinct from
     # the token-expiry bug above — this can happen regardless of whether
     # a token exists, and a manual reload always "fixes" it) ---
@@ -1988,35 +2047,40 @@ async def main(page: ft.Page):
     # from an email) before route_change ever saw them. Now we only apply
     # that default when there's no real route to honor (fresh load with no
     # path, or bare "/").
+    has_token = None
+    try:
+        has_token = await asyncio.wait_for(
+            page.shared_preferences.get("auth_token"), timeout=5
+        )
+    except Exception as ex:
+        print(f"initial shared_preferences read failed: {ex!r}")
+        has_token = None
+
     if not page.route or page.route == "/":
-        try:
-            # Bounded wait, not just a try/except — an unready platform
-            # channel can hang rather than raise, and an unguarded await
-            # here would block bootstrap forever with no fallback at all.
-            has_token = await asyncio.wait_for(
-                page.shared_preferences.get("auth_token"), timeout=5
-            )
-        except Exception as ex:
-            # Covers both raised errors and the timeout above. If
-            # shared_preferences genuinely isn't ready/available yet,
-            # don't let that stall or crash session bootstrap and leave
-            # a blank screen with no recovery — fail safe to the public
-            # login route, which route_change can always render.
-            print(f"initial shared_preferences read failed: {ex!r}")
-            has_token = None
         page.route = "/dashboard" if has_token else "/"
+
+    # 0ms Cold-Start Notification Cache Hydration (Instant Badge Counter on Launch)
+    try:
+        from src.components.notifications_drawer import NotificationManager
+        await NotificationManager.init_from_cache(page)
+    except Exception as cache_ex:
+        print(f"[main.py] Notification cache hydration error: {cache_ex!r}")
+
+    if has_token:
+        try:
+            from src.services.notification_service import sync_learner_notifications
+            page.run_task(sync_learner_notifications, page, True)
+        except Exception:
+            pass
+
+    # Always initialize push notifications on mobile with the deep link navigator attached
+    try:
+        from src.services.push_notification_service import init_push_notifications, setup_user_push_notifications
+        page.run_task(init_push_notifications, page, None, navigate_from_push)
         if has_token:
-            try:
-                from src.services.notification_service import sync_learner_notifications
-                page.run_task(sync_learner_notifications, page, True)
-            except Exception:
-                pass
-            try:
-                from src.services.push_notification_service import init_push_notifications, setup_user_push_notifications
-                page.run_task(init_push_notifications, page)
-                page.run_task(setup_user_push_notifications, page, has_token)
-            except Exception:
-                pass
+            page.run_task(setup_user_push_notifications, page, has_token)
+    except Exception as push_ex:
+        print(f"[main.py] Push notification initialization error: {push_ex!r}")
 
     await route_change(None)
     # Belt-and-suspenders: if for any reason the manual call above didn't

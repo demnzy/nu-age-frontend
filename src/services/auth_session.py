@@ -111,6 +111,13 @@ class AuthSession:
                 except Exception:
                     pass
 
+            try:
+                from src.services.push_notification_service import unbind_user_push_identity
+                if hasattr(self._page, "run_task"):
+                    self._page.run_task(unbind_user_push_identity, self._page)
+            except Exception:
+                pass
+
     def get_token_age_seconds(self) -> float:
         """Returns seconds elapsed since tokens were last saved or refreshed."""
         if self._last_refresh_timestamp <= 0.0:

@@ -21,6 +21,7 @@ from src.requests.platform_admin import (
     delete_user_account,
     export_users_data,
     broadcast_bulk_push,
+    get_broadcast_history,
     get_platform_health,
 )
 from src.utils.file_opener import show_page_snackbar
@@ -92,6 +93,9 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
         "analytics_error": None,
         "users_error": None,
         "health_data": None,
+        "broadcast_history": [],
+        "is_loading_history": False,
+
         "is_exporting_excel": False,
         "is_exporting_csv": False,
     }
@@ -251,6 +255,26 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
     def _refresh_users_roster_ui():
         # Forward declaration stub, implemented in Tab 2
         pass
+
+    def _refresh_history_ui():
+        # Forward declaration stub, implemented in Tab 3
+        pass
+
+    async def _fetch_broadcast_history():
+        if not admin_state["token"]:
+            return
+        admin_state["is_loading_history"] = True
+        _refresh_history_ui()
+        page.update()
+
+        status_code, data = await get_broadcast_history(admin_state["token"], page=1, limit=15)
+        admin_state["is_loading_history"] = False
+        if status_code == 200:
+            admin_state["broadcast_history"] = data.get("items", [])
+        else:
+            admin_state["broadcast_history"] = []
+        _refresh_history_ui()
+        page.update()
 
     async def _fetch_users():
         if not admin_state["token"]:
@@ -488,6 +512,8 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
         elif tab_name == "overview" and (admin_state["cached_analytics"] is None or admin_state["analytics_error"]):
             page.run_task(_fetch_analytics)
             page.run_task(_fetch_health)
+        elif tab_name == "broadcast":
+            page.run_task(_fetch_broadcast_history)
 
     def _build_nav_bar() -> ft.Control:
         nav_buttons = [
@@ -855,6 +881,7 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
                     controls=[
                         ft.Row([
                             ft.CircleAvatar(
+                                foreground_image_src=u.get("profile_picture_url") if (u.get("profile_picture_url") and str(u.get("profile_picture_url")).startswith("http")) else None,
                                 content=ft.Text((u.get("first_name", "U")[:1] + u.get("last_name", "N")[:1]).upper(), size=14, weight=ft.FontWeight.BOLD),
                                 bgcolor=palette["surface_variant"], radius=24,
                             ),
@@ -1113,6 +1140,7 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
                         controls=[
                             ft.Row([
                                 ft.CircleAvatar(
+                                    foreground_image_src=u.get("profile_picture_url") if (u.get("profile_picture_url") and str(u.get("profile_picture_url")).startswith("http")) else None,
                                     content=ft.Text(monogram, size=13, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
                                     bgcolor=r_color,
                                     radius=22,
@@ -1475,120 +1503,749 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
         return users_view_column
 
     # ─────────────────────────────────────────────────────────────────────────
-    # G. TAB 3: PUSH BROADCAST CENTER (Firebase FCM)
+    # G. TAB 3: PUSH BROADCAST MISSION CONTROL (OneSignal + FCM Multicast)
     # ─────────────────────────────────────────────────────────────────────────
 
-    # Push Notification inputs
+    # Push Notification Form Inputs
+    push_title_counter = ft.Text("0 / 65", size=11, color=palette["text_muted"])
+    push_subtitle_counter = ft.Text("0 / 65", size=11, color=palette["text_muted"])
+    push_body_counter = ft.Text("0 / 250", size=11, color=palette["text_muted"])
+
     push_title_input = ft.TextField(
-        label="Notification Title",
+        label="Notification Title *",
         hint_text="e.g. New Examination Schedule Ready!",
         border_color=palette["border"],
-        text_style=ft.TextStyle(size=14, color=palette["text"]),
+        focused_border_color=palette["accent"],
+        text_style=ft.TextStyle(size=14, color=palette["text"], weight=ft.FontWeight.W_600),
+        max_length=65,
     )
-    push_body_input = ft.TextField(
-        label="Notification Message",
-        hint_text="e.g. Hop in to review your latest course updates.",
+
+    push_subtitle_input = ft.TextField(
+        label="Notification Subtitle (Optional)",
+        hint_text="e.g. Computer Science Department",
         border_color=palette["border"],
+        focused_border_color=palette["accent"],
+        text_style=ft.TextStyle(size=13, color=palette["text"]),
+        max_length=65,
+    )
+
+    push_body_input = ft.TextField(
+        label="Notification Message Body *",
+        hint_text="e.g. Tap here to review your newly updated exam timetable and venue allocations.",
+        border_color=palette["border"],
+        focused_border_color=palette["accent"],
         text_style=ft.TextStyle(size=13, color=palette["text"]),
         multiline=True,
         min_lines=3,
-        max_lines=6,
+        max_lines=5,
+        max_length=250,
     )
-    push_route_input = ft.TextField(
-        label="In-App Action Route (Optional)",
-        value="/courses",
-        hint_text="e.g. /courses or /notifications",
+
+    push_image_input = ft.TextField(
+        label="Banner Image URL (Optional)",
+        hint_text="e.g. https://images.unsplash.com/... or https://domain/banner.png",
         border_color=palette["border"],
+        focused_border_color=palette["accent"],
         text_style=ft.TextStyle(size=13, color=palette["text"]),
     )
+
+    push_route_input = ft.TextField(
+        label="In-App Action Route",
+        value="/courses",
+        hint_text="e.g. /courses, /notifications, /dashboard",
+        border_color=palette["border"],
+        focused_border_color=palette["accent"],
+        text_style=ft.TextStyle(size=13, color=palette["text"]),
+    )
+
+    push_button_label_input = ft.TextField(
+        label="Action Button Label (Optional)",
+        hint_text="e.g. View Timetable or Open App",
+        border_color=palette["border"],
+        focused_border_color=palette["accent"],
+        text_style=ft.TextStyle(size=13, color=palette["text"]),
+    )
+
     push_audience_dropdown = ft.Dropdown(
         label="Target Audience",
         value="all",
         border_color=palette["border"],
+        focused_border_color=palette["accent"],
+        text_style=ft.TextStyle(size=13, color=palette["text"]),
         options=[
-            ft.dropdown.Option("all", "All Registered Devices"),
+            ft.dropdown.Option("all", "All Active Devices (Full Broadcast)"),
             ft.dropdown.Option("students", "Students Only"),
             ft.dropdown.Option("teachers", "Teachers Only"),
+            ft.dropdown.Option("admins", "Platform Admins Only"),
+            ft.dropdown.Option("test_me", "Direct Test to My Device (Admin ID)"),
         ],
     )
 
-    async def _dispatch_bulk_push(e=None):
+    push_priority_dropdown = ft.Dropdown(
+        label="Delivery Priority & Urgency",
+        value="10",
+        border_color=palette["border"],
+        focused_border_color=palette["accent"],
+        text_style=ft.TextStyle(size=13, color=palette["text"]),
+        options=[
+            ft.dropdown.Option("10", "High Priority (Heads-up popup banner)"),
+            ft.dropdown.Option("5", "Normal Priority (Notification shade)"),
+        ],
+    )
+
+    push_ttl_dropdown = ft.Dropdown(
+        label="Message Time-To-Live (TTL)",
+        value="86400",
+        border_color=palette["border"],
+        focused_border_color=palette["accent"],
+        text_style=ft.TextStyle(size=13, color=palette["text"]),
+        options=[
+            ft.dropdown.Option("86400", "24 Hours (Standard Default)"),
+            ft.dropdown.Option("3600", "1 Hour (Live Exam / Time-critical)"),
+            ft.dropdown.Option("259200", "3 Days"),
+            ft.dropdown.Option("604800", "7 Days"),
+        ],
+    )
+
+    # ── Live Device Mockup Preview Controls ──────────────────────────────────
+    preview_title = ft.Text(
+        "New Examination Schedule Ready!",
+        size=14,
+        weight=ft.FontWeight.BOLD,
+        color=palette["text"],
+        max_lines=2,
+        overflow=ft.TextOverflow.ELLIPSIS,
+    )
+    preview_subtitle = ft.Text(
+        "",
+        size=12,
+        weight=ft.FontWeight.W_500,
+        color=palette["accent"],
+        visible=False,
+    )
+    preview_body = ft.Text(
+        "Tap here to review your newly updated exam timetable and venue allocations on Nu-Age.",
+        size=12,
+        color=palette["text_muted"],
+        max_lines=4,
+        overflow=ft.TextOverflow.ELLIPSIS,
+    )
+    preview_image = ft.Image(
+        src="",
+        fit=ft.BoxFit.COVER,
+        height=110,
+        border_radius=8,
+        error_content=ft.Container(),
+    )
+    preview_image_container = ft.Container(
+        content=preview_image,
+        visible=False,
+        margin=ft.Margin.only(top=8, bottom=4),
+        border_radius=8,
+        clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+    )
+    preview_action_label = ft.Text("", size=11, weight=ft.FontWeight.BOLD, color=palette["accent"])
+    preview_action_btn = ft.Container(
+        content=preview_action_label,
+        bgcolor=ft.Colors.with_opacity(0.12, palette["accent"]),
+        border=ft.Border.all(1, ft.Colors.with_opacity(0.3, palette["accent"])),
+        border_radius=6,
+        padding=ft.Padding.symmetric(horizontal=10, vertical=5),
+        visible=False,
+        margin=ft.Margin.only(top=8),
+    )
+    preview_meta_badge = ft.Text(
+        "Target: All Devices • Route: /courses • High Priority",
+        size=10,
+        color=palette["text_muted"],
+    )
+
+    def _update_push_preview(e=None):
+        t = push_title_input.value.strip() if push_title_input.value else ""
+        s = push_subtitle_input.value.strip() if push_subtitle_input.value else ""
+        b = push_body_input.value.strip() if push_body_input.value else ""
+        img = push_image_input.value.strip() if push_image_input.value else ""
+        btn_lbl = push_button_label_input.value.strip() if push_button_label_input.value else ""
+        r = push_route_input.value.strip() if push_route_input.value else "/courses"
+        aud = push_audience_dropdown.value or "all"
+        prio = push_priority_dropdown.value or "10"
+
+        push_title_counter.value = f"{len(push_title_input.value or '')} / 65"
+        push_subtitle_counter.value = f"{len(push_subtitle_input.value or '')} / 65"
+        push_body_counter.value = f"{len(push_body_input.value or '')} / 250"
+
+        preview_title.value = t or "New Examination Schedule Ready!"
+        if s:
+            preview_subtitle.value = s
+            preview_subtitle.visible = True
+        else:
+            preview_subtitle.visible = False
+
+        preview_body.value = b or "Tap here to review your newly updated exam timetable and venue allocations on Nu-Age."
+
+        if img and (img.startswith("http://") or img.startswith("https://")):
+            preview_image.src = img
+            preview_image_container.visible = True
+        else:
+            preview_image_container.visible = False
+
+        if btn_lbl:
+            preview_action_label.value = btn_lbl.upper()
+            preview_action_btn.visible = True
+        else:
+            preview_action_btn.visible = False
+
+        prio_label = "High Priority" if prio == "10" else "Normal Priority"
+        aud_label = {
+            "all": "All Devices",
+            "students": "Students Only",
+            "teachers": "Teachers Only",
+            "admins": "Admins Only",
+            "test_me": "Direct Test to Me",
+        }.get(aud, aud.capitalize())
+
+        preview_meta_badge.value = f"Target: {aud_label} • Route: {r} • {prio_label}"
+        page.update()
+
+    push_title_input.on_change = _update_push_preview
+    push_subtitle_input.on_change = _update_push_preview
+    push_body_input.on_change = _update_push_preview
+    push_image_input.on_change = _update_push_preview
+    push_route_input.on_change = _update_push_preview
+    push_button_label_input.on_change = _update_push_preview
+    push_audience_dropdown.on_change = _update_push_preview
+    push_priority_dropdown.on_change = _update_push_preview
+
+    def _select_route(target_route: str):
+        push_route_input.value = target_route
+        _update_push_preview()
+
+    # Route preset chips
+    route_chips = []
+    preset_routes = [
+        ("/courses", "Courses"),
+        ("/notifications", "Notifications"),
+        ("/dashboard", "Dashboard"),
+        ("/profile", "Profile"),
+        ("/exam/live", "Live Exam"),
+        ("/self-study", "Self-Study"),
+    ]
+    for r_path, r_label in preset_routes:
+        route_chips.append(
+            ft.Container(
+                content=ft.Text(r_label, size=11, weight=ft.FontWeight.W_500, color=palette["text"]),
+                bgcolor=palette["surface_variant"],
+                border=ft.Border.all(1, palette["border"]),
+                border_radius=6,
+                padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+                ink=True,
+                on_click=lambda e, rp=r_path: _select_route(rp),
+            )
+        )
+
+    # Dispatch Action Handlers
+    broadcast_btn_spinner = ft.ProgressRing(width=16, height=16, stroke_width=2, color=ft.Colors.WHITE, visible=False)
+    test_btn_spinner = ft.ProgressRing(width=16, height=16, stroke_width=2, color=palette["accent"], visible=False)
+
+    async def _execute_push_dispatch(is_test: bool = False):
         title = push_title_input.value.strip() if push_title_input.value else ""
         body = push_body_input.value.strip() if push_body_input.value else ""
-        aud = push_audience_dropdown.value or "all"
-        route = push_route_input.value.strip() if push_route_input.value else None
+        sub = push_subtitle_input.value.strip() if push_subtitle_input.value else None
+        img = push_image_input.value.strip() if push_image_input.value else None
+        btn_label = push_button_label_input.value.strip() if push_button_label_input.value else None
+        route = push_route_input.value.strip() if push_route_input.value else "/courses"
+        prio = int(push_priority_dropdown.value or "10")
+        ttl = int(push_ttl_dropdown.value or "86400")
 
-        if not title or not body:
-            show_page_snackbar(page, ft.SnackBar(content=ft.Text("Please fill out notification title and message body."), bgcolor=ft.Colors.AMBER_700))
+        aud = "test_me" if is_test else (push_audience_dropdown.value or "all")
+
+        if not title:
+            show_page_snackbar(page, ft.SnackBar(content=ft.Text("Please enter a notification title."), bgcolor=ft.Colors.AMBER_700))
+            return
+        if not body:
+            show_page_snackbar(page, ft.SnackBar(content=ft.Text("Please enter a message body."), bgcolor=ft.Colors.AMBER_700))
             return
 
-        show_page_snackbar(page, ft.SnackBar(content=ft.Text("Dispatching push notifications via Firebase FCM..."), bgcolor=ft.Colors.BLUE_700))
-        status_code, data = await broadcast_bulk_push(admin_state["token"], audience=aud, title=title, body=body, action_route=route)
-        if status_code == 200:
-            show_page_snackbar(
-                page,
-                ft.SnackBar(
-                    content=ft.Row([
-                        ft.Icon(ft.Icons.NOTIFICATIONS_ACTIVE_ROUNDED, color=ft.Colors.WHITE, size=18),
-                        ft.Text(f"Push dispatched: {data.get('message')}", color=ft.Colors.WHITE),
-                    ], spacing=8),
-                    bgcolor=ft.Colors.GREEN_700,
-                    duration=4000,
-                )
-            )
-            push_title_input.value = ""
-            push_body_input.value = ""
-            page.update()
+        auth_tok = admin_state.get("token")
+        if not auth_tok and hasattr(page, "shared_preferences"):
+            try:
+                auth_tok = await page.shared_preferences.get("auth_token")
+            except Exception:
+                pass
+
+        if not auth_tok:
+            show_page_snackbar(page, ft.SnackBar(content=ft.Text("Super-admin authentication token missing. Please lock and unlock."), bgcolor=ft.Colors.AMBER_700))
+            return
+
+        if is_test:
+            test_btn_spinner.visible = True
         else:
-            show_page_snackbar(page, ft.SnackBar(content=ft.Text(f"Push failed: {data.get('detail')}"), bgcolor=ft.Colors.RED_700))
+            broadcast_btn_spinner.visible = True
+        page.update()
+
+        try:
+            status_code, data = await broadcast_bulk_push(
+                token=auth_tok,
+                audience=aud,
+                title=title,
+                body=body,
+                action_route=route,
+                subtitle=sub,
+                image_url=img,
+                action_button_label=btn_label,
+                priority=prio,
+                ttl_seconds=ttl,
+            )
+
+            if status_code == 200:
+                msg = data.get("message", "Push notification dispatched successfully.")
+                show_page_snackbar(
+                    page,
+                    ft.SnackBar(
+                        content=ft.Row([
+                            ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED, color=ft.Colors.WHITE, size=18),
+                            ft.Text(msg, color=ft.Colors.WHITE),
+                        ], spacing=8),
+                        bgcolor=ft.Colors.GREEN_700,
+                        duration=5000,
+                    )
+                )
+                # Auto-refresh broadcast audit history
+                page.run_task(_fetch_broadcast_history)
+            else:
+                err = data.get("detail", f"Dispatch failed (Code {status_code}).")
+                show_page_snackbar(page, ft.SnackBar(content=ft.Text(f"Push failed: {err}"), bgcolor=ft.Colors.RED_700))
+        except Exception as ex:
+            show_page_snackbar(page, ft.SnackBar(content=ft.Text(f"Push dispatch error: {ex}"), bgcolor=ft.Colors.RED_700))
+        finally:
+            test_btn_spinner.visible = False
+            broadcast_btn_spinner.visible = False
+            page.update()
+
+    async def _handle_send_test(e=None):
+        await _execute_push_dispatch(is_test=True)
+
+    async def _handle_send_broadcast(e=None):
+        await _execute_push_dispatch(is_test=False)
+
+    # ── History & Audit Log UI ───────────────────────────────────────────────
+    history_container = ft.Container()
+
+    def _actual_refresh_history_ui():
+        if admin_state["is_loading_history"]:
+            history_container.content = ft.Container(
+                padding=20,
+                alignment=ft.Alignment.CENTER,
+                content=ft.Row([
+                    ft.ProgressRing(width=20, height=20, stroke_width=2, color=palette["accent"]),
+                    ft.Text("Fetching broadcast audit log...", size=12, color=palette["text_muted"]),
+                ], spacing=10, tight=True),
+            )
+            return
+
+        items = admin_state["broadcast_history"] or []
+        if not items:
+            history_container.content = ft.Container(
+                padding=24,
+                alignment=ft.Alignment.CENTER,
+                content=ft.Column([
+                    ft.Icon(ft.Icons.NOTIFICATIONS_NONE_ROUNDED, size=32, color=palette["text_muted"]),
+                    ft.Text("No push notification broadcasts recorded yet.", size=13, weight=ft.FontWeight.W_500, color=palette["text"]),
+                    ft.Text("Dispatches sent from the composer above will appear here with delivery telemetry.", size=11, color=palette["text_muted"]),
+                ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=6),
+            )
+            return
+
+        history_rows = []
+        for rec in items:
+            created_str = str(rec.get("created_at") or "")
+            if "T" in created_str:
+                created_str = created_str.replace("T", " ")[:16]
+
+            st = str(rec.get("status") or "completed").lower()
+            if st == "completed":
+                st_color = palette["success"]
+                st_bg = palette["success_bg"]
+                st_label = "Delivered"
+            elif st == "test":
+                st_color = palette["info"]
+                st_bg = palette["info_bg"]
+                st_label = "Test Sent"
+            else:
+                st_color = palette["danger"]
+                st_bg = palette["danger_bg"]
+                st_label = "Failed"
+
+            aud_val = str(rec.get("audience") or "all").capitalize()
+            targeted = rec.get("targeted_devices_count", 0)
+            sender = rec.get("sender_username", "admin")
+
+            row_card = ft.Container(
+                bgcolor=palette["surface_variant"],
+                border=ft.Border.all(1, palette["border_subtle"]),
+                border_radius=10,
+                padding=12,
+                content=ft.Row(
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[
+                        # Left details
+                        ft.Column(
+                            spacing=4,
+                            expand=True,
+                            controls=[
+                                ft.Row([
+                                    ft.Text(rec.get("title", "Untitled Notification"), size=13, weight=ft.FontWeight.BOLD, color=palette["text"]),
+                                    ft.Container(
+                                        content=ft.Text(st_label, size=9, weight=ft.FontWeight.BOLD, color=st_color),
+                                        bgcolor=st_bg,
+                                        padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+                                        border_radius=4,
+                                    ),
+                                    ft.Container(
+                                        content=ft.Text(f"Audience: {aud_val}", size=9, weight=ft.FontWeight.W_500, color=palette["text_muted"]),
+                                        bgcolor=ft.Colors.with_opacity(0.08, palette["text_muted"]),
+                                        padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+                                        border_radius=4,
+                                    ),
+                                ], spacing=8, wrap=True),
+                                ft.Text(rec.get("body", ""), size=12, color=palette["text_muted"], max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
+                                ft.Row([
+                                    ft.Icon(ft.Icons.SCHEDULE_ROUNDED, size=12, color=palette["text_muted"]),
+                                    ft.Text(created_str, size=11, color=palette["text_muted"]),
+                                    ft.Text("•", size=11, color=palette["text_muted"]),
+                                    ft.Icon(ft.Icons.ROUTE_ROUNDED, size=12, color=palette["accent"]),
+                                    ft.Text(rec.get("action_route") or "/courses", size=11, color=palette["accent"]),
+                                    ft.Text("•", size=11, color=palette["text_muted"]),
+                                    ft.Text(f"By {sender}", size=11, color=palette["text_muted"]),
+                                ], spacing=4, wrap=True),
+                            ],
+                        ),
+                        # Right telemetry
+                        ft.Column(
+                            horizontal_alignment=ft.CrossAxisAlignment.END,
+                            spacing=2,
+                            controls=[
+                                ft.Text(f"~{targeted:,}", size=16, weight=ft.FontWeight.BOLD, color=palette["text"]),
+                                ft.Text("recipients", size=10, color=palette["text_muted"]),
+                            ],
+                        ),
+                    ],
+                ),
+            )
+            history_rows.append(row_card)
+
+        history_container.content = ft.Column(spacing=8, controls=history_rows)
+
+    # Wire up the forward declaration
+    _refresh_history_ui = _actual_refresh_history_ui
 
     def _build_broadcast_tab() -> ft.Control:
         stats = admin_state["cached_analytics"] or {}
         tot_u = stats.get("total_users", admin_state["total_users"])
         tot_devices = stats.get("total_device_tokens", 0)
 
-        push_card = ft.Container(
+        # ── Left: Composer Card ──────────────────────────────────────────────
+        composer_card = ft.Container(
             bgcolor=palette["card_bg"],
             border=ft.Border.all(1, palette["border"]),
             border_radius=14,
-            padding=24,
+            padding=20,
             content=ft.Column(
-                spacing=16,
+                spacing=14,
                 controls=[
+                    # Header
                     ft.Row([
-                        ft.Icon(ft.Icons.NOTIFICATIONS_ACTIVE_ROUNDED, size=22, color=palette["accent"]),
-                        ft.Text("Push Notification Multicast (Firebase Cloud Messaging)", size=16, weight=ft.FontWeight.BOLD, color=palette["text"]),
-                    ], spacing=8),
-                    ft.Text(
-                        "Broadcast instant push alerts to registered mobile and desktop devices. Learners tapping the notification will be directed to the specified in-app route.",
-                        size=13,
-                        color=palette["text_muted"],
-                    ),
+                        ft.Container(
+                            content=ft.Icon(ft.Icons.CAMPAIGN_ROUNDED, size=20, color=palette["accent"]),
+                            bgcolor=ft.Colors.with_opacity(0.12, palette["accent"]),
+                            padding=8,
+                            border_radius=8,
+                        ),
+                        ft.Column(
+                            spacing=1,
+                            controls=[
+                                ft.Text("Push Notification Composer", size=15, weight=ft.FontWeight.BOLD, color=palette["text"]),
+                                ft.Text("Multicast rich push alerts via OneSignal & Firebase FCM", size=11, color=palette["text_muted"]),
+                            ],
+                        ),
+                    ], spacing=10),
+
+                    # Reach Telemetry Pill
                     ft.Container(
                         content=ft.Row([
                             ft.Icon(ft.Icons.DEVICES_ROUNDED, size=14, color=palette["accent"]),
-                            ft.Text(f"Active Device Reach: ~{tot_devices:,} registered devices across ~{tot_u:,} user accounts.", size=11, color=palette["text"]),
+                            ft.Text(f"Registered Reach: ~{tot_devices:,} active devices across ~{tot_u:,} accounts.", size=11, color=palette["text"]),
                         ], spacing=6),
                         bgcolor=palette["surface_variant"],
                         padding=ft.Padding.symmetric(horizontal=12, vertical=8),
                         border_radius=8,
                     ),
-                    ft.Row([push_audience_dropdown, push_route_input], spacing=12),
-                    push_title_input,
-                    push_body_input,
-                    ft.FilledButton(
-                        "Broadcast Push Notification",
-                        icon=ft.Icons.NOTIFICATION_ADD_ROUNDED,
-                        style=ft.ButtonStyle(
-                            bgcolor=palette["accent_glow"],
-                            color=ft.Colors.WHITE,
-                            shape=ft.RoundedRectangleBorder(radius=8),
-                            padding=ft.Padding.symmetric(horizontal=20, vertical=14),
+
+                    # Audience & Priority
+                    ft.Row([
+                        ft.Container(expand=2, content=push_audience_dropdown),
+                        ft.Container(expand=1, content=push_priority_dropdown),
+                    ], spacing=10),
+
+                    # Title Input with live char counter
+                    ft.Column([
+                        ft.Row([
+                            ft.Text("Title *", size=12, weight=ft.FontWeight.W_600, color=palette["text"]),
+                            push_title_counter,
+                        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                        push_title_input,
+                    ], spacing=4),
+
+                    # Subtitle Input with live char counter
+                    ft.Column([
+                        ft.Row([
+                            ft.Text("Subtitle (Optional)", size=12, weight=ft.FontWeight.W_600, color=palette["text_muted"]),
+                            push_subtitle_counter,
+                        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                        push_subtitle_input,
+                    ], spacing=4),
+
+                    # Body Input with live char counter
+                    ft.Column([
+                        ft.Row([
+                            ft.Text("Message Body *", size=12, weight=ft.FontWeight.W_600, color=palette["text"]),
+                            push_body_counter,
+                        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                        push_body_input,
+                    ], spacing=4),
+
+                    # Banner Image URL
+                    push_image_input,
+
+                    # Action Route & Quick Chips
+                    ft.Column([
+                        ft.Text("In-App Deep Link Route", size=12, weight=ft.FontWeight.W_600, color=palette["text"]),
+                        push_route_input,
+                        ft.Row(
+                            wrap=True,
+                            spacing=6,
+                            controls=[
+                                ft.Text("Presets:", size=11, color=palette["text_muted"]),
+                                *route_chips,
+                            ],
                         ),
-                        on_click=_dispatch_bulk_push,
+                    ], spacing=6),
+
+                    # Action Button & TTL
+                    ft.Row([
+                        ft.Container(expand=1, content=push_button_label_input),
+                        ft.Container(expand=1, content=push_ttl_dropdown),
+                    ], spacing=10),
+
+                    ft.Divider(color=palette["border"], height=8),
+
+                    # Action Buttons Row
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        controls=[
+                            ft.OutlinedButton(
+                                content=ft.Row([
+                                    test_btn_spinner,
+                                    ft.Icon(ft.Icons.PHONELINK_RING_ROUNDED, size=16, color=palette["accent"]),
+                                    ft.Text("Send Test to Me", size=12, color=palette["accent"], weight=ft.FontWeight.BOLD),
+                                ], tight=True, spacing=6),
+                                style=ft.ButtonStyle(
+                                    side=ft.BorderSide(1.2, palette["accent"]),
+                                    shape=ft.RoundedRectangleBorder(radius=8),
+                                    padding=ft.Padding.symmetric(horizontal=14, vertical=12),
+                                ),
+                                on_click=_handle_send_test,
+                            ),
+                            ft.FilledButton(
+                                content=ft.Row([
+                                    broadcast_btn_spinner,
+                                    ft.Icon(ft.Icons.SEND_ROUNDED, size=16, color=ft.Colors.WHITE),
+                                    ft.Text("Broadcast Push Notification", size=12, color=ft.Colors.WHITE, weight=ft.FontWeight.BOLD),
+                                ], tight=True, spacing=6),
+                                style=ft.ButtonStyle(
+                                    bgcolor=palette["accent_glow"],
+                                    shape=ft.RoundedRectangleBorder(radius=8),
+                                    padding=ft.Padding.symmetric(horizontal=18, vertical=12),
+                                ),
+                                on_click=_handle_send_broadcast,
+                            ),
+                        ],
                     ),
                 ],
             ),
+        )
+
+        # ── Right: Live Android Notification Shade Preview ───────────────────
+        phone_preview_card = ft.Container(
+            bgcolor=palette["card_bg"],
+            border=ft.Border.all(1, palette["border"]),
+            border_radius=14,
+            padding=20,
+            content=ft.Column(
+                spacing=14,
+                controls=[
+                    # Header
+                    ft.Row([
+                        ft.Icon(ft.Icons.PHONE_ANDROID_ROUNDED, size=18, color=palette["accent"]),
+                        ft.Text("Live Android Notification Mockup", size=14, weight=ft.FontWeight.BOLD, color=palette["text"]),
+                    ], spacing=8),
+                    ft.Text(
+                        "Real-time visual preview of how the notification renders on learner Android devices.",
+                        size=11,
+                        color=palette["text_muted"],
+                    ),
+
+                    # Simulated Android Phone Bezel Frame
+                    ft.Container(
+                        bgcolor="#0F172A" if is_dark else "#F1F5F9",
+                        border=ft.Border.all(2, palette["border"]),
+                        border_radius=18,
+                        padding=12,
+                        content=ft.Column(
+                            spacing=10,
+                            controls=[
+                                # Android Status Bar
+                                ft.Row(
+                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                    controls=[
+                                        ft.Text("10:00", size=11, weight=ft.FontWeight.BOLD, color=palette["text_muted"]),
+                                        ft.Row([
+                                            ft.Icon(ft.Icons.WIFI_ROUNDED, size=12, color=palette["text_muted"]),
+                                            ft.Icon(ft.Icons.SIGNAL_CELLULAR_4_BAR_ROUNDED, size=12, color=palette["text_muted"]),
+                                            ft.Icon(ft.Icons.BATTERY_FULL_ROUNDED, size=12, color=palette["text_muted"]),
+                                        ], spacing=4, tight=True),
+                                    ],
+                                ),
+
+                                # Notification Card Inside Shade
+                                ft.Container(
+                                    bgcolor=palette["surface"],
+                                    border=ft.Border.all(1, palette["border"]),
+                                    border_radius=12,
+                                    padding=12,
+                                    content=ft.Column(
+                                        spacing=6,
+                                        controls=[
+                                            # Header row: Icon, App Name, time
+                                            ft.Row(
+                                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                                controls=[
+                                                    ft.Row([
+                                                        ft.Container(
+                                                            width=20,
+                                                            height=20,
+                                                            border_radius=5,
+                                                            bgcolor=palette["accent"],
+                                                            alignment=ft.Alignment.CENTER,
+                                                            content=ft.Icon(ft.Icons.SCHOOL_ROUNDED, size=12, color=ft.Colors.WHITE),
+                                                        ),
+                                                        ft.Text("Nu-Age", size=12, weight=ft.FontWeight.BOLD, color=palette["text"]),
+                                                        ft.Text("• now", size=11, color=palette["text_muted"]),
+                                                    ], spacing=6, tight=True),
+                                                    ft.Icon(ft.Icons.KEYBOARD_ARROW_DOWN_ROUNDED, size=16, color=palette["text_muted"]),
+                                                ],
+                                            ),
+
+                                            # Title
+                                            preview_title,
+
+                                            # Subtitle
+                                            preview_subtitle,
+
+                                            # Body
+                                            preview_body,
+
+                                            # Banner Image Container
+                                            preview_image_container,
+
+                                            # Action Button
+                                            preview_action_btn,
+                                        ],
+                                    ),
+                                ),
+
+                                # Simulated Navigation Pill
+                                ft.Container(
+                                    alignment=ft.Alignment.CENTER,
+                                    margin=ft.Margin.only(top=6),
+                                    content=ft.Container(
+                                        width=80,
+                                        height=3,
+                                        border_radius=2,
+                                        bgcolor=palette["border"],
+                                    ),
+                                ),
+                            ],
+                        ),
+                    ),
+
+                    # Mockup Metadata Pill
+                    ft.Container(
+                        bgcolor=palette["surface_variant"],
+                        padding=ft.Padding.symmetric(horizontal=10, vertical=6),
+                        border_radius=6,
+                        content=ft.Row([
+                            ft.Icon(ft.Icons.INFO_OUTLINE_ROUNDED, size=13, color=palette["accent"]),
+                            preview_meta_badge,
+                        ], spacing=6, tight=True),
+                    ),
+
+                    # Delivery channel info
+                    ft.Text(
+                        "Delivered over OneSignal REST API (external user ID targeting) and multi-channel Firebase Cloud Messaging.",
+                        size=11,
+                        color=palette["text_muted"],
+                    ),
+                ],
+            ),
+        )
+
+        # ── Bottom: Audit Log & History Card ─────────────────────────────────
+        history_card = ft.Container(
+            bgcolor=palette["card_bg"],
+            border=ft.Border.all(1, palette["border"]),
+            border_radius=14,
+            padding=20,
+            content=ft.Column(
+                spacing=14,
+                controls=[
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        controls=[
+                            ft.Row([
+                                ft.Icon(ft.Icons.HISTORY_ROUNDED, size=20, color=palette["accent"]),
+                                ft.Column(
+                                    spacing=1,
+                                    controls=[
+                                        ft.Text("Broadcast Audit Log & History", size=15, weight=ft.FontWeight.BOLD, color=palette["text"]),
+                                        ft.Text("Track previously dispatched notification broadcasts and delivery metrics", size=11, color=palette["text_muted"]),
+                                    ],
+                                ),
+                            ], spacing=10),
+                            ft.IconButton(
+                                icon=ft.Icons.REFRESH_ROUNDED,
+                                tooltip="Refresh History",
+                                on_click=lambda e: page.run_task(_fetch_broadcast_history),
+                            ),
+                        ],
+                    ),
+                    history_container,
+                ],
+            ),
+        )
+
+        # Build initial history UI
+        _actual_refresh_history_ui()
+
+        # Responsive layout: side-by-side on wide screens, stacked on narrow screens
+        top_row = ft.ResponsiveRow(
+            spacing=16,
+            run_spacing=16,
+            controls=[
+                ft.Container(col={"xs": 12, "md": 7, "lg": 7}, content=composer_card),
+                ft.Container(col={"xs": 12, "md": 5, "lg": 5}, content=phone_preview_card),
+            ],
         )
 
         return ft.Column(
@@ -1596,7 +2253,8 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
             expand=True,
             spacing=16,
             controls=[
-                push_card,
+                top_row,
+                history_card,
             ],
         )
 
@@ -1901,6 +2559,16 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
     return ft.View(
         route="/platform-admin",
         bgcolor=palette["bg"],
-        padding=16,
-        controls=[main_container],
+        padding=0,
+        controls=[
+            ft.SafeArea(
+                expand=True,
+                content=ft.Container(
+                    expand=True,
+                    padding=16,
+                    content=main_container,
+                ),
+            )
+        ],
     )
+

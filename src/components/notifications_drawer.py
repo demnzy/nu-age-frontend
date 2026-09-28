@@ -185,6 +185,119 @@ class NotificationManager:
             except Exception:
                 pass
 
+    @classmethod
+    def serialize_store(cls) -> list:
+        """Serializes current in-memory notifications into a JSON-safe structure."""
+        out = []
+        for n in _NOTIFICATIONS_STORE:
+            c_at = n.get("created_at")
+            if isinstance(c_at, datetime):
+                c_at_str = c_at.isoformat()
+            else:
+                c_at_str = str(c_at) if c_at else ""
+
+            out.append({
+                "id": str(n.get("id", "")),
+                "title": str(n.get("title", "")),
+                "body": str(n.get("body", "")),
+                "category": str(n.get("category", "general")),
+                "is_read": bool(n.get("is_read", False)),
+                "created_at": c_at_str,
+                "action_route": n.get("action_route"),
+                "backend_id": n.get("backend_id"),
+            })
+        return out
+
+    @classmethod
+    def deserialize_and_hydrate(cls, items: list, page: ft.Page = None):
+        """Hydrates the in-memory notification store from persistent cache."""
+        global _NOTIFICATIONS_STORE
+        if not items:
+            return
+
+        hydrated = []
+        seen_ids = set()
+        for item in items:
+            nid = str(item.get("id", ""))
+            if not nid or nid in seen_ids:
+                continue
+            seen_ids.add(nid)
+
+            cat = item.get("category", "general")
+            if cat == "chat":
+                ic = ft.Icons.CHAT_BUBBLE_ROUNDED
+            elif cat in ("exams", "cohorts"):
+                ic = ft.Icons.TIMER_ROUNDED
+            elif cat == "courses":
+                ic = ft.Icons.SCHOOL_ROUNDED
+            else:
+                ic = ft.Icons.NOTIFICATIONS_ROUNDED
+
+            c_at_raw = item.get("created_at")
+            c_at = None
+            if c_at_raw:
+                try:
+                    c_at = datetime.fromisoformat(str(c_at_raw).replace("Z", "+00:00"))
+                except Exception:
+                    c_at = datetime.now(timezone.utc)
+            else:
+                c_at = datetime.now(timezone.utc)
+
+            action_route = item.get("action_route")
+            def _make_action(rt=action_route):
+                def _act():
+                    if rt and page:
+                        page.go(rt)
+                return _act
+
+            hydrated.append({
+                "id": nid,
+                "title": item.get("title", "Notification"),
+                "body": item.get("body", ""),
+                "category": cat,
+                "icon": ic,
+                "created_at": c_at,
+                "is_read": bool(item.get("is_read", False)),
+                "action_label": "Open" if action_route else None,
+                "on_action": _make_action(action_route) if action_route else None,
+                "action_route": action_route,
+                "backend_id": item.get("backend_id"),
+            })
+
+        if hydrated:
+            _NOTIFICATIONS_STORE = hydrated
+            cls._notify()
+
+    @classmethod
+    async def init_from_cache(cls, page: ft.Page):
+        """Loads cached notifications from shared_preferences on cold start (0ms latency)."""
+        if not page or not hasattr(page, "shared_preferences"):
+            return
+        try:
+            raw_json = await page.shared_preferences.get("cached_notifications_v1")
+            if raw_json:
+                import json
+                data = json.loads(raw_json)
+                if isinstance(data, list):
+                    cls.deserialize_and_hydrate(data, page)
+                    print(f"[NotificationManager] Hydrated {len(_NOTIFICATIONS_STORE)} cached notification(s). Unread: {cls.get_unread_count()}")
+        except Exception as ex:
+            print(f"[NotificationManager] Failed reading cache: {ex!r}")
+
+    @classmethod
+    async def persist_to_cache(cls, page: ft.Page):
+        """Persists the current notification store to shared_preferences."""
+        if not page or not hasattr(page, "shared_preferences"):
+            return
+        try:
+            import json
+            serialized = cls.serialize_store()
+            raw_json = json.dumps(serialized)
+            await page.shared_preferences.set("cached_notifications_v1", raw_json)
+            await page.shared_preferences.set("cached_unread_notif_count", str(cls.get_unread_count()))
+        except Exception as ex:
+            print(f"[NotificationManager] Failed persisting cache: {ex!r}")
+
 
 def get_notification_bell(page: ft.Page, on_open=None) -> ft.Stack:
     """Returns an interactive Bell Icon with a dynamic unread badge counter."""
@@ -251,6 +364,8 @@ def open_notifications_drawer(page: ft.Page):
             filtered = [n for n in items if n.get("category") in ("exams", "cohorts")]
         elif tab == "courses":
             filtered = [n for n in items if n.get("category") == "courses"]
+        elif tab == "chat":
+            filtered = [n for n in items if n.get("category") == "chat"]
         else:
             filtered = items
 
@@ -295,14 +410,40 @@ def open_notifications_drawer(page: ft.Page):
                     cat_color = ft.Colors.ORANGE_600
                 elif cat == "courses":
                     cat_color = ft.Colors.BLUE_600
+                elif cat == "chat":
+                    cat_color = ft.Colors.GREEN_600
                 else:
                     cat_color = ft.Colors.PRIMARY
 
                 def make_click_handler(target_n):
                     def _do(_):
                         NotificationManager.mark_read(target_n["id"])
+                        b_id = target_n.get("backend_id")
+                        if b_id:
+                            async def _mark_b():
+                                try:
+                                    t = await page.shared_preferences.get("auth_token")
+                                    if t:
+                                        from src.requests.notifications import mark_notification_read
+                                        await mark_notification_read(t, str(b_id))
+                                except Exception:
+                                    pass
+                            page.run_task(_mark_b)
                         if target_n.get("on_action"):
-                            target_n["on_action"]()
+                            try:
+                                target_n["on_action"]()
+                            except TypeError:
+                                try:
+                                    target_n["on_action"](page)
+                                except Exception:
+                                    pass
+                        elif target_n.get("action_route"):
+                            try:
+                                if hasattr(page, "pop_dialog"):
+                                    page.pop_dialog()
+                            except Exception:
+                                pass
+                            page.go(target_n["action_route"])
                         render_notifications()
                         page.update()
                     return _do
@@ -376,6 +517,7 @@ def open_notifications_drawer(page: ft.Page):
         state["tab"] = tab_key
         tab_buttons.controls = [
             tab_btn("All", "all"),
+            tab_btn("Chat", "chat"),
             tab_btn("Exams & Cohorts", "exams"),
             tab_btn("Courses", "courses"),
         ]
@@ -396,12 +538,22 @@ def open_notifications_drawer(page: ft.Page):
 
     tab_buttons = ft.Row([
         tab_btn("All", "all"),
+        tab_btn("Chat", "chat"),
         tab_btn("Exams & Cohorts", "exams"),
         tab_btn("Courses", "courses"),
     ], spacing=6)
 
     def do_mark_all_read(_):
         NotificationManager.mark_all_read()
+        async def _mark_all():
+            try:
+                t = await page.shared_preferences.get("auth_token")
+                if t:
+                    from src.requests.notifications import mark_all_notifications_read
+                    await mark_all_notifications_read(t)
+            except Exception:
+                pass
+        page.run_task(_mark_all)
         render_notifications()
         page.update()
 
@@ -423,10 +575,16 @@ def open_notifications_drawer(page: ft.Page):
                         ft.Icon(ft.Icons.NOTIFICATIONS_ROUNDED, size=20, color=ft.Colors.PRIMARY),
                         ft.Text("Notifications", size=16, weight=ft.FontWeight.BOLD),
                     ], spacing=8, tight=True),
-                    ft.Row([
-                        ft.TextButton("Mark all read", style=ft.ButtonStyle(text_style=ft.TextStyle(size=11)), on_click=do_mark_all_read),
-                        ft.IconButton(ft.Icons.CLEAR_ALL_ROUNDED, icon_size=18, tooltip="Clear all", on_click=do_clear_all),
-                    ], spacing=2, tight=True),
+                    ft.TextButton(
+                        "Mark all read",
+                        icon=ft.Icons.DONE_ALL_ROUNDED,
+                        style=ft.ButtonStyle(
+                            color=ft.Colors.PRIMARY,
+                            text_style=ft.TextStyle(size=11),
+                            padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+                        ),
+                        on_click=do_mark_all_read,
+                    ),
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                 tab_buttons,
                 ft.Divider(height=1, color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),

@@ -307,6 +307,20 @@ def upsert_chat_messages(page: ft.Page, messages: list):
         db = get_local_db(page)
         with db:
             for msg in messages:
+                msg_id = msg.get('id')
+                channel_id = msg.get('channel_id')
+                if not msg_id or not channel_id:
+                    continue
+                sender_id = msg.get('sender_id') or (msg.get('sender') or {}).get('id') or ''
+                sender_name = msg.get('sender_name') or (msg.get('sender') or {}).get('name') or 'Unknown'
+                meta_val = msg.get('metadata_payload', None)
+                if isinstance(meta_val, (dict, list)):
+                    import json
+                    meta_val = json.dumps(meta_val)
+                db.execute(
+                    "INSERT OR IGNORE INTO chat_channels (id, name, type, role, updated_at) VALUES (?, 'Chat', 'direct', 'member', '')",
+                    (str(channel_id),)
+                )
                 db.execute("""
                     INSERT INTO chat_messages (id, channel_id, sender_id, sender_name, type, content, metadata_payload, created_at, status)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -315,6 +329,6 @@ def upsert_chat_messages(page: ft.Page, messages: list):
                         content=excluded.content,
                         metadata_payload=excluded.metadata_payload,
                         status=excluded.status
-                """, (msg['id'], msg['channel_id'], msg['sender_id'], msg.get('sender_name', 'Unknown'), msg.get('type', 'text'), msg.get('content', ''), msg.get('metadata_payload', None), msg.get('created_at', ''), msg.get('status', 'sent')))
+                """, (str(msg_id), str(channel_id), str(sender_id), str(sender_name), msg.get('type', 'text'), msg.get('content', ''), meta_val, msg.get('created_at', ''), msg.get('status', 'sent')))
     except Exception as e:
         print(f"[CACHE ERROR] upsert_chat_messages failed: {e}")

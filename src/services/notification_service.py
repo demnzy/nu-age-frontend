@@ -93,6 +93,65 @@ async def sync_learner_notifications(page: ft.Page, force: bool = False):
             _last_sync_ts = now_ts
             return
 
+        # 1. Fetch persistent user notifications from backend (chat mentions, DMs, announcements, etc.)
+        try:
+            from src.requests.notifications import get_user_notifications
+            b_notifs = await get_user_notifications(token, limit=50)
+            items = []
+            if isinstance(b_notifs, dict):
+                items = b_notifs.get("items") or b_notifs.get("notifications") or []
+            if items:
+                for item in items:
+                    nid = f"backend_{item.get('id')}"
+                    cat = item.get("category", "general")
+                    
+                    if cat == "chat":
+                        ic = ft.Icons.CHAT_BUBBLE_ROUNDED
+                    elif cat in ("exams", "cohorts"):
+                        ic = ft.Icons.TIMER_ROUNDED
+                    elif cat == "courses":
+                        ic = ft.Icons.SCHOOL_ROUNDED
+                    else:
+                        ic = ft.Icons.NOTIFICATIONS_ROUNDED
+                    
+                    c_at = None
+                    if item.get("created_at"):
+                        try:
+                            c_at = datetime.fromisoformat(str(item["created_at"]).replace("Z", "+00:00"))
+                        except Exception:
+                            c_at = datetime.now(timezone.utc)
+                    else:
+                        c_at = datetime.now(timezone.utc)
+                    
+                    action_route = item.get("action_route")
+                    def _make_action(rt=action_route):
+                        def _act():
+                            if rt:
+                                page.go(rt)
+                        return _act
+
+                    NotificationManager.upsert(
+                        notif_id=nid,
+                        title=item.get("title", "Notification"),
+                        body=item.get("body", ""),
+                        category=cat,
+                        icon=ic,
+                        action_label="Open" if action_route else None,
+                        on_action=_make_action(action_route) if action_route else None,
+                    )
+                    # Sync metadata & read state
+                    for store_n in NotificationManager.get_all():
+                        if store_n.get("id") == nid:
+                            store_n["is_read"] = item.get("is_read", False)
+                            store_n["backend_id"] = item.get("id")
+                            store_n["action_route"] = action_route
+                            if c_at:
+                                store_n["created_at"] = c_at
+                            break
+        except Exception as e:
+            print(f"sync_learner_notifications backend sync warning: {e}")
+
+        # 2. Fetch cohorts and active exam assessments
         res = await get_learner_cohorts(token)
         if not isinstance(res, dict) or "error" in res:
             return
@@ -146,6 +205,12 @@ async def sync_learner_notifications(page: ft.Page, force: bool = False):
             n_id = n.get("id", "")
             if n_id.startswith("exam_live_") and n_id not in current_live_exam_ids:
                 NotificationManager.remove(n_id)
+
+        # Persist synced notifications to local cache for instant 0ms cold-start display
+        try:
+            await NotificationManager.persist_to_cache(page)
+        except Exception:
+            pass
 
         _last_sync_ts = time.time()
 
