@@ -617,11 +617,19 @@ async def chat_view(
         has_img = bool(avatar_url and isinstance(avatar_url, str) and (avatar_url.startswith("http") or avatar_url.startswith("data:")))
 
         if is_group:
-            base_avatar = ft.CircleAvatar(
-                content=ft.Icon(ft.Icons.GROUPS_ROUNDED, color=ft.Colors.WHITE, size=radius - 3),
-                bgcolor=palette["accent"],
-                radius=radius
-            )
+            if has_img:
+                base_avatar = ft.CircleAvatar(
+                    foreground_image_src=avatar_url,
+                    content=ft.Text(initials, size=radius * 0.58, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+                    bgcolor=palette["accent"],
+                    radius=radius,
+                )
+            else:
+                base_avatar = ft.CircleAvatar(
+                    content=ft.Icon(ft.Icons.GROUPS_ROUNDED, color=ft.Colors.WHITE, size=radius - 3),
+                    bgcolor=palette["accent"],
+                    radius=radius,
+                )
         elif has_img:
             base_avatar = ft.CircleAvatar(
                 foreground_image_src=avatar_url,
@@ -966,7 +974,7 @@ async def chat_view(
                     border=None,
                     padding=ft.Padding.symmetric(horizontal=12, vertical=10),
                     content=ft.Row([
-                        get_avatar(chat_name, chat.get("type", "dm"), is_online, radius=22, avatar_url=chat.get("other_user_avatar")),
+                        get_avatar(chat_name, chat.get("type", "dm"), is_online, radius=22, avatar_url=chat.get("avatar_url") or chat.get("other_user_avatar")),
                         ft.Container(width=10),
                         ft.Column([
                             ft.Row([
@@ -1743,7 +1751,7 @@ async def chat_view(
                     else:
                         page.go(f"/member/{target_uid}")
 
-            raw_avatar = get_avatar(_chat_name, _chat_type, _chat_online, radius=20, avatar_url=chat_info.get("other_user_avatar"))
+            raw_avatar = get_avatar(_chat_name, _chat_type, _chat_online, radius=20, avatar_url=chat_info.get("avatar_url") or chat_info.get("other_user_avatar"))
             if _chat_type == "direct":
                 header_avatar = ft.Container(
                     content=raw_avatar,

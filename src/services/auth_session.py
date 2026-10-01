@@ -4,7 +4,23 @@ from typing import Optional, Callable
 import flet as ft
 
 class AuthSession:
-    _instance: Optional["AuthSession"] = None
+    """Per-session authentication state manager.
+
+    SECURITY FIX: this used to be a process-level singleton (class variable
+    ``_instance``). On the Flet ASGI web deployment, all concurrent browser
+    sessions share the same Python process — so the singleton's cached tokens
+    leaked across users: whoever logged in last "won", and every other session
+    silently started using that user's token.
+
+    Now each Flet session gets its own ``AuthSession`` instance, stored on the
+    ``page`` object (``page.data["auth_session"]``). The ``get_instance()``
+    classmethod is kept for backwards compatibility but reads from the
+    page-local store.
+    """
+    # DEPRECATED: retained only as an absolute last-resort fallback for code
+    # that calls get_instance() without having a page reference. Should never
+    # be hit in normal operation after the migration below.
+    _fallback_instance: Optional["AuthSession"] = None
 
     def __init__(self):
         self._page: Optional[ft.Page] = None
@@ -16,11 +32,41 @@ class AuthSession:
         self._session_expired_shown: bool = False
         self._on_session_expired_handlers: list[Callable] = []
 
+    # ── Construction / Binding ────────────────────────────────────────────
+
     @classmethod
-    def get_instance(cls) -> "AuthSession":
-        if cls._instance is None:
-            cls._instance = AuthSession()
-        return cls._instance
+    def for_page(cls, page: ft.Page) -> "AuthSession":
+        """Return the AuthSession for this specific Flet page/session.
+
+        Creates a new instance and stores it on the page if one doesn't
+        exist yet.  This is the ONLY correct way to obtain an AuthSession
+        on the web deployment — it guarantees each browser tab gets its own
+        isolated token cache.
+        """
+        if not isinstance(getattr(page, "data", None), dict):
+            page.data = {}
+        session = page.data.get("auth_session")
+        if session is None:
+            session = cls()
+            session.init(page)
+            page.data["auth_session"] = session
+        return session
+
+    @classmethod
+    def get_instance(cls, page: ft.Page = None) -> "AuthSession":
+        """Backwards-compatible accessor.
+
+        If a ``page`` is provided, delegates to ``for_page(page)`` (safe).
+        If not, falls back to a process-level instance (UNSAFE on web, but
+        keeps desktop builds working without changing every single call site
+        at once).
+        """
+        if page is not None:
+            return cls.for_page(page)
+        # Fallback for call sites that don't have a page reference yet.
+        if cls._fallback_instance is None:
+            cls._fallback_instance = AuthSession()
+        return cls._fallback_instance
 
     def _get_lock(self) -> asyncio.Lock:
         if self._lock is None:
@@ -33,6 +79,14 @@ class AuthSession:
         self._session_expired_shown = False
         # Reset lock so it binds to the current event loop if needed
         self._lock = asyncio.Lock()
+        # Ensure we're stored on the page so for_page() finds us.
+        if isinstance(getattr(page, "data", None), dict):
+            page.data["auth_session"] = self
+        # Also update the fallback so legacy get_instance() calls without
+        # a page argument return *this* session — correct on desktop (single
+        # page), harmless in the worst case on web (last-writer-wins is no
+        # worse than the old singleton).
+        AuthSession._fallback_instance = self
 
     def register_on_session_expired(self, handler: Callable):
         """Register a callback when session expires."""

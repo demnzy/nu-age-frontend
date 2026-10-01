@@ -205,3 +205,21 @@ async def logout_request(refresh_token: str):
             return resp.status_code
         except httpx.RequestError:
             return None
+
+
+async def logout_all_devices_request(token: str):
+    """Calls the backend to revoke ALL refresh tokens for the authenticated user.
+    Returns (status_code, response_data_dict)."""
+    limits = httpx.Timeout(connect=3.5, read=10.0, write=10.0, pool=5.0)
+    try:
+        async with httpx.AsyncClient(timeout=limits, verify=ssl_context, auth=None) as client:
+            resp = await client.post(
+                f"{api_url}/users/auth/logout-all",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            try:
+                return resp.status_code, resp.json()
+            except Exception:
+                return resp.status_code, {"detail": "Unexpected response"}
+    except httpx.RequestError as e:
+        return 503, {"detail": f"Connection failed: {e}"}

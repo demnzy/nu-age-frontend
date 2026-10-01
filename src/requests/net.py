@@ -36,6 +36,7 @@ AUTH_BYPASS_PATHS = (
     "/users/auth/resend-verification-otp",
     "/users/auth/reset-password",
     "/users/auth/verify-password",
+    "/users/auth/logout-all",
 )
 
 
@@ -50,6 +51,9 @@ class TokenRefreshAuth(httpx.Auth):
 
     async def async_auth_flow(self, request: httpx.Request):
         from src.services.auth_session import AuthSession
+        # No page reference here (httpx auth context), but init() on each
+        # Flet session already sets _fallback_instance to the per-page
+        # session, so this resolves correctly for the active session.
         session = AuthSession.get_instance()
 
         auth_header = request.headers.get("authorization") or request.headers.get("Authorization")

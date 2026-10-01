@@ -161,8 +161,7 @@ def failure_copy(kind: str, ex: Exception = None, status: int = None) -> dict:
 # (still present + refresh failed == token dead OR network blip during the
 # call; absent == never had one). See route_change's 401/403 branch.
 async def try_refresh_token(page: ft.Page) -> bool:
-    session = AuthSession.get_instance()
-    session.init(page)
+    session = AuthSession.get_instance(page)
     new_token = await session.refresh_access_token()
     return new_token is not None
 
@@ -171,7 +170,7 @@ async def main(page: ft.Page):
     from src.local_db import init_local_db
     from src.download_manager import init_download_manager
     from src.services.auth_session import AuthSession
-    AuthSession.get_instance().init(page)
+    AuthSession.get_instance(page).init(page)
     if not getattr(page, "web", False):
         await init_local_db(page)
         await init_download_manager(page)
@@ -187,7 +186,7 @@ async def main(page: ft.Page):
                 break
 
             try:
-                session = AuthSession.get_instance()
+                session = AuthSession.get_instance(page)
                 if session.get_token_age_seconds() >= 2400:  # 40 minutes (access token expires at 60m)
                     stored_token = await page.shared_preferences.get("auth_token")
                     if stored_token:
@@ -1418,7 +1417,7 @@ async def main(page: ft.Page):
         cached_token = page.session.store.get("session_auth_token") if hasattr(page, "session") and hasattr(page.session, "store") else None
         stored_token = await page.shared_preferences.get("auth_token")
 
-        session = AuthSession.get_instance()
+        session = AuthSession.get_instance(page)
         token_stale = session.get_token_age_seconds() >= 2700  # 45 minutes
 
         needs_auth_check = (

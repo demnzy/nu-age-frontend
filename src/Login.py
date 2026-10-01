@@ -194,7 +194,7 @@ def login_view(page: ft.Page):
                     await page.shared_preferences.set("refresh_token", l_data["refresh_token"])
                     try:
                         from src.services.auth_session import AuthSession
-                        session = AuthSession.get_instance()
+                        session = AuthSession.get_instance(page)
                         session.init(page)
                         await session.set_tokens(token, l_data["refresh_token"])
                     except Exception as ex:
@@ -358,7 +358,7 @@ def login_view(page: ft.Page):
                 await page.shared_preferences.set("refresh_token", data["refresh_token"])
                 try:
                     from src.services.auth_session import AuthSession
-                    session = AuthSession.get_instance()
+                    session = AuthSession.get_instance(page)
                     session.init(page)
                     await session.set_tokens(token, data["refresh_token"])
                 except Exception as ex:
