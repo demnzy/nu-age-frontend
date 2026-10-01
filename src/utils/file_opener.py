@@ -3,6 +3,7 @@ import sys
 import shutil
 import urllib.parse
 import subprocess
+import asyncio
 import flet as ft
 
 
@@ -26,6 +27,46 @@ def show_page_snackbar(page: ft.Page, snack: ft.SnackBar):
             page.update()
     except Exception as e:
         print(f"[file_opener] Could not display snackbar: {e}")
+
+
+async def safe_set_clipboard(page: ft.Page, text: str):
+    """
+    Safely stores text into the system clipboard across Flet versions and platforms
+    without throwing AttributeError on missing set_clipboard.
+    """
+    if not page or text is None:
+        return
+    text = str(text)
+    try:
+        if hasattr(page, "clipboard"):
+            cb = getattr(page, "clipboard")
+            if hasattr(cb, "set") and callable(cb.set):
+                res = cb.set(text)
+                if asyncio.iscoroutine(res):
+                    await res
+                return
+            elif callable(cb):
+                res = cb(text)
+                if asyncio.iscoroutine(res):
+                    await res
+                return
+
+        if hasattr(page, "set_clipboard") and callable(page.set_clipboard):
+            res = page.set_clipboard(text)
+            if asyncio.iscoroutine(res):
+                await res
+            return
+
+        cb = ft.Clipboard()
+        if hasattr(page, "overlay") and page.overlay is not None and cb not in page.overlay:
+            page.overlay.append(cb)
+            if hasattr(page, "update"):
+                page.update()
+        res = cb.set(text)
+        if asyncio.iscoroutine(res):
+            await res
+    except Exception as ex:
+        print(f"[file_opener] Clipboard set notice: {ex}")
 
 
 async def open_or_download_asset(page: ft.Page, target_url_or_path: str, file_name: str = "Course Document"):

@@ -11,7 +11,12 @@ import asyncio
 from datetime import datetime
 import flet as ft
 from src.local_db import get_local_db
-from src.download_manager import delete_downloaded_course
+from src.download_manager import (
+    delete_downloaded_course,
+    get_plain_language_sync_status,
+    get_wifi_only_preference,
+    set_wifi_only_preference,
+)
 from src.progress_sync import sync_offline_progress, has_unsynced_progress, SyncResult
 
 
@@ -184,6 +189,48 @@ async def offline_courses_view(page: ft.Page, back_target: str = None) -> ft.Vie
         run_spacing=10,
     )
 
+    wifi_toggle_switch = ft.Switch(
+        value=False,
+        scale=0.8,
+    )
+    async def load_wifi_pref():
+        wifi_toggle_switch.value = await get_wifi_only_preference(page)
+        safe_page_update()
+
+    page.run_task(load_wifi_pref)
+
+    async def on_wifi_toggle(e):
+        await set_wifi_only_preference(page, wifi_toggle_switch.value)
+
+    wifi_toggle_switch.on_change = lambda e: page.run_task(on_wifi_toggle, e)
+
+    wifi_preference_card = ft.Container(
+        padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+        border_radius=10,
+        bgcolor=ft.Colors.SURFACE,
+        border=ft.Border.all(1, ft.Colors.with_opacity(0.1, ft.Colors.OUTLINE)),
+        content=ft.Row(
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            controls=[
+                ft.Row(
+                    [
+                        ft.Icon(ft.Icons.WIFI_ROUNDED, size=16, color=ft.Colors.PRIMARY),
+                        ft.Column(
+                            [
+                                ft.Text("Download on Wi-Fi only", size=12, weight=ft.FontWeight.W_600),
+                                ft.Text("Prevent cellular data usage for course downloads", size=10.5, color=ft.Colors.ON_SURFACE_VARIANT),
+                            ],
+                            spacing=1,
+                        ),
+                    ],
+                    spacing=8,
+                    tight=True,
+                ),
+                wifi_toggle_switch,
+            ],
+        ),
+    )
+
     def on_search_change(e):
         search_query[0] = e.control.value or ""
         clear_search_btn.visible = bool(search_query[0])
@@ -349,8 +396,8 @@ async def offline_courses_view(page: ft.Page, back_target: str = None) -> ft.Vie
                     border_radius=6,
                     bgcolor=ft.Colors.SURFACE_CONTAINER_HIGH,
                     content=ft.Row(
-                        [ft.Icon(ft.Icons.ACCESS_TIME_ROUNDED, size=12, color=ft.Colors.ON_SURFACE_VARIANT),
-                         ft.Text(format_date(downloaded_at), size=11, color=ft.Colors.ON_SURFACE_VARIANT)],
+                        [ft.Icon(ft.Icons.SYNC_ROUNDED, size=12, color=ft.Colors.GREEN_500),
+                         ft.Text(get_plain_language_sync_status(downloaded_at), size=11, color=ft.Colors.ON_SURFACE_VARIANT)],
                         spacing=4,
                         tight=True,
                     ),
@@ -731,6 +778,7 @@ async def offline_courses_view(page: ft.Page, back_target: str = None) -> ft.Vie
                     content=ft.Column(
                         [
                             hero_section,
+                            wifi_preference_card,
                             search_bar_container,
                             ft.Divider(height=1, color=ft.Colors.with_opacity(0.08, ft.Colors.OUTLINE)),
                             course_list_column,

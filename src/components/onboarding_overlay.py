@@ -42,19 +42,36 @@ ONBOARDING_SCREENS = [
         "fallback_icon": ft.Icons.GROUPS_ROUNDED,
         "arch_bg": "#FFD5BF",  # Exact background color of picture 3
         "btn_color": ft.Colors.PRIMARY,
-        "btn_text": "Get Started →",
+        "btn_text": "Next: Set Your Goal →",
+    },
+    {
+        "title": "Set your learning pace.",
+        "desc": "Personalize your daily study commitment and focus topic.",
+        "image": "",
+        "fallback_icon": ft.Icons.FLAG_ROUNDED,
+        "arch_bg": "#E0E7FF",
+        "btn_color": ft.Colors.PRIMARY,
+        "btn_text": "Launch Nu-Age 🚀",
     },
 ]
 
 
 def build_onboarding_overlay(page: ft.Page, on_dismiss=None) -> ft.Container:
-    """Builds the 3-screen visual onboarding overlay based on the inspo design.
+    """Builds the 4-screen visual onboarding overlay with role-aware goal capture.
 
     Args:
         page: Active Flet page.
         on_dismiss: Callback invoked when user finishes or skips.
     """
-    state = {"index": 0, "dismissed": False}
+    user_data = page.session.store.get("current_user") or {}
+    user_role = (user_data.get("role") or "student").lower()
+
+    state = {
+        "index": 0,
+        "dismissed": False,
+        "goal_minutes": 30,
+        "study_focus": "Software & Tech",
+    }
     total_screens = len(ONBOARDING_SCREENS)
 
     # ── Sizing calculations ───────────────────────────────────────────────────
@@ -85,18 +102,22 @@ def build_onboarding_overlay(page: ft.Page, on_dismiss=None) -> ft.Container:
 
         try:
             await page.shared_preferences.set("has_seen_onboarding", True)
+            await page.shared_preferences.set("study_goal_minutes", state["goal_minutes"])
+            await page.shared_preferences.set("study_focus", state["study_focus"])
         except Exception as ex:
             print(f"[Onboarding] shared_preferences error: {ex}")
 
         try:
             user_data = page.session.store.get("current_user") or {}
             user_data["has_seen_onboarding"] = True
+            user_data["study_goal_minutes"] = state["goal_minutes"]
+            user_data["study_focus"] = state["study_focus"]
             page.session.store.set("current_user", user_data)
         except Exception as ex:
             print(f"[Onboarding] session.store error: {ex}")
 
         if callable(on_dismiss):
-            on_dismiss({"skipped": skipped})
+            on_dismiss({"skipped": skipped, "goal_minutes": state["goal_minutes"], "study_focus": state["study_focus"]})
 
     def handle_skip(e):
         page.run_task(_dismiss_async, True)
@@ -139,7 +160,7 @@ def build_onboarding_overlay(page: ft.Page, on_dismiss=None) -> ft.Container:
         content=action_btn_text,
     )
 
-    # ── 3 Segments (Pill / Dash Indicators) ───────────────────────────────────
+    # ── 4 Segments (Pill / Dash Indicators) ───────────────────────────────────
     segment_controls = []
     for i in range(total_screens):
         is_active = i == 0
@@ -168,8 +189,146 @@ def build_onboarding_overlay(page: ft.Page, on_dismiss=None) -> ft.Container:
     def build_screen_content(idx: int) -> ft.Control:
         data = ONBOARDING_SCREENS[idx]
 
-        # Top arch illustration container matching reference image:
-        # Semicircular arch with rounded bottom
+        # Screen 3: Personalized Goal Capture (Student) or Launch Checklist (Tutor)
+        if idx == 3:
+            if user_role in ("tutor", "instructor", "admin"):
+                checklist_items = [
+                    ("Course Outline", "Structure your syllabus and units", ft.Icons.CHECK_CIRCLE_ROUNDED, ft.Colors.PRIMARY),
+                    ("Upload Content", "Add lecture slides, links, or videos", ft.Icons.RADIO_BUTTON_CHECKED_ROUNDED, ft.Colors.PRIMARY),
+                    ("Invite Students", "Create cohort link or invite by email", ft.Icons.RADIO_BUTTON_UNCHECKED_ROUNDED, ft.Colors.GREY_400),
+                ]
+                cl_controls = []
+                for cl_title, cl_sub, cl_ico, cl_col in checklist_items:
+                    cl_controls.append(
+                        ft.Container(
+                            padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+                            border_radius=ft.BorderRadius.all(12),
+                            bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.PRIMARY),
+                            content=ft.Row(
+                                spacing=10,
+                                controls=[
+                                    ft.Icon(cl_ico, color=cl_col, size=20),
+                                    ft.Column(
+                                        spacing=1,
+                                        controls=[
+                                            ft.Text(cl_title, size=12.5, weight=ft.FontWeight.W_700),
+                                            ft.Text(cl_sub, size=10.5, color=ft.Colors.GREY_600),
+                                        ],
+                                    ),
+                                ],
+                            ),
+                        )
+                    )
+
+                return ft.Column(
+                    key="step_3_tutor",
+                    spacing=12,
+                    controls=[
+                        ft.Container(
+                            height=120,
+                            border_radius=ft.BorderRadius.all(20),
+                            bgcolor="#E0E7FF",
+                            alignment=ft.Alignment.CENTER,
+                            content=ft.Icon(ft.Icons.CO_PRESENT_ROUNDED, size=54, color=ft.Colors.PRIMARY),
+                        ),
+                        ft.Column(
+                            spacing=4,
+                            controls=[
+                                ft.Text("Instructor Setup", size=20, weight=ft.FontWeight.W_800),
+                                ft.Text("Complete these quick steps to launch your cohort.", size=12.5, color=ft.Colors.GREY_600),
+                            ],
+                        ),
+                        ft.Column(spacing=8, controls=cl_controls),
+                    ],
+                )
+
+            # Default Student Goal Capture
+            goal_chips = []
+            durations = [(15, "15 min", "Casual"), (30, "30 min", "Steady"), (60, "60 min", "Sprint")]
+            for mins, lbl, sub in durations:
+                selected = state["goal_minutes"] == mins
+                def make_select_goal(m):
+                    def _sel(e):
+                        state["goal_minutes"] = m
+                        switcher.content = build_screen_content(3)
+                        safe_page_update()
+                    return _sel
+
+                goal_chips.append(
+                    ft.Container(
+                        expand=True,
+                        padding=ft.Padding.symmetric(vertical=8, horizontal=6),
+                        border_radius=ft.BorderRadius.all(10),
+                        bgcolor=ft.Colors.PRIMARY if selected else ft.Colors.with_opacity(0.06, ft.Colors.PRIMARY),
+                        border=ft.Border.all(1.5, ft.Colors.PRIMARY if selected else ft.Colors.GREY_300),
+                        alignment=ft.Alignment.CENTER,
+                        ink=True,
+                        on_click=make_select_goal(mins),
+                        content=ft.Column(
+                            spacing=1,
+                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            controls=[
+                                ft.Text(lbl, size=12, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE if selected else ft.Colors.ON_SURFACE),
+                                ft.Text(sub, size=9.5, color=ft.Colors.WHITE if selected else ft.Colors.GREY_500),
+                            ],
+                        ),
+                    )
+                )
+
+            focus_chips = []
+            topics = ["Software & Tech", "Business", "Sciences", "General"]
+            for top in topics:
+                selected_top = state["study_focus"] == top
+                def make_select_top(t):
+                    def _sel(e):
+                        state["study_focus"] = t
+                        switcher.content = build_screen_content(3)
+                        safe_page_update()
+                    return _sel
+
+                focus_chips.append(
+                    ft.Container(
+                        padding=ft.Padding.symmetric(vertical=6, horizontal=10),
+                        border_radius=ft.BorderRadius.all(16),
+                        bgcolor=ft.Colors.with_opacity(0.12 if selected_top else 0.04, ft.Colors.PRIMARY),
+                        border=ft.Border.all(1.2, ft.Colors.PRIMARY if selected_top else ft.Colors.GREY_300),
+                        ink=True,
+                        on_click=make_select_top(top),
+                        content=ft.Text(
+                            top,
+                            size=11,
+                            weight=ft.FontWeight.W_700 if selected_top else ft.FontWeight.W_500,
+                            color=ft.Colors.PRIMARY if selected_top else ft.Colors.ON_SURFACE,
+                        ),
+                    )
+                )
+
+            return ft.Column(
+                key="step_3_student",
+                spacing=10,
+                controls=[
+                    ft.Container(
+                        height=95,
+                        border_radius=ft.BorderRadius.all(16),
+                        bgcolor="#E0E7FF",
+                        alignment=ft.Alignment.CENTER,
+                        content=ft.Icon(ft.Icons.TRACK_CHANGES_ROUNDED, size=46, color=ft.Colors.PRIMARY),
+                    ),
+                    ft.Column(
+                        spacing=2,
+                        controls=[
+                            ft.Text("Personalize Your Goals", size=18, weight=ft.FontWeight.W_800),
+                            ft.Text("Nu-Age tailors your study pacing and reminders.", size=11.5, color=ft.Colors.GREY_600),
+                        ],
+                    ),
+                    ft.Text("Daily Study Target", size=11, weight=ft.FontWeight.W_700, color=ft.Colors.GREY_700),
+                    ft.Row(spacing=8, controls=goal_chips),
+                    ft.Text("Primary Study Focus", size=11, weight=ft.FontWeight.W_700, color=ft.Colors.GREY_700),
+                    ft.Row(spacing=6, wrap=True, controls=focus_chips),
+                ],
+            )
+
+        # Screens 0, 1, 2: Illustrated intro screens
         try:
             art_image = ft.Image(
                 src=data["image"],

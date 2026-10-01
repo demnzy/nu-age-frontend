@@ -18,6 +18,17 @@ from src.utils.code_runner import (
     parse_cloze_text,
     detects_stdin,
 )
+from src.components.course_tabs import (
+    build_course_tab_bar,
+    build_practice_tab_view,
+    build_discuss_tab_view,
+    build_progress_tab_view,
+)
+from src.components.need_help_drawer import (
+    build_need_help_drawer,
+    NeedHelpController,
+    _get_auth_token,
+)
 
 def heal_markdown(text: str) -> str:
     """Auto-heals legacy markdown anomalies such as truncated Mermaid URLs."""
@@ -191,6 +202,10 @@ async def course_learner_view(
     lesson_body_scroll = ft.Container(expand=True)
     action_footer_container = ft.Container()
     main_content_area = ft.Container()
+    active_player_tab = 0
+    need_help_open = False
+    need_help_controller = NeedHelpController()
+    drawer_socket = ft.Container(visible=False)
     body_host = ft.Container(expand=True)
 
     def toggle_sidebar(e):
@@ -440,6 +455,17 @@ async def course_learner_view(
                 )
             )
 
+            # AI Tutor Right-Hand Companion Sidebar
+            if need_help_open and drawer_socket.visible:
+                desktop_controls.append(
+                    ft.VerticalDivider(
+                        width=1,
+                        thickness=1,
+                        color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
+                    )
+                )
+                desktop_controls.append(drawer_socket)
+
             body_host.expand = True
             body_host.content = ft.Row(
                 desktop_controls,
@@ -460,37 +486,38 @@ async def course_learner_view(
             sidebar_container.right = None
             sidebar_container.width = drawer_width
 
-            if not sidebar_visible:
-                body_host.expand = True
-                body_host.content = ft.Container(
-                    expand=True,
+            mobile_stack_controls = [
+                ft.Container(
+                    left=0,
+                    top=0,
+                    right=0,
+                    bottom=0,
                     padding=ft.Padding.all(12),
                     content=main_content_area,
                 )
-            else:
-                body_host.expand = True
-                body_host.content = ft.Stack(
-                    [
-                        ft.Container(
-                            left=0,
-                            top=0,
-                            right=0,
-                            bottom=0,
-                            padding=ft.Padding.all(12),
-                            content=main_content_area,
-                        ),
-                        ft.Container(
-                            left=0,
-                            top=0,
-                            right=0,
-                            bottom=0,
-                            bgcolor=ft.Colors.with_opacity(0.45, ft.Colors.BLACK),
-                            on_click=toggle_sidebar,
-                        ),
-                        sidebar_container,
-                    ],
-                    expand=True,
+            ]
+
+            if sidebar_visible:
+                mobile_stack_controls.append(
+                    ft.Container(
+                        left=0,
+                        top=0,
+                        right=0,
+                        bottom=0,
+                        bgcolor=ft.Colors.with_opacity(0.45, ft.Colors.BLACK),
+                        on_click=toggle_sidebar,
+                    )
                 )
+                mobile_stack_controls.append(sidebar_container)
+
+            if need_help_open and drawer_socket.visible:
+                mobile_stack_controls.append(drawer_socket)
+
+            body_host.expand = True
+            body_host.content = ft.Stack(
+                mobile_stack_controls,
+                expand=True,
+            )
 
     def on_course_page_resized(e=None):
         refresh_layout_shell()
@@ -3460,6 +3487,60 @@ async def course_learner_view(
 
         appbar_lesson_subtitle.value = f"Module {current_module_idx + 1} · {active_les.get('title', '')}"
 
+        # Determine if active lesson/module is an assessment or quiz
+        is_assessment_lesson = bool(
+            active_les.get("type") in ["assessment", "quiz", "test", "exam"]
+            or "assessment" in active_mod.get("title", "").lower()
+            or active_les.get("questions")
+        )
+
+        def toggle_need_help(e=None):
+            nonlocal need_help_open
+            need_help_open = not need_help_open
+            if need_help_open:
+                build_need_help_drawer(
+                    page=page,
+                    lesson_data=active_les,
+                    module_title=active_mod.get("title", ""),
+                    course_title=course_data.get("course_title", "Course"),
+                    on_close=toggle_need_help,
+                    course_id=str(course_id),
+                    is_assessment=is_assessment_lesson,
+                    controller=need_help_controller,
+                    target_container=drawer_socket,
+                )
+                drawer_socket.visible = True
+            else:
+                drawer_socket.visible = False
+            refresh_layout_shell()
+            page.update()
+
+        # If already open during lesson navigation, dynamically update context without closing
+        if need_help_open and need_help_controller.update_module_context:
+            need_help_controller.update_module_context(
+                new_lesson_data=active_les,
+                new_module_title=active_mod.get("title", ""),
+                new_is_assessment=is_assessment_lesson,
+            )
+
+        need_help_btn = ft.Container(
+            content=ft.Row(
+                [
+                    ft.Icon(ft.Icons.AUTO_AWESOME_ROUNDED, size=13, color=UI_ACCENT),
+                    ft.Text("Need Help?", size=11, weight=ft.FontWeight.W_700, color=UI_ACCENT),
+                ],
+                spacing=5,
+                tight=True,
+            ),
+            bgcolor=ft.Colors.with_opacity(0.10, UI_ACCENT),
+            padding=ft.Padding.symmetric(horizontal=10, vertical=5),
+            border_radius=ft.BorderRadius.all(12),
+            border=ft.Border.all(1, ft.Colors.with_opacity(0.18, UI_ACCENT)),
+            ink=True,
+            tooltip="Ask AI Doubt Assistant about this lesson",
+            on_click=toggle_need_help,
+        )
+
         header_container = ft.Container(
             padding=ft.Padding.symmetric(horizontal=20, vertical=16),
             border_radius=HEADER_RADIUS,
@@ -3503,12 +3584,20 @@ async def course_learner_view(
                         wrap=True,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     ),
-                    ft.Text(
-                        active_les["title"],
-                        size=22,
-                        weight=ft.FontWeight.W_800,
-                        color=ft.Colors.ON_SURFACE,
-                        text_align=ft.TextAlign.LEFT,
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[
+                            ft.Text(
+                                active_les["title"],
+                                size=22,
+                                weight=ft.FontWeight.W_800,
+                                color=ft.Colors.ON_SURFACE,
+                                text_align=ft.TextAlign.LEFT,
+                                expand=True,
+                            ),
+                            need_help_btn,
+                        ],
                     ),
                     ft.Container(
                         border_radius=ft.BorderRadius.only(bottom_left=6, bottom_right=6),
@@ -3572,11 +3661,60 @@ async def course_learner_view(
             ),
         )
 
+        def on_tab_change(new_idx: int):
+            nonlocal active_player_tab
+            active_player_tab = new_idx
+            refresh_ui()
+
+        tab_bar = build_course_tab_bar(
+            active_tab_index=active_player_tab,
+            on_tab_change=on_tab_change,
+            on_open_ai_assistant=toggle_need_help,
+            is_dark=getattr(page, "theme_mode", None) == ft.ThemeMode.DARK,
+            page_width=getattr(page, "width", None),
+        )
+
+        def on_jump_to_practice_lesson(mod_idx: int, les_idx: int):
+            nonlocal current_module_idx, current_lesson_idx, active_player_tab
+            current_module_idx = mod_idx
+            current_lesson_idx = les_idx
+            active_player_tab = 0
+            refresh_ui()
+
+        if active_player_tab == 0:
+            active_view_content = ft.Column(
+                [lesson_body_scroll, action_footer_container],
+                expand=True,
+                spacing=0,
+                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+            )
+        elif active_player_tab == 1:
+            active_view_content = ft.Column(
+                [build_practice_tab_view(course_data, page, on_jump_to_practice_lesson)],
+                expand=True,
+                scroll=ft.ScrollMode.AUTO,
+            )
+        elif active_player_tab == 2:
+            active_view_content = build_discuss_tab_view(
+                course_id=str(course_id),
+                course_title=course_data.get("course_title", "Course"),
+                page=page,
+            )
+        else:
+            active_view_content = ft.Column(
+                [build_progress_tab_view(course_data, page)],
+                expand=True,
+                scroll=ft.ScrollMode.AUTO,
+            )
+
         main_content_area.content = ft.Container(
-            width=980 if is_desktop_layout() else None,
             expand=True,
             content=ft.Column(
-                [lesson_body_scroll, action_footer_container],
+                [
+                    tab_bar,
+                    ft.Container(height=10),
+                    active_view_content,
+                ],
                 expand=True,
                 spacing=0,
                 horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
@@ -3591,7 +3729,7 @@ async def course_learner_view(
 
     async def fetch_initial_data():
         nonlocal course_data, current_module_idx, current_lesson_idx, module_expanded_state, token
-        token = await page.shared_preferences.get("auth_token")
+        token = await _get_auth_token(page)
 
         course_data = await api_fetch_course_data(course_id)
 

@@ -57,15 +57,91 @@ HLS_CONCURRENCY = 6
 
 class DownloadProgress:
     """Simple mutable progress holder a caller can poll or bind to a
-    progress bar. Not a callback-based design on purpose — Flet UIs
-    polling a shared object every N ms during a page.run_task is simpler
-    to wire up than plumbing a callback through every download step."""
+    progress bar. Supports cancellation and plain-language status reporting."""
 
     def __init__(self):
-        self.status = "pending"          # pending | fetching | downloading_assets | writing_db | done | error
+        self.status = "pending"          # pending | fetching | downloading_assets | writing_db | done | error | cancelled
         self.total_assets = 0
         self.completed_assets = 0
+        self.total_bytes = 0
+        self.downloaded_bytes = 0
         self.error_message = None
+        self.is_cancelled = False
+
+    def cancel(self):
+        self.is_cancelled = True
+        self.status = "cancelled"
+
+    def progress_fraction(self) -> float:
+        if self.total_assets <= 0:
+            return 0.0
+        return min(1.0, max(0.0, self.completed_assets / self.total_assets))
+
+    def status_text(self) -> str:
+        if self.status == "fetching":
+            return "Fetching course syllabus..."
+        elif self.status == "downloading_assets":
+            return f"Downloading assets ({self.completed_assets}/{self.total_assets})..."
+        elif self.status == "writing_db":
+            return "Finalizing offline storage..."
+        elif self.status == "done":
+            return "Downloaded for offline study."
+        elif self.status == "cancelled":
+            return "Download cancelled."
+        elif self.status == "error":
+            return f"Failed: {self.error_message or 'Unknown error'}"
+        return "Preparing download..."
+
+
+def format_size_bytes(bytes_count: int) -> str:
+    """Formats bytes to a clean human-readable string (KB, MB, GB)."""
+    if not bytes_count or bytes_count <= 0:
+        return "0 KB"
+    for unit in ["B", "KB", "MB", "GB"]:
+        if bytes_count < 1024.0:
+            return f"{bytes_count:.1f} {unit}" if unit in ("MB", "GB") else f"{int(bytes_count)} {unit}"
+        bytes_count /= 1024.0
+    return f"{bytes_count:.1f} TB"
+
+
+def get_plain_language_sync_status(downloaded_at_iso: str | None) -> str:
+    """Converts ISO timestamp into plain language like 'Synced 2 hours ago' or 'Synced just now'."""
+    if not downloaded_at_iso:
+        return "Downloaded for offline study"
+    try:
+        dt = datetime.fromisoformat(downloaded_at_iso.replace("Z", "+00:00"))
+        now = datetime.now(timezone.utc)
+        diff = (now - dt).total_seconds()
+        if diff < 60:
+            return "Downloaded · Synced just now"
+        elif diff < 3600:
+            mins = int(diff // 60)
+            return f"Downloaded · Synced {mins}m ago"
+        elif diff < 86400:
+            hrs = int(diff // 3600)
+            return f"Downloaded · Synced {hrs}h ago"
+        else:
+            days = int(diff // 86400)
+            return f"Downloaded · Synced {days}d ago"
+    except Exception:
+        return "Downloaded for offline study"
+
+
+async def get_wifi_only_preference(page: ft.Page) -> bool:
+    """Reads whether the user prefers downloads over Wi-Fi only."""
+    try:
+        val = await page.shared_preferences.get("download_wifi_only")
+        return bool(val) if val is not None else False
+    except Exception:
+        return False
+
+
+async def set_wifi_only_preference(page: ft.Page, enabled: bool):
+    """Sets the Wi-Fi only download preference."""
+    try:
+        await page.shared_preferences.set("download_wifi_only", enabled)
+    except Exception as ex:
+        print(f"[Offline] Error saving wifi_only preference: {ex}")
 
 
 async def download_course(page: ft.Page, course_id: str, progress: DownloadProgress = None) -> bool:
@@ -149,8 +225,13 @@ async def download_course(page: ft.Page, course_id: str, progress: DownloadProgr
     # whole asset up. Each individual request still gets its own budget.
     async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=15.0)) as client:
         for lesson, key, url in asset_jobs:
+            if progress.is_cancelled:
+                progress.status = "cancelled"
+                progress.error_message = "Download cancelled by user."
+                return False
             try:
                 local_path, size_bytes = await _download_asset(client, url, assets_dir)
+                progress.downloaded_bytes += size_bytes
                 lesson["content"][key] = local_path  # rewrite in place —
                                                        # this is what makes
                                                        # course_page.py's

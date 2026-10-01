@@ -20,6 +20,7 @@ dependencies = [
     "urllib3>=2.6.3",
     "websockets>=16.0",
     "flet-onesignal>=0.4.4",
+    "yt-dlp>=2026.8.19",
 ]
 
 [dependency-groups]

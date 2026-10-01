@@ -1705,6 +1705,12 @@ async def chat_view(
                         elif isinstance(m_res, list):
                             active_channel_members.clear()
                             active_channel_members.extend(m_res)
+
+                        # Refresh header status and tagging candidate list immediately
+                        if _chat_type != "direct" and current_chat_id[0] == c_id:
+                            if chat_status_text:
+                                chat_status_text.value = f"{len(active_channel_members)} members"
+                            page.update()
                     except Exception as e:
                         print(f"[NuChat] Error fetching channel members: {e}")
                 page.run_task(_fetch_group_members_task)

@@ -169,69 +169,94 @@ def resolve_youtube_stream_url(url: str) -> Optional[Dict[str, Any]]:
     }
 
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            if not info:
-                return None
-            
-            formats = [
-                f for f in info.get("formats", [])
-                if f.get("vcodec") not in (None, "none")
-                and f.get("acodec") not in (None, "none")
-                and f.get("url")
-            ]
+        import certifi
+        ydl_opts["cafile"] = certifi.where()
+    except Exception:
+        pass
 
-            stream_url = None
-            http_headers = None
-            if formats:
-                # Prefer highest resolution, then bitrate
-                formats.sort(key=lambda f: (f.get("height") or 0, f.get("tbr") or 0))
-                best_format = formats[-1]
-                stream_url = best_format.get("url")
-                http_headers = best_format.get("http_headers")
-            elif info.get("url"):
-                stream_url = info.get("url")
-                http_headers = info.get("http_headers")
-
-            if not stream_url:
-                return None
-
-            if not http_headers:
-                http_headers = {}
-            if "Referer" not in http_headers:
-                http_headers["Referer"] = "https://www.youtube.com/"
-            if "Origin" not in http_headers:
-                http_headers["Origin"] = "https://www.youtube.com"
-
-            # Detect YouTube PoToken/SABR rate-limiting stubs (e.g. YouTube sending only a 270KB stub
-            # for a multi-minute video, which causes desktop libmpv to immediately reach EOF and jump to the end).
-            # When detected, return None so AdaptiveVideoPlayer gracefully mounts the Cinema Card.
-            duration = info.get("duration") or 0
-            if duration > 30 and stream_url:
+    try:
+        info = None
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+        except Exception as extract_err:
+            err_str = str(extract_err).lower()
+            if any(w in err_str for w in ("certificate", "ssl", "cafile", "unable to get local issuer")):
+                logger.warning("yt-dlp SSL verification issue (%s); retrying with nocheckcertificate...", extract_err)
                 try:
-                    import urllib.request
-                    req = urllib.request.Request(stream_url, headers=http_headers or {}, method="HEAD")
-                    with urllib.request.urlopen(req, timeout=3.5) as resp:
-                        cl = resp.headers.get("Content-Length")
-                        if cl and int(cl) < 1_000_000:
-                            logger.warning(
-                                "YouTube throttled stream detected for %r: %s bytes for %ss duration. Falling back to Cinema Card.",
-                                url, cl, duration,
-                            )
-                            return None
-                except Exception as check_ex:
-                    logger.debug("Stream length pre-check skipped: %s", check_ex)
+                    ydl_opts_fallback = dict(ydl_opts)
+                    ydl_opts_fallback["nocheckcertificate"] = True
+                    ydl_opts_fallback.pop("cafile", None)
+                    with yt_dlp.YoutubeDL(ydl_opts_fallback) as ydl:
+                        info = ydl.extract_info(url, download=False)
+                except Exception as retry_err:
+                    logger.warning("yt-dlp stream resolution failed on retry: %s", retry_err)
+                    return None
+            else:
+                logger.warning("yt-dlp extraction error for %r: %s", url, extract_err)
+                return None
 
-            return {
-                "stream_url": stream_url,
-                "http_headers": http_headers or {},
-                "title": info.get("title", "YouTube Lesson"),
-                "thumbnail": info.get("thumbnail"),
-                "duration": info.get("duration"),
-                "channel": info.get("uploader") or info.get("channel"),
-            }
+        if not info:
+            return None
+        
+        formats = [
+            f for f in info.get("formats", [])
+            if f.get("vcodec") not in (None, "none")
+            and f.get("acodec") not in (None, "none")
+            and f.get("url")
+        ]
+
+        stream_url = None
+        http_headers = None
+        if formats:
+            # Prefer highest resolution, then bitrate
+            formats.sort(key=lambda f: (f.get("height") or 0, f.get("tbr") or 0))
+            best_format = formats[-1]
+            stream_url = best_format.get("url")
+            http_headers = best_format.get("http_headers")
+        elif info.get("url"):
+            stream_url = info.get("url")
+            http_headers = info.get("http_headers")
+
+        if not stream_url:
+            return None
+
+        if not http_headers:
+            http_headers = {}
+        if "Referer" not in http_headers:
+            http_headers["Referer"] = "https://www.youtube.com/"
+        if "Origin" not in http_headers:
+            http_headers["Origin"] = "https://www.youtube.com"
+
+        # Detect YouTube PoToken/SABR rate-limiting stubs (e.g. YouTube sending only a 270KB stub
+        # for a multi-minute video, which causes desktop libmpv to immediately reach EOF and jump to the end).
+        # When detected, return None so AdaptiveVideoPlayer gracefully mounts the Cinema Card.
+        duration = info.get("duration") or 0
+        if duration > 30 and stream_url:
+            try:
+                import urllib.request
+                req = urllib.request.Request(stream_url, headers=http_headers or {}, method="HEAD")
+                with urllib.request.urlopen(req, timeout=3.5) as resp:
+                    cl = resp.headers.get("Content-Length")
+                    if cl and int(cl) < 1_000_000:
+                        logger.warning(
+                            "YouTube throttled stream detected for %r: %s bytes for %ss duration. Falling back to Cinema Card.",
+                            url, cl, duration,
+                        )
+                        return None
+            except Exception as check_ex:
+                logger.debug("Stream length pre-check skipped: %s", check_ex)
+
+        return {
+            "stream_url": stream_url,
+            "http_headers": http_headers or {},
+            "title": info.get("title", "YouTube Lesson"),
+            "thumbnail": info.get("thumbnail"),
+            "duration": info.get("duration"),
+            "channel": info.get("uploader") or info.get("channel"),
+        }
     except Exception as e:
-        logger.debug("yt-dlp stream resolution not available for %r: %s", url, e)
+        logger.warning("yt-dlp stream resolution not available for %r: %s", url, e)
         return None
 
 

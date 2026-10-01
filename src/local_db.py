@@ -239,6 +239,20 @@ def has_any_downloaded_courses(page: ft.Page = None) -> bool:
         # Fail closed — don't offer a button that would just fail again.
         return False
 
+
+def is_course_downloaded(course_id: str, page: ft.Page = None) -> bool:
+    """Check if a specific course has been downloaded locally for offline study."""
+    if page is not None and getattr(page, "web", False):
+        return False
+    if not course_id:
+        return False
+    try:
+        db = get_local_db(page)
+        row = db.execute("SELECT 1 FROM downloaded_courses WHERE id = ? LIMIT 1", (str(course_id),)).fetchone()
+        return row is not None
+    except Exception:
+        return False
+
 # ── Chat Caching Helpers ──────────────────────────────────────────────
 
 def get_cached_chat_channels(page: ft.Page = None):

@@ -15,6 +15,8 @@ from src.utils.db_manager import get_weekly_activity, log_daily_activity
 from src.requests.Cohorts import get_learner_cohorts
 from src.components.learner_cohorts_hub import open_learner_cohorts_modal
 from src.local_db import has_any_downloaded_courses
+from src.components.next_best_action_card import get_next_best_action_card
+from src.components.quick_hub import get_quick_hub
 
 # ─────────────────────────────────────────────────────────────────────────────
 # HELPERS
@@ -57,10 +59,17 @@ FORCE_SHOW_ONBOARDING = None
 
 async def check_is_first_login(page: ft.Page) -> bool:
     """Check if the user is logging in for the first time."""
-    user_data = page.session.store.get("current_user") or {}
-    streak = user_data.get("streak", 0)
-    seen = streak > 2
-    return not seen
+    try:
+        has_seen = await page.shared_preferences.get("has_seen_onboarding")
+        if has_seen:
+            return False
+    except Exception:
+        pass
+    user_data = page.session.store.get("current_user") or {} if hasattr(page, "session") and hasattr(page.session, "store") else {}
+    if user_data.get("has_seen_onboarding"):
+        return False
+    streak = user_data.get("streak", 0) or 0
+    return streak == 0
 
 
 async def mark_onboarding_seen(page: ft.Page, data: dict = None) -> None:
@@ -754,8 +763,21 @@ async def dashboard_view(page: ft.Page):
     )
 
     # ─────────────────────────────────────────────────────────────────────────
-    # 6. CONTINUE LEARNING
+    # 6. ACTION-ORIENTED COCKPIT & QUICK LAUNCH HUB
     # ─────────────────────────────────────────────────────────────────────────
+    next_action_section = ft.Container(
+        width=float("inf"),
+        opacity=0,
+        offset=ft.Offset(0, 0.2),
+        animate_opacity=ft.Animation(400, ft.AnimationCurve.DECELERATE),
+        animate_offset=ft.Animation(400, ft.AnimationCurve.DECELERATE),
+    )
+
+    quick_hub_section = ft.Container(
+        width=float("inf"),
+        content=get_quick_hub(page),
+    )
+
     continue_learning_section = ft.Container(
         width=float("inf"),
         opacity=0,
@@ -832,6 +854,13 @@ async def dashboard_view(page: ft.Page):
             
         active_count = len(enrolled_list)
         finished_count = sum(1 for c in enrolled_list if c.get("progress", 0.0) >= 100)
+
+        # ── Populate Next-Best Action Cockpit ────────────────────────────────
+        next_action_section.content = get_next_best_action_card(
+            enrolled_courses=enrolled_list,
+            page=page,
+            streak=streak,
+        )
 
         # ── Fetch Learner Cohorts ────────────────────────────────────────────
         learner_cohorts_res = {"cohorts": []}
@@ -930,6 +959,13 @@ async def dashboard_view(page: ft.Page):
             page.update()
 
         page.run_task(animate_stats, active_count, finished_count, streak)
+
+        # ── Dynamic Next-Best Action Cockpit ──────────────────────────────────
+        next_action_section.content = get_next_best_action_card(
+            enrolled_courses=enrolled_list,
+            page=page,
+            streak=streak,
+        )
 
         # ── build continue-learning cards ─────────────────────────────────────
         enrolled_cards = []
@@ -1302,11 +1338,13 @@ async def dashboard_view(page: ft.Page):
                             content=ft.Column(
                                 spacing=16,
                                 controls=[
-                                    trackers_container,         # 1. Dual Course Mastery & Learning Focus Trackers
-                                    learner_cohorts_card,       # 2. My Training Cohorts Track
-                                    self_study_card,            # 3. Self-Study Hub
-                                    network_card,               # 4. Standalone Student Network Showcase
-                                    continue_learning_section,  # 5. Continue Learning Course Cards
+                                    next_action_section,        # 1. Action-Oriented Hero Cockpit
+                                    quick_hub_section,          # 2. 4-tile Quick Launch Hub
+                                    continue_learning_section,  # 3. Continue Learning Course Cards
+                                    trackers_container,         # 4. Dual Course Mastery & Learning Focus Trackers
+                                    learner_cohorts_card,       # 5. My Training Cohorts Track
+                                    self_study_card,            # 6. Self-Study Hub
+                                    network_card,               # 7. Standalone Student Network Showcase
                                     ft.Container(height=24),
                                 ],
                             ),
@@ -1320,6 +1358,7 @@ async def dashboard_view(page: ft.Page):
         # Trigger staggered fade-up animations for main dashboard sections
         sections_to_animate = [
             header,
+            next_action_section,
             activity_card,
             focus_card,
             self_study_card,
@@ -1344,6 +1383,7 @@ async def dashboard_view(page: ft.Page):
         header.content = build_hero_content()
         self_study_card.content = build_self_study_content(is_desk)
         network_card.content = build_network_content(is_desk)
+        quick_hub_section.content = get_quick_hub(page)
         page.update()
 
     page.on_resize = on_dashboard_resize
