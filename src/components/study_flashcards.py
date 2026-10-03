@@ -18,6 +18,7 @@ import time
 import flet as ft
 
 from src.components import study_ui as ui
+from src.components.deck_inspector import open_deck_inspector
 
 
 def build_flashcard_session(
@@ -27,6 +28,7 @@ def build_flashcard_session(
     token: str,
     on_exit,
     on_restart,
+    material: dict | None = None,
     haptics: "ui.Haptics | None" = None,
 ):
     """Returns a Control for the full flashcard session."""
@@ -46,21 +48,20 @@ def build_flashcard_session(
     )
     remaining_pill = ui.pill(f"{total} left", ui.C_INFO, icon=ft.Icons.LAYERS_ROUNDED)
 
-    # ── card faces ───────────────────────────────────────────────────────
-    front_text = ft.Text(
+    # ── card faces (Full Markdown Supported) ──────────────────────────
+    front_markdown = ft.Markdown(
         "",
-        size=20,
-        weight=ft.FontWeight.W_700,
-        color=ft.Colors.ON_SURFACE,
-        text_align=ft.TextAlign.CENTER,
+        extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
         selectable=True,
+        auto_follow_links=True,
+        code_theme="atom-one-dark",
     )
-    back_text = ft.Text(
+    back_markdown = ft.Markdown(
         "",
-        size=16,
-        color=ui.muted(0.85),
-        text_align=ft.TextAlign.CENTER,
+        extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
         selectable=True,
+        auto_follow_links=True,
+        code_theme="atom-one-dark",
     )
 
     face_hint = ft.Text(
@@ -71,30 +72,59 @@ def build_flashcard_session(
         expand=True,
         alignment=ft.MainAxisAlignment.CENTER,
         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-        spacing=14,
+        spacing=12,
         controls=[
             ui.pill("QUESTION", ft.Colors.PRIMARY, icon=ft.Icons.HELP_OUTLINE_ROUNDED),
-            front_text,
+            ft.Container(
+                expand=True,
+                alignment=ft.Alignment.CENTER,
+                content=ft.Column(
+                    scroll=ft.ScrollMode.AUTO,
+                    alignment=ft.MainAxisAlignment.CENTER,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[
+                        ft.Container(
+                            alignment=ft.Alignment.CENTER,
+                            content=front_markdown,
+                        ),
+                    ],
+                ),
+            ),
         ],
     )
     back_face = ft.Column(
         expand=True,
         alignment=ft.MainAxisAlignment.CENTER,
         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-        spacing=14,
+        spacing=12,
         visible=False,
         controls=[
-            ui.pill("ANSWER", ui.C_CORRECT, icon=ft.Icons.LIGHTBULB_OUTLINE_ROUNDED),
-            back_text,
+            ui.pill("ANSWER & EXPLANATION", ui.C_CORRECT, icon=ft.Icons.LIGHTBULB_OUTLINE_ROUNDED),
+            ft.Container(
+                expand=True,
+                alignment=ft.Alignment.CENTER,
+                content=ft.Column(
+                    scroll=ft.ScrollMode.AUTO,
+                    alignment=ft.MainAxisAlignment.CENTER,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[
+                        ft.Container(
+                            alignment=ft.Alignment.CENTER,
+                            content=back_markdown,
+                        ),
+                    ],
+                ),
+            ),
         ],
     )
 
     card_inner = ft.Column(
         expand=True,
         spacing=10,
+        alignment=ft.MainAxisAlignment.CENTER,
         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
         controls=[
-            ft.Container(expand=True, content=ft.Stack(expand=True, controls=[front_face, back_face])),
+            ft.Container(expand=True, alignment=ft.Alignment.CENTER, content=ft.Stack(expand=True, controls=[front_face, back_face])),
             face_hint,
         ],
     )
@@ -124,29 +154,58 @@ def build_flashcard_session(
         animate_offset=ft.Animation(ui.DUR_BASE, ui.CURVE_OUT),
     )
 
-    # ── scheduling feedback ("Next review in N days") ────────────────────
-    sched_text = ft.Text("", size=11, weight=ft.FontWeight.W_700, color=ui.C_INFO)
-    sched_banner = ft.Container(
-        opacity=0.0,
-        animate_opacity=ft.Animation(ui.DUR_BASE, ui.CURVE_OUT),
-        padding=ft.Padding.symmetric(horizontal=12, vertical=6),
-        border_radius=999,
-        bgcolor=ui.tint(ui.C_INFO, 0.10),
-        border=ft.Border.all(1, ui.tint(ui.C_INFO, 0.25)),
-        content=ft.Row(
-            tight=True,
-            spacing=6,
-            controls=[
-                ft.Icon(ft.Icons.EVENT_AVAILABLE_ROUNDED, size=13, color=ui.C_INFO),
-                sched_text,
-            ],
-        ),
-    )
+    def _get_font_size(text: str) -> int:
+        l = len((text or "").strip())
+        if l <= 60:
+            return 22
+        elif l <= 140:
+            return 18
+        elif l <= 280:
+            return 15
+        else:
+            return 13.5
+
+    def _make_stylesheet(size: int, is_bold: bool = False):
+        return ft.MarkdownStyleSheet(
+            text_alignment=ft.TextAlign.CENTER,
+            h1_alignment=ft.CrossAxisAlignment.CENTER,
+            h2_alignment=ft.CrossAxisAlignment.CENTER,
+            h3_alignment=ft.CrossAxisAlignment.CENTER,
+            ordered_list_alignment=ft.CrossAxisAlignment.CENTER,
+            unordered_list_alignment=ft.CrossAxisAlignment.CENTER,
+            p_text_style=ft.TextStyle(
+                size=size,
+                weight=ft.FontWeight.W_700 if is_bold else ft.FontWeight.W_500,
+                color=ft.Colors.ON_SURFACE,
+            ),
+            h1_text_style=ft.TextStyle(size=size + 4, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
+            h2_text_style=ft.TextStyle(size=size + 2, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
+            h3_text_style=ft.TextStyle(size=size, weight=ft.FontWeight.W_700, color=ft.Colors.ON_SURFACE),
+            strong_text_style=ft.TextStyle(size=size, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
+            code_text_style=ft.TextStyle(size=max(11, int(size - 2))),
+            list_bullet_text_style=ft.TextStyle(size=size),
+        )
 
     def _render_card():
         card = cards[state["index"]] or {}
-        front_text.value = str(card.get("front") or "—")
-        back_text.value = str(card.get("back") or "—")
+        front_val = str(card.get("front") or card.get("question") or "—")
+        back_val = str(card.get("back") or card.get("answer") or "")
+        expl = str(card.get("explanation") or "").strip()
+        if expl and expl not in back_val:
+            if back_val:
+                back_val = f"{back_val}\n\n---\n\n**💡 Explanation:**\n{expl}"
+            else:
+                back_val = f"**💡 Explanation:**\n{expl}"
+        elif not back_val and not expl:
+            back_val = "—"
+
+        f_size = _get_font_size(front_val)
+        b_size = _get_font_size(back_val)
+        front_markdown.md_style_sheet = _make_stylesheet(f_size, is_bold=(f_size >= 18))
+        back_markdown.md_style_sheet = _make_stylesheet(b_size, is_bold=False)
+
+        front_markdown.value = front_val
+        back_markdown.value = back_val
         state["flipped"] = False
         front_face.visible = True
         back_face.visible = False
@@ -157,7 +216,6 @@ def build_flashcard_session(
         progress.set_current(state["index"])
         grade_row.visible = False
         flip_row.visible = True
-        sched_banner.opacity = 0.0
 
     def _flip(_=None):
         if state["busy"] or state["done"]:
@@ -217,67 +275,73 @@ def build_flashcard_session(
         card = cards[state["index"]] or {}
         card_id = str(card.get("id") or "")
 
-        # Fire the review off, but surface the returned schedule.
+        # Fire the review off quietly in the background without exposing the algorithm intervals
         try:
             from src.requests.study import post_review
 
-            result = await asyncio.wait_for(
-                post_review(token, card_id=card_id, quality=quality), timeout=12
-            )
-            days = (result or {}).get("interval_days")
-            if days is not None:
-                sched_text.value = (
-                    "Next review tomorrow" if int(days) <= 1
-                    else f"Next review in {int(days)} days"
-                )
-                sched_banner.opacity = 1.0
-                page.update()
-                await asyncio.sleep(0.45)
+            asyncio.create_task(post_review(token, card_id=card_id, quality=quality))
         except Exception:
-            # Offline / failed sync shouldn't block the session.
             pass
 
         state["busy"] = False
         await _advance()
 
-    def _grade_click(quality: int, bucket: str, color):
-        def handler(_):
-            page.run_task(_grade, quality, bucket, color)
+    # ── tactile animated grading controls ────────────────────────────────
+    grade_actions_map = {}
 
-        return handler
-
-    # ── grading controls ─────────────────────────────────────────────────
-    def _grade_button(label: str, sub: str, color, quality: int, bucket: str):
-        return ft.Container(
+    def _make_grade_button(label: str, icon_name, color, quality: int, bucket: str, key_digit: str):
+        btn_box = ft.Container(
             expand=True,
-            height=62,
-            border_radius=ui.RADIUS_SM,
-            bgcolor=ui.tint(color, 0.10),
-            border=ft.Border.all(1.5, ui.tint(color, 0.35)),
+            height=42,
+            border_radius=ft.BorderRadius.all(10),
+            bgcolor=color,
             ink=True,
-            on_click=_grade_click(quality, bucket, color),
-            padding=ft.Padding.symmetric(horizontal=6, vertical=8),
-            animate=ft.Animation(ui.DUR_FAST, ui.CURVE_OUT),
-            content=ft.Column(
-                spacing=1,
-                tight=True,
+            padding=ft.Padding.symmetric(horizontal=4, vertical=4),
+            scale=1.0,
+            animate_scale=ft.Animation(80, ft.AnimationCurve.EASE_OUT),
+            animate_opacity=ft.Animation(80, ft.AnimationCurve.EASE_OUT),
+            shadow=ft.BoxShadow(
+                blur_radius=6,
+                color=ft.Colors.with_opacity(0.18, ft.Colors.BLACK),
+                offset=ft.Offset(0, 2),
+            ),
+            content=ft.Row(
+                spacing=5,
                 alignment=ft.MainAxisAlignment.CENTER,
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 controls=[
-                    ft.Text(label, size=11, weight=ft.FontWeight.W_800, color=color),
-                    ft.Text(sub, size=9, color=ui.muted(0.50))
+                    ft.Icon(icon_name, size=15, color=ft.Colors.WHITE),
+                    ft.Text(label, size=12.5, weight=ft.FontWeight.W_800, color=ft.Colors.WHITE),
+                    ft.Text(f"({key_digit})", size=9.5, weight=ft.FontWeight.W_600, color=ft.Colors.with_opacity(0.80, ft.Colors.WHITE)),
                 ],
             ),
         )
+
+        async def _tap_action(e=None):
+            if state["busy"] or state["done"]:
+                return
+            # Tapping tactile animation: squish and bounce
+            btn_box.scale = 0.90
+            btn_box.opacity = 0.85
+            page.update()
+            await asyncio.sleep(0.08)
+            btn_box.scale = 1.0
+            btn_box.opacity = 1.0
+            page.update()
+            await _grade(quality, bucket, color)
+
+        btn_box.on_click = lambda e: page.run_task(_tap_action)
+        grade_actions_map[key_digit] = _tap_action
+        return btn_box
 
     grade_row = ft.Row(
         spacing=8,
         visible=False,
         controls=[
-            _grade_button("Again", "Forgot", ui.C_WRONG, ui.GRADE_AGAIN, "again",),
-            _grade_button("Hard", "Struggled", ui.C_WARN, ui.GRADE_HARD, "hard", ),
-            _grade_button("Good", "Recalled", ui.C_CORRECT_SOFT, ui.GRADE_GOOD, "good"),
-            _grade_button("Easy", "Instant", ui.C_CORRECT, ui.GRADE_EASY, "easy"),
+            _make_grade_button("Again", ft.Icons.REPLAY_ROUNDED, ui.C_WRONG, ui.GRADE_AGAIN, "again", "1"),
+            _make_grade_button("Hard", ft.Icons.FITNESS_CENTER_ROUNDED, ui.C_WARN, ui.GRADE_HARD, "hard", "2"),
+            _make_grade_button("Good", ft.Icons.THUMB_UP_ALT_ROUNDED, ui.C_CORRECT_SOFT, ui.GRADE_GOOD, "good", "3"),
+            _make_grade_button("Easy", ft.Icons.ROCKET_LAUNCH_ROUNDED, ui.C_CORRECT, ui.GRADE_EASY, "easy", "4"),
         ],
     )
 
@@ -402,19 +466,32 @@ def build_flashcard_session(
         elif key == "escape":
             on_exit()
         elif state["flipped"] and key in ("1", "2", "3", "4"):
-            mapping = {
-                "1": (ui.GRADE_AGAIN, "again", ui.C_WRONG),
-                "2": (ui.GRADE_HARD, "hard", ui.C_WARN),
-                "3": (ui.GRADE_GOOD, "good", ui.C_CORRECT_SOFT),
-                "4": (ui.GRADE_EASY, "easy", ui.C_CORRECT),
-            }
-            q, bucket, color = mapping[key]
-            page.run_task(_grade, q, bucket, color)
+            action = grade_actions_map.get(key)
+            if action:
+                page.run_task(action)
 
     page.on_keyboard_event = _on_key
 
     # ── assemble ─────────────────────────────────────────────────────────
     _render_card()
+
+    browse_btn = ft.Container(
+        tooltip="Browse Full Deck (Q&A)",
+        ink=True,
+        border_radius=ft.BorderRadius.all(8),
+        padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+        bgcolor=ui.tint(ft.Colors.PRIMARY, 0.08),
+        border=ft.Border.all(1, ui.tint(ft.Colors.PRIMARY, 0.22)),
+        on_click=lambda _: open_deck_inspector(page, token, material=material),
+        content=ft.Row(
+            tight=True,
+            spacing=5,
+            controls=[
+                ft.Icon(ft.Icons.AUTO_STORIES_ROUNDED, size=13, color=ft.Colors.PRIMARY),
+                ft.Text("Browse Deck", size=11, weight=ft.FontWeight.W_700, color=ft.Colors.PRIMARY),
+            ],
+        ),
+    )
 
     tappable_card = ft.GestureDetector(
         expand=True,
@@ -434,7 +511,7 @@ def build_flashcard_session(
         expand=True,
         spacing=0,
         controls=[
-            ui.progress_header(counter, progress, right=[remaining_pill]),
+            ui.progress_header(counter, progress, right=[remaining_pill, browse_btn]),
             ft.Container(
                 expand=True,
                 alignment=ft.Alignment.CENTER,
@@ -448,11 +525,6 @@ def build_flashcard_session(
                             expand=True,
                             width=None if compact else 620,
                             content=tappable_card,
-                        ),
-                        ft.Container(
-                            width=None if compact else 620,
-                            alignment=ft.Alignment.CENTER,
-                            content=sched_banner,
                         ),
                         ft.Container(
                             width=None if compact else 620,

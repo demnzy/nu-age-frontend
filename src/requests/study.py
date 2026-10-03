@@ -9,12 +9,14 @@ api_url = "https://api.nu-age.name.ng"
 DEFAULT_TIMEOUT = httpx.Timeout(15.0)
 
 
-async def get_due_cards(token: str, material_ids: typing.Optional[list] = None) -> list:
+async def get_due_cards(token: str, material_ids: typing.Optional[list] = None, all_cards: bool = False) -> list:
     url = f"{api_url}/study/cards/due"
     headers = {"Authorization": f"Bearer {token}"}
     params = {}
     if material_ids:
         params["material_ids"] = ",".join(material_ids)
+    if all_cards:
+        params["all_cards"] = "true"
 
     try:
         async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
@@ -33,6 +35,11 @@ async def get_due_cards(token: str, material_ids: typing.Optional[list] = None) 
     except Exception as e:
         print(f"get_due_cards unexpected error: {e}")
         return []
+
+
+async def get_all_cards(token: str, material_ids: typing.Optional[list] = None) -> list:
+    """Fetch all flashcards for a material (both due and scheduled/mastered)."""
+    return await get_due_cards(token, material_ids=material_ids, all_cards=True)
 
 
 async def post_review(token: str, card_id: str, quality: int) -> dict:

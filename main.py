@@ -38,6 +38,7 @@ from src.components.shimmer_skeletons import build_skeleton_view
 from src.components.bottom_appbar import PersistentBottomAppBar
 from src.notifications_view import notifications_view
 from src.platform_admin_view import platform_admin_view
+from src.store_view import store_view
 import os
 
 
@@ -1724,6 +1725,15 @@ async def main(page: ft.Page):
             await load_view_and_report(course_stats_view(page, troute.id), page.route, active_skeleton, active_shimmer_task)
         elif page.route == "/self-study":
             await load_view_and_report(self_study_view(page), page.route, active_skeleton, active_shimmer_task)
+        elif page.route == "/store" or (page.route and page.route.startswith("/store")):
+            tab = "plans"
+            if page.route and "?" in page.route:
+                q = page.route.split("?", 1)[1]
+                if "tab=boosters" in q:
+                    tab = "boosters"
+                elif "tab=org" in q:
+                    tab = "org"
+            await load_view_and_report(store_view(page, initial_tab=tab), page.route, active_skeleton, active_shimmer_task)
         elif troute.match("/organisations/:org_id/playlists"):
             user_data = page.session.store.get("current_user") or {} if hasattr(page, "session") and hasattr(page.session, "store") else {}
             u_role = str(user_data.get("role", "")).upper()

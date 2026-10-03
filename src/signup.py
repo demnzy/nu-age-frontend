@@ -605,7 +605,7 @@ def Signup_view(page: ft.Page):
             ),
             ft.Column(
                 [
-                    ft.Text("Choose Your Nu-Age Experience", size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
+                    ft.Text("Choose Your Nu Age Experience", size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
                     ft.Text("Select your primary role to tailor your workspace and curriculum.", size=12, color=ft.Colors.GREY_400 if is_dark else ft.Colors.GREY_600),
                 ],
                 spacing=2,
@@ -947,7 +947,7 @@ def Signup_view(page: ft.Page):
                         ),
                         ft.Text("Account Verified & Ready!", size=22, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE, text_align=ft.TextAlign.CENTER),
                         ft.Text(
-                            f"Welcome to Nu-Age, {first_n}!",
+                            f"Welcome to Nu Age, {first_n}!",
                             size=13,
                             color=ft.Colors.GREY_400 if is_dark else ft.Colors.GREY_600,
                             text_align=ft.TextAlign.CENTER,
@@ -1197,7 +1197,7 @@ def Signup_view(page: ft.Page):
         elif stage == "otp":
             hero_subtitle.value = "Secure cryptographic 2-step verification ensures your learning credentials remain safe."
         elif stage == "confirmation":
-            hero_subtitle.value = "Your Nu-Age account and 24/7 AI Study Tutor are primed and ready."
+            hero_subtitle.value = "Your Nu Age account and 24/7 AI Study Tutor are primed and ready."
 
         if is_desktop:
             effective_w = w if (w and w > 0) else 960

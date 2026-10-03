@@ -248,12 +248,11 @@ async def course_learner_view(
         border_radius=8,
         ink=True,
         on_click=toggle_sidebar,
-        bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
+        bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_PRIMARY),
         border=ft.Border.all(1, ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)),
         content=ft.Row(
             [
                 ft.Icon(ft.Icons.MENU, size=16, color=ft.Colors.ON_SURFACE),
-                ft.Text("Syllabus", size=12, weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE),
             ],
             tight=True,
             spacing=6,
