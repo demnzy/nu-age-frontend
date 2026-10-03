@@ -111,6 +111,8 @@ async def sync_learner_notifications(page: ft.Page, force: bool = False):
                         ic = ft.Icons.TIMER_ROUNDED
                     elif cat == "courses":
                         ic = ft.Icons.SCHOOL_ROUNDED
+                    elif cat in ("discussion", "discussions"):
+                        ic = ft.Icons.FORUM_ROUNDED
                     else:
                         ic = ft.Icons.NOTIFICATIONS_ROUNDED
                     

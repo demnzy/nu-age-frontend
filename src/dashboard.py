@@ -13,9 +13,7 @@ from src.requests.chats import get_all_users
 from src.utils.quotes import get_random_quote, get_random_greeting, get_random_tip
 from src.utils.db_manager import get_weekly_activity, log_daily_activity
 from src.requests.Cohorts import get_learner_cohorts
-from src.components.learner_cohorts_hub import open_learner_cohorts_modal
 from src.local_db import has_any_downloaded_courses
-from src.components.next_best_action_card import get_next_best_action_card
 from src.components.quick_hub import get_quick_hub
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -762,16 +760,6 @@ async def dashboard_view(page: ft.Page):
         content=build_trackers_layout((page.width or 400) >= 800),
     )
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # 6. ACTION-ORIENTED COCKPIT & QUICK LAUNCH HUB
-    # ─────────────────────────────────────────────────────────────────────────
-    next_action_section = ft.Container(
-        width=float("inf"),
-        opacity=0,
-        offset=ft.Offset(0, 0.2),
-        animate_opacity=ft.Animation(400, ft.AnimationCurve.DECELERATE),
-        animate_offset=ft.Animation(400, ft.AnimationCurve.DECELERATE),
-    )
 
     quick_hub_section = ft.Container(
         width=float("inf"),
@@ -855,12 +843,6 @@ async def dashboard_view(page: ft.Page):
         active_count = len(enrolled_list)
         finished_count = sum(1 for c in enrolled_list if c.get("progress", 0.0) >= 100)
 
-        # ── Populate Next-Best Action Cockpit ────────────────────────────────
-        next_action_section.content = get_next_best_action_card(
-            enrolled_courses=enrolled_list,
-            page=page,
-            streak=streak,
-        )
 
         # ── Fetch Learner Cohorts ────────────────────────────────────────────
         learner_cohorts_res = {"cohorts": []}
@@ -960,12 +942,6 @@ async def dashboard_view(page: ft.Page):
 
         page.run_task(animate_stats, active_count, finished_count, streak)
 
-        # ── Dynamic Next-Best Action Cockpit ──────────────────────────────────
-        next_action_section.content = get_next_best_action_card(
-            enrolled_courses=enrolled_list,
-            page=page,
-            streak=streak,
-        )
 
         # ── build continue-learning cards ─────────────────────────────────────
         enrolled_cards = []
@@ -1338,8 +1314,7 @@ async def dashboard_view(page: ft.Page):
                             content=ft.Column(
                                 spacing=16,
                                 controls=[
-                                    next_action_section,        # 1. Action-Oriented Hero Cockpit
-                                    quick_hub_section,          # 2. 4-tile Quick Launch Hub
+                                    quick_hub_section,          # 1. 4-tile Quick Launch Hub
                                     continue_learning_section,  # 3. Continue Learning Course Cards
                                     trackers_container,         # 4. Dual Course Mastery & Learning Focus Trackers
                                     learner_cohorts_card,       # 5. My Training Cohorts Track
@@ -1358,7 +1333,6 @@ async def dashboard_view(page: ft.Page):
         # Trigger staggered fade-up animations for main dashboard sections
         sections_to_animate = [
             header,
-            next_action_section,
             activity_card,
             focus_card,
             self_study_card,

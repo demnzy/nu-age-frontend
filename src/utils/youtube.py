@@ -18,13 +18,39 @@ YOUTUBE_ID_REGEX = re.compile(
 
 
 def is_youtube_url(url: Optional[str]) -> bool:
-    """Check if the provided URL is a valid YouTube link."""
+    """Check if the provided URL is a valid playable YouTube video link."""
     if not url or not isinstance(url, str):
         return False
     clean_url = url.strip()
     return bool(
         "youtube.com" in clean_url or "youtu.be" in clean_url
     ) and bool(extract_youtube_id(clean_url))
+
+
+def is_youtube_search_url(url: Optional[str]) -> bool:
+    """Check if the provided URL is a YouTube search results page."""
+    if not url or not isinstance(url, str):
+        return False
+    clean_url = url.strip().lower()
+    return bool(
+        ("youtube.com" in clean_url or "youtu.be" in clean_url)
+        and ("results?search_query=" in clean_url or "/results" in clean_url)
+    )
+
+
+def extract_youtube_search_query(url: Optional[str]) -> str:
+    """Extract the search query string from a YouTube search results URL."""
+    if not url or not isinstance(url, str):
+        return ""
+    import urllib.parse
+    try:
+        parsed = urllib.parse.urlparse(url.strip())
+        qs = urllib.parse.parse_qs(parsed.query)
+        if "search_query" in qs and qs["search_query"]:
+            return qs["search_query"][0].replace("+", " ")
+    except Exception:
+        pass
+    return ""
 
 
 def extract_youtube_id(url: Optional[str]) -> Optional[str]:

@@ -186,10 +186,10 @@ async def main(page: ft.Page):
                 break
 
             try:
-                session = AuthSession.get_instance(page)
-                if session.get_token_age_seconds() >= 2400:  # 40 minutes (access token expires at 60m)
-                    stored_token = await page.shared_preferences.get("auth_token")
-                    if stored_token:
+                stored_token = await page.shared_preferences.get("auth_token")
+                if stored_token:
+                    session = AuthSession.get_instance(page)
+                    if session.get_token_age_seconds(stored_token) >= 2400:  # 40 minutes (access token expires at 60m)
                         print("[Heartbeat] Access token is >= 40 minutes old. Proactively refreshing in background...")
                         await session.refresh_access_token()
             except Exception as ex:
@@ -1326,13 +1326,18 @@ async def main(page: ft.Page):
                     page.route = previous_view.route
 
                 route_change_state["pending_rerun"] = False
-                if getattr(page, "web", False):
-                    try:
-                        await page.push_route(page.route, skip_route_change_event=True)
-                    except Exception as resync_ex:
-                        print(f"restore_previous_or_fallback: push_route resync failed: {resync_ex!r}")
-                    finally:
-                        route_change_state["pending_rerun"] = False
+                # Resync both the Python-side Flet duplicate route gate (__last_route) and the
+                # Flutter client-side router (on Android, iOS, desktop, and web) back to page.route.
+                # Without this, Flutter's client-side navigator and Flet's before_event gate both
+                # remember the failed route as the "current" route, causing any subsequent tap to that
+                # destination to be dropped as a duplicate no-op.
+                setattr(page, "_Page__last_route", page.route)
+                try:
+                    await page.push_route(page.route)
+                except Exception as resync_ex:
+                    print(f"restore_previous_or_fallback: push_route resync failed: {resync_ex!r}")
+                finally:
+                    route_change_state["pending_rerun"] = False
                 return True
             else:
                 # Nothing safe to fall back to (first view of the session,
@@ -1381,25 +1386,35 @@ async def main(page: ft.Page):
             title: str = "Session expired",
             redirect_to_login: bool = True,
         ):
-            """Sleek dialog shown instead of silently kicking the user to login.
-            redirect_to_login=False is used for non-auth errors (network/server)
-            where we want to inform the user but not force them back to login."""
+            """Unified dialog handler that delegates to AuthSession.handle_session_expired
+            for auth expiration without creating duplicate or old AlertDialog boxes."""
+            if is_public_route(page.route):
+                return
+            session_inst = AuthSession.get_instance(page)
+            if session_inst._session_expired_shown or session_inst._is_logging_out:
+                return
+
+            if redirect_to_login:
+                await session_inst.handle_session_expired(message=message, title=title)
+                return
 
             def close_dialog(e=None):
-                page.pop_dialog()
-                if redirect_to_login:
-                    page.go("/login")
+                try:
+                    page.pop_dialog()
+                except Exception:
+                    pass
 
             dlg = ft.AlertDialog(
                 modal=True,
+                shape=ft.RoundedRectangleBorder(radius=16),
                 title=ft.Row(
-                    [ft.Icon(ft.Icons.LOCK_CLOCK, color=ft.Colors.PRIMARY), ft.Text(title)],
+                    [ft.Icon(ft.Icons.INFO_OUTLINE_ROUNDED, color=ft.Colors.PRIMARY), ft.Text(title, weight=ft.FontWeight.W_700)],
                     spacing=8,
                 ),
                 content=ft.Text(message),
                 actions=[
                     ft.FilledButton(
-                        "Log in again" if redirect_to_login else "OK",
+                        "OK",
                         on_click=close_dialog,
                     ),
                 ],
@@ -1407,9 +1422,8 @@ async def main(page: ft.Page):
             )
             page.show_dialog(dlg)
 
-            # Auto-dismiss/redirect after a few seconds if they don't tap the button
             await asyncio.sleep(auto_redirect_seconds)
-            if dlg.open:
+            if getattr(dlg, "open", False):
                 close_dialog()
 
         in_shell_route_flag = is_shell_route(page.route)
@@ -1418,7 +1432,7 @@ async def main(page: ft.Page):
         stored_token = await page.shared_preferences.get("auth_token")
 
         session = AuthSession.get_instance(page)
-        token_stale = session.get_token_age_seconds() >= 2700  # 45 minutes
+        token_stale = session.get_token_age_seconds(stored_token) >= 2700  # 45 minutes
 
         needs_auth_check = (
             not is_public_route(page.route)

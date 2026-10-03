@@ -22,6 +22,8 @@ from flet_video import Video, VideoMedia
 
 from src.utils.youtube import (
     is_youtube_url,
+    is_youtube_search_url,
+    extract_youtube_search_query,
     extract_youtube_id,
     get_youtube_embed_url,
     get_youtube_iframe_html,
@@ -64,11 +66,17 @@ class AdaptiveVideoPlayer(ft.Container):
         self.on_complete_callback = on_complete
         self.custom_controls = custom_controls
 
-        self._is_youtube = is_youtube_url(self.media_url)
+        self._is_search_query = is_youtube_search_url(self.media_url)
+        self._is_youtube = is_youtube_url(self.media_url) and not self._is_search_query
         self._video_id = extract_youtube_id(self.media_url) if self._is_youtube else None
         self._stream_info: Optional[Dict[str, Any]] = None
         self._resolution_attempted = False
         self._player_control: Optional[Video] = None
+
+        if self._is_search_query and (not title or title == "Lesson Video"):
+            sq = extract_youtube_search_query(self.media_url)
+            if sq:
+                self.title = f"YouTube: {sq}"
 
         # Base container properties
         super().__init__(
@@ -88,9 +96,16 @@ class AdaptiveVideoPlayer(ft.Container):
 
         if not self.media_url:
             self.content = self._build_empty_placeholder()
+        elif self._is_search_query:
+            # YouTube search results page - render interactive Cinema card, never feed HTML to ExoPlayer
+            self.content = self._build_cinema_card()
         elif not self._is_youtube:
-            # Standard video media - directly initialize native Video
-            self.content = self._build_native_player(self.media_url)
+            # Check if it's an unparseable YouTube link or query
+            if "youtube.com" in self.media_url.lower() or "youtu.be" in self.media_url.lower():
+                self.content = self._build_cinema_card()
+            else:
+                # Standard direct video media
+                self.content = self._build_native_player(self.media_url)
         else:
             # YouTube media - initial loading state while resolving stream
             self.content = self._build_youtube_loading_ui()

@@ -448,8 +448,22 @@ def login_view(page: ft.Page):
         )
 
     # ── fields ────────────────────────────────────────────────────
+    prefill_val = getattr(page, "_prefill_login_identifier", None)
+    if not prefill_val and hasattr(page, "session") and hasattr(page.session, "store"):
+        try:
+            prefill_val = page.session.store.get("prefill_login_identifier")
+        except Exception:
+            prefill_val = None
+
+    if hasattr(page, "_prefill_login_identifier"):
+        try:
+            delattr(page, "_prefill_login_identifier")
+        except Exception:
+            pass
+
     email = field(
         label="Email or Username",
+        value=prefill_val or "",
         hint_text="name@example.com",
         prefix_icon=ft.Icons.PERSON_OUTLINE_ROUNDED,
         keyboard_type=ft.KeyboardType.EMAIL,

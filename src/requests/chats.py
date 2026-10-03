@@ -91,6 +91,7 @@ async def ask_ai_tutor_api(
     lesson_content: str = "",
     conversation_history: list = None,
     is_assessment: bool = False,
+    material_id: str = None,
 ):
     """Calls the OpenAI-powered educational AI Doubt Assistant."""
     url = f"{api_url}/study/ai-tutor"
@@ -103,6 +104,7 @@ async def ask_ai_tutor_api(
         "lesson_content": lesson_content,
         "conversation_history": conversation_history or [],
         "is_assessment": is_assessment,
+        "material_id": str(material_id) if material_id else None,
     }
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(35.0, connect=10.0), verify=ssl_context) as client:

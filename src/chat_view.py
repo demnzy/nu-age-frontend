@@ -303,13 +303,33 @@ async def chat_view(
     messages_listview = ft.ListView(
         expand=True,
         spacing=4,
-        auto_scroll=False,
+        auto_scroll=True,
         padding=ft.Padding.symmetric(horizontal=8 if not is_desktop[0] else 12, vertical=8 if not is_desktop[0] else 10)
     )
 
+    messages_anim_container = ft.Container(
+        content=messages_listview,
+        expand=True,
+        bgcolor=palette["chat_wall"],
+        opacity=1.0,
+        offset=ft.Offset(0, 0),
+        animate_opacity=ft.Animation(280, ft.AnimationCurve.DECELERATE),
+        animate_offset=ft.Animation(280, ft.AnimationCurve.DECELERATE),
+    )
+
+    async def _async_scroll_to_bottom(animate: bool = True):
+        try:
+            await asyncio.sleep(0.06)
+            await messages_listview.scroll_to(offset=-1, duration=200 if animate else 0)
+        except Exception:
+            try:
+                messages_listview.scroll_to(offset=-1, duration=200 if animate else 0)
+            except Exception:
+                pass
+
     def _scroll_to_bottom(animate: bool = False):
         try:
-            page.run_task(messages_listview.scroll_to, offset=-1, duration=200 if animate else 0)
+            page.run_task(_async_scroll_to_bottom, animate)
         except Exception:
             pass
 
@@ -412,6 +432,8 @@ async def chat_view(
         else:
             page.run_task(ws_client_ref[0].send_message, current_chat_id[0], text, "text")
 
+        _scroll_to_bottom(animate=True)
+
     def _update_send_btn_state():
         has_text = bool(msg_input.value and msg_input.value.strip())
         send_btn_container.bgcolor = palette["accent_glow"] if has_text else palette["surface_variant"]
@@ -421,7 +443,7 @@ async def chat_view(
         _update_send_btn_state()
         now = datetime.now().timestamp()
         if now - last_typing_time[0] > 2.5:
-            if ws_client_ref[0] and current_chat_id[0]:
+            if ws_client_ref[0] and getattr(ws_client_ref[0], "websocket", None) and current_chat_id[0]:
                 page.run_task(ws_client_ref[0].send_message, current_chat_id[0], "typing", "typing")
             last_typing_time[0] = now
 
@@ -522,7 +544,7 @@ async def chat_view(
                     query in (m.get("username") or "").lower() or
                     query in (m.get("name") or m.get("full_name") or "").lower()
                 )
-            ][:5]
+            ]
 
             for u in matches:
                 u_id_str = str(u.get("id") or u.get("user_id", "")).strip().lower()
@@ -1683,6 +1705,8 @@ async def chat_view(
             _is_course = bool(chat_info.get("course_id") or _chat_type == "course")
             _other_uid = chat_info.get("other_user_id")
 
+            status_txt = ft.Text("Connecting..." if _chat_type == "direct" else "Loading members...", size=11, color=palette["text_muted"])
+
             # Load group members if this is a group/course chat
             active_channel_members.clear()
             if _chat_type != "direct":
@@ -1708,9 +1732,11 @@ async def chat_view(
 
                         # Refresh header status and tagging candidate list immediately
                         if _chat_type != "direct" and current_chat_id[0] == c_id:
-                            if chat_status_text:
-                                chat_status_text.value = f"{len(active_channel_members)} members"
-                            page.update()
+                            if status_txt and getattr(status_txt, "page", None):
+                                status_txt.value = f"{len(active_channel_members)} members"
+                                status_txt.update()
+                            elif status_txt:
+                                status_txt.value = f"{len(active_channel_members)} members"
                     except Exception as e:
                         print(f"[NuChat] Error fetching channel members: {e}")
                 page.run_task(_fetch_group_members_task)
@@ -1789,8 +1815,6 @@ async def chat_view(
             else:
                 title_widget = title_txt
 
-            status_txt = ft.Text("Connecting...", size=11, color=palette["text_muted"])
-
             active_chat_header.controls = [
                 back_btn,
                 header_avatar,
@@ -1816,12 +1840,8 @@ async def chat_view(
                     padding=ft.Padding.symmetric(horizontal=12, vertical=10),
                     content=active_chat_header
                 ),
-                # Message History View
-                ft.Container(
-                    content=messages_listview,
-                    expand=True,
-                    bgcolor=palette["chat_wall"]
-                ),
+                # Message History View with Upward Fade Animation
+                messages_anim_container,
                 # Bottom Input Composer with Autocomplete Overlay
                 ft.Column([
                     autocomplete_card,
@@ -1853,6 +1873,9 @@ async def chat_view(
 
             # --- 1. RENDER FROM LOCAL SQLITE CACHE ---
             def _render_history(hist_list: list):
+                # Reset transition for smooth upward fade-in
+                messages_anim_container.opacity = 0.0
+                messages_anim_container.offset = ft.Offset(0, 0.035)
                 messages_listview.controls.clear()
                 seen_msg_ids.clear()
 
@@ -1904,6 +1927,13 @@ async def chat_view(
 
                 page.update()
                 _scroll_to_bottom(animate=False)
+                # Animate entrance upwards
+                messages_anim_container.opacity = 1.0
+                messages_anim_container.offset = ft.Offset(0, 0)
+                try:
+                    messages_anim_container.update()
+                except Exception:
+                    page.update()
 
             cached_history = get_cached_messages(page, chat_id)
             if cached_history:
@@ -2253,6 +2283,7 @@ async def chat_view(
             )
             if success:
                 _close_modal(dlg)
+                _scroll_to_bottom(animate=True)
             else:
                 show_page_snackbar(page, ft.SnackBar(content=ft.Text("Failed to send poll. Connection lost."), bgcolor=ft.Colors.RED_700))
 

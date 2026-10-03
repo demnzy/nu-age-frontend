@@ -93,6 +93,9 @@ Check it out 👉 : nu-age.com.ng"""
             )
             if status == 200:
                 page.go(f"/courses/{course_id}/view")
+                e.control.disabled = False
+                e.control.content = orig_content
+                page.update()
             else:
                 e.control.disabled = False
                 e.control.content = orig_content

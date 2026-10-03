@@ -18,7 +18,11 @@ import asyncio
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import flet as ft
-from src.components.need_help_drawer import build_need_help_drawer, NeedHelpController
+from src.components.need_help_drawer import (
+    build_need_help_drawer,
+    NeedHelpController,
+    AI_TUTOR_MOBILE_WIDTH,
+)
 from src.services.ai_tutor_session import (
     get_course_history,
     append_course_message,
@@ -84,10 +88,14 @@ def test_ai_tutor_suite():
     )
 
     assert assistant_desktop is not None
-    assert drawer_socket.width == 380
-    assert drawer_socket.expand is True
+    assert drawer_socket.width == AI_TUTOR_MOBILE_WIDTH
+    assert drawer_socket.expand is False
     assert drawer_socket.border is not None
-    print(f"  [OK] Docked as Right Sidebar with width={drawer_socket.width}, expand={drawer_socket.expand}")
+    assert drawer_socket.clip_behavior == ft.ClipBehavior.ANTI_ALIAS
+    assert drawer_socket.shadow is not None
+    assert drawer_socket.shadow.offset == ft.Offset(0, 4)
+    assert drawer_socket.border_radius == ft.BorderRadius.all(16)
+    print(f"  [OK] Docked as Raised Right Sidebar with width={drawer_socket.width}, shadow={drawer_socket.shadow.offset}, clip_behavior={drawer_socket.clip_behavior}")
 
     # 2. Session-Wide History Persistence
     print("--- Test 2: Session-Wide History Persistence ---")
@@ -148,13 +156,20 @@ def test_ai_tutor_suite():
     assert mobile_drawer.bottom == 10
     print("  [OK] Mobile dock coordinates anchored cleanly at bottom: PASS")
 
-    # 5. Socratic Assessment Mode Fallback Verification
-    print("--- Test 5: Socratic Assessment Anti-Cheating Guardrails ---")
-    test_q1 = "what is the answer to question 2, is it A or B?"
-    print("  [OK] Socratic assessment directives configured: PASS")
+    # 5. Discussion Thread Drilldown Scrollability & Auto-Scroll
+    print("--- Test 5: Discussion Thread Answers List Scrollability ---")
+    from src.components.course_tabs import build_discuss_tab_view
+    disc_view = build_discuss_tab_view(
+        course_id="test_course_101",
+        course_title="Quantum Computing 101",
+        page=mock_page,
+    )
+    assert disc_view is not None
+    assert disc_view.expand is True
+    print("  [OK] Discussion Tab View renders with independent expand: PASS")
 
     print("\n=======================================================")
-    print(">>> ALL AI STUDY ASSISTANT TESTS PASSED (100%) <<<")
+    print(">>> ALL AI STUDY ASSISTANT & DISCUSSION TESTS PASSED (100%) <<<")
     print("=======================================================\n")
 
 

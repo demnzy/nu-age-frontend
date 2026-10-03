@@ -7,13 +7,19 @@ import asyncio
 import flet as ft
 
 
-def show_page_snackbar(page: ft.Page, snack: ft.SnackBar):
+def show_page_snackbar(page: ft.Page, snack: Any):
     """
     Safely presents a SnackBar across different Flet runtime contexts
-    without throwing AttributeError on missing show_snack_bar.
+    without throwing AttributeError on missing show_snack_bar or string TypeError.
     """
     if not page:
         return
+    # Guard against swapped arguments e.g. show_page_snackbar("text", page)
+    if isinstance(page, (str, ft.SnackBar)) and isinstance(snack, ft.Page):
+        page, snack = snack, page
+    # Coerce raw strings into SnackBar
+    if isinstance(snack, str):
+        snack = ft.SnackBar(content=ft.Text(snack), duration=2500)
     try:
         if hasattr(page, "open"):
             page.open(snack)

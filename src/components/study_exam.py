@@ -20,6 +20,7 @@ import time
 import flet as ft
 
 from src.components import study_ui as ui
+from src.components.exam_calculator import build_exam_calculator
 
 _LETTERS = ["A", "B", "C", "D", "E", "F"]
 
@@ -34,6 +35,7 @@ def build_exam(
     on_lock=None,
     haptics: "ui.Haptics | None" = None,
     on_register_submit=None,
+    calculator_type: str = "scientific",
 ):
     """
     Returns a Control for the exam.
@@ -66,8 +68,59 @@ def build_exam(
     }
 
     root = ft.Container(expand=True)
+    main_container = ft.Container(expand=True)
     if on_lock:
         on_lock(True)
+
+    compact = ui.is_compact(page)
+    calc_state = {"type": calculator_type}
+
+    # Floating Calculator Overlay (Positioned in Stack)
+    calc_overlay = ft.Container(
+        visible=False,
+        top=56,
+        right=16 if not compact else None,
+        left=16 if compact else None,
+        alignment=ft.Alignment.TOP_CENTER if compact else ft.Alignment.TOP_RIGHT,
+    )
+
+    def _render_calculator():
+        calc_overlay.content = build_exam_calculator(
+            page=page,
+            calculator_type=calc_state["type"],
+            on_close=toggle_calc,
+            on_toggle_mode=_toggle_calc_mode,
+        )
+
+    def _toggle_calc_mode(_=None):
+        calc_state["type"] = "basic" if calc_state["type"] == "scientific" else "scientific"
+        _render_calculator()
+        page.update()
+
+    def toggle_calc(_=None):
+        calc_overlay.visible = not calc_overlay.visible
+        if calc_overlay.visible and calc_overlay.content is None:
+            _render_calculator()
+        page.update()
+
+    calc_btn = ft.Container(
+        padding=ft.Padding.symmetric(horizontal=10 if not compact else 8, vertical=6),
+        border_radius=999,
+        bgcolor=ui.tint(ft.Colors.PRIMARY, 0.10),
+        border=ft.Border.all(1, ui.tint(ft.Colors.PRIMARY, 0.28)),
+        ink=True,
+        tooltip="Calculator (C)",
+        on_click=toggle_calc,
+        content=ft.Row(
+            tight=True,
+            spacing=5,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                ft.Icon(ft.Icons.CALCULATE_ROUNDED, size=16, color=ft.Colors.PRIMARY),
+                *( [ft.Text("Calculator", size=12, weight=ft.FontWeight.W_700, color=ft.Colors.PRIMARY)] if not compact else [] ),
+            ],
+        ),
+    )
 
     # ── timer ────────────────────────────────────────────────────────────
     timer_text = ft.Text(
@@ -245,7 +298,7 @@ def build_exam(
 
     def _render_question():
         q = questions[state["index"]] or {}
-        counter.value = f"Question {state['index'] + 1} of {total}"
+        counter.value = f"Q {state['index'] + 1}/{total}" if compact else f"Question {state['index'] + 1} of {total}"
         question_text.value = str(q.get("question") or "—")
 
         chosen = state["answers"].get(state["index"])
@@ -253,7 +306,9 @@ def build_exam(
         for i, opt in enumerate(q.get("options") or []):
             options_col.controls.append(_option_tile(i, str(opt), chosen == i))
 
-        answered_pill.content.controls[-1].value = f"{len(state['answers'])}/{total} answered"
+        answered_pill.content.controls[-1].value = (
+            f"{len(state['answers'])}/{total}" if compact else f"{len(state['answers'])}/{total} answered"
+        )
         prev_btn.disabled = state["index"] == 0
         prev_btn.opacity = 0.4 if state["index"] == 0 else 1.0
         next_label.value = "Review" if state["index"] == total - 1 else "Next"
@@ -270,7 +325,7 @@ def build_exam(
     def _goto(n: int):
         state["index"] = max(0, min(n, total - 1))
         state["reviewing"] = False
-        root.content = exam_layout
+        main_container.content = exam_layout
         _render_question()
         page.update()
 
@@ -465,7 +520,7 @@ def build_exam(
         blocks.append(ft.Container(height=24))
 
         compact = ui.is_compact(page)
-        root.content = ft.Column(
+        main_container.content = ft.Column(
             expand=True,
             spacing=0,
             controls=[
@@ -536,6 +591,7 @@ def build_exam(
             show_pass_band=True,
         )
 
+        calc_overlay.visible = False
         if auto:
             banner = ft.Container(
                 padding=ft.Padding.symmetric(horizontal=16, vertical=11),
@@ -550,9 +606,9 @@ def build_exam(
                     ],
                 ),
             )
-            root.content = ft.Column(expand=True, spacing=0, controls=[banner, results])
+            main_container.content = ft.Column(expand=True, spacing=0, controls=[banner, results])
         else:
-            root.content = results
+            main_container.content = results
         page.update()
 
     if on_register_submit:
@@ -571,7 +627,12 @@ def build_exam(
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     controls=[
                         ft.Row(spacing=9, controls=[counter, answered_pill]),
-                        timer_chip,
+                        ft.Row(
+                            spacing=8,
+                            tight=True,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            controls=[calc_btn, timer_chip],
+                        ),
                     ],
                 ),
                 ft.Row(controls=[time_bar]),
@@ -584,6 +645,12 @@ def build_exam(
         if state["submitted"]:
             return
         key = (e.key or "").lower()
+        if key == "escape" and calc_overlay.visible:
+            toggle_calc()
+            return
+        if key == "c" and not state["reviewing"]:
+            toggle_calc()
+            return
         if state["reviewing"]:
             return
         if key == "arrow right":
@@ -664,6 +731,7 @@ def build_exam(
     )
 
     _render_question()
-    root.content = exam_layout
+    main_container.content = exam_layout
+    root.content = ft.Stack([main_container, calc_overlay], expand=True)
     page.run_task(_tick)
     return root

@@ -61,6 +61,9 @@ async def courses_view(page: ft.Page):
                 e.control.content = ft.Text("Fetching Course Contents...", color=ft.Colors.WHITE)
                 page.update()
                 page.go(f"/courses/{course_id}/view")
+                e.control.disabled = False
+                e.control.content = ft.Text("Continue Course")
+                page.update()
             else:
                 e.control.disabled = False
                 e.control.content = ft.Text("Enroll")

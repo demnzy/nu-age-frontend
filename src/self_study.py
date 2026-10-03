@@ -13,10 +13,25 @@ from src.requests.study import (
     get_quiz_questions,
     get_exam_questions,
     generate_from_materials,
-    check_generation_status
-    
+    check_generation_status,
+    import_youtube_material,
+    get_youtube_recommendations,
 )
-
+from src.requests.chats import ask_ai_tutor_api
+from src.utils.file_opener import safe_set_clipboard, show_page_snackbar
+from src.components.adaptive_video_player import AdaptiveVideoPlayer
+from src.utils.youtube import (
+    is_youtube_url,
+    is_youtube_search_url,
+    extract_youtube_search_query,
+    extract_youtube_id,
+    get_youtube_thumbnail_url,
+)
+from src.services.ai_tutor_session import (
+    get_material_tutor_history,
+    append_material_tutor_message,
+    clear_material_tutor_history,
+)
 
 # Backend sends limits, but we map UI colors here on the frontend
 from src.requests.subscription import get_subscription_status
@@ -266,6 +281,10 @@ async def self_study_view(page: ft.Page):
         "mat_lim":           5,
         "gen_used":          0,
         "gen_lim":           10,
+        "active_material":   None,
+        "active_material_cards": [],
+        "material_ai_chat":  [],
+        "is_ai_generating":  False,
     }
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -288,6 +307,9 @@ async def self_study_view(page: ft.Page):
         ),
         actions=[sidebar_toggle],
         elevation=0,
+        elevation_on_scroll=0,
+        shadow_color=ft.Colors.TRANSPARENT,
+        force_material_transparency=False,
     )
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -440,7 +462,10 @@ async def self_study_view(page: ft.Page):
 
         _refresh_sidebar_materials()
         if state.get("on_hub"):
-            content_socket.content = _build_hub(state.get("due_cards", []), state.get("materials", []))
+            if state.get("active_material"):
+                content_socket.content = _build_material_cockpit(state["active_material"], state.get("due_cards", []))
+            else:
+                content_socket.content = _build_hub(state.get("due_cards", []), state.get("materials", []))
             page.update()
 
         # 2. Fetch live due cards scoped to the new selection from backend
@@ -461,7 +486,10 @@ async def self_study_view(page: ft.Page):
                     except Exception: pass
 
                 if state.get("on_hub"):
-                    content_socket.content = _build_hub(state["due_cards"], state.get("materials", []))
+                    if state.get("active_material"):
+                        content_socket.content = _build_material_cockpit(state["active_material"], state["due_cards"])
+                    else:
+                        content_socket.content = _build_hub(state["due_cards"], state.get("materials", []))
                     page.update()
         except Exception as ex:
             print(f"[STUDY] Error syncing due cards: {ex}")
@@ -538,29 +566,51 @@ async def self_study_view(page: ft.Page):
                 m_color = ft.Colors.BLUE_400
                 m_tag = "NOTE"
 
+            is_active = state.get("active_material") and str(state["active_material"].get("id")) == str(mat_id)
             is_selected = mat_id in state["selected_mat_ids"]
 
+            if is_active:
+                border_style = ft.Border.all(1.5, ft.Colors.PRIMARY)
+                bg_style = ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY)
+            elif is_selected:
+                border_style = ft.Border.all(1.2, ft.Colors.with_opacity(0.4, ft.Colors.PRIMARY))
+                bg_style = ft.Colors.with_opacity(0.06, ft.Colors.PRIMARY)
+            else:
+                border_style = ft.Border.all(1, ft.Colors.with_opacity(0.09, ft.Colors.ON_SURFACE))
+                bg_style = ft.Colors.with_opacity(0.02, ft.Colors.ON_SURFACE)
+
+            trailing_control = ft.Container(
+                padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+                border_radius=ft.BorderRadius.all(6),
+                bgcolor=ft.Colors.PRIMARY,
+                content=ft.Text("STUDYING", size=8, color=ft.Colors.WHITE, weight=ft.FontWeight.W_800),
+            ) if is_active else ft.IconButton(
+                icon=ft.Icons.CHECK_CIRCLE_ROUNDED if is_selected else ft.Icons.RADIO_BUTTON_UNCHECKED_ROUNDED,
+                icon_color=ft.Colors.PRIMARY if is_selected else ft.Colors.GREY_400,
+                icon_size=16,
+                tooltip="Toggle for practice filter",
+                on_click=lambda e, mid=mat_id: page.run_task(_sync_material_selection, target_id=mid),
+            )
+
             chip = ft.Container(
-                border_radius=ft.BorderRadius.all(8),
-                border=ft.Border.all(
-                    1.2 if is_selected else 1,
-                    ft.Colors.with_opacity(0.35, ft.Colors.PRIMARY) if is_selected else ft.Colors.with_opacity(0.09, ft.Colors.ON_SURFACE),
-                ),
-                bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.PRIMARY) if is_selected else ft.Colors.with_opacity(0.02, ft.Colors.ON_SURFACE),
-                padding=ft.Padding.symmetric(horizontal=8, vertical=7),
+                border_radius=ft.BorderRadius.all(10),
+                border=border_style,
+                bgcolor=bg_style,
+                padding=ft.Padding.symmetric(horizontal=8, vertical=6),
                 ink=True,
                 data=mat_id,
+                tooltip=f"Study {display_title}",
                 content=ft.Row(
                     spacing=8,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     controls=[
                         ft.Container(
-                            width=26,
-                            height=26,
-                            border_radius=ft.BorderRadius.all(6),
-                            bgcolor=ft.Colors.with_opacity(0.12, m_color),
+                            width=28,
+                            height=28,
+                            border_radius=ft.BorderRadius.all(7),
+                            bgcolor=ft.Colors.with_opacity(0.14, m_color),
                             alignment=ft.Alignment.CENTER,
-                            content=ft.Icon(m_icon, color=m_color, size=14),
+                            content=ft.Icon(m_icon, color=m_color, size=15),
                         ),
                         ft.Column(
                             spacing=1,
@@ -569,32 +619,30 @@ async def self_study_view(page: ft.Page):
                                 ft.Text(
                                     display_title,
                                     size=11,
-                                    weight=ft.FontWeight.W_600,
-                                    color=ft.Colors.ON_SURFACE,
+                                    weight=ft.FontWeight.W_700 if is_active else ft.FontWeight.W_600,
+                                    color=ft.Colors.PRIMARY if is_active else ft.Colors.ON_SURFACE,
                                     max_lines=1,
                                     overflow=ft.TextOverflow.ELLIPSIS,
                                 ),
                                 ft.Text(
                                     m_tag,
                                     size=8.5,
-                                    color=ft.Colors.GREY_500,
-                                    weight=ft.FontWeight.W_500,
+                                    color=ft.Colors.PRIMARY if is_active else ft.Colors.GREY_500,
+                                    weight=ft.FontWeight.W_600 if is_active else ft.FontWeight.W_500,
                                 ),
                             ],
                         ),
-                        ft.Icon(
-                            ft.Icons.CHECK_CIRCLE_ROUNDED if is_selected else ft.Icons.RADIO_BUTTON_UNCHECKED_ROUNDED,
-                            color=ft.Colors.PRIMARY if is_selected else ft.Colors.GREY_400,
-                            size=15,
-                        ),
+                        trailing_control,
                     ],
                 ),
             )
 
-            def _toggle(e, mid=mat_id):
-                page.run_task(_sync_material_selection, target_id=mid)
+            def _select_material(e, m=mat):
+                if not state.get("was_desktop", True) and state.get("sidebar_open"):
+                    _toggle_sidebar()
+                page.run_task(_open_material_cockpit, m)
 
-            chip.on_click = _toggle
+            chip.on_click = _select_material
             sidebar_materials_col.controls.append(chip)
 
     material_search_field = ft.TextField(
@@ -875,12 +923,12 @@ async def self_study_view(page: ft.Page):
                 controls=[
                     ft.Row(
                         spacing=10,
-                        tight=True,
+                        expand=True,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         controls=[
                             ft.Container(
-                                width=34,
-                                height=34,
+                                width=32,
+                                height=32,
                                 border_radius=ft.BorderRadius.all(8),
                                 bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY),
                                 alignment=ft.Alignment.CENTER,
@@ -888,10 +936,11 @@ async def self_study_view(page: ft.Page):
                             ),
                             ft.Column(
                                 spacing=1,
+                                expand=True,
                                 tight=True,
                                 controls=[
-                                    ft.Text("Studio & Quotas", size=15.5, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
-                                    ft.Text("Uploads, AI generation & limits", size=10, color=ft.Colors.GREY_500),
+                                    ft.Text("Studio & Quotas", size=15, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                                    ft.Text("Uploads, AI generation & limits", size=10.5, color=ft.Colors.GREY_500, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                                 ],
                             ),
                         ],
@@ -1301,13 +1350,14 @@ async def self_study_view(page: ft.Page):
     # NAV HELPERS
     # ─────────────────────────────────────────────────────────────────────────
     def _set_appbar(title: str, on_back):
-        app_bar.title = ft.Text(title, color=ft.Colors.ON_PRIMARY,
+        app_bar.title = ft.Text(title, color=ft.Colors.ON_SURFACE,
                                 weight=ft.FontWeight.W_700, size=17)
         app_bar.leading = ft.IconButton(
             icon=ft.Icons.ARROW_BACK_ROUNDED,
-            icon_color=ft.Colors.ON_PRIMARY,
+            icon_color=ft.Colors.ON_SURFACE,
             on_click=lambda _: on_back(),
         )
+        sidebar_toggle.visible = state.get("on_hub", True)
 
     def _lock_exam_ui(locked: bool):
         """Prevent leaving/navigating away mid-exam without confirming."""
@@ -1558,10 +1608,13 @@ async def self_study_view(page: ft.Page):
 
             state["on_hub"] = True
             try:
-                content_socket.content = _build_hub(due_cards or [], materials or [])
+                if state.get("active_material"):
+                    content_socket.content = _build_material_cockpit(state["active_material"], state.get("active_material_cards") or [])
+                else:
+                    content_socket.content = _build_hub(due_cards or [], materials or [])
             except Exception as ex:
                 import traceback
-                print(f"[_load_hub: _build_hub failed]: {ex}")
+                print(f"[_load_hub: build view failed]: {ex}")
                 traceback.print_exc()
                 content_socket.content = _error_screen(
                     "Something went wrong loading your hub.",
@@ -1754,20 +1807,33 @@ async def self_study_view(page: ft.Page):
                             live_cards = await get_due_cards(token, _current_selected_ids())
                             new_count = len(live_cards)
                             
-                            if state.get("sidebar_due_text") and state["sidebar_due_text"].page:
+                            if state.get("sidebar_due_text") and getattr(state["sidebar_due_text"], "page", None):
                                 state["sidebar_due_text"].value = f"{new_count} due"
-                                state["sidebar_due_text"].update()
+                                try:
+                                    state["sidebar_due_text"].update()
+                                except Exception:
+                                    pass
 
-                            if state.get("live_due_text") and state["live_due_text"].page:
+                            if state.get("live_due_text") and getattr(state["live_due_text"], "page", None):
                                 state["live_due_text"].value = str(new_count)
-                                if state.get("live_streak_text"):
-                                    state["live_streak_text"].value = "Keep your streak going! 🔥" if new_count > 0 else "All caught up for today! ❄️"
-                                if state.get("live_fc_pill"):
-                                    state["live_fc_pill"].value = f"{new_count} due" if new_count > 0 else "All caught up"
-                                    
-                                state["live_due_text"].update()
-                                if state.get("live_streak_text"): state["live_streak_text"].update()
-                                if state.get("live_fc_pill"): state["live_fc_pill"].update()
+                                try:
+                                    state["live_due_text"].update()
+                                except Exception:
+                                    pass
+
+                            if state.get("live_streak_text") and getattr(state["live_streak_text"], "page", None):
+                                state["live_streak_text"].value = "Keep your streak going! 🔥" if new_count > 0 else "All caught up for today! ❄️"
+                                try:
+                                    state["live_streak_text"].update()
+                                except Exception:
+                                    pass
+
+                            if state.get("live_fc_pill") and getattr(state["live_fc_pill"], "page", None):
+                                state["live_fc_pill"].value = f"{new_count} due" if new_count > 0 else "All caught up"
+                                try:
+                                    state["live_fc_pill"].update()
+                                except Exception:
+                                    pass
                         except Exception as ex:
                             print(f"[POLLER] ❌ Error syncing live cards: {ex}")
                 else:
@@ -1801,615 +1867,1450 @@ async def self_study_view(page: ft.Page):
                     print(f"[POLLER] ❌ Error during polling: {type(e).__name__} - {e}")
 
     # ── hub layout ────────────────────────────────────────────────────────────
-    def _build_hub(due_cards: list, materials: list) -> ft.Column:
-        due_count = len(due_cards)
+    # ── Cockpit & Material Focus Transitions ─────────────────────────────────
+    async def _open_material_cockpit(mat: dict):
+        state["active_material"] = mat
+        state["selected_mat_ids"] = {mat["id"]}
+        display_title = format_material_title(mat.get("title", ""))
 
+        # 1. Full view rebuild with clean loading spinner
+        content_socket.content = _loading(f"Opening {display_title}…")
+        page.update()
+
+        # 2. Fetch scoped due cards for this material
+        try:
+            scoped_cards = await asyncio.wait_for(
+                get_due_cards(token, [mat["id"]]),
+                timeout=15,
+            )
+        except Exception:
+            scoped_cards = []
+
+        # 3. Restore persisted AI tutor conversation for this material
+        try:
+            persisted_chat = await get_material_tutor_history(page, mat["id"])
+        except Exception:
+            persisted_chat = []
+
+        state["active_material_cards"] = scoped_cards or []
+        state["material_ai_chat"] = list(persisted_chat) if persisted_chat else []
+
+        # 4. Render Material Study Cockpit
+        content_socket.content = _build_material_cockpit(mat, scoped_cards or [])
+        page.update()
+
+    async def _back_to_hub(e=None):
+        state["active_material"] = None
+        state["selected_mat_ids"] = set()
+        content_socket.content = _loading("Loading Study Hub…")
+        page.update()
+        await _load_hub()
+
+    def _build_material_cockpit(mat: dict, scoped_cards: list) -> ft.Column:
+        mid = mat.get("id")
+        mtitle = mat.get("title") or "Untitled Document"
+        display_title = format_material_title(mtitle)
+        stype = (mat.get("source_type") or "text").lower()
         is_mobile = bool(page.width and page.width < 768)
         is_small = bool(page.width and page.width < 450)
+        due_count = len(scoped_cards)
 
-        # Controls stored in state for live poller updates
-        state["live_due_text"] = ft.Text(
-            str(due_count),
-            size=20 if is_small else (21 if is_mobile else 24),
+        if "pdf" in stype or mtitle.lower().endswith(".pdf"):
+            fmt_icon = ft.Icons.PICTURE_AS_PDF_ROUNDED
+            fmt_color = ft.Colors.RED_500
+            fmt_tag = "PDF Document"
+        elif "url" in stype:
+            fmt_icon = ft.Icons.LINK_ROUNDED
+            fmt_color = ft.Colors.TEAL_600
+            fmt_tag = "Web / Video"
+        else:
+            fmt_icon = ft.Icons.DESCRIPTION_ROUNDED
+            fmt_color = ft.Colors.BLUE_500
+            fmt_tag = "Study Notes"
+
+        mat_status = str(mat.get("status") or "completed").lower()
+        is_generating = mat_status in ("processing", "queued", "pending", "in_progress")
+        current_status = [mat_status]
+        progress_val = [int(mat.get("progress_percent") or (15 if is_generating else 100))]
+        stage_val = [str(mat.get("stage") or ("Analyzing material & generating study deck..." if is_generating else "AI Study Engine Ready"))]
+
+        # Top Bar: Status Badge & Refresh Button
+        status_badge_icon = ft.Icon(
+            ft.Icons.AUTO_AWESOME_ROUNDED if is_generating else ft.Icons.CHECK_CIRCLE_ROUNDED,
+            size=12,
+            color=ft.Colors.AMBER_800 if is_generating else ft.Colors.GREEN_700,
+        )
+        status_badge_text = ft.Text(
+            f"{progress_val[0]}% Generating" if is_generating else "Engine Ready",
+            size=10,
             weight=ft.FontWeight.W_800,
-            color=ft.Colors.WHITE,
+            color=ft.Colors.AMBER_800 if is_generating else ft.Colors.GREEN_700,
         )
-        state["live_streak_text"] = ft.Text(
-            "Keep your streak going! 🔥" if due_count > 0 else "All caught up for today! ❄️",
-            size=12 if is_small else (12.5 if is_mobile else 14),
-            weight=ft.FontWeight.W_600,
-            color=ft.Colors.with_opacity(0.92, ft.Colors.WHITE),
-        )
-
-        hero_title = ft.Text(
-            "Smart Study Command Center",
-            size=17 if is_small else (18.5 if is_mobile else 21),
-            weight=ft.FontWeight.W_800,
-            color=ft.Colors.WHITE,
-            max_lines=2,
-            overflow=ft.TextOverflow.ELLIPSIS,
-        )
-
-        hero_action_icon = ft.Icon(
-            ft.Icons.PLAY_ARROW_ROUNDED if due_count > 0 else ft.Icons.BOLT_ROUNDED,
-            size=16 if is_mobile else 18,
-            color=ft.Colors.PRIMARY,
-        )
-        hero_action_label = ft.Text(
-            f"Review {due_count} Due Cards" if due_count > 0 else "Practice Quick Quiz",
-            size=12 if is_small else (12.5 if is_mobile else 13),
-            weight=ft.FontWeight.W_700,
-            color=ft.Colors.PRIMARY,
-        )
-        hero_action_btn = ft.ElevatedButton(
+        status_badge_container = ft.Container(
+            padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+            border_radius=ft.BorderRadius.all(8),
+            bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.AMBER_700 if is_generating else ft.Colors.GREEN_700),
             content=ft.Row(
-                spacing=6,
+                spacing=4,
                 tight=True,
-                controls=[hero_action_icon, hero_action_label],
-            ),
-            bgcolor=ft.Colors.WHITE,
-            height=36 if is_mobile else 38,
-            style=ft.ButtonStyle(
-                shape=ft.RoundedRectangleBorder(radius=10),
-                elevation=0,
-                padding=ft.Padding.symmetric(horizontal=14 if is_mobile else 16, vertical=0),
-            ),
-            on_click=lambda _: page.run_task(
-                _start_flashcards if due_count > 0 else _start_quiz,
-                _current_selected_ids(),
+                controls=[status_badge_icon, status_badge_text],
             ),
         )
 
-        badge_circle_dim = 42 if is_small else (44 if is_mobile else 50)
-        queue_circle = ft.Container(
-            width=badge_circle_dim,
-            height=badge_circle_dim,
-            bgcolor=ft.Colors.with_opacity(0.25, ft.Colors.WHITE),
-            border_radius=ft.BorderRadius.all(badge_circle_dim // 2),
-            alignment=ft.Alignment.CENTER,
-            content=state["live_due_text"],
-        )
-
-        queue_title_text = ft.Text(
-            "Review Queue",
-            size=12 if is_small else (12.5 if is_mobile else 13),
-            weight=ft.FontWeight.W_700,
-            color=ft.Colors.WHITE,
-        )
-        queue_subtitle_text = ft.Text(
-            f"{len(materials)} materials active",
-            size=10.5 if is_small else 11,
-            color=ft.Colors.with_opacity(0.85, ft.Colors.WHITE),
-        )
-
-        queue_card = ft.Container(
-            padding=ft.Padding.symmetric(
-                horizontal=12 if is_small else (14 if is_mobile else 16),
-                vertical=10 if is_small else (10 if is_mobile else 12),
+        refresh_icon = ft.Icon(ft.Icons.REFRESH_ROUNDED, size=15, color=ft.Colors.PRIMARY)
+        refresh_spinner = ft.ProgressRing(width=14, height=14, stroke_width=2, color=ft.Colors.PRIMARY, visible=False)
+        refresh_btn = ft.Container(
+            content=ft.Stack(
+                alignment=ft.Alignment.CENTER,
+                controls=[refresh_icon, refresh_spinner],
             ),
-            bgcolor=ft.Colors.with_opacity(0.16, ft.Colors.WHITE),
-            border_radius=ft.BorderRadius.all(13 if is_mobile else 14),
-            border=ft.Border.all(1, ft.Colors.with_opacity(0.2, ft.Colors.WHITE)),
-            content=ft.Row(
-                spacing=12 if is_mobile else 14,
-                tight=True,
-                controls=[
-                    queue_circle,
-                    ft.Column(
-                        spacing=2,
-                        tight=True,
-                        controls=[
-                            queue_title_text,
-                            queue_subtitle_text,
-                        ],
-                    ),
-                ],
-            ),
+            ink=True,
+            border_radius=ft.BorderRadius.all(8),
+            padding=ft.Padding.all(6),
+            tooltip="Refresh AI Generation Status",
+            on_click=lambda _: page.run_task(_on_cockpit_refresh),
         )
 
-        queue_col_container = ft.Container(
-            col={"xs": 12, "md": 4},
-            alignment=ft.Alignment.CENTER_LEFT if is_mobile else ft.Alignment.CENTER_RIGHT,
-            content=queue_card,
-        )
-
-        top_engine_badge = ft.Container(
-            padding=ft.Padding.symmetric(horizontal=9 if is_small else 10, vertical=4),
-            bgcolor=ft.Colors.with_opacity(0.18, ft.Colors.WHITE),
-            border_radius=ft.BorderRadius.all(12),
-            content=ft.Row(
-                spacing=5,
-                tight=True,
-                controls=[
-                    ft.Icon(ft.Icons.AUTO_AWESOME_ROUNDED, size=12 if is_small else 13, color=ft.Colors.WHITE),
-                    ft.Text(
-                        "SM-2 COGNITIVE ENGINE",
-                        size=9.5 if is_small else 10,
-                        weight=ft.FontWeight.W_800,
-                        color=ft.Colors.WHITE,
-                    ),
-                ],
-            ),
-        )
-
-        top_row = ft.Row(
+        # 1. Top Bar: Back Button, Status Badge, Refresh Button & Format Tag
+        back_label = "Back" if is_small or (page.width and page.width < 500) else "Back to Study Hub"
+        top_bar = ft.Row(
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
             wrap=True,
             spacing=8,
-            run_spacing=8,
             controls=[
-                top_engine_badge,
-                _create_generation_banner(),
+                ft.TextButton(
+                    content=ft.Row(
+                        spacing=5,
+                        tight=True,
+                        controls=[
+                            ft.Icon(ft.Icons.ARROW_BACK_ROUNDED, size=15),
+                            ft.Text(back_label, size=12.5, weight=ft.FontWeight.W_700),
+                        ],
+                    ),
+                    on_click=lambda _: page.run_task(_back_to_hub),
+                ),
+                ft.Row(
+                    spacing=6,
+                    tight=True,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[
+                        status_badge_container,
+                        refresh_btn,
+                        ft.Container(
+                            padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+                            border_radius=ft.BorderRadius.all(8),
+                            bgcolor=ft.Colors.with_opacity(0.12, fmt_color),
+                            content=ft.Row(
+                                spacing=4,
+                                tight=True,
+                                controls=[
+                                    ft.Icon(fmt_icon, size=13, color=fmt_color),
+                                    ft.Text(fmt_tag, size=10, weight=ft.FontWeight.W_800, color=fmt_color),
+                                ],
+                            ),
+                        ),
+                    ],
+                ),
             ],
         )
 
-        hero_banner = ft.Container(
-            border_radius=ft.BorderRadius.all(14 if is_small else (16 if is_mobile else 18)),
-            gradient=ft.LinearGradient(
-                begin=ft.Alignment.TOP_LEFT,
-                end=ft.Alignment.BOTTOM_RIGHT,
-                colors=[
-                    ft.Colors.PRIMARY,
-                    ft.Colors.SECONDARY,
+        # 2. Material Info Banner with Real-time Progress Bar & Stage Label
+        cockpit_due_text = ft.Text(
+            f"{due_count} flashcards due · Ready for quiz & exam simulation" if not is_generating else "AI Engine is generating targeted flashcards & questions...",
+            size=11.5,
+            color=ft.Colors.GREY_500,
+        )
+        progress_bar = ft.ProgressBar(
+            value=progress_val[0] / 100.0,
+            color=ft.Colors.AMBER_600,
+            bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.AMBER_600),
+            visible=is_generating,
+        )
+        stage_text = ft.Text(
+            stage_val[0],
+            size=11,
+            color=ft.Colors.AMBER_700,
+            weight=ft.FontWeight.W_600,
+            visible=is_generating,
+        )
+
+        info_banner = ft.Container(
+            bgcolor=ft.Colors.SURFACE,
+            border_radius=ft.BorderRadius.all(16),
+            border=ft.Border(
+                left=ft.BorderSide(4.5, fmt_color),
+                top=ft.BorderSide(1, ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE)),
+                right=ft.BorderSide(1, ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE)),
+                bottom=ft.BorderSide(1, ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE)),
+            ),
+            padding=ft.Padding.all(16),
+            content=ft.Column(
+                spacing=6,
+                tight=True,
+                controls=[
+                    ft.Text(display_title, size=17 if is_mobile else 20, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
+                    ft.Row(
+                        spacing=8,
+                        tight=True,
+                        controls=[
+                            ft.Icon(ft.Icons.CHECK_CIRCLE_OUTLINE_ROUNDED if not is_generating else ft.Icons.AUTO_AWESOME_ROUNDED, size=14, color=ft.Colors.GREEN_600 if not is_generating else ft.Colors.AMBER_600),
+                            cockpit_due_text,
+                        ],
+                    ),
+                    progress_bar,
+                    stage_text,
                 ],
             ),
-            padding=ft.Padding.symmetric(
-                horizontal=13 if is_small else (16 if is_mobile else 22),
-                vertical=13 if is_small else (16 if is_mobile else 22),
-            ),
-            shadow=ft.BoxShadow(
-                blur_radius=12 if is_mobile else 16,
-                color=ft.Colors.with_opacity(0.18, ft.Colors.PRIMARY),
-                offset=ft.Offset(0, 4 if is_mobile else 6),
-            ),
-            content=ft.Column(
-                spacing=12 if is_mobile else 16,
-                controls=[
-                    top_row,
-                    ft.ResponsiveRow(
-                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                        spacing=12,
-                        run_spacing=12,
-                        controls=[
-                            ft.Container(
-                                col={"xs": 12, "md": 8},
-                                content=ft.Column(
-                                    spacing=5 if is_mobile else 6,
-                                    controls=[
-                                        hero_title,
-                                        state["live_streak_text"],
-                                        ft.Container(height=2 if is_mobile else 4),
-                                        hero_action_btn,
-                                    ],
+        )
+
+        # 3. Dedicated Study Actions Row
+        fc_metric_text = ft.Text(f"{due_count} Due" if due_count else "Deck Ready", size=9.5, weight=ft.FontWeight.W_700, color=ft.Colors.PURPLE_600)
+
+        def _action_card(title, subtitle, metric_ctrl_or_text, icon, color, cta_text, on_click):
+            m_ctrl = metric_ctrl_or_text if isinstance(metric_ctrl_or_text, ft.Control) else ft.Text(str(metric_ctrl_or_text), size=9.5, weight=ft.FontWeight.W_700, color=color)
+            return ft.Container(
+                col={"xs": 12, "sm": 4, "md": 4},
+                bgcolor=ft.Colors.SURFACE,
+                border_radius=ft.BorderRadius.all(14),
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE)),
+                padding=ft.Padding.all(14),
+                ink=True,
+                on_click=on_click,
+                content=ft.Column(
+                    spacing=10,
+                    controls=[
+                        ft.Row(
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                            controls=[
+                                ft.Container(
+                                    width=36,
+                                    height=36,
+                                    bgcolor=ft.Colors.with_opacity(0.12, color),
+                                    border_radius=ft.BorderRadius.all(10),
+                                    alignment=ft.Alignment.CENTER,
+                                    content=ft.Icon(icon, size=18, color=color),
                                 ),
+                                ft.Container(
+                                    padding=ft.Padding.symmetric(horizontal=7, vertical=2),
+                                    border_radius=ft.BorderRadius.all(6),
+                                    bgcolor=ft.Colors.with_opacity(0.08, color),
+                                    content=m_ctrl,
+                                ),
+                            ],
+                        ),
+                        ft.Column(
+                            spacing=2,
+                            tight=True,
+                            controls=[
+                                ft.Text(title, size=14, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
+                                ft.Text(subtitle, size=11, color=ft.Colors.GREY_500, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
+                            ],
+                        ),
+                        ft.Row(
+                            spacing=4,
+                            tight=True,
+                            controls=[
+                                ft.Text(cta_text, size=11.5, weight=ft.FontWeight.W_700, color=color),
+                                ft.Icon(ft.Icons.ARROW_FORWARD_ROUNDED, size=14, color=color),
+                            ],
+                        ),
+                    ],
+                ),
+            )
+
+        study_actions = ft.ResponsiveRow(
+            spacing=10,
+            run_spacing=10,
+            controls=[
+                _action_card(
+                    "Flashcards",
+                    "Active recall deck for this material",
+                    fc_metric_text,
+                    ft.Icons.STYLE_ROUNDED,
+                    ft.Colors.PURPLE_600,
+                    "Practice Deck",
+                    lambda _: page.run_task(_start_flashcards, [mid]),
+                ),
+                _action_card(
+                    "Quick Quiz",
+                    "5 targeted comprehension questions",
+                    "Instant Check",
+                    ft.Icons.BOLT_ROUNDED,
+                    ft.Colors.TEAL_600,
+                    "Launch Quiz",
+                    lambda _: page.run_task(_start_quiz, [mid]),
+                ),
+                _action_card(
+                    "Mock Exam",
+                    "Timed exam simulation with score report",
+                    "Timed Simulator",
+                    ft.Icons.TIMER_OUTLINED,
+                    ft.Colors.ORANGE_600,
+                    "Begin Exam",
+                    lambda _: page.run_task(_start_exam, [mid]),
+                ),
+            ],
+        )
+
+        def _update_cockpit_status_ui(status_data: dict):
+            st = str(status_data.get("status") or "completed").lower()
+            current_status[0] = st
+            gen = bool(status_data.get("is_generating", st in ("processing", "queued", "pending", "in_progress")))
+            pct = int(status_data.get("progress_percent") or (100 if not gen else 50))
+            stage = str(status_data.get("stage") or ("AI Study Engine Ready" if not gen else "Generating..."))
+            fc_count = status_data.get("flashcards_count")
+
+            progress_val[0] = pct
+            stage_val[0] = stage
+
+            if gen:
+                status_badge_icon.name = ft.Icons.AUTO_AWESOME_ROUNDED
+                status_badge_icon.color = ft.Colors.AMBER_800
+                status_badge_text.value = f"{pct}% Generating"
+                status_badge_text.color = ft.Colors.AMBER_800
+                status_badge_container.bgcolor = ft.Colors.with_opacity(0.12, ft.Colors.AMBER_700)
+
+                progress_bar.value = pct / 100.0
+                progress_bar.visible = True
+                stage_text.value = stage
+                stage_text.visible = True
+                cockpit_due_text.value = f"AI Engine in progress: {stage}"
+            else:
+                status_badge_icon.name = ft.Icons.CHECK_CIRCLE_ROUNDED
+                status_badge_icon.color = ft.Colors.GREEN_700
+                status_badge_text.value = "Engine Ready"
+                status_badge_text.color = ft.Colors.GREEN_700
+                status_badge_container.bgcolor = ft.Colors.with_opacity(0.12, ft.Colors.GREEN_700)
+
+                progress_bar.visible = False
+                stage_text.visible = False
+                cnt_str = f"{fc_count} flashcards" if fc_count is not None else f"{len(scoped_cards)} flashcards"
+                cockpit_due_text.value = f"{cnt_str} ready · Ready for quiz & exam simulation"
+
+            page.update()
+
+        async def _on_cockpit_refresh(e=None):
+            refresh_icon.visible = False
+            refresh_spinner.visible = True
+            page.update()
+            try:
+                stat_res = await check_generation_status(token, mid)
+                if stat_res and not stat_res.get("error"):
+                    _update_cockpit_status_ui(stat_res)
+                    if not stat_res.get("is_generating") and stat_res.get("status") == "completed":
+                        try:
+                            fresh_cards = await get_due_cards(token, [mid])
+                            state["active_material_cards"] = fresh_cards or []
+                            fc_metric_text.value = f"{len(fresh_cards)} Due" if fresh_cards else "Deck Ready"
+                        except Exception:
+                            pass
+                        show_page_snackbar(page, "AI Study Engine is ready!")
+                else:
+                    show_page_snackbar(page, "Could not refresh status.")
+            except Exception as ex:
+                print(f"[COCKPIT] Refresh error: {ex}")
+            finally:
+                refresh_icon.visible = True
+                refresh_spinner.visible = False
+                page.update()
+
+        async def _auto_poll_cockpit_status():
+            while state.get("active_material", {}).get("id") == mid and current_status[0] in ("processing", "queued", "pending", "in_progress"):
+                await asyncio.sleep(4)
+                if state.get("active_material", {}).get("id") != mid:
+                    break
+                try:
+                    stat_res = await check_generation_status(token, mid)
+                    if stat_res and not stat_res.get("error"):
+                        _update_cockpit_status_ui(stat_res)
+                        if not stat_res.get("is_generating") and stat_res.get("status") == "completed":
+                            try:
+                                fresh_cards = await get_due_cards(token, [mid])
+                                state["active_material_cards"] = fresh_cards or []
+                                fc_metric_text.value = f"{len(fresh_cards)} Due" if fresh_cards else "Deck Ready"
+                            except Exception:
+                                pass
+                            show_page_snackbar(page, "AI Study Engine is ready!")
+                            break
+                except Exception:
+                    pass
+
+        if is_generating:
+            page.run_task(_auto_poll_cockpit_status)
+
+        # 4. Pedagogical AI Document Tutor
+        ai_chat_messages = ft.Column(spacing=10, scroll=ft.ScrollMode.AUTO, auto_scroll=True)
+        ai_input_tf = ft.TextField(
+            hint_text=f"Ask a question about {display_title}...",
+            border=ft.InputBorder.NONE,
+            text_size=13,
+            multiline=True,
+            min_lines=1,
+            max_lines=4,
+            expand=True,
+            content_padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+        )
+        ai_send_btn = ft.IconButton(
+            icon=ft.Icons.SEND_ROUNDED,
+            icon_size=18,
+            icon_color=ft.Colors.PRIMARY,
+            tooltip="Send question",
+        )
+        ai_spinner = ft.ProgressRing(width=18, height=18, stroke_width=2.5, color=ft.Colors.PRIMARY, visible=False)
+
+        # Welcome initial bubble from Owl Companion
+        welcome_bubble = ft.Container(
+            bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.PRIMARY),
+            border_radius=ft.BorderRadius.all(12),
+            padding=ft.Padding.all(12),
+            content=ft.Row(
+                spacing=10,
+                vertical_alignment=ft.CrossAxisAlignment.START,
+                controls=[
+                    ft.Image(src="study_owl_mascot.png", width=26, height=26, fit=ft.BoxFit.CONTAIN),
+                    ft.Column(
+                        spacing=3,
+                        tight=True,
+                        expand=True,
+                        controls=[
+                            ft.Text("Nu Owl", size=10, weight=ft.FontWeight.W_800, color=ft.Colors.PRIMARY),
+                            ft.Text(
+                                f"I've read through {display_title}! Ask me any questions, or tap a prompt below to test your understanding.",
+                                size=12,
+                                color=ft.Colors.ON_SURFACE,
                             ),
-                            queue_col_container,
                         ],
                     ),
                 ],
             ),
         )
+        ai_chat_messages.controls.append(welcome_bubble)
 
-        def _update_hero_responsive():
-            cur_mobile = bool(page.width and page.width < 768)
-            cur_small = bool(page.width and page.width < 450)
+        async def _launch_external_url(target_url: str):
+            try:
+                await page.launch_url(target_url)
+            except Exception as ex:
+                print(f"[STUDY] external launch_url failed: {ex}")
 
-            hero_banner.padding = ft.Padding.symmetric(
-                horizontal=13 if cur_small else (16 if cur_mobile else 22),
-                vertical=13 if cur_small else (16 if cur_mobile else 22),
-            )
-            hero_banner.border_radius = ft.BorderRadius.all(14 if cur_small else (16 if cur_mobile else 18))
-            if hero_banner.shadow:
-                hero_banner.shadow.blur_radius = 12 if cur_mobile else 16
-                hero_banner.shadow.offset = ft.Offset(0, 4 if cur_mobile else 6)
+        def _open_youtube_player_overlay(video_url: str, title: str = "Educational Video"):
+            clean_url = str(video_url or "").strip()
+            if not clean_url:
+                return
 
-            hero_title.size = 17 if cur_small else (18.5 if cur_mobile else 21)
-            state["live_streak_text"].size = 12 if cur_small else (12.5 if cur_mobile else 14)
-            state["live_due_text"].size = 20 if cur_small else (21 if cur_mobile else 24)
+            is_mob = bool(page.width and page.width < 768)
+            screen_w = getattr(page, "width", None) or 360
+            screen_h = getattr(page, "height", None) or 640
 
-            hero_action_icon.size = 16 if cur_mobile else 18
-            hero_action_label.size = 12 if cur_small else (12.5 if cur_mobile else 13)
-            hero_action_btn.height = 36 if cur_mobile else 38
-            if hero_action_btn.style:
-                hero_action_btn.style.padding = ft.Padding.symmetric(
-                    horizontal=14 if cur_mobile else 16, vertical=0
-                )
+            if is_mob:
+                dialog_w = min(screen_w - 24, 400)
+                dialog_h = max(190, min(int(screen_h * 0.38), 240))
+            else:
+                dialog_w = min(screen_w - 48, 720)
+                dialog_h = min(screen_h - 120, 440)
 
-            new_circle_dim = 42 if cur_small else (44 if cur_mobile else 50)
-            queue_circle.width = new_circle_dim
-            queue_circle.height = new_circle_dim
-            queue_circle.border_radius = ft.BorderRadius.all(new_circle_dim // 2)
+            is_search = is_youtube_search_url(clean_url)
+            effective_title = title
+            if is_search:
+                sq = extract_youtube_search_query(clean_url)
+                if sq:
+                    effective_title = f"YouTube: {sq}"
 
-            queue_title_text.size = 12 if cur_small else (12.5 if cur_mobile else 13)
-            queue_subtitle_text.size = 10.5 if cur_small else 11
-
-            queue_card.padding = ft.Padding.symmetric(
-                horizontal=12 if cur_small else (14 if cur_mobile else 16),
-                vertical=10 if cur_small else (10 if cur_mobile else 12),
-            )
-
-            queue_col_container.alignment = (
-                ft.Alignment.CENTER_LEFT if cur_mobile else ft.Alignment.CENTER_RIGHT
+            player = AdaptiveVideoPlayer(
+                media_url=clean_url,
+                title=effective_title,
+                autoplay=True,
+                border_radius=12,
             )
 
-        state["update_hero_responsive"] = _update_hero_responsive
+            def _close_overlay(e=None):
+                overlay_dlg.open = False
+                page.update()
 
-        sel_count = len(state["selected_mat_ids"])
-
-        def _clear_filter_and_rebuild(e):
-            page.run_task(_sync_material_selection, clear_all=True)
-
-        if sel_count > 0:
-            context_scope_bar = ft.Container(
-                border_radius=ft.BorderRadius.all(12),
-                bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.PRIMARY),
-                border=ft.Border.all(1, ft.Colors.with_opacity(0.25, ft.Colors.PRIMARY)),
-                padding=ft.Padding.symmetric(horizontal=14, vertical=10),
-                content=ft.ResponsiveRow(
+            overlay_dlg = ft.AlertDialog(
+                modal=True,
+                shape=ft.RoundedRectangleBorder(radius=18),
+                bgcolor="#0A0C10",
+                title=ft.Row(
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                    spacing=8,
-                    run_spacing=8,
                     controls=[
-                        ft.Container(
-                            col={"xs": 12, "sm": 8},
-                            content=ft.Row(
-                                spacing=10,
-                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                controls=[
-                                    ft.Container(
-                                        width=28, height=28,
-                                        bgcolor=ft.Colors.with_opacity(0.15, ft.Colors.PRIMARY),
-                                        border_radius=ft.BorderRadius.all(14),
-                                        alignment=ft.Alignment.CENTER,
-                                        content=ft.Icon(ft.Icons.FILTER_LIST_ROUNDED, color=ft.Colors.PRIMARY, size=16),
-                                    ),
-                                    ft.Column(
-                                        spacing=1,
-                                        tight=True,
-                                        controls=[
-                                            ft.Text(
-                                                f"Focus Mode: {sel_count} material{'s' if sel_count > 1 else ''} selected",
-                                                size=12.5,
-                                                weight=ft.FontWeight.W_700,
-                                                color=ft.Colors.PRIMARY,
-                                            ),
-                                            ft.Text(
-                                                "Practice sessions are scoped to your selected materials.",
-                                                size=11,
-                                                color=ft.Colors.with_opacity(0.8, ft.Colors.PRIMARY),
-                                            ),
-                                        ],
-                                    ),
-                                ],
-                            ),
+                        ft.Row(
+                            spacing=8,
+                            expand=True,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            controls=[
+                                ft.Icon(ft.Icons.PLAY_CIRCLE_FILLED_ROUNDED, color=ft.Colors.RED_500, size=20),
+                                ft.Text(
+                                    effective_title,
+                                    size=14,
+                                    weight=ft.FontWeight.W_700,
+                                    color=ft.Colors.WHITE,
+                                    max_lines=1,
+                                    overflow=ft.TextOverflow.ELLIPSIS,
+                                    expand=True,
+                                ),
+                            ],
                         ),
-                        ft.Container(
-                            col={"xs": 12, "sm": 4},
-                            alignment=ft.Alignment.CENTER_RIGHT if page.width and page.width >= 600 else ft.Alignment.CENTER_LEFT,
-                            content=ft.TextButton(
-                                content=ft.Row(
-                                    spacing=4,
-                                    tight=True,
-                                    controls=[
-                                        ft.Icon(ft.Icons.ALL_INCLUSIVE_ROUNDED, size=14, color=ft.Colors.PRIMARY),
-                                        ft.Text("Use All Materials", size=11.5, weight=ft.FontWeight.W_700, color=ft.Colors.PRIMARY),
-                                    ],
+                        ft.Row(
+                            spacing=4,
+                            tight=True,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            controls=[
+                                ft.IconButton(
+                                    icon=ft.Icons.OPEN_IN_NEW_ROUNDED,
+                                    icon_size=18,
+                                    icon_color=ft.Colors.GREY_400,
+                                    tooltip="Open in YouTube",
+                                    on_click=lambda _: page.run_task(_launch_external_url, clean_url),
                                 ),
-                                style=ft.ButtonStyle(
-                                    padding=ft.Padding.symmetric(horizontal=10, vertical=6),
-                                    shape=ft.RoundedRectangleBorder(radius=8),
-                                    bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY),
+                                ft.IconButton(
+                                    icon=ft.Icons.CLOSE_ROUNDED,
+                                    icon_size=18,
+                                    icon_color=ft.Colors.GREY_400,
+                                    tooltip="Close player",
+                                    on_click=_close_overlay,
                                 ),
-                                on_click=_clear_filter_and_rebuild,
-                            ),
+                            ],
                         ),
                     ],
                 ),
-            )
-        else:
-            context_scope_bar = ft.Container(
-                border_radius=ft.BorderRadius.all(12),
-                bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
-                border=ft.Border.all(1, ft.Colors.with_opacity(0.1, ft.Colors.ON_SURFACE)),
-                padding=ft.Padding.symmetric(horizontal=14, vertical=9),
-                content=ft.ResponsiveRow(
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                    spacing=8,
-                    run_spacing=8,
-                    controls=[
-                        ft.Container(
-                            col={"xs": 12, "sm": 8},
-                            content=ft.Row(
-                                spacing=8,
-                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                controls=[
-                                    ft.Icon(ft.Icons.ALL_INCLUSIVE_ROUNDED, color=ft.Colors.GREY_500, size=16),
-                                    ft.Text(
-                                        f"Scope: Global Knowledge Vault ({len(materials)} material{'s' if len(materials) != 1 else ''} active)",
-                                        size=12,
-                                        weight=ft.FontWeight.W_600,
-                                        color=ft.Colors.ON_SURFACE,
-                                    ),
-                                ],
-                            ),
-                        ),
-                        ft.Container(
-                            col={"xs": 12, "sm": 4},
-                            alignment=ft.Alignment.CENTER_RIGHT if page.width and page.width >= 600 else ft.Alignment.CENTER_LEFT,
-                            content=ft.TextButton(
-                                content=ft.Row(
-                                    spacing=4,
-                                    tight=True,
-                                    controls=[
-                                        ft.Icon(ft.Icons.TUNE_ROUNDED, size=14, color=ft.Colors.PRIMARY),
-                                        ft.Text("Filter Topics", size=11.5, weight=ft.FontWeight.W_600, color=ft.Colors.PRIMARY),
-                                    ],
-                                ),
-                                on_click=lambda _: _toggle_sidebar(None),
-                            ),
-                        ),
-                    ],
+                content=ft.Container(
+                    width=dialog_w,
+                    height=dialog_h,
+                    alignment=ft.Alignment.CENTER,
+                    content=player,
                 ),
             )
 
-        def bento_card(
-            col_spec,
-            icon,
-            title,
-            subtitle,
-            badge_label,
-            badge_bg,
-            badge_fg,
-            description,
-            feature_tags,
-            accent_color,
-            cta_text,
-            on_tap,
-        ):
-            badge_control = _pill(badge_label, badge_bg, badge_fg)
-            if title == "Flashcards":
-                state["live_fc_pill"] = badge_control.content
+            page.overlay.append(overlay_dlg)
+            overlay_dlg.open = True
+            page.update()
 
-            tag_controls = [
-                ft.Container(
-                    padding=ft.Padding.symmetric(horizontal=7, vertical=3),
-                    bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
-                    border_radius=ft.BorderRadius.all(6),
-                    content=ft.Text(tag, size=9.5, weight=ft.FontWeight.W_600, color=ft.Colors.GREY_600),
-                )
-                for tag in feature_tags
-            ]
+        async def _open_link(target_url: str):
+            try:
+                if is_youtube_url(target_url) or is_youtube_search_url(target_url):
+                    _open_youtube_player_overlay(target_url, "Recommended Tutorial")
+                else:
+                    await page.launch_url(target_url)
+            except Exception as launch_err:
+                print(f"[STUDY] launch_url failed: {launch_err}")
+
+        def _extract_youtube_links(text: str) -> list:
+            import re
+            if not text:
+                return []
+            found = []
+            seen_urls = set()
+            # 1. Match Markdown links [label](url)
+            md_matches = re.findall(r"\[([^\]]+)\]\((https?://[^\s\)]+)\)", text)
+            for label, url in md_matches:
+                clean_u = url.strip()
+                if ("youtube.com" in clean_u or "youtu.be" in clean_u) and clean_u not in seen_urls:
+                    seen_urls.add(clean_u)
+                    found.append({"title": label.strip(), "url": clean_u})
+            # 2. Match raw YouTube URLs in plain text
+            raw_matches = re.findall(r"(https?://(?:www\.|m\.)?(?:youtube\.com/[^\s\)]+|youtu\.be/[a-zA-Z0-9_-]{11}[^\s\)]*))", text)
+            for url in raw_matches:
+                clean_url = url.rstrip(".,;!?()")
+                if clean_url not in seen_urls and ("youtube.com" in clean_url or "youtu.be" in clean_url):
+                    seen_urls.add(clean_url)
+                    found.append({"title": "Recommended Video Tutorial", "url": clean_url})
+            return found
+
+        def _render_youtube_rec_card(label: str, url: str):
+            vid_id = extract_youtube_id(url)
+            thumb_url = get_youtube_thumbnail_url(vid_id, quality="hq") if vid_id else ""
+            is_mob = bool(page.width and page.width < 768)
 
             return ft.Container(
-                col=col_spec,
-                bgcolor=ft.Colors.SURFACE,
-                border_radius=ft.BorderRadius.all(16),
-                border=ft.Border.all(1, ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)),
-                padding=ft.Padding.all(18),
-                ink=True,
-                on_click=lambda _: on_tap(),
-                shadow=ft.BoxShadow(
-                    blur_radius=12,
-                    color=ft.Colors.with_opacity(0.04, ft.Colors.BLACK),
-                    offset=ft.Offset(0, 4),
-                ),
-                content=ft.Column(
-                    spacing=12,
+                margin=ft.Padding.only(top=6),
+                border_radius=ft.BorderRadius.all(12),
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.14, ft.Colors.RED_400)),
+                bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.RED_50),
+                padding=ft.Padding.all(10),
+                content=ft.Row(
+                    spacing=10,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     controls=[
-                        ft.Row(
-                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                            controls=[
-                                ft.Container(
-                                    width=44, height=44,
-                                    bgcolor=ft.Colors.with_opacity(0.12, accent_color),
-                                    border_radius=ft.BorderRadius.all(12),
-                                    alignment=ft.Alignment.CENTER,
-                                    content=ft.Icon(icon, color=accent_color, size=22),
-                                ),
-                                badge_control,
-                            ],
+                        # Thumbnail or play icon
+                        ft.Container(
+                            width=64 if is_mob else 80,
+                            height=36 if is_mob else 45,
+                            border_radius=ft.BorderRadius.all(8),
+                            clip_behavior=ft.ClipBehavior.HARD_EDGE,
+                            bgcolor=ft.Colors.BLACK,
+                            content=ft.Stack(
+                                controls=[
+                                    ft.Image(
+                                        src=thumb_url,
+                                        fit=ft.BoxFit.COVER,
+                                        width=80,
+                                        height=45,
+                                        error_content=ft.Icon(ft.Icons.PLAY_CIRCLE_FILLED_ROUNDED, color=ft.Colors.RED_500, size=24),
+                                    ) if thumb_url else ft.Icon(ft.Icons.PLAY_CIRCLE_FILLED_ROUNDED, color=ft.Colors.RED_500, size=24),
+                                    ft.Container(
+                                        alignment=ft.Alignment.CENTER,
+                                        content=ft.Icon(ft.Icons.PLAY_ARROW_ROUNDED, color=ft.Colors.WHITE, size=18),
+                                    ),
+                                ],
+                            ),
+                            ink=True,
+                            on_click=lambda _: _open_youtube_player_overlay(url, label or "Recommended Tutorial"),
                         ),
+                        # Video Info & Actions
                         ft.Column(
-                            spacing=3,
+                            spacing=4,
+                            expand=True,
                             tight=True,
                             controls=[
-                                ft.Text(title, size=16, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
-                                ft.Text(subtitle, size=11, weight=ft.FontWeight.W_600, color=accent_color),
-                            ],
-                        ),
-                        ft.Text(
-                            description,
-                            size=11.5,
-                            color=ft.Colors.GREY_500,
-                            max_lines=2,
-                            overflow=ft.TextOverflow.ELLIPSIS,
-                        ),
-                        ft.Row(
-                            spacing=6,
-                            wrap=True,
-                            controls=tag_controls,
-                        ),
-                        ft.Divider(height=1, color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
-                        ft.Row(
-                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                            controls=[
-                                ft.Text(cta_text, size=12, weight=ft.FontWeight.W_700, color=accent_color),
-                                ft.Icon(ft.Icons.ARROW_FORWARD_ROUNDED, size=16, color=accent_color),
+                                ft.Text(
+                                    label or "Recommended YouTube Tutorial",
+                                    size=12,
+                                    weight=ft.FontWeight.W_700,
+                                    max_lines=1,
+                                    overflow=ft.TextOverflow.ELLIPSIS,
+                                ),
+                                ft.Row(
+                                    spacing=6,
+                                    controls=[
+                                        ft.Container(
+                                            padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+                                            border_radius=ft.BorderRadius.all(6),
+                                            bgcolor=ft.Colors.RED_600,
+                                            ink=True,
+                                            on_click=lambda _: _open_youtube_player_overlay(url, label or "Recommended Tutorial"),
+                                            content=ft.Row(
+                                                spacing=4,
+                                                tight=True,
+                                                controls=[
+                                                    ft.Icon(ft.Icons.PLAY_ARROW_ROUNDED, size=13, color=ft.Colors.WHITE),
+                                                    ft.Text("Watch in App", size=10.5, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE),
+                                                ],
+                                            ),
+                                        ),
+                                        ft.Container(
+                                            padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+                                            border_radius=ft.BorderRadius.all(6),
+                                            border=ft.Border.all(1, ft.Colors.with_opacity(0.2, ft.Colors.ON_SURFACE)),
+                                            ink=True,
+                                            on_click=lambda _: page.run_task(_launch_external_url, url),
+                                            content=ft.Row(
+                                                spacing=4,
+                                                tight=True,
+                                                controls=[
+                                                    ft.Icon(ft.Icons.OPEN_IN_NEW_ROUNDED, size=11, color=ft.Colors.ON_SURFACE),
+                                                    ft.Text("YouTube", size=10.5, weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE),
+                                                ],
+                                            ),
+                                        ),
+                                    ],
+                                ),
                             ],
                         ),
                     ],
                 ),
             )
 
-        study_modes_grid = ft.ResponsiveRow(
-            spacing=14,
-            run_spacing=14,
+        def _assistant_bubble(reply_text: str):
+            yt_links = _extract_youtube_links(reply_text)
+            bubble_controls = [
+                ft.Row(
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    controls=[
+                        ft.Row(
+                            spacing=6,
+                            tight=True,
+                            controls=[
+                                ft.Image(src="study_owl_mascot.png", width=18, height=18, fit=ft.BoxFit.CONTAIN),
+                                ft.Text("Nu-AI Owl Tutor", size=10, weight=ft.FontWeight.W_800, color=ft.Colors.PRIMARY),
+                            ],
+                        ),
+                        ft.IconButton(
+                            icon=ft.Icons.COPY_ROUNDED,
+                            icon_size=13,
+                            tooltip="Copy response",
+                            on_click=lambda _, t=reply_text: page.run_task(safe_set_clipboard, page, t),
+                        ),
+                    ],
+                ),
+                ft.Markdown(
+                    reply_text,
+                    selectable=True,
+                    extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+                    on_tap_link=lambda e: page.run_task(_open_link, e.data),
+                ),
+            ]
+
+            for item in yt_links:
+                bubble_controls.append(_render_youtube_rec_card(item["title"], item["url"]))
+
+            return ft.Container(
+                bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.PRIMARY),
+                border_radius=ft.BorderRadius.all(12),
+                padding=ft.Padding.all(12),
+                content=ft.Column(
+                    spacing=6,
+                    tight=True,
+                    controls=bubble_controls,
+                ),
+            )
+
+        # Mobile-safe bubble width calculation
+        screen_w = getattr(page, "width", None) or 390
+        user_bubble_max_w = min(460, max(200, int(screen_w * 0.74)))
+
+        def _user_bubble(user_text: str):
+            bubble_w = min(user_bubble_max_w, max(80, int(len(user_text) * 8.5) + 36))
+            return ft.Row(
+                alignment=ft.MainAxisAlignment.END,
+                controls=[
+                    ft.Container(
+                        bgcolor=ft.Colors.PRIMARY,
+                        border_radius=ft.BorderRadius.all(14),
+                        padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+                        width=bubble_w,
+                        content=ft.Text(
+                            user_text,
+                            size=12,
+                            color=ft.Colors.WHITE,
+                            no_wrap=False,
+                            selectable=True,
+                        ),
+                    ),
+                ],
+            )
+
+        # Load any existing history for this session
+        for msg in state.get("material_ai_chat", []):
+            role = msg.get("role")
+            text = msg.get("text", "")
+            if role == "user":
+                ai_chat_messages.controls.append(_user_bubble(text))
+            else:
+                ai_chat_messages.controls.append(_assistant_bubble(text))
+
+        async def _clear_tutor_chat(e=None):
+            await clear_material_tutor_history(page, mid)
+            state["material_ai_chat"] = []
+            ai_chat_messages.controls.clear()
+            ai_chat_messages.controls.append(welcome_bubble)
+            page.update()
+            show_page_snackbar(page, "AI Tutor chat history cleared.")
+
+        clear_chat_btn = ft.IconButton(
+            icon=ft.Icons.DELETE_OUTLINE_ROUNDED,
+            icon_size=15,
+            icon_color=ft.Colors.GREY_500,
+            tooltip="Clear Chat History",
+            on_click=lambda _: page.run_task(_clear_tutor_chat),
+        )
+
+        async def _send_ai_query(query_text: str):
+            clean_q = (query_text or "").strip()
+            if not clean_q or state.get("is_ai_generating"):
+                return
+            ai_input_tf.value = ""
+            state["is_ai_generating"] = True
+            ai_send_btn.visible = False
+            ai_spinner.visible = True
+            page.update()
+
+            # Append user message with bounded mobile width
+            state.setdefault("material_ai_chat", []).append({"role": "user", "text": clean_q})
+            await append_material_tutor_message(page, mid, "user", clean_q)
+            ai_chat_messages.controls.append(_user_bubble(clean_q))
+
+            # Typing indicator bubble
+            typing_indicator = ft.Container(
+                bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.PRIMARY),
+                border_radius=ft.BorderRadius.all(12),
+                padding=ft.Padding.all(10),
+                content=ft.Row(
+                    spacing=8,
+                    tight=True,
+                    controls=[
+                        ft.ProgressRing(width=14, height=14, stroke_width=2, color=ft.Colors.PRIMARY),
+                        ft.Text("Thinking and grounding in document…", size=11, color=ft.Colors.GREY_500),
+                    ],
+                ),
+            )
+            ai_chat_messages.controls.append(typing_indicator)
+            page.update()
+
+            # Call ask_ai_tutor_api
+            mat_text = mat.get("content") or mat.get("pasted_text") or mat.get("extracted_text") or display_title
+            conv_history = [
+                {"role": m["role"], "content": m["text"]}
+                for m in state.get("material_ai_chat", [])[:-1]
+            ]
+            try:
+                res = await ask_ai_tutor_api(
+                    token=token,
+                    query=clean_q,
+                    course_title="Self-Study Hub",
+                    module_title=display_title,
+                    lesson_title=display_title,
+                    lesson_content=str(mat_text)[:6000],
+                    conversation_history=conv_history,
+                    is_assessment=False,
+                    material_id=str(mid) if mid else None,
+                )
+                reply = res.get("reply") or res.get("message") or "I couldn't process that query. Please try again."
+            except Exception as ex:
+                reply = f"Couldn't reach the AI tutor right now: {ex}"
+
+            # Remove typing indicator and append AI response
+            if typing_indicator in ai_chat_messages.controls:
+                ai_chat_messages.controls.remove(typing_indicator)
+            state["material_ai_chat"].append({"role": "assistant", "text": reply})
+            await append_material_tutor_message(page, mid, "assistant", reply)
+            ai_chat_messages.controls.append(_assistant_bubble(reply))
+
+            state["is_ai_generating"] = False
+            ai_send_btn.visible = True
+            ai_spinner.visible = False
+            page.update()
+
+        ai_send_btn.on_click = lambda _: page.run_task(_send_ai_query, ai_input_tf.value)
+        ai_input_tf.on_submit = lambda _: page.run_task(_send_ai_query, ai_input_tf.value)
+
+        # Quick Prompt Chips
+        prompt_chips = [
+            ("✨ Summarize concepts", "Please summarize the core concepts and key ideas from this document in concise bullet points."),
+            ("🎬 Recommend YouTube Videos", f"Recommend YouTube tutorial videos to master '{display_title}'."),
+            ("❓ Quiz me with a question", "Ask me a conceptual question based on this document to test my understanding."),
+            ("💡 Explain in simple terms", "Explain the most important idea in this document like I'm a beginner."),
+            ("📝 3 key takeaways", "What are the 3 most crucial takeaways or formulas I need to remember from this document?"),
+        ]
+
+        chips_row = ft.Row(
+            spacing=6,
+            scroll=ft.ScrollMode.HIDDEN,
             controls=[
-                bento_card(
-                    col_spec={"xs": 12, "sm": 6, "md": 4},
-                    icon=ft.Icons.STYLE_ROUNDED,
-                    title="Flashcards",
-                    subtitle="Adaptive Spaced Repetition",
-                    badge_label=f"{due_count} due" if due_count else "All caught up",
-                    badge_bg=ft.Colors.PURPLE_50,
-                    badge_fg=ft.Colors.PURPLE_700,
-                    description="SuperMemo-2 system schedules reviews based on your recall accuracy.",
-                    feature_tags=["SM-2 Engine", "Active Recall"],
-                    accent_color=ft.Colors.PURPLE_500,
-                    cta_text="Review Deck",
-                    on_tap=lambda: page.run_task(_start_flashcards, _current_selected_ids()),
-                ),
-                bento_card(
-                    col_spec={"xs": 12, "sm": 6, "md": 4},
-                    icon=ft.Icons.BOLT_ROUNDED,
-                    title="Quick Quiz",
-                    subtitle="Bite-Sized Comprehension",
-                    badge_label="Instant Feedback",
-                    badge_bg=ft.Colors.TEAL_50,
-                    badge_fg=ft.Colors.TEAL_700,
-                    description="Targeted drills with explanations and instant rationale breakdown.",
-                    feature_tags=["Instant Check", "Low Stakes"],
-                    accent_color=ft.Colors.TEAL_600,
-                    cta_text="Launch Quiz",
-                    on_tap=lambda: page.run_task(_start_quiz, _current_selected_ids()),
-                ),
-                bento_card(
-                    col_spec={"xs": 12, "sm": 12, "md": 4},
-                    icon=ft.Icons.TIMER_OUTLINED,
-                    title="Exam Simulator",
-                    subtitle="Simulated Test Environment",
-                    badge_label="Timed Mock",
-                    badge_bg=ft.Colors.ORANGE_50,
-                    badge_fg=ft.Colors.ORANGE_700,
-                    description="Full-length timed exam simulation with comprehensive scoring and result breakdown.",
-                    feature_tags=["Timed Mode", "Score Report"],
-                    accent_color=ft.Colors.ORANGE_600,
-                    cta_text="Begin Exam",
-                    on_tap=lambda: page.run_task(_start_exam, _current_selected_ids()),
-                ),
+                ft.Container(
+                    padding=ft.Padding.symmetric(horizontal=10, vertical=5),
+                    border_radius=ft.BorderRadius.all(14),
+                    bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.PRIMARY),
+                    border=ft.Border.all(1, ft.Colors.with_opacity(0.2, ft.Colors.PRIMARY)),
+                    ink=True,
+                    on_click=lambda _, prompt=p_val: page.run_task(_send_ai_query, prompt),
+                    content=ft.Text(p_lbl, size=11, weight=ft.FontWeight.W_600, color=ft.Colors.PRIMARY),
+                )
+                for p_lbl, p_val in prompt_chips
             ],
         )
 
-        studio_card = ft.Container(
-            border_radius=ft.BorderRadius.all(16),
+        page_h = getattr(page, "height", None) or 800
+        if is_mobile:
+            dynamic_chat_h = max(180, min(240, int(page_h * 0.30)))
+        else:
+            dynamic_chat_h = max(220, min(340, int(page_h * 0.38)))
+
+        ai_tutor_card = ft.Container(
             bgcolor=ft.Colors.SURFACE,
+            border_radius=ft.BorderRadius.all(16),
             border=ft.Border.all(1, ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)),
-            padding=ft.Padding.all(18),
+            padding=ft.Padding.all(16),
             shadow=ft.BoxShadow(
                 blur_radius=10,
                 color=ft.Colors.with_opacity(0.03, ft.Colors.BLACK),
                 offset=ft.Offset(0, 3),
             ),
-            content=ft.ResponsiveRow(
-                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            content=ft.Column(
                 spacing=12,
-                run_spacing=12,
                 controls=[
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[
+                            ft.Row(
+                                expand=True,
+                                spacing=8,
+                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                controls=[
+                                    ft.Container(
+                                        width=32,
+                                        height=32,
+                                        border_radius=ft.BorderRadius.all(16),
+                                        bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY),
+                                        alignment=ft.Alignment.CENTER,
+                                        content=ft.Image(src="study_owl_mascot.png", width=22, height=22, fit=ft.BoxFit.CONTAIN),
+                                    ),
+                                    ft.Column(
+                                        spacing=1,
+                                        tight=True,
+                                        expand=True,
+                                        controls=[
+                                            ft.Text("Study Tutor", size=13.5, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
+                                            ft.Text(
+                                                "Grounded educational dialogue with this upload",
+                                                size=8.5,
+                                                color=ft.Colors.GREY_500,
+                                                max_lines=1,
+                                                overflow=ft.TextOverflow.ELLIPSIS,
+                                            ),
+                                        ],
+                                    ),
+                                ],
+                            ),
+                            clear_chat_btn,
+                        ],
+                    ),
                     ft.Container(
-                        col={"xs": 12, "md": 7},
+                        height=dynamic_chat_h,
+                        content=ai_chat_messages,
+                    ),
+                    chips_row,
+                    ft.Container(
+                        border_radius=ft.BorderRadius.all(12),
+                        border=ft.Border.all(1, ft.Colors.with_opacity(0.15, ft.Colors.ON_SURFACE)),
+                        padding=ft.Padding.symmetric(horizontal=8, vertical=2),
                         content=ft.Row(
-                            spacing=14,
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
                             controls=[
-                                ft.Container(
-                                    width=44, height=44,
-                                    bgcolor=ft.Colors.with_opacity(0.1, ft.Colors.PRIMARY),
-                                    border_radius=ft.BorderRadius.all(12),
-                                    alignment=ft.Alignment.CENTER,
-                                    content=ft.Icon(ft.Icons.AUTO_AWESOME_ROUNDED, color=ft.Colors.PRIMARY, size=22),
+                                ai_input_tf,
+                                ai_send_btn,
+                                ai_spinner,
+                            ],
+                        ),
+                    ),
+                ],
+            ),
+        )
+
+        # Trigger initial query if handed off from hero Gemini prompt box
+        init_q = state.pop("initial_material_query", None)
+        if init_q:
+            page.run_task(_send_ai_query, init_q)
+
+        return ft.Column(
+            expand=True,
+            scroll=ft.ScrollMode.AUTO,
+            spacing=0,
+            controls=[
+                ft.Container(
+                    padding=ft.Padding.symmetric(
+                        horizontal=14 if is_small else 24,
+                        vertical=16,
+                    ),
+                    content=ft.Column(
+                        spacing=16,
+                        controls=[
+                            top_bar,
+                            info_banner,
+                            _section_label("PRACTICE & SIMULATION"),
+                            study_actions,
+                            _section_label("SOCRATIC AI TUTOR"),
+                            ai_tutor_card,
+                            ft.Container(height=32),
+                        ],
+                    ),
+                ),
+            ],
+        )
+
+    # ── hub layout ────────────────────────────────────────────────────────────
+    def _build_hub(due_cards: list, materials: list) -> ft.Column:
+        due_count = len(due_cards)
+        is_mobile = bool(page.width and page.width < 768)
+        is_small = bool(page.width and page.width < 450)
+
+        # Poller references kept safely in state for background poller updates
+        state["live_due_text"] = ft.Text(str(due_count), visible=False)
+        state["live_streak_text"] = ft.Text("", visible=False)
+        state["live_fc_pill"] = ft.Text(f"{due_count} due", visible=False)
+        state["update_hero_responsive"] = lambda: None
+
+        # 1. Hero Mascot & Title ("What shall we Study?")
+        mascot_img = ft.Image(
+            src="study_owl_mascot.png",
+            width=92 if is_small else (102 if is_mobile else 114),
+            height=92 if is_small else (102 if is_mobile else 114),
+            fit=ft.BoxFit.CONTAIN,
+        )
+
+        title_header = ft.Column(
+            spacing=2,
+            tight=True,
+            controls=[
+                ft.Text(
+                    "What shall we",
+                    size=16 if is_small else (18 if is_mobile else 20),
+                    weight=ft.FontWeight.W_600,
+                    color=ft.Colors.with_opacity(0.85, ft.Colors.ON_SURFACE),
+                ),
+                ft.Text(
+                    "Study?",
+                    size=28 if is_small else (32 if is_mobile else 38),
+                    weight=ft.FontWeight.W_900,
+                    color=ft.Colors.ON_SURFACE,
+                ),
+            ],
+        )
+
+        hero_row = ft.Row(
+            alignment=ft.MainAxisAlignment.START,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=16 if is_mobile else 20,
+            controls=[
+                mascot_img,
+                title_header,
+            ],
+        )
+
+        # 2. Gemini-on-Chrome Style Grounded Prompt Box
+        gemini_selected = {"mat": materials[0] if materials else None}
+
+        # Dynamic material chip & send button
+        gemini_chip_icon = ft.Icon(
+            ft.Icons.DESCRIPTION_ROUNDED if gemini_selected["mat"] else ft.Icons.ADD_CIRCLE_OUTLINE_ROUNDED,
+            size=14,
+            color=ft.Colors.PRIMARY if gemini_selected["mat"] else ft.Colors.AMBER_800,
+        )
+        gemini_chip_label = ft.Text(
+            format_material_title(gemini_selected["mat"]["title"]) if gemini_selected["mat"] else "Select Study Material *",
+            size=11.5,
+            weight=ft.FontWeight.W_700,
+            color=ft.Colors.PRIMARY if gemini_selected["mat"] else ft.Colors.AMBER_900,
+            max_lines=1,
+            overflow=ft.TextOverflow.ELLIPSIS,
+        )
+        gemini_chip_arrow = ft.Icon(
+            ft.Icons.KEYBOARD_ARROW_DOWN_ROUNDED,
+            size=14,
+            color=ft.Colors.PRIMARY if gemini_selected["mat"] else ft.Colors.AMBER_800,
+        )
+
+        def _open_material_picker_sheet():
+            if not materials:
+                _open_upload_modal(initial_mode="file")
+                return
+
+            def _select_mat(m):
+                gemini_selected["mat"] = m
+                _update_gemini_ui()
+                sheet.open = False
+                page.update()
+
+            sheet = ft.BottomSheet(
+                content=ft.Container(
+                    padding=ft.Padding.symmetric(horizontal=18, vertical=16),
+                    bgcolor=ft.Colors.SURFACE,
+                    border_radius=ft.BorderRadius.all(18),
+                    content=ft.Column(
+                        spacing=10,
+                        tight=True,
+                        controls=[
+                            ft.Row(
+                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                controls=[
+                                    ft.Row(
+                                        spacing=8,
+                                        tight=True,
+                                        controls=[
+                                            ft.Icon(ft.Icons.ATTACH_FILE_ROUNDED, color=ft.Colors.PRIMARY, size=20),
+                                            ft.Text("Select Material for AI Grounding", size=15, weight=ft.FontWeight.W_800),
+                                        ],
+                                    ),
+                                    ft.IconButton(
+                                        icon=ft.Icons.CLOSE_ROUNDED,
+                                        icon_size=18,
+                                        on_click=lambda _: (setattr(sheet, "open", False), page.update()),
+                                    ),
+                                ],
+                            ),
+                            ft.Text("Choose which note or document your AI tutor should analyze and reference:", size=11.5, color=ft.Colors.GREY_600),
+                            ft.Container(
+                                height=min(len(materials) * 56 + 10, 260),
+                                content=ft.Column(
+                                    scroll=ft.ScrollMode.AUTO,
+                                    controls=[
+                                        ft.ListTile(
+                                            leading=ft.Icon(
+                                                ft.Icons.CHECK_CIRCLE_ROUNDED if gemini_selected.get("mat") and gemini_selected["mat"].get("id") == m.get("id") else ft.Icons.DESCRIPTION_OUTLINED,
+                                                color=ft.Colors.PRIMARY if gemini_selected.get("mat") and gemini_selected["mat"].get("id") == m.get("id") else ft.Colors.GREY_600,
+                                            ),
+                                            title=ft.Text(format_material_title(m.get("title", "Untitled")), size=13, weight=ft.FontWeight.W_700),
+                                            subtitle=ft.Text(f"Source: {(m.get('source_type') or 'text').upper()}", size=11, color=ft.Colors.GREY_500),
+                                            on_click=lambda _, mat_obj=m: _select_mat(mat_obj),
+                                        )
+                                        for m in materials
+                                    ],
                                 ),
-                                ft.Column(
-                                    spacing=3,
+                            ),
+                        ],
+                    ),
+                )
+            )
+            page.overlay.append(sheet)
+            sheet.open = True
+            page.update()
+
+        gemini_chip_container = ft.Container(
+            border_radius=ft.BorderRadius.all(12),
+            bgcolor=ft.Colors.with_opacity(0.10, ft.Colors.PRIMARY if gemini_selected["mat"] else ft.Colors.AMBER_400),
+            padding=ft.Padding.symmetric(horizontal=10, vertical=5),
+            ink=True,
+            on_click=lambda _: _open_material_picker_sheet(),
+            content=ft.Row(
+                spacing=5,
+                tight=True,
+                controls=[
+                    gemini_chip_icon,
+                    gemini_chip_label,
+                    gemini_chip_arrow,
+                ],
+            ),
+        )
+
+        gemini_send_icon = ft.IconButton(
+            icon=ft.Icons.ARROW_UPWARD_ROUNDED,
+            icon_size=16,
+            icon_color=ft.Colors.WHITE if gemini_selected["mat"] else ft.Colors.GREY_400,
+            bgcolor=ft.Colors.PRIMARY if gemini_selected["mat"] else ft.Colors.with_opacity(0.12, ft.Colors.GREY_400),
+            disabled=gemini_selected["mat"] is None,
+            tooltip="Send to AI Tutor" if gemini_selected["mat"] else "Select a study material above to enable AI",
+            on_click=lambda _: _on_submit_gemini_query(),
+        )
+
+    
+
+        def _update_gemini_ui():
+            has_mat = gemini_selected.get("mat") is not None
+            if has_mat:
+                m_title = format_material_title(gemini_selected["mat"].get("title", ""))
+                gemini_chip_icon.name = ft.Icons.DESCRIPTION_ROUNDED
+                gemini_chip_icon.color = ft.Colors.PRIMARY
+                gemini_chip_label.value = m_title
+                gemini_chip_label.color = ft.Colors.PRIMARY
+                gemini_chip_arrow.color = ft.Colors.PRIMARY
+                gemini_chip_container.bgcolor = ft.Colors.with_opacity(0.10, ft.Colors.PRIMARY)
+                gemini_send_icon.disabled = False
+                gemini_send_icon.icon_color = ft.Colors.WHITE
+                gemini_send_icon.bgcolor = ft.Colors.PRIMARY
+                gemini_send_icon.tooltip = "Send to AI Tutor"
+            else:
+                gemini_chip_icon.name = ft.Icons.ADD_CIRCLE_OUTLINE_ROUNDED
+                gemini_chip_icon.color = ft.Colors.AMBER_800
+                gemini_chip_label.value = "Select Study Material *"
+                gemini_chip_label.color = ft.Colors.AMBER_900
+                gemini_chip_arrow.color = ft.Colors.AMBER_800
+                gemini_chip_container.bgcolor = ft.Colors.with_opacity(0.15, ft.Colors.AMBER_300)
+                gemini_send_icon.disabled = True
+                gemini_send_icon.icon_color = ft.Colors.GREY_400
+                gemini_send_icon.bgcolor = ft.Colors.with_opacity(0.12, ft.Colors.GREY_400)
+                gemini_send_icon.tooltip = "Select a study material above to enable AI"
+            page.update()
+
+        def _on_submit_gemini_query():
+            if not gemini_selected.get("mat"):
+                show_page_snackbar(page, "Please select a study material first!")
+                return
+            clean_q = (gemini_tf.value or "").strip()
+            if not clean_q:
+                clean_q = "Summarize the key concepts and quiz my understanding of this document."
+            state["initial_material_query"] = clean_q
+            page.run_task(_open_material_cockpit, gemini_selected["mat"])
+
+        gemini_tf = ft.TextField(
+            hint_text="Ask Nu-AI about this document, summarize key concepts, or quiz me…",
+            border=ft.InputBorder.NONE,
+            multiline=True,
+            min_lines=2,
+            max_lines=3,
+            text_size=12.5 if is_small else 13,
+            content_padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+            on_submit=lambda _: _on_submit_gemini_query(),
+            expand=True
+        )
+
+        gemini_box = ft.Container(
+            bgcolor=ft.Colors.SURFACE,
+            border_radius=ft.BorderRadius.all(18),
+            border=ft.Border.all(1, ft.Colors.with_opacity(0.14, ft.Colors.PRIMARY)),
+            padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+            shadow=ft.BoxShadow(
+                blur_radius=12,
+                color=ft.Colors.with_opacity(0.04, ft.Colors.BLACK),
+                offset=ft.Offset(0, 3),
+            ),
+            content=ft.Column(
+                spacing=4,
+                tight=True,
+                controls=[
+                    # Attachment Chip row at the top (Gemini on Chrome style)
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[
+                            ft.Row(
+                                spacing=6,
+                                tight=True,
+                                expand=True,
+                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                controls=[
+                                    ft.Text("Grounding:", size=11, weight=ft.FontWeight.W_600, color=ft.Colors.GREY_600),
+                                    gemini_chip_container,
+                                ],
+                            ),
+                            ft.Container(
+                                padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+                                border_radius=ft.BorderRadius.all(8),
+                                bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.PRIMARY),
+                                content=ft.Row(
+                                    spacing=4,
                                     tight=True,
                                     controls=[
-                                        ft.Text("Supercharge Your Study Stack", size=14.5, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
+                                        ft.Icon(ft.Icons.AUTO_AWESOME_ROUNDED, size=11, color=ft.Colors.PRIMARY),
+                                        ft.Text("Nu-AI", size=10, weight=ft.FontWeight.W_800, color=ft.Colors.PRIMARY),
+                                    ],
+                                ),
+                            ),
+                        ],
+                    ),
+                    gemini_tf,
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.END,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[
+                            gemini_send_icon,
+                        ],
+                    ),
+                ],
+            ),
+        )
+
+        if is_mobile:
+            hero_section = ft.Column(
+                spacing=14,
+                controls=[
+                    hero_row,
+                    gemini_box,
+                ],
+            )
+        else:
+            hero_section = ft.Row(
+                spacing=20,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[
+                    ft.Container(content=hero_row, width=280),
+                    ft.Container(content=gemini_box, expand=True),
+                ],
+            )
+
+        # 3. Quick Action Grid (2 rows x 3 columns)
+        def _open_more_sheet():
+            sheet = ft.BottomSheet(
+                content=ft.Container(
+                    padding=ft.Padding.all(20),
+                    bgcolor=ft.Colors.SURFACE,
+                    border_radius=ft.BorderRadius.all(18),
+                    content=ft.Column(
+                        spacing=12,
+                        tight=True,
+                        controls=[
+                            ft.Row(
+                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                controls=[
+                                    ft.Text("More Study Options", size=16, weight=ft.FontWeight.W_800),
+                                    ft.IconButton(
+                                        icon=ft.Icons.CLOSE_ROUNDED,
+                                        icon_size=18,
+                                        on_click=lambda _: (setattr(sheet, "open", False), page.update()),
+                                    ),
+                                ],
+                            ),
+                            ft.ListTile(
+                                leading=ft.Icon(ft.Icons.BOLT_ROUNDED, color=ft.Colors.TEAL_600),
+                                title=ft.Text("Quick Quiz", weight=ft.FontWeight.W_700),
+                                subtitle=ft.Text("Instant bite-sized comprehension drills"),
+                                on_click=lambda _: (setattr(sheet, "open", False), page.update(), page.run_task(_start_quiz, _current_selected_ids())),
+                            ),
+                            ft.ListTile(
+                                leading=ft.Icon(ft.Icons.TIMER_OUTLINED, color=ft.Colors.ORANGE_600),
+                                title=ft.Text("Exam Simulator", weight=ft.FontWeight.W_700),
+                                subtitle=ft.Text("Timed mock exam with detailed score report"),
+                                on_click=lambda _: (setattr(sheet, "open", False), page.update(), page.run_task(_start_exam, _current_selected_ids())),
+                            ),
+                            ft.ListTile(
+                                leading=ft.Icon(ft.Icons.FOLDER_SPECIAL_ROUNDED, color=ft.Colors.PRIMARY),
+                                title=ft.Text("Manage Vault", weight=ft.FontWeight.W_700),
+                                subtitle=ft.Text("View all uploaded materials and filter topics"),
+                                on_click=lambda _: (setattr(sheet, "open", False), page.update(), _toggle_sidebar(None)),
+                            ),
+                        ],
+                    ),
+                )
+            )
+            page.overlay.append(sheet)
+            sheet.open = True
+            page.update()
+
+        def _quick_action_btn(icon, label, on_click):
+            return ft.Container(
+                col={"xs": 4, "sm": 4, "md": 4},
+                bgcolor=ft.Colors.SURFACE,
+                border_radius=ft.BorderRadius.all(16),
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE)),
+                padding=ft.Padding.symmetric(horizontal=8 if is_small else 12, vertical=12 if is_small else 14),
+                ink=True,
+                on_click=on_click,
+                shadow=ft.BoxShadow(
+                    blur_radius=6,
+                    color=ft.Colors.with_opacity(0.02, ft.Colors.BLACK),
+                    offset=ft.Offset(0, 2),
+                ),
+                content=ft.Row(
+                    alignment=ft.MainAxisAlignment.CENTER,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    spacing=6 if is_small else 8,
+                    controls=[
+                        ft.Icon(icon, size=16 if is_small else 18, color=ft.Colors.ON_SURFACE),
+                        ft.Text(label, size=11.5 if is_small else 12.5, weight=ft.FontWeight.W_700, color=ft.Colors.ON_SURFACE),
+                    ],
+                ),
+            )
+
+        quick_actions_grid = ft.ResponsiveRow(
+            spacing=8 if is_small else 10,
+            run_spacing=8 if is_small else 10,
+            controls=[
+                _quick_action_btn(ft.Icons.ARROW_UPWARD_ROUNDED, "Upload", lambda _: _open_upload_modal(initial_mode="file")),
+                _quick_action_btn(ft.Icons.CAMERA_ALT_OUTLINED, "Photo", lambda _: _open_upload_modal(initial_mode="photo")),
+                _quick_action_btn(ft.Icons.FOLDER_OUTLINED, "Deck", lambda _: page.run_task(_start_flashcards, _current_selected_ids())),
+                _quick_action_btn(ft.Icons.PLAY_CIRCLE_OUTLINE_ROUNDED, "YouTube", lambda _: _open_youtube_modal()),
+                _quick_action_btn(ft.Icons.DESCRIPTION_OUTLINED, "Paste", lambda _: _open_upload_modal(initial_mode="paste")),
+                _quick_action_btn(ft.Icons.KEYBOARD_ARROW_DOWN_ROUNDED, "More", lambda _: _open_more_sheet()),
+            ],
+        )
+
+        # 4. Jump back in Section
+        jump_header = ft.Row(
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                ft.Text("Jump back in", size=17 if is_small else 19, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
+                ft.TextButton(
+                    "View all",
+                    style=ft.ButtonStyle(color=ft.Colors.PRIMARY),
+                    on_click=lambda _: _toggle_sidebar(None),
+                ) if len(materials) > 0 else ft.Container(),
+            ],
+        )
+
+        def _render_jump_card(mat: dict):
+            mtitle = mat.get("title") or "Untitled Document"
+            display_title = format_material_title(mtitle)
+            stype = (mat.get("source_type") or "text").lower()
+
+            if "pdf" in stype or mtitle.lower().endswith(".pdf"):
+                sub_label = "PDF Notes"
+                badge_color = ft.Colors.RED_500
+                badge_icon = ft.Icons.PICTURE_AS_PDF_ROUNDED
+            elif "url" in stype:
+                sub_label = "Web / Video"
+                badge_color = ft.Colors.TEAL_600
+                badge_icon = ft.Icons.LINK_ROUNDED
+            else:
+                sub_label = "Quiz & Cards"
+                badge_color = ft.Colors.PURPLE_500
+                badge_icon = ft.Icons.STYLE_ROUNDED
+
+            circle_badge = ft.Container(
+                width=38,
+                height=38,
+                border_radius=ft.BorderRadius.all(19),
+                bgcolor=ft.Colors.with_opacity(0.12, badge_color),
+                alignment=ft.Alignment.CENTER,
+                content=ft.Icon(badge_icon, size=18, color=badge_color),
+            )
+
+            # Tapping triggers full view loading spinner and opens cockpit!
+            return ft.Container(
+                col={"xs": 12, "sm": 6, "md": 4},
+                bgcolor=ft.Colors.SURFACE,
+                border_radius=ft.BorderRadius.all(16),
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE)),
+                padding=ft.Padding.symmetric(horizontal=14, vertical=12),
+                ink=True,
+                on_click=lambda _, m=mat: page.run_task(_open_material_cockpit, m),
+                shadow=ft.BoxShadow(
+                    blur_radius=8,
+                    color=ft.Colors.with_opacity(0.03, ft.Colors.BLACK),
+                    offset=ft.Offset(0, 2),
+                ),
+                content=ft.Row(
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[
+                        ft.Row(
+                            spacing=12,
+                            tight=True,
+                            expand=True,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            controls=[
+                                circle_badge,
+                                ft.Column(
+                                    spacing=2,
+                                    tight=True,
+                                    expand=True,
+                                    controls=[
                                         ft.Text(
-                                            "Add notes, slides, or docs to generate customized study materials",
-                                            size=11.5,
+                                            display_title,
+                                            size=13.5,
+                                            weight=ft.FontWeight.W_800,
+                                            color=ft.Colors.ON_SURFACE,
+                                            max_lines=1,
+                                            overflow=ft.TextOverflow.ELLIPSIS,
+                                        ),
+                                        ft.Text(
+                                            sub_label,
+                                            size=11,
+                                            weight=ft.FontWeight.W_600,
                                             color=ft.Colors.GREY_500,
                                         ),
                                     ],
                                 ),
                             ],
                         ),
-                    ),
-                    ft.Container(
-                        col={"xs": 12, "md": 5},
-                        content=ft.Row(
-                            alignment=ft.MainAxisAlignment.END if page.width and page.width >= 768 else ft.MainAxisAlignment.START,
-                            spacing=8,
-                            wrap=True,
-                            controls=[
-                                ft.OutlinedButton(
-                                    content=ft.Row(
-                                        spacing=6,
-                                        tight=True,
-                                        controls=[
-                                            ft.Icon(ft.Icons.UPLOAD_FILE_ROUNDED, size=15, color=ft.Colors.PRIMARY),
-                                            ft.Text("Upload Material", size=12, weight=ft.FontWeight.W_700, color=ft.Colors.PRIMARY),
-                                        ],
-                                    ),
-                                    style=ft.ButtonStyle(
-                                        shape=ft.RoundedRectangleBorder(radius=10),
-                                        side=ft.BorderSide(1, ft.Colors.with_opacity(0.3, ft.Colors.PRIMARY)),
-                                        padding=ft.Padding.symmetric(horizontal=14, vertical=10),
-                                    ),
-                                    on_click=lambda _: _open_upload_modal(),
-                                ),
-                                ft.ElevatedButton(
-                                    content=ft.Row(
-                                        spacing=6,
-                                        tight=True,
-                                        controls=[
-                                            ft.Icon(ft.Icons.BOLT_ROUNDED, size=16, color=ft.Colors.WHITE),
-                                            ft.Text("Generate AI Pack", size=12, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE),
-                                        ],
-                                    ),
-                                    bgcolor=ft.Colors.PRIMARY,
-                                    style=ft.ButtonStyle(
-                                        shape=ft.RoundedRectangleBorder(radius=10),
-                                        elevation=0,
-                                        padding=ft.Padding.symmetric(horizontal=14, vertical=10),
-                                    ),
-                                    on_click=lambda _: _open_generate_panel(),
-                                ),
-                            ],
+                        # Right green action / sprout icon matching reference UI!
+                        ft.Container(
+                            width=32,
+                            height=32,
+                            border_radius=ft.BorderRadius.all(16),
+                            bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.GREEN_600),
+                            alignment=ft.Alignment.CENTER,
+                            content=ft.Icon(ft.Icons.PLAY_ARROW_ROUNDED, size=16, color=ft.Colors.GREEN_700),
                         ),
-                    ),
-                ],
-            ),
-        )
+                    ],
+                ),
+            )
 
         recent_materials = materials[:6] if materials else []
-
         if not materials:
-            vault_content = ft.Container(
+            jump_content = ft.Container(
                 bgcolor=ft.Colors.with_opacity(0.03, ft.Colors.ON_SURFACE),
-                border=ft.Border.all(1, ft.Colors.with_opacity(0.1, ft.Colors.ON_SURFACE)),
-                border_radius=ft.BorderRadius.all(14),
-                padding=ft.Padding.symmetric(horizontal=20, vertical=28),
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE)),
+                border_radius=ft.BorderRadius.all(16),
+                padding=ft.Padding.symmetric(horizontal=20, vertical=26),
                 alignment=ft.Alignment.CENTER,
                 content=ft.Column(
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                     spacing=8,
                     controls=[
                         ft.Container(
-                            width=46, height=46,
-                            bgcolor=ft.Colors.with_opacity(0.1, ft.Colors.PRIMARY),
+                            width=44,
+                            height=44,
+                            bgcolor=ft.Colors.with_opacity(0.10, ft.Colors.PRIMARY),
                             border_radius=ft.BorderRadius.all(12),
                             alignment=ft.Alignment.CENTER,
-                            content=ft.Icon(ft.Icons.FOLDER_OPEN_ROUNDED, color=ft.Colors.PRIMARY, size=24),
+                            content=ft.Icon(ft.Icons.FOLDER_OPEN_ROUNDED, color=ft.Colors.PRIMARY, size=22),
                         ),
-                        ft.Text("Your Knowledge Vault is Empty", size=14, weight=ft.FontWeight.W_700, color=ft.Colors.ON_SURFACE),
+                        ft.Text("No materials added yet", size=14, weight=ft.FontWeight.W_700, color=ft.Colors.ON_SURFACE),
                         ft.Text(
-                            "Upload lecture slides, notes, or web articles to generate study decks and quizzes.",
+                            "Upload lecture notes, slides, or paste content above to jump in.",
                             size=12,
                             color=ft.Colors.GREY_500,
                             text_align=ft.TextAlign.CENTER,
@@ -2421,177 +3322,23 @@ async def self_study_view(page: ft.Page):
                                 tight=True,
                                 controls=[
                                     ft.Icon(ft.Icons.ADD_ROUNDED, size=15, color=ft.Colors.WHITE),
-                                    ft.Text("Upload First Material", size=12, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE),
+                                    ft.Text("Add First Material", size=12, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE),
                                 ],
                             ),
                             bgcolor=ft.Colors.PRIMARY,
                             height=36,
                             style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=9), elevation=0),
-                            on_click=lambda _: _open_upload_modal(),
+                            on_click=lambda _: _open_upload_modal(initial_mode="file"),
                         ),
                     ],
                 ),
             )
         else:
-            vault_cards = []
-            for mat in recent_materials:
-                mid = mat.get("id")
-                if mid is None:
-                    continue
-                mtitle = mat.get("title") or "Untitled Document"
-                display_title = format_material_title(mtitle)
-                stype = (mat.get("source_type") or "text").lower()
-
-                if "pdf" in stype or mtitle.lower().endswith(".pdf"):
-                    m_icon = ft.Icons.PICTURE_AS_PDF_ROUNDED
-                    m_color = ft.Colors.RED_400
-                    m_tag = "PDF"
-                elif "url" in stype:
-                    m_icon = ft.Icons.LINK_ROUNDED
-                    m_color = ft.Colors.TEAL_400
-                    m_tag = "URL"
-                else:
-                    m_icon = ft.Icons.DESCRIPTION_ROUNDED
-                    m_color = ft.Colors.BLUE_400
-                    m_tag = "NOTES"
-
-                is_in_focus = mid in state["selected_mat_ids"]
-
-                def _toggle_mat_from_hub(e, target_id=mid):
-                    page.run_task(_sync_material_selection, target_id=target_id)
-
-                mat_card = ft.Container(
-                    col={"xs": 12, "sm": 6, "md": 4},
-                    bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.PRIMARY) if is_in_focus else ft.Colors.SURFACE,
-                    border_radius=ft.BorderRadius.all(14),
-                    border=ft.Border.all(
-                        1.5 if is_in_focus else 1,
-                        ft.Colors.PRIMARY if is_in_focus else ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE),
-                    ),
-                    padding=ft.Padding.all(14),
-                    shadow=ft.BoxShadow(
-                        blur_radius=8,
-                        color=ft.Colors.with_opacity(0.06 if is_in_focus else 0.03, ft.Colors.PRIMARY if is_in_focus else ft.Colors.BLACK),
-                        offset=ft.Offset(0, 2),
-                    ),
-                    content=ft.Column(
-                        spacing=10,
-                        controls=[
-                            ft.Container(
-                                ink=True,
-                                border_radius=ft.BorderRadius.all(8),
-                                on_click=_toggle_mat_from_hub,
-                                tooltip="Click to toggle material selection",
-                                content=ft.Column(
-                                    spacing=8,
-                                    controls=[
-                                        ft.Row(
-                                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                            controls=[
-                                                ft.Row(
-                                                    spacing=8,
-                                                    tight=True,
-                                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                                    controls=[
-                                                        ft.Container(
-                                                            width=30, height=30,
-                                                            bgcolor=ft.Colors.with_opacity(0.12, m_color),
-                                                            border_radius=ft.BorderRadius.all(8),
-                                                            alignment=ft.Alignment.CENTER,
-                                                            content=ft.Icon(m_icon, color=m_color, size=16),
-                                                        ),
-                                                        ft.Container(
-                                                            padding=ft.Padding.symmetric(horizontal=6, vertical=2),
-                                                            bgcolor=ft.Colors.with_opacity(0.08, m_color),
-                                                            border_radius=ft.BorderRadius.all(6),
-                                                            content=ft.Text(m_tag, size=9, weight=ft.FontWeight.W_700, color=m_color),
-                                                        ),
-                                                    ],
-                                                ),
-                                                ft.IconButton(
-                                                    icon=ft.Icons.CHECK_CIRCLE_ROUNDED if is_in_focus else ft.Icons.RADIO_BUTTON_UNCHECKED_ROUNDED,
-                                                    icon_color=ft.Colors.PRIMARY if is_in_focus else ft.Colors.GREY_400,
-                                                    icon_size=18,
-                                                    tooltip="Toggle in Focus Mode",
-                                                    on_click=_toggle_mat_from_hub,
-                                                ),
-                                            ],
-                                        ),
-                                        ft.Text(
-                                            display_title,
-                                            size=12.5,
-                                            weight=ft.FontWeight.W_700,
-                                            color=ft.Colors.PRIMARY if is_in_focus else ft.Colors.ON_SURFACE,
-                                            max_lines=1,
-                                            overflow=ft.TextOverflow.ELLIPSIS,
-                                        ),
-                                    ],
-                                ),
-                            ),
-                            ft.Row(
-                                spacing=6,
-                                wrap=True,
-                                controls=[
-                                    ft.OutlinedButton(
-                                        content=ft.Row(
-                                            spacing=4, tight=True,
-                                            controls=[
-                                                ft.Icon(ft.Icons.STYLE_ROUNDED, size=13, color=ft.Colors.PURPLE_500),
-                                                ft.Text("Cards", size=11, weight=ft.FontWeight.W_600, color=ft.Colors.PURPLE_500),
-                                            ],
-                                        ),
-                                        height=30,
-                                        style=ft.ButtonStyle(
-                                            padding=ft.Padding.symmetric(horizontal=8, vertical=0),
-                                            shape=ft.RoundedRectangleBorder(radius=7),
-                                            side=ft.BorderSide(1, ft.Colors.with_opacity(0.2, ft.Colors.PURPLE_500)),
-                                        ),
-                                        on_click=lambda _, target_id=mid: page.run_task(_start_flashcards, [target_id]),
-                                    ),
-                                    ft.OutlinedButton(
-                                        content=ft.Row(
-                                            spacing=4, tight=True,
-                                            controls=[
-                                                ft.Icon(ft.Icons.BOLT_ROUNDED, size=13, color=ft.Colors.TEAL_600),
-                                                ft.Text("Quiz", size=11, weight=ft.FontWeight.W_600, color=ft.Colors.TEAL_600),
-                                            ],
-                                        ),
-                                        height=30,
-                                        style=ft.ButtonStyle(
-                                            padding=ft.Padding.symmetric(horizontal=8, vertical=0),
-                                            shape=ft.RoundedRectangleBorder(radius=7),
-                                            side=ft.BorderSide(1, ft.Colors.with_opacity(0.2, ft.Colors.TEAL_600)),
-                                        ),
-                                        on_click=lambda _, target_id=mid: page.run_task(_start_quiz, [target_id]),
-                                    ),
-                                    ft.OutlinedButton(
-                                        content=ft.Row(
-                                            spacing=4, tight=True,
-                                            controls=[
-                                                ft.Icon(ft.Icons.TIMER_OUTLINED, size=13, color=ft.Colors.ORANGE_500),
-                                                ft.Text("Exam", size=11, weight=ft.FontWeight.W_600, color=ft.Colors.ORANGE_500),
-                                            ],
-                                        ),
-                                        height=30,
-                                        style=ft.ButtonStyle(
-                                            padding=ft.Padding.symmetric(horizontal=8, vertical=0),
-                                            shape=ft.RoundedRectangleBorder(radius=7),
-                                            side=ft.BorderSide(1, ft.Colors.with_opacity(0.2, ft.Colors.ORANGE_500)),
-                                        ),
-                                        on_click=lambda _, target_id=mid: page.run_task(_start_exam, [target_id]),
-                                    ),
-                                ],
-                            ),
-                        ],
-                    ),
-                )
-                vault_cards.append(mat_card)
-
-            vault_content = ft.ResponsiveRow(
-                spacing=12,
-                run_spacing=12,
-                controls=vault_cards,
+            jump_cards = [_render_jump_card(m) for m in recent_materials]
+            jump_content = ft.ResponsiveRow(
+                spacing=10,
+                run_spacing=10,
+                controls=jump_cards,
             )
 
         return ft.Column(
@@ -2601,34 +3348,16 @@ async def self_study_view(page: ft.Page):
             controls=[
                 ft.Container(
                     padding=ft.Padding.symmetric(
-                        horizontal=14 if (page.width and page.width < 500) else 24,
+                        horizontal=14 if is_small else 24,
                         vertical=18,
                     ),
                     content=ft.Column(
                         spacing=18,
                         controls=[
-                            hero_banner,
-                            context_scope_bar,
-                            _section_label("STUDY MODES"),
-                            study_modes_grid,
-                            _section_label("CREATIVE STUDIO"),
-                            studio_card,
-                            ft.Row(
-                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                controls=[
-                                    _section_label("MY STUDY VAULT"),
-                                    ft.TextButton(
-                                        "Manage in sidebar →",
-                                        style=ft.ButtonStyle(
-                                            padding=ft.Padding.symmetric(horizontal=4, vertical=0),
-                                            color=ft.Colors.PRIMARY,
-                                        ),
-                                        on_click=lambda _: _toggle_sidebar(None),
-                                    ) if len(materials) > 0 else ft.Container(),
-                                ],
-                            ),
-                            vault_content,
+                            hero_section,
+                            quick_actions_grid,
+                            jump_header,
+                            jump_content,
                             ft.Container(height=32),
                         ],
                     ),
@@ -2637,28 +3366,201 @@ async def self_study_view(page: ft.Page):
         )
 
     # ─────────────────────────────────────────────────────────────────────────
-    # UPLOAD MODAL
+    # YOUTUBE MODAL
     # ─────────────────────────────────────────────────────────────────────────
-    def _open_upload_modal():
-        selected_file_bytes = None
-        selected_file_name  = None
-
+    def _open_youtube_modal():
         at_limit = state["mat_lim"] is not None and state["mat_used"] >= state["mat_lim"]
 
-        title_field = ft.TextField(
-            label="Topic Title *",
-            hint_text="e.g. Biology Ch. 4 - Cell Division",
+        url_field = ft.TextField(
+            label="YouTube Video Link *",
+            hint_text="e.g. https://www.youtube.com/watch?v=... or youtu.be/...",
+            prefix_icon=ft.Icons.PLAY_CIRCLE_FILL_ROUNDED,
             border_radius=10,
             border_color=ft.Colors.with_opacity(0.15, ft.Colors.ON_SURFACE),
             focused_border_color=ft.Colors.PRIMARY,
             text_size=13,
             content_padding=ft.Padding.symmetric(horizontal=14, vertical=12),
-            expand= True
+        )
+
+        title_field = ft.TextField(
+            label="Custom Title (Optional)",
+            hint_text="e.g. Intro to Machine Learning",
+            prefix_icon=ft.Icons.TITLE_ROUNDED,
+            border_radius=10,
+            border_color=ft.Colors.with_opacity(0.15, ft.Colors.ON_SURFACE),
+            focused_border_color=ft.Colors.PRIMARY,
+            text_size=13,
+            content_padding=ft.Padding.symmetric(horizontal=14, vertical=12),
+        )
+
+        error_text = ft.Text("", color=ft.Colors.RED_700, size=12, visible=False)
+        loading_ring = ft.ProgressRing(width=16, height=16, stroke_width=2.5, color=ft.Colors.WHITE, visible=False)
+        submit_btn_text = ft.Text("Import & Analyze Video", size=13, weight=ft.FontWeight.W_700, color=ft.Colors.ON_PRIMARY)
+
+        submit_btn = ft.ElevatedButton(
+            content=ft.Row(
+                tight=True,
+                spacing=8,
+                alignment=ft.MainAxisAlignment.CENTER,
+                controls=[
+                    loading_ring,
+                    submit_btn_text,
+                ],
+            ),
+            bgcolor=ft.Colors.PRIMARY,
+            height=42,
+            disabled=at_limit,
+            style=ft.ButtonStyle(
+                shape=ft.RoundedRectangleBorder(radius=10),
+                elevation=0,
+            ),
+        )
+
+        dlg = ft.AlertDialog(
+            shape=ft.RoundedRectangleBorder(radius=18),
+            title=ft.Row(
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[
+                    ft.Row(
+                        spacing=8,
+                        expand=True,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[
+                            ft.Icon(ft.Icons.PLAY_CIRCLE_FILLED_ROUNDED, color=ft.Colors.RED_500, size=22),
+                            ft.Text("Study with YouTube", size=15.5, weight=ft.FontWeight.W_800, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, expand=True),
+                        ],
+                    ),
+                    ft.IconButton(
+                        icon=ft.Icons.CLOSE_ROUNDED,
+                        icon_size=18,
+                        on_click=lambda _: _close_yt_dlg(),
+                    ),
+                ],
+            ),
+            content=ft.Container(
+                width=min(page.width - 32, 400) if page.width else 380,
+                content=ft.Column(
+                    tight=True,
+                    spacing=12,
+                    controls=[
+                        ft.Text(
+                            "Paste any educational YouTube video link. We extract its core context and synthesize structured study notes for flashcards, quizzes, and your AI tutor.",
+                            size=12,
+                            color=ft.Colors.GREY_600,
+                        ),
+                        url_field,
+                        title_field,
+                        error_text,
+                        ft.Container(
+                            visible=at_limit,
+                            padding=ft.Padding.all(10),
+                            border_radius=8,
+                            bgcolor=ft.Colors.with_opacity(0.1, ft.Colors.RED_400),
+                            content=ft.Text("Material limit reached. Upgrade plan to add more.", size=11, color=ft.Colors.RED_700),
+                        ),
+                    ],
+                ),
+            ),
+            actions=[
+                ft.TextButton("Cancel", on_click=lambda _: _close_yt_dlg()),
+                submit_btn,
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+
+        def _close_yt_dlg():
+            dlg.open = False
+            page.update()
+
+        async def _do_import(e):
+            raw_url = (url_field.value or "").strip()
+            if not raw_url:
+                error_text.value = "Please enter a valid YouTube link."
+                error_text.visible = True
+                page.update()
+                return
+
+            error_text.visible = False
+            loading_ring.visible = True
+            submit_btn_text.value = "Analyzing video & generating notes…"
+            submit_btn.disabled = True
+            page.update()
+
+            res = await import_youtube_material(token, raw_url, (title_field.value or "").strip() or None)
+            if "error" in res:
+                error_text.value = str(res["error"])
+                error_text.visible = True
+                loading_ring.visible = False
+                submit_btn_text.value = "Import & Analyze Video"
+                submit_btn.disabled = False
+                page.update()
+                return
+
+            _close_yt_dlg()
+            show_page_snackbar(page, "YouTube video imported and study generation initiated!")
+
+            # Promptly count towards student quotas in state
+            state["mat_used"] = (state.get("mat_used") or 0) + 1
+            state["gen_used"] = (state.get("gen_used") or 0) + 1
+            new_mid = str(res.get("material_id"))
+            if new_mid and new_mid != "None":
+                state.setdefault("generating_mats", set()).add(new_mid)
+
+            if state.get("sidebar_vault_text"):
+                state["sidebar_vault_text"].value = f"{len(state.get('materials', [])) + 1} items"
+                try:
+                    state["sidebar_vault_text"].update()
+                except Exception:
+                    pass
+
+            _refresh_sidebar_materials()
+            _refresh_plan_ui()
+
+            # Reload materials and immediately open in Cockpit
+            mats = await get_materials(token)
+            if isinstance(mats, list) and mats:
+                state["materials"] = mats
+                _refresh_sidebar_materials()
+                target_mat = next((m for m in mats if str(m.get("id")) == new_mid), mats[0])
+                await _open_material_cockpit(target_mat)
+            else:
+                await _load_hub()
+
+        submit_btn.on_click = lambda e: page.run_task(_do_import, e)
+        page.overlay.append(dlg)
+        dlg.open = True
+        page.update()
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # UPLOAD MODAL
+    # ─────────────────────────────────────────────────────────────────────────
+    def _open_upload_modal(initial_mode="file", prefill_title=""):
+        selected_file_bytes = None
+        selected_file_name  = None
+        selected_extra_files: list = []  # list of (name, bytes)
+
+        at_limit = state["mat_lim"] is not None and state["mat_used"] >= state["mat_lim"]
+
+        is_text_start = initial_mode in ("paste", "text", "url")
+        is_url_mode = initial_mode == "url"
+        is_photo_mode = initial_mode == "photo"
+
+        title_field = ft.TextField(
+            label="Resource Title or URL *" if is_url_mode else ("Photo / Notes Title *" if is_photo_mode else "Topic Title *"),
+            value=prefill_title or "",
+            hint_text="e.g. YouTube Video, Article URL, or Topic" if is_url_mode else ("e.g. Whiteboard Notes, Lecture Slide" if is_photo_mode else "e.g. Biology Ch. 4 - Cell Division"),
+            border_radius=10,
+            border_color=ft.Colors.with_opacity(0.15, ft.Colors.ON_SURFACE),
+            focused_border_color=ft.Colors.PRIMARY,
+            text_size=13,
+            content_padding=ft.Padding.symmetric(horizontal=14, vertical=12),
+            expand=True
         )
 
         text_field = ft.TextField(
-            label="Paste Notes / Content",
-            hint_text="Paste lecture summaries, transcriptions, notes, or articles...",
+            label="Video Transcript / Web Content" if is_url_mode else "Paste Notes / Content",
+            hint_text="Paste article text, video transcription, or summaries..." if is_url_mode else "Paste lecture summaries, transcriptions, notes, or articles...",
             multiline=True,
             min_lines=5,
             max_lines=9,
@@ -2667,11 +3569,11 @@ async def self_study_view(page: ft.Page):
             focused_border_color=ft.Colors.PRIMARY,
             text_size=13,
             content_padding=ft.Padding.symmetric(horizontal=14, vertical=12),
-            expand= True
+            expand=True
         )
 
-        error_text  = ft.Text("", color=ft.Colors.RED_700, size=12, visible=False)
-        status_text = ft.Text("", color=ft.Colors.TEAL_600, size=12, visible=False)
+        error_text  = ft.Text("", color=ft.Colors.RED_700, size=12, visible=True, expand=True)
+        status_text = ft.Text("", color=ft.Colors.TEAL_600, size=12, visible=True, expand=True)
 
         error_box = ft.Container(
             visible=False,
@@ -2727,9 +3629,10 @@ async def self_study_view(page: ft.Page):
         )
 
         def remove_selected_file(e=None):
-            nonlocal selected_file_bytes, selected_file_name
+            nonlocal selected_file_bytes, selected_file_name, selected_extra_files
             selected_file_bytes = None
             selected_file_name = None
+            selected_extra_files = []
             update_dropzone_ui()
             page.update()
 
@@ -2737,12 +3640,17 @@ async def self_study_view(page: ft.Page):
 
         def update_dropzone_ui():
             if selected_file_bytes and selected_file_name:
-                size_kb = len(selected_file_bytes) / 1024
+                total_files_count = 1 + len(selected_extra_files)
+                total_bytes = len(selected_file_bytes) + sum(len(b) for _, b in selected_extra_files)
+                size_kb = total_bytes / 1024
                 size_str = f"{size_kb:.1f} KB" if size_kb < 1024 else f"{size_kb/1024:.2f} MB"
+                is_img = any(selected_file_name.lower().endswith(ext) for ext in [".png", ".jpg", ".jpeg", ".webp"])
                 is_pdf = selected_file_name.lower().endswith(".pdf")
-                fmt_tag = "PDF" if is_pdf else ("TXT" if selected_file_name.lower().endswith(".txt") else "DOC")
-                fmt_color = ft.Colors.RED_400 if is_pdf else ft.Colors.BLUE_400
-                fmt_icon = ft.Icons.PICTURE_AS_PDF_ROUNDED if is_pdf else ft.Icons.DESCRIPTION_ROUNDED
+                fmt_tag = f"{total_files_count} PHOTOS" if (is_img and total_files_count > 1) else ("PHOTO" if is_img else ("PDF" if is_pdf else "TXT"))
+                fmt_color = ft.Colors.PURPLE_400 if is_img else (ft.Colors.RED_400 if is_pdf else ft.Colors.BLUE_400)
+                fmt_icon = ft.Icons.CAMERA_ALT_ROUNDED if is_img else (ft.Icons.PICTURE_AS_PDF_ROUNDED if is_pdf else ft.Icons.DESCRIPTION_ROUNDED)
+
+                display_name = f"{selected_file_name} (+{len(selected_extra_files)} more)" if selected_extra_files else selected_file_name
 
                 file_dropzone.content = ft.Container(
                     border_radius=12,
@@ -2768,7 +3676,7 @@ async def self_study_view(page: ft.Page):
                                         tight=True,
                                         controls=[
                                             ft.Text(
-                                                selected_file_name,
+                                                display_name,
                                                 size=12.5,
                                                 weight=ft.FontWeight.W_700,
                                                 max_lines=1,
@@ -2795,13 +3703,17 @@ async def self_study_view(page: ft.Page):
                                 icon=ft.Icons.CLOSE_ROUNDED,
                                 icon_size=18,
                                 icon_color=ft.Colors.GREY_500,
-                                tooltip="Remove file",
+                                tooltip="Remove files",
                                 on_click=remove_selected_file,
                             ),
                         ],
                     ),
                 )
             else:
+                dropzone_title = "Click to browse study photos (up to 6)" if is_photo_mode else "Click to browse document"
+                dropzone_sub = "PNG, JPG, or WEBP (handwritten notes, slides)" if is_photo_mode else "PDF, TXT, or Markdown supported"
+                dropzone_icon = ft.Icons.ADD_A_PHOTO_ROUNDED if is_photo_mode else ft.Icons.CLOUD_UPLOAD_ROUNDED
+
                 file_dropzone.content = ft.Container(
                     border_radius=12,
                     border=ft.Border.all(1.5, ft.Colors.with_opacity(0.2, ft.Colors.PRIMARY)),
@@ -2818,15 +3730,15 @@ async def self_study_view(page: ft.Page):
                                 bgcolor=ft.Colors.with_opacity(0.1, ft.Colors.PRIMARY),
                                 border_radius=12,
                                 alignment=ft.Alignment.CENTER,
-                                content=ft.Icon(ft.Icons.CLOUD_UPLOAD_ROUNDED, color=ft.Colors.PRIMARY, size=24),
+                                content=ft.Icon(dropzone_icon, color=ft.Colors.PRIMARY, size=24),
                             ),
-                            ft.Text("Click to browse document", size=13, weight=ft.FontWeight.W_700),
-                            ft.Text("PDF, TXT, or Markdown supported", size=11, color=ft.Colors.GREY_500),
+                            ft.Text(dropzone_title, size=13, weight=ft.FontWeight.W_700),
+                            ft.Text(dropzone_sub, size=11, color=ft.Colors.GREY_500),
                             ft.Row(
                                 alignment=ft.MainAxisAlignment.CENTER,
                                 spacing=6,
                                 controls=[
-                                    ft.Container(bgcolor=ft.Colors.with_opacity(0.1, ft.Colors.RED_400), border_radius=6, padding=ft.Padding.symmetric(horizontal=6, vertical=2), content=ft.Text("PDF", size=9, weight=ft.FontWeight.W_800, color=ft.Colors.RED_600)),
+                                    ft.Container(bgcolor=ft.Colors.with_opacity(0.1, ft.Colors.PURPLE_400), border_radius=6, padding=ft.Padding.symmetric(horizontal=6, vertical=2), content=ft.Text("PHOTO / NOTES", size=9, weight=ft.FontWeight.W_800, color=ft.Colors.PURPLE_600)) if is_photo_mode else ft.Container(bgcolor=ft.Colors.with_opacity(0.1, ft.Colors.RED_400), border_radius=6, padding=ft.Padding.symmetric(horizontal=6, vertical=2), content=ft.Text("PDF", size=9, weight=ft.FontWeight.W_800, color=ft.Colors.RED_600)),
                                     ft.Container(bgcolor=ft.Colors.with_opacity(0.1, ft.Colors.BLUE_400), border_radius=6, padding=ft.Padding.symmetric(horizontal=6, vertical=2), content=ft.Text("TXT", size=9, weight=ft.FontWeight.W_800, color=ft.Colors.BLUE_600)),
                                     ft.Container(bgcolor=ft.Colors.with_opacity(0.1, ft.Colors.TEAL_400), border_radius=6, padding=ft.Padding.symmetric(horizontal=6, vertical=2), content=ft.Text("MD", size=9, weight=ft.FontWeight.W_800, color=ft.Colors.TEAL_600)),
                                 ],
@@ -2836,19 +3748,21 @@ async def self_study_view(page: ft.Page):
                 )
 
         async def pick_file(e):
-            nonlocal selected_file_bytes, selected_file_name
+            nonlocal selected_file_bytes, selected_file_name, selected_extra_files
             try:
+                allowed_ext = ["png", "jpg", "jpeg", "webp"] if is_photo_mode else ["pdf", "txt", "md", "png", "jpg", "jpeg", "webp"]
                 files = await ft.FilePicker().pick_files(
-                    allow_multiple=False,
-                    allowed_extensions=["pdf", "txt", "md"],
+                    allow_multiple=is_photo_mode,
+                    allowed_extensions=allowed_ext,
                     with_data=True,
                 )
                 if files:
                     selected_file_bytes = files[0].bytes
                     selected_file_name  = files[0].name
+                    selected_extra_files = [(f.name, f.bytes) for f in files[1:6]]
                     if not (title_field.value or "").strip():
                         cleaned_name = selected_file_name
-                        for ext in [".pdf", ".txt", ".md"]:
+                        for ext in [".png", ".jpg", ".jpeg", ".webp", ".pdf", ".txt", ".md"]:
                             if cleaned_name.lower().endswith(ext):
                                 cleaned_name = cleaned_name[:-len(ext)]
                         title_field.value = cleaned_name.replace("_", " ").title()
@@ -2863,15 +3777,15 @@ async def self_study_view(page: ft.Page):
         update_dropzone_ui()
 
         # Tab Segmented Switcher (File vs Text)
-        mode_state = {"tab": "file"}
+        mode_state = {"tab": "text" if is_text_start else "file"}
 
-        tab_file_icon = ft.Icon(ft.Icons.UPLOAD_FILE_ROUNDED, size=15, color=ft.Colors.PRIMARY)
-        tab_file_text = ft.Text("Upload File", size=12, weight=ft.FontWeight.W_700, color=ft.Colors.PRIMARY)
+        tab_file_icon = ft.Icon(ft.Icons.UPLOAD_FILE_ROUNDED, size=15, color=ft.Colors.GREY_500 if is_text_start else ft.Colors.PRIMARY)
+        tab_file_text = ft.Text("Upload File", size=12, weight=ft.FontWeight.W_500 if is_text_start else ft.FontWeight.W_700, color=ft.Colors.GREY_500 if is_text_start else ft.Colors.PRIMARY)
         tab_file_btn = ft.Container(
             expand=True,
             padding=ft.Padding.symmetric(vertical=8),
             border_radius=8,
-            bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY),
+            bgcolor=ft.Colors.TRANSPARENT if is_text_start else ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY),
             alignment=ft.Alignment.CENTER,
             ink=True,
             content=ft.Row(
@@ -2882,13 +3796,13 @@ async def self_study_view(page: ft.Page):
             ),
         )
 
-        tab_text_icon = ft.Icon(ft.Icons.EDIT_NOTE_ROUNDED, size=16, color=ft.Colors.GREY_500)
-        tab_text_text = ft.Text("Paste Text", size=12, weight=ft.FontWeight.W_500, color=ft.Colors.GREY_500)
+        tab_text_icon = ft.Icon(ft.Icons.EDIT_NOTE_ROUNDED, size=16, color=ft.Colors.PRIMARY if is_text_start else ft.Colors.GREY_500)
+        tab_text_text = ft.Text("Paste Text", size=12, weight=ft.FontWeight.W_700 if is_text_start else ft.FontWeight.W_500, color=ft.Colors.PRIMARY if is_text_start else ft.Colors.GREY_500)
         tab_text_btn = ft.Container(
             expand=True,
             padding=ft.Padding.symmetric(vertical=8),
             border_radius=8,
-            bgcolor=ft.Colors.TRANSPARENT,
+            bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY) if is_text_start else ft.Colors.TRANSPARENT,
             alignment=ft.Alignment.CENTER,
             ink=True,
             content=ft.Row(
@@ -2899,8 +3813,8 @@ async def self_study_view(page: ft.Page):
             ),
         )
 
-        file_section = ft.Container(content=file_dropzone, visible=True)
-        text_section = ft.Container(content=text_field, visible=False)
+        file_section = ft.Container(content=file_dropzone, visible=not is_text_start)
+        text_section = ft.Container(content=text_field, visible=is_text_start)
 
         def switch_mode(tab: str):
             mode_state["tab"] = tab
@@ -2960,6 +3874,7 @@ async def self_study_view(page: ft.Page):
             page.update()
 
             try:
+                is_img_upload = selected_file_name and any(selected_file_name.lower().endswith(ext) for ext in [".png", ".jpg", ".jpeg", ".webp"])
                 result = await asyncio.wait_for(
                     upload_material(
                         token,
@@ -2967,11 +3882,13 @@ async def self_study_view(page: ft.Page):
                         text=text_field.value or None,
                         file_bytes=selected_file_bytes,
                         file_name=selected_file_name,
+                        extra_files=selected_extra_files if selected_extra_files else None,
                     ),
-                    timeout=30,
+                    timeout=60 if is_img_upload else 30,
                 )
                 cards_count = len(result.get("cards", []))
-                status_text.value = "✓ Uploaded! Go ahead and start studying!"
+                status_text.value = "Uploaded! Go ahead and start studying!"
+                status_text.visible = True
                 status_box.visible = True
                 submit_btn.disabled = False
                 submit_btn.content = ft.Text(
@@ -2984,7 +3901,7 @@ async def self_study_view(page: ft.Page):
                 new_mat = {
                     "id": result.get("material_id", f"mat_{len(state['materials'])+1}"),
                     "title": title_field.value.strip(),
-                    "source_type": "pdf" if selected_file_bytes else "text",
+                    "source_type": "photo" if is_img_upload else ("pdf" if selected_file_bytes else "text"),
                     "created_at": "2025-08-27",
                 }
                 state["materials"].append(new_mat)
@@ -3004,6 +3921,7 @@ async def self_study_view(page: ft.Page):
                 text_field.value    = ""
                 selected_file_bytes = None
                 selected_file_name  = None
+                selected_extra_files = []
                 update_dropzone_ui()
                 page.update()
 
@@ -3053,33 +3971,38 @@ async def self_study_view(page: ft.Page):
             bgcolor=ft.Colors.SURFACE,
             title=ft.Row(
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 controls=[
                     ft.Row(
                         spacing=10,
-                        tight=True,
+                        expand=True,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         controls=[
                             ft.Container(
-                                width=34, height=34,
+                                width=32, height=32,
                                 bgcolor=ft.Colors.with_opacity(0.1, ft.Colors.PRIMARY),
-                                border_radius=ft.BorderRadius.all(10),
+                                border_radius=ft.BorderRadius.all(8),
                                 alignment=ft.Alignment.CENTER,
-                                content=ft.Icon(ft.Icons.UPLOAD_FILE_ROUNDED, color=ft.Colors.PRIMARY, size=18),
+                                content=ft.Icon(ft.Icons.UPLOAD_FILE_ROUNDED, color=ft.Colors.PRIMARY, size=17),
                             ),
                             ft.Column(
                                 spacing=1,
+                                expand=True,
                                 tight=True,
                                 controls=[
                                     ft.Text(
                                         "Upload Study Material",
-                                        size=15.5,
+                                        size=15,
                                         weight=ft.FontWeight.W_700,
                                         max_lines=1,
                                         overflow=ft.TextOverflow.ELLIPSIS,
                                     ),
                                     ft.Text(
-                                        "Add notes or docs to your knowledge vault",
-                                        size=11,
+                                        "Add notes or docs to vault",
+                                        size=10.5,
                                         color=ft.Colors.GREY_500,
+                                        max_lines=1,
+                                        overflow=ft.TextOverflow.ELLIPSIS,
                                     ),
                                 ],
                             ),
@@ -3614,24 +4537,27 @@ async def self_study_view(page: ft.Page):
             bgcolor=ft.Colors.SURFACE,
             title=ft.Row(
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 controls=[
                     ft.Row(
                         spacing=10,
-                        tight=True,
+                        expand=True,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         controls=[
                             ft.Container(
-                                width=34, height=34,
+                                width=32, height=32,
                                 bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.PURPLE_400),
-                                border_radius=ft.BorderRadius.all(10),
+                                border_radius=ft.BorderRadius.all(8),
                                 alignment=ft.Alignment.CENTER,
-                                content=ft.Icon(ft.Icons.AUTO_AWESOME_ROUNDED, color=ft.Colors.PURPLE_400, size=18),
+                                content=ft.Icon(ft.Icons.AUTO_AWESOME_ROUNDED, color=ft.Colors.PURPLE_400, size=17),
                             ),
                             ft.Column(
                                 spacing=1,
+                                expand=True,
                                 tight=True,
                                 controls=[
-                                    ft.Text("Generate Study Content", size=15.5, weight=ft.FontWeight.W_700),
-                                    ft.Text("Create cards, quizzes & exams with AI", size=11, color=ft.Colors.GREY_500),
+                                    ft.Text("Generate Study Content", size=15, weight=ft.FontWeight.W_700, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                                    ft.Text("Create cards, quizzes & exams with AI", size=10.5, color=ft.Colors.GREY_500, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                                 ],
                             ),
                         ],
@@ -3732,7 +4658,7 @@ async def self_study_view(page: ft.Page):
     return ft.View(
         route="/self-study",
         appbar=app_bar,
-        bgcolor=ft.Colors.ON_PRIMARY,
+        bgcolor=ft.Colors.SURFACE,
         padding=0,
         controls=[
             ft.SafeArea(

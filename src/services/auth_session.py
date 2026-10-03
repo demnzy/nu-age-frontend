@@ -30,6 +30,7 @@ class AuthSession:
         self._last_refresh_timestamp: float = 0.0
         self._min_refresh_interval_secs: float = 5.0
         self._session_expired_shown: bool = False
+        self._is_logging_out: bool = False
         self._on_session_expired_handlers: list[Callable] = []
 
     # ── Construction / Binding ────────────────────────────────────────────
@@ -77,6 +78,7 @@ class AuthSession:
         """Initialise or rebind the AuthSession with the active Flet page."""
         self._page = page
         self._session_expired_shown = False
+        self._is_logging_out = False
         # Reset lock so it binds to the current event loop if needed
         self._lock = asyncio.Lock()
         # Ensure we're stored on the page so for_page() finds us.
@@ -172,11 +174,39 @@ class AuthSession:
             except Exception:
                 pass
 
-    def get_token_age_seconds(self) -> float:
-        """Returns seconds elapsed since tokens were last saved or refreshed."""
-        if self._last_refresh_timestamp <= 0.0:
-            return 999999.0
-        return time.time() - self._last_refresh_timestamp
+    def get_token_age_seconds(self, token: Optional[str] = None) -> float:
+        """Returns seconds elapsed since tokens were last saved or refreshed,
+        or computes age from the JWT exp claim if _last_refresh_timestamp is uninitialized."""
+        if self._last_refresh_timestamp > 0.0:
+            return time.time() - self._last_refresh_timestamp
+
+        # Fallback: inspect provided or cached access token JWT exp claim
+        tok = token or self._cached_access_token
+        if tok and isinstance(tok, str):
+            try:
+                import base64
+                import json
+                parts = tok.split(".")
+                if len(parts) >= 2:
+                    padding = "=" * ((4 - len(parts[1]) % 4) % 4)
+                    payload_json = base64.urlsafe_b64decode(parts[1] + padding).decode("utf-8")
+                    payload = json.loads(payload_json)
+                    exp = payload.get("exp")
+                    if exp:
+                        now = time.time()
+                        remaining = exp - now
+                        if remaining > 0:
+                            # Standard access token lifespan is 3600s. Elapsed = 3600 - remaining
+                            age = max(0.0, 3600.0 - remaining)
+                            self._last_refresh_timestamp = now - age
+                            return age
+                        else:
+                            return 999999.0  # genuinely expired
+            except Exception:
+                pass
+
+        # If we have no token or cannot determine, do not trigger premature proactive refresh
+        return 0.0
 
     async def refresh_access_token(self, force: bool = False) -> Optional[str]:
         """
@@ -215,10 +245,31 @@ class AuthSession:
                 print(f"[AuthSession] Access token refreshed and rotated successfully.")
                 return new_access
             elif status in (401, 403):
+                # Before declaring session dead, check if local storage has a newer refresh token
+                # that was written while this request was in flight!
+                latest_stored_refresh = None
+                if self._page and hasattr(self._page, "shared_preferences"):
+                    try:
+                        latest_stored_refresh = await self._page.shared_preferences.get("refresh_token")
+                    except Exception:
+                        pass
+
+                if latest_stored_refresh and latest_stored_refresh != refresh_tok:
+                    try:
+                        status2, data2 = await refresh_access_token_request(latest_stored_refresh)
+                        if status2 == 200 and isinstance(data2, dict) and "access_token" in data2:
+                            new_access = data2["access_token"]
+                            new_refresh = data2.get("refresh_token", latest_stored_refresh)
+                            await self.set_tokens(new_access, new_refresh)
+                            print("[AuthSession] Secondary refresh succeeded with newly stored token.")
+                            return new_access
+                    except Exception:
+                        pass
+
                 # The refresh token itself is expired, revoked, or compromised.
                 print(f"[AuthSession] Refresh token rejected by server (status {status}). Session expired.")
                 await self.handle_session_expired(
-                    message="Your session has expired. Please log in again to continue."
+                    message="Your session has timed out. Please sign in again to continue studying."
                 )
                 return None
             else:
@@ -226,14 +277,25 @@ class AuthSession:
                 print(f"[AuthSession] Token refresh returned unexpected status {status}: {data}")
                 return None
 
+    def set_logging_out(self, val: bool = True):
+        """Marks the session as undergoing intentional user logout."""
+        self._is_logging_out = val
+
     async def handle_session_expired(
         self,
-        message: str = "Your session has expired. Please log in again to continue.",
-        title: str = "Session expired",
+        message: str = "Your session has timed out. Please sign in again to continue studying.",
+        title: str = "Session Expired",
     ):
         """Prompt user that their session has expired and safely redirect to login."""
-        if self._session_expired_shown:
+        if self._is_logging_out or self._session_expired_shown:
             return
+
+        page = self._page
+        current_route = getattr(page, "route", "") if page else ""
+        if current_route in ("/", "/login", "/signup", "/platform-admin") or current_route.startswith("/accept-invite/"):
+            # User is already on a public view (or logged out); do not interrupt with an expired dialog
+            return
+
         self._session_expired_shown = True
 
         print(f"[AuthSession] Handling session expired: {message}")
@@ -270,30 +332,76 @@ class AuthSession:
             except Exception as ex:
                 print(f"[AuthSession] Error navigating to /login: {ex}")
 
-        # Show session expired alert dialog
+        # Show modern, sleek session expired alert dialog
         try:
             dlg = ft.AlertDialog(
                 modal=True,
-                title=ft.Row(
-                    [
-                        ft.Icon(ft.Icons.LOCK_CLOCK, color=ft.Colors.PRIMARY),
-                        ft.Text(title, weight=ft.FontWeight.BOLD),
-                    ],
-                    spacing=8,
-                ),
-                content=ft.Text(message),
-                actions=[
-                    ft.FilledButton(
-                        "Log in again",
-                        on_click=close_dialog_and_redirect,
+                shape=ft.RoundedRectangleBorder(radius=20),
+                bgcolor=ft.Colors.SURFACE,
+                content_padding=ft.Padding.all(24),
+                content=ft.Container(
+                    width=360,
+                    content=ft.Column(
+                        spacing=16,
+                        tight=True,
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[
+                            ft.Container(
+                                width=56,
+                                height=56,
+                                border_radius=ft.BorderRadius.all(28),
+                                bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.AMBER_600),
+                                alignment=ft.Alignment.CENTER,
+                                content=ft.Icon(ft.Icons.LOCK_RESET_ROUNDED, size=28, color=ft.Colors.AMBER_600),
+                            ),
+                            ft.Column(
+                                spacing=6,
+                                tight=True,
+                                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                controls=[
+                                    ft.Text(
+                                        title or "Session Expired",
+                                        size=18,
+                                        weight=ft.FontWeight.W_800,
+                                        color=ft.Colors.ON_SURFACE,
+                                        text_align=ft.TextAlign.CENTER,
+                                    ),
+                                    ft.Text(
+                                        message or "For your security, your session has timed out. Please sign in again to continue.",
+                                        size=13,
+                                        color=ft.Colors.GREY_500,
+                                        text_align=ft.TextAlign.CENTER,
+                                    ),
+                                ],
+                            ),
+                            ft.Container(
+                                margin=ft.Padding.only(top=6),
+                                width=320,
+                                content=ft.FilledButton(
+                                    content=ft.Row(
+                                        spacing=8,
+                                        tight=True,
+                                        controls=[
+                                            ft.Icon(ft.Icons.LOGIN_ROUNDED, size=16, color=ft.Colors.WHITE),
+                                            ft.Text("Sign In Again", size=13.5, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE),
+                                        ],
+                                    ),
+                                    style=ft.ButtonStyle(
+                                        bgcolor=ft.Colors.PRIMARY,
+                                        shape=ft.RoundedRectangleBorder(radius=12),
+                                        padding=ft.Padding.symmetric(vertical=14),
+                                    ),
+                                    on_click=close_dialog_and_redirect,
+                                ),
+                            ),
+                        ],
                     ),
-                ],
-                actions_alignment=ft.MainAxisAlignment.END,
+                ),
             )
             page.show_dialog(dlg)
 
-            # Auto-redirect after 4 seconds if not clicked
-            await asyncio.sleep(4)
+            # Auto-redirect after 15 seconds if unclicked
+            await asyncio.sleep(15)
             if getattr(dlg, "open", False):
                 close_dialog_and_redirect()
         except Exception as ex:

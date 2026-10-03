@@ -26,8 +26,10 @@ from src.requests.discussions import (
     toggle_discussion_upvote_api,
     toggle_reply_upvote_api,
     toggle_resolve_discussion_api,
+    report_discussion_api,
 )
 from src.requests.Courses import generate_course_certificate
+from src.utils.file_opener import show_page_snackbar
 
 
 async def _get_auth_token(page: ft.Page) -> Optional[str]:
@@ -71,8 +73,10 @@ def build_course_tab_bar(
         ("Learn", ft.Icons.AUTO_STORIES_ROUNDED, 0),
         ("Practice", ft.Icons.PSYCHOLOGY_ROUNDED, 1),
         ("Discuss", ft.Icons.FORUM_ROUNDED, 2),
-        ("Progress", ft.Icons.DONUT_LARGE_ROUNDED, 3),
     ]
+
+    is_narrow = (page_width or 800) < 500
+    tab_padding = ft.Padding.symmetric(horizontal=9 if is_narrow else 12, vertical=7 if is_narrow else 8)
 
     buttons = []
     for label, icon, idx in tabs_def:
@@ -82,7 +86,7 @@ def build_course_tab_bar(
 
         buttons.append(
             ft.Container(
-                padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+                padding=tab_padding,
                 border_radius=ft.BorderRadius.all(12),
                 bgcolor=ft.Colors.with_opacity(0.12 if is_selected else 0.0, accent),
                 border=ft.Border.all(
@@ -92,17 +96,17 @@ def build_course_tab_bar(
                 ink=True,
                 on_click=_make_click(idx),
                 content=ft.Row(
-                    spacing=6,
+                    spacing=5 if is_narrow else 6,
                     tight=True,
                     controls=[
                         ft.Icon(
                             icon,
-                            size=15,
+                            size=14 if is_narrow else 15,
                             color=accent if is_selected else ft.Colors.GREY_500,
                         ),
                         ft.Text(
                             label,
-                            size=12,
+                            size=11.5 if is_narrow else 12,
                             weight=ft.FontWeight.W_800 if is_selected else ft.FontWeight.W_600,
                             color=accent if is_selected else ft.Colors.ON_SURFACE,
                         ),
@@ -119,31 +123,32 @@ def build_course_tab_bar(
                 except TypeError:
                     on_open_ai_assistant()
 
+        ai_color = ft.Colors.DEEP_PURPLE_500 if not is_dark else ft.Colors.DEEP_PURPLE_300
         ai_btn = ft.Container(
-            padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+            padding=tab_padding,
             border_radius=ft.BorderRadius.all(12),
-            bgcolor=ft.Colors.with_opacity(0.08, accent),
+            bgcolor=ft.Colors.with_opacity(0.10, ai_color),
             border=ft.Border.all(
                 1.2,
-                ft.Colors.with_opacity(0.25, accent),
+                ft.Colors.with_opacity(0.30, ai_color),
             ),
             ink=True,
             on_click=_on_ai_click,
-            tooltip="Open AI Study Chatbot",
+            tooltip="Open AI Doubt Assistant",
             content=ft.Row(
-                spacing=6,
+                spacing=5 if is_narrow else 6,
                 tight=True,
                 controls=[
                     ft.Icon(
-                        ft.Icons.SMART_TOY_ROUNDED,
-                        size=15,
-                        color=accent,
+                        ft.Icons.AUTO_AWESOME_ROUNDED,
+                        size=14 if is_narrow else 15,
+                        color=ai_color,
                     ),
                     ft.Text(
                         "AI Tutor" if (page_width or 800) >= 500 else "AI",
-                        size=12,
+                        size=11.5 if is_narrow else 12,
                         weight=ft.FontWeight.W_700,
-                        color=accent,
+                        color=ai_color,
                     ),
                 ],
             ),
@@ -156,7 +161,7 @@ def build_course_tab_bar(
         border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
         padding=ft.Padding.symmetric(horizontal=8, vertical=6),
         content=ft.Row(
-            spacing=6,
+            spacing=5 if is_narrow else 6,
             alignment=ft.MainAxisAlignment.START,
             wrap=True,
             controls=buttons,
@@ -198,7 +203,7 @@ def build_practice_tab_view(
 
                 practice_tiles.append(
                     ft.Container(
-                        padding=ft.Padding.all(14),
+                        padding=ft.Padding.all(12),
                         border_radius=ft.BorderRadius.all(14),
                         bgcolor=ft.Colors.SURFACE,
                         border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
@@ -207,36 +212,52 @@ def build_practice_tab_view(
                         content=ft.Row(
                             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            spacing=8,
                             controls=[
                                 ft.Row(
-                                    spacing=12,
+                                    spacing=10,
+                                    expand=True,
+                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
                                     controls=[
                                         ft.Container(
-                                            padding=ft.Padding.all(10),
+                                            padding=ft.Padding.all(8),
                                             border_radius=ft.BorderRadius.all(10),
                                             bgcolor=ft.Colors.with_opacity(0.1, ft.Colors.GREEN_400 if is_done else accent),
                                             content=ft.Icon(
                                                 ft.Icons.CHECK_CIRCLE_ROUNDED if is_done else ft.Icons.FITNESS_CENTER_ROUNDED,
                                                 color=ft.Colors.GREEN_400 if is_done else accent,
-                                                size=20,
+                                                size=18,
                                             ),
                                         ),
                                         ft.Column(
                                             spacing=2,
+                                            expand=True,
                                             controls=[
-                                                ft.Text(les.get("title", "Practice Exercise"), size=13.5, weight=ft.FontWeight.W_700),
-                                                ft.Text(f"{mod_title} · {type_label}", size=11, color=ft.Colors.GREY_500),
+                                                ft.Text(
+                                                    les.get("title", "Practice Exercise"),
+                                                    size=13,
+                                                    weight=ft.FontWeight.W_700,
+                                                    max_lines=2,
+                                                    overflow=ft.TextOverflow.ELLIPSIS,
+                                                ),
+                                                ft.Text(
+                                                    f"{mod_title} · {type_label}",
+                                                    size=10.5,
+                                                    color=ft.Colors.GREY_500,
+                                                    max_lines=1,
+                                                    overflow=ft.TextOverflow.ELLIPSIS,
+                                                ),
                                             ],
                                         ),
                                     ],
                                 ),
                                 ft.FilledButton(
-                                    content=ft.Text("Review" if is_done else "Practice", size=12, weight=ft.FontWeight.W_700),
+                                    content=ft.Text("Review" if is_done else "Practice", size=11.5, weight=ft.FontWeight.W_700),
                                     disabled=not is_unlocked,
                                     on_click=_jump() if is_unlocked else None,
                                     style=ft.ButtonStyle(
                                         shape=ft.RoundedRectangleBorder(radius=8),
-                                        padding=ft.Padding.symmetric(horizontal=14, vertical=6),
+                                        padding=ft.Padding.symmetric(horizontal=10, vertical=6),
                                     ),
                                 ),
                             ],
@@ -254,8 +275,8 @@ def build_practice_tab_view(
                     spacing=6,
                     controls=[
                         ft.Icon(ft.Icons.EMOJI_EVENTS_ROUNDED, size=40, color=ft.Colors.GREY_400),
-                        ft.Text("No assessments or flashcards in this course yet.", size=14, weight=ft.FontWeight.W_700),
-                        ft.Text("Complete the reading and video lessons in the Learn tab!", size=12, color=ft.Colors.GREY_500),
+                        ft.Text("No assessments or flashcards in this course yet.", size=14, weight=ft.FontWeight.W_700, text_align=ft.TextAlign.CENTER),
+                        ft.Text("Complete the reading and video lessons in the Learn tab!", size=12, color=ft.Colors.GREY_500, text_align=ft.TextAlign.CENTER),
                     ],
                 ),
             )
@@ -269,9 +290,17 @@ def build_practice_tab_view(
                 ft.Row(
                     [
                         ft.Icon(ft.Icons.FITNESS_CENTER_ROUNDED, size=16, color=accent),
-                        ft.Text("Course Practice & Knowledge Checks", size=15, weight=ft.FontWeight.W_800),
+                        ft.Text(
+                            "Course Practice & Knowledge Checks",
+                            size=14.5,
+                            weight=ft.FontWeight.W_800,
+                            max_lines=1,
+                            overflow=ft.TextOverflow.ELLIPSIS,
+                            expand=True,
+                        ),
                     ],
                     spacing=8,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
                 ft.Column(spacing=10, controls=practice_tiles),
             ],
@@ -283,12 +312,16 @@ def build_discuss_tab_view(
     course_id: str,
     course_title: str,
     page: ft.Page,
+    modules: Optional[List[Dict[str, Any]]] = None,
+    current_module_id: Optional[str] = None,
 ) -> ft.Container:
     """
     Builds the Course Discussion Board & Q&A Forum:
-    Structured course-level threads, search, category filtering, upvoting,
-    threaded replies with instructor endorsements, and inline topic composers.
+    Structured course-level threads, module-anchored filtering, search,
+    category filtering, upvoting, reporting, threaded replies with instructor
+    endorsements, and contextual topic composers.
     """
+    is_dark = getattr(page, "theme_mode", None) == ft.ThemeMode.DARK
     accent = ft.Colors.PRIMARY
     current_user = (
         (hasattr(page, "session") and hasattr(page.session, "store") and (page.session.store.get("current_user") or page.session.store.get("user")))
@@ -298,9 +331,13 @@ def build_discuss_tab_view(
     my_role = str(current_user.get("role", "student")).lower()
     is_instructor = my_role in ("teacher", "admin", "platform_admin")
 
+    module_list = [m for m in (modules or []) if isinstance(m, dict)]
+    mod_titles = {str(m.get("id")): m.get("title", f"Module {i+1}") for i, m in enumerate(module_list) if m.get("id")}
+
     # State
     state = {
         "active_category": "all",
+        "active_module_id": "all",
         "search_query": "",
         "discussions": [],
         "selected_discussion": None,
@@ -309,6 +346,7 @@ def build_discuss_tab_view(
         "is_publishing": False,
         "is_submitting_reply": False,
         "selected_new_category": "question",
+        "selected_new_module_id": current_module_id or "all",
     }
 
     # Main dynamic container socket
@@ -335,13 +373,14 @@ def build_discuss_tab_view(
                     ft.Container(
                         padding=ft.Padding.symmetric(horizontal=8, vertical=3),
                         border_radius=ft.BorderRadius.all(10),
-                        bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.GREEN),
+                        bgcolor=ft.Colors.with_opacity(0.14, ft.Colors.GREEN),
+                        border=ft.Border.all(1, ft.Colors.with_opacity(0.35, ft.Colors.GREEN)),
                         content=ft.Row(
-                            spacing=3,
+                            spacing=4,
                             tight=True,
                             controls=[
-                                ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED, size=12, color=ft.Colors.GREEN),
-                                ft.Text("Solved", size=10.5, weight=ft.FontWeight.W_700, color=ft.Colors.GREEN),
+                                ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED, size=12, color=ft.Colors.GREEN_700),
+                                ft.Text("SOLVED", size=10, weight=ft.FontWeight.W_800, color=ft.Colors.GREEN_700),
                             ],
                         ),
                     )
@@ -349,12 +388,12 @@ def build_discuss_tab_view(
             )
 
         cat_styles = {
-            "question": (ft.Icons.HELP_OUTLINE_ROUNDED, "Question", ft.Colors.BLUE_ACCENT),
-            "idea": (ft.Icons.LIGHTBULB_OUTLINE_ROUNDED, "Idea", ft.Colors.AMBER_700),
-            "discussion": (ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED, "Discussion", ft.Colors.PURPLE_ACCENT),
-            "resource": (ft.Icons.MENU_BOOK_ROUNDED, "Resource", ft.Colors.TEAL),
+            "question": (ft.Icons.HELP_OUTLINE_ROUNDED, "QUESTION", ft.Colors.BLUE_600),
+            "idea": (ft.Icons.LIGHTBULB_ROUNDED, "IDEA", ft.Colors.AMBER_800),
+            "discussion": (ft.Icons.FORUM_ROUNDED, "DISCUSSION", ft.Colors.DEEP_PURPLE_500),
+            "resource": (ft.Icons.MENU_BOOK_ROUNDED, "RESOURCE", ft.Colors.TEAL_600),
         }
-        icon, label, color = cat_styles.get(cat_lower, (ft.Icons.FORUM_ROUNDED, cat_lower.capitalize(), accent))
+        icon, label, color = cat_styles.get(cat_lower, (ft.Icons.FORUM_ROUNDED, cat_lower.upper(), accent))
 
         return ft.Row(
             spacing=4,
@@ -364,12 +403,13 @@ def build_discuss_tab_view(
                     padding=ft.Padding.symmetric(horizontal=8, vertical=3),
                     border_radius=ft.BorderRadius.all(10),
                     bgcolor=ft.Colors.with_opacity(0.12, color),
+                    border=ft.Border.all(1, ft.Colors.with_opacity(0.25, color)),
                     content=ft.Row(
-                        spacing=3,
+                        spacing=4,
                         tight=True,
                         controls=[
                             ft.Icon(icon, size=12, color=color),
-                            ft.Text(label, size=10.5, weight=ft.FontWeight.W_700, color=color),
+                            ft.Text(label, size=10, weight=ft.FontWeight.W_800, color=color),
                         ],
                     ),
                 )
@@ -395,7 +435,7 @@ def build_discuss_tab_view(
                     alignment=ft.Alignment.CENTER,
                     content=ft.Text(initial, size=10, weight=ft.FontWeight.W_800, color=accent),
                 ),
-                ft.Text(author_name, size=11.5, weight=ft.FontWeight.W_700),
+                ft.Text(author_name, size=11.5, weight=ft.FontWeight.W_700, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                 ft.Container(
                     visible=is_staff,
                     padding=ft.Padding.symmetric(horizontal=5, vertical=1),
@@ -410,9 +450,11 @@ def build_discuss_tab_view(
         state["is_loading"] = True
         _render_view()
         token = await _get_auth_token(page) or ""
+        target_mod_id = state["active_module_id"] if state["active_module_id"] != "all" else None
         res = await get_course_discussions_api(
             token=token,
             course_id=course_id,
+            module_id=target_mod_id,
             category=state["active_category"],
             search=state["search_query"],
         )
@@ -443,18 +485,136 @@ def build_discuss_tab_view(
         _render_view()
         await toggle_resolve_discussion_api(token, disc_item["id"])
 
-    async def _submit_new_topic(title: str, content: str, cat: str):
+    def _open_report_dialog(d: Dict[str, Any]):
+        selected_reason = {"val": "Inappropriate content"}
+        reasons = [
+            "Inappropriate content",
+            "Spam or promotion",
+            "Off-topic or irrelevant",
+            "Harassment or abusive language",
+        ]
+        
+        reason_radios = []
+        for r in reasons:
+            def _make_choose(val):
+                return lambda e: _set_reason(val)
+            reason_radios.append(
+                ft.ListTile(
+                    title=ft.Text(r, size=12.5),
+                    leading=ft.Radio(value=r),
+                    content_padding=ft.Padding.symmetric(horizontal=4, vertical=0),
+                    on_click=_make_choose(r),
+                )
+            )
+
+        rg = ft.RadioGroup(
+            value=selected_reason["val"],
+            content=ft.Column(spacing=2, tight=True, controls=reason_radios),
+            on_change=lambda e: _set_reason(e.control.value),
+        )
+
+        def _set_reason(v):
+            selected_reason["val"] = v
+            rg.value = v
+            page.update()
+
+        dlg_ref = [None]
+
+        async def _submit_report(_):
+            token = await _get_auth_token(page) or ""
+            if dlg_ref[0]:
+                dlg_ref[0].open = False
+                page.update()
+            success = await report_discussion_api(token, d["id"], selected_reason["val"])
+            if success:
+                show_page_snackbar(
+                    page,
+                    ft.SnackBar(
+                        content=ft.Text("Post reported. Our moderation team has been notified.", color=ft.Colors.WHITE),
+                        bgcolor=ft.Colors.GREEN_700,
+                    ),
+                )
+            else:
+                show_page_snackbar(
+                    page,
+                    ft.SnackBar(
+                        content=ft.Text("Unable to submit report. Please try again later.", color=ft.Colors.WHITE),
+                        bgcolor=ft.Colors.RED_700,
+                    ),
+                )
+
+        def _close_report_dialog():
+            if dlg_ref[0]:
+                dlg_ref[0].open = False
+                page.update()
+
+        dlg = ft.AlertDialog(
+            shape=ft.RoundedRectangleBorder(radius=14),
+            title=ft.Row(
+                spacing=8,
+                tight=True,
+                controls=[
+                    ft.Icon(ft.Icons.REPORT_PROBLEM_OUTLINED, color=ft.Colors.RED_500, size=20),
+                    ft.Text("Report Topic", size=15, weight=ft.FontWeight.W_700),
+                ],
+            ),
+            content=ft.Container(
+                width=min(360, max(240, int(page.width - 40))) if page.width else 340,
+                content=ft.Column(
+                    spacing=10,
+                    tight=True,
+                    controls=[
+                        ft.Text(
+                            "Why are you reporting this discussion topic?",
+                            size=12,
+                            color=ft.Colors.GREY_600,
+                        ),
+                        rg,
+                    ],
+                ),
+            ),
+            actions=[
+                ft.TextButton("Cancel", on_click=lambda _: _close_report_dialog()),
+                ft.ElevatedButton(
+                    "Submit Report",
+                    bgcolor=ft.Colors.RED_600,
+                    color=ft.Colors.WHITE,
+                    on_click=lambda e: page.run_task(_submit_report),
+                ),
+            ],
+        )
+        dlg_ref[0] = dlg
+        page.overlay.append(dlg)
+        dlg.open = True
+        page.update()
+
+    async def _submit_new_topic(title: str, content: str, cat: str, mod_id: Optional[str] = None):
         try:
             if not title.strip() or not content.strip():
                 return
             token = await _get_auth_token(page) or ""
-            res = await create_course_discussion_api(token, course_id, title.strip(), content.strip(), cat)
+            target_mod_id = None if (not mod_id or mod_id == "all") else mod_id
+            res = await create_course_discussion_api(
+                token=token,
+                course_id=course_id,
+                title=title.strip(),
+                content=content.strip(),
+                category=cat,
+                module_id=target_mod_id,
+            )
             if res:
-                state["discussions"].insert(0, res)
+                existing_ids = {str(d.get("id")) for d in state["discussions"] if d.get("id")}
+                if str(res.get("id")) not in existing_ids:
+                    state["discussions"].insert(0, res)
             state["is_composer_open"] = False
         finally:
             state["is_publishing"] = False
             _render_view()
+            try:
+                from src.services.notification_service import sync_learner_notifications
+                page.run_task(sync_learner_notifications, page, True)
+            except Exception:
+                pass
 
     async def _submit_reply(disc_item: Dict[str, Any], text: str, temp_id: Optional[str] = None):
         try:
@@ -463,21 +623,45 @@ def build_discuss_tab_view(
             token = await _get_auth_token(page) or ""
             rep = await create_discussion_reply_api(token, disc_item["id"], text.strip(), course_id=course_id)
             if rep:
-                replies = disc_item.get("replies", [])
+                replies = list(disc_item.get("replies", []))
+                replaced = False
                 if temp_id:
                     for idx, r in enumerate(replies):
                         if r.get("id") == temp_id:
                             replies[idx] = rep
+                            replaced = True
                             break
-                    else:
+                if not replaced:
+                    if not any(r.get("id") == rep.get("id") for r in replies):
                         replies.append(rep)
-                else:
-                    replies.append(rep)
-                disc_item["replies"] = replies
-                disc_item["replies_count"] = len(replies)
+
+                # Strict deduplication pass
+                deduped = []
+                seen_ids = set()
+                for r in replies:
+                    rid = str(r.get("id") or "")
+                    if rid and rid in seen_ids:
+                        continue
+                    if rid:
+                        seen_ids.add(rid)
+                    deduped.append(r)
+
+                disc_item["replies"] = deduped
+                disc_item["replies_count"] = len(deduped)
         finally:
             state["is_submitting_reply"] = False
             _render_view()
+            target_col = state.get("thread_replies_col")
+            if target_col:
+                try:
+                    await target_col.scroll_to(offset=-1, duration=250)
+                except Exception:
+                    pass
+            try:
+                from src.services.notification_service import sync_learner_notifications
+                page.run_task(sync_learner_notifications, page, True)
+            except Exception:
+                pass
 
     async def _open_thread_detail(disc_item: Dict[str, Any]):
         state["selected_discussion"] = disc_item
@@ -493,42 +677,200 @@ def build_discuss_tab_view(
         upvoted = d.get("has_upvoted", False)
         upvotes = d.get("upvotes_count", 0)
         replies_count = d.get("replies_count", 0)
+        cat_lower = (d.get("category") or "question").lower()
 
-        card_bg = ft.Colors.SURFACE if is_dark else "#FFFFFF"
+        # Tailored theme accent and semantic indicators per discussion type
+        if is_solved:
+            theme_color = ft.Colors.GREEN_600
+            left_border = ft.BorderSide(4.5, ft.Colors.GREEN_600)
+            card_border = ft.Border(
+                left=left_border,
+                top=ft.BorderSide(1, ft.Colors.with_opacity(0.20, ft.Colors.GREEN_600)),
+                right=ft.BorderSide(1, ft.Colors.with_opacity(0.12, ft.Colors.GREEN_600)),
+                bottom=ft.BorderSide(1, ft.Colors.with_opacity(0.12, ft.Colors.GREEN_600)),
+            )
+            card_bg = ft.Colors.with_opacity(0.04, ft.Colors.GREEN_600) if not is_dark else ft.Colors.with_opacity(0.06, ft.Colors.GREEN_900)
+            cta_text = "View Solution"
+            cta_icon = ft.Icons.CHECK_CIRCLE_ROUNDED
+            upvote_label = f"{upvotes} helpful"
+            replies_badge = ft.Container(
+                padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+                border_radius=ft.BorderRadius.all(8),
+                bgcolor=ft.Colors.with_opacity(0.14, ft.Colors.GREEN_600),
+                content=ft.Row(
+                    spacing=4,
+                    tight=True,
+                    controls=[
+                        ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED, size=13, color=ft.Colors.GREEN_700),
+                        ft.Text(f"{replies_count} answers • Solved", size=11, weight=ft.FontWeight.W_800, color=ft.Colors.GREEN_700),
+                    ],
+                ),
+            )
+        elif cat_lower == "question":
+            theme_color = ft.Colors.BLUE_600
+            left_border = ft.BorderSide(4.5, ft.Colors.BLUE_600)
+            card_border = ft.Border(
+                left=left_border,
+                top=ft.BorderSide(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                right=ft.BorderSide(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                bottom=ft.BorderSide(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+            )
+            card_bg = ft.Colors.SURFACE if is_dark else "#FFFFFF"
+            cta_text = "Answer Question" if replies_count == 0 else "View Answers"
+            cta_icon = ft.Icons.QUESTION_ANSWER_ROUNDED
+            upvote_label = f"{upvotes} upvotes"
+            if replies_count == 0:
+                replies_badge = ft.Container(
+                    padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+                    border_radius=ft.BorderRadius.all(8),
+                    bgcolor=ft.Colors.with_opacity(0.14, ft.Colors.ORANGE_800),
+                    content=ft.Row(
+                        spacing=4,
+                        tight=True,
+                        controls=[
+                            ft.Icon(ft.Icons.HELP_OUTLINE_ROUNDED, size=13, color=ft.Colors.ORANGE_800),
+                            ft.Text("Needs Answer", size=11, weight=ft.FontWeight.W_800, color=ft.Colors.ORANGE_800),
+                        ],
+                    ),
+                )
+            else:
+                replies_badge = ft.Container(
+                    padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+                    border_radius=ft.BorderRadius.all(8),
+                    bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.BLUE_600),
+                    content=ft.Row(
+                        spacing=4,
+                        tight=True,
+                        controls=[
+                            ft.Icon(ft.Icons.QUESTION_ANSWER_OUTLINED, size=13, color=ft.Colors.BLUE_600),
+                            ft.Text(f"{replies_count} answers", size=11, weight=ft.FontWeight.W_700, color=ft.Colors.BLUE_600),
+                        ],
+                    ),
+                )
+        elif cat_lower == "idea":
+            theme_color = ft.Colors.AMBER_800
+            left_border = ft.BorderSide(4.5, ft.Colors.AMBER_700)
+            card_border = ft.Border(
+                left=left_border,
+                top=ft.BorderSide(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                right=ft.BorderSide(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                bottom=ft.BorderSide(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+            )
+            card_bg = ft.Colors.with_opacity(0.02, ft.Colors.AMBER_600) if not is_dark else ft.Colors.SURFACE
+            cta_text = "Discuss Idea"
+            cta_icon = ft.Icons.LIGHTBULB_OUTLINE_ROUNDED
+            upvote_label = f"{upvotes} votes"
+            replies_badge = ft.Container(
+                padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+                border_radius=ft.BorderRadius.all(8),
+                bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.AMBER_800),
+                content=ft.Row(
+                    spacing=4,
+                    tight=True,
+                    controls=[
+                        ft.Icon(ft.Icons.FORUM_OUTLINED, size=13, color=ft.Colors.AMBER_900),
+                        ft.Text(f"{replies_count} thoughts", size=11, weight=ft.FontWeight.W_700, color=ft.Colors.AMBER_900),
+                    ],
+                ),
+            )
+        else: # discussion or resource
+            theme_color = ft.Colors.DEEP_PURPLE_500
+            left_border = ft.BorderSide(4.5, ft.Colors.DEEP_PURPLE_500)
+            card_border = ft.Border(
+                left=left_border,
+                top=ft.BorderSide(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                right=ft.BorderSide(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                bottom=ft.BorderSide(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+            )
+            card_bg = ft.Colors.with_opacity(0.02, ft.Colors.DEEP_PURPLE_600) if not is_dark else ft.Colors.SURFACE
+            cta_text = "Join Discussion"
+            cta_icon = ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED
+            upvote_label = f"{upvotes} likes"
+            replies_badge = ft.Container(
+                padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+                border_radius=ft.BorderRadius.all(8),
+                bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.DEEP_PURPLE_500),
+                content=ft.Row(
+                    spacing=4,
+                    tight=True,
+                    controls=[
+                        ft.Icon(ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED, size=13, color=ft.Colors.DEEP_PURPLE_600),
+                        ft.Text(f"{replies_count} replies", size=11, weight=ft.FontWeight.W_700, color=ft.Colors.DEEP_PURPLE_600),
+                    ],
+                ),
+            )
 
         return ft.Container(
             bgcolor=card_bg,
-            border_radius=ft.BorderRadius.all(14),
-            border=ft.Border.all(
-                1,
-                ft.Colors.with_opacity(0.18, ft.Colors.GREEN) if is_solved else ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
-            ),
+            border_radius=ft.BorderRadius.all(12),
+            border=card_border,
             padding=ft.Padding.all(14),
             content=ft.Column(
                 spacing=8,
                 controls=[
-                    # Header: Author & Category
+                    # Header: Author & Category & Module Badge
                     ft.Row(
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        spacing=6,
                         controls=[
                             _render_author_chip(d.get("author") or {}),
                             ft.Row(
                                 spacing=6,
                                 tight=True,
+                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
                                 controls=[
                                     ft.Text(_format_date(d.get("created_at")), size=10.5, color=ft.Colors.GREY_500),
+                                    *(
+                                        [
+                                            ft.Container(
+                                                padding=ft.Padding.symmetric(horizontal=7, vertical=2),
+                                                border_radius=ft.BorderRadius.all(6),
+                                                bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.TEAL),
+                                                content=ft.Row(
+                                                    spacing=3,
+                                                    tight=True,
+                                                    controls=[
+                                                        ft.Icon(ft.Icons.VIEW_MODULE_ROUNDED, size=11, color=ft.Colors.TEAL),
+                                                        ft.Text(d.get("module_title", "Module"), size=10, weight=ft.FontWeight.W_700, color=ft.Colors.TEAL),
+                                                    ],
+                                                ),
+                                            )
+                                        ]
+                                        if d.get("module_title")
+                                        else []
+                                    ),
                                     _get_category_badge(d.get("category", "question"), is_solved),
+                                    ft.PopupMenuButton(
+                                        icon=ft.Icons.MORE_HORIZ_ROUNDED,
+                                        icon_size=16,
+                                        tooltip="Options",
+                                        items=[
+                                            ft.PopupMenuItem(
+                                                content=ft.Row(
+                                                    spacing=6,
+                                                    tight=True,
+                                                    controls=[
+                                                        ft.Icon(ft.Icons.FLAG_OUTLINED, size=13, color=ft.Colors.RED_400),
+                                                        ft.Text("Report Post", size=11.5, color=ft.Colors.RED_400),
+                                                    ],
+                                                ),
+                                                on_click=lambda e, item=d: _open_report_dialog(item),
+                                            ),
+                                        ],
+                                    ),
                                 ],
                             ),
                         ],
                     ),
-                    # Title
+                    # Title with contextual accent
                     ft.Text(
                         d.get("title", "Untitled Question"),
                         size=14,
                         weight=ft.FontWeight.W_800,
-                        color=accent if is_solved else ft.Colors.ON_SURFACE,
+                        color=theme_color if is_solved else ft.Colors.ON_SURFACE,
+                        max_lines=2,
+                        overflow=ft.TextOverflow.ELLIPSIS,
                     ),
                     # Content preview
                     ft.Text(
@@ -543,6 +885,7 @@ def build_discuss_tab_view(
                     ft.Row(
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        spacing=6,
                         controls=[
                             ft.Row(
                                 spacing=8,
@@ -552,7 +895,7 @@ def build_discuss_tab_view(
                                     ft.Container(
                                         padding=ft.Padding.symmetric(horizontal=8, vertical=4),
                                         border_radius=ft.BorderRadius.all(8),
-                                        bgcolor=ft.Colors.with_opacity(0.12 if upvoted else 0.05, accent if upvoted else ft.Colors.GREY_500),
+                                        bgcolor=ft.Colors.with_opacity(0.14 if upvoted else 0.05, theme_color if upvoted else ft.Colors.GREY_500),
                                         ink=True,
                                         on_click=lambda e, item=d: page.run_task(_on_upvote_post, item),
                                         content=ft.Row(
@@ -562,41 +905,29 @@ def build_discuss_tab_view(
                                                 ft.Icon(
                                                     ft.Icons.THUMB_UP_ALT_ROUNDED if upvoted else ft.Icons.THUMB_UP_OUTLINED,
                                                     size=13,
-                                                    color=accent if upvoted else ft.Colors.GREY_500,
+                                                    color=theme_color if upvoted else ft.Colors.GREY_500,
                                                 ),
                                                 ft.Text(
-                                                    str(upvotes),
+                                                    upvote_label,
                                                     size=11,
                                                     weight=ft.FontWeight.W_700,
-                                                    color=accent if upvoted else ft.Colors.GREY_500,
+                                                    color=theme_color if upvoted else ft.Colors.GREY_500,
                                                 ),
                                             ],
                                         ),
                                     ),
-                                    # Replies count pill
-                                    ft.Container(
-                                        padding=ft.Padding.symmetric(horizontal=8, vertical=4),
-                                        border_radius=ft.BorderRadius.all(8),
-                                        bgcolor=ft.Colors.with_opacity(0.05, ft.Colors.ON_SURFACE),
-                                        content=ft.Row(
-                                            spacing=4,
-                                            tight=True,
-                                            controls=[
-                                                ft.Icon(ft.Icons.FORUM_OUTLINED, size=13, color=ft.Colors.GREY_500),
-                                                ft.Text(f"{replies_count} answers", size=11, color=ft.Colors.GREY_500),
-                                            ],
-                                        ),
-                                    ),
+                                    # Purpose-specific replies pill
+                                    replies_badge,
                                 ],
                             ),
-                            # Open button
+                            # Contextual Action CTA
                             ft.TextButton(
                                 content=ft.Row(
-                                    spacing=3,
+                                    spacing=4,
                                     tight=True,
                                     controls=[
-                                        ft.Text("View Answers", size=11, weight=ft.FontWeight.W_700),
-                                        ft.Icon(ft.Icons.ARROW_FORWARD_ROUNDED, size=13),
+                                        ft.Text(cta_text, size=11, weight=ft.FontWeight.W_700, color=theme_color),
+                                        ft.Icon(cta_icon, size=13, color=theme_color),
                                     ],
                                 ),
                                 style=ft.ButtonStyle(padding=ft.Padding.symmetric(horizontal=8, vertical=4)),
@@ -609,61 +940,140 @@ def build_discuss_tab_view(
         )
 
     def _render_composer_card() -> ft.Container:
+        cur_cat = state.get("selected_new_category", "question")
+        cat_configs = {
+            "question": {
+                "title": "Ask a Question",
+                "subtitle": "Get help from classmates and instructors on course concepts or exercises",
+                "icon": ft.Icons.HELP_OUTLINE_ROUNDED,
+                "color": ft.Colors.BLUE_600,
+                "title_label": "Question",
+                "title_hint": "e.g. How does backpropagation calculate weight updates?",
+                "content_label": "Details & Context",
+                "content_hint": "Explain what you're trying to understand, what you've tried so far, or where you're stuck...",
+                "btn_label": "Publish Question",
+                "btn_icon": ft.Icons.HELP_OUTLINE_ROUNDED,
+            },
+            "idea": {
+                "title": "Share an Idea & Proposal",
+                "subtitle": "Propose study sprints, project collaborations, or curriculum improvements",
+                "icon": ft.Icons.LIGHTBULB_ROUNDED,
+                "color": ft.Colors.AMBER_800,
+                "title_label": "Idea Title",
+                "title_hint": "e.g. Weekend study sprint for Module 3 final assignment",
+                "content_label": "Proposal & Next Steps",
+                "content_hint": "Outline your idea, how peers can participate or benefit, and expected outcomes...",
+                "btn_label": "Share Idea",
+                "btn_icon": ft.Icons.LIGHTBULB_ROUNDED,
+            },
+            "discussion": {
+                "title": "Start a Discussion",
+                "subtitle": "Explore perspectives, debate approaches, or open a conversation topic",
+                "icon": ft.Icons.FORUM_ROUNDED,
+                "color": ft.Colors.DEEP_PURPLE_500,
+                "title_label": "Discussion Topic",
+                "title_hint": "e.g. Architectural trade-offs between REST and gRPC in production",
+                "content_label": "Topic Overview & Discussion Prompt",
+                "content_hint": "Share your thoughts and kick off a conversation with the cohort...",
+                "btn_label": "Start Discussion",
+                "btn_icon": ft.Icons.FORUM_ROUNDED,
+            },
+        }
+        active_cat_config = cat_configs.get(cur_cat, cat_configs["question"])
+        active_theme_col = active_cat_config["color"]
+
         title_in = ft.TextField(
-            label="Topic Title",
-            hint_text="What's your question or discussion topic?",
+            label=active_cat_config["title_label"],
+            hint_text=active_cat_config["title_hint"],
             text_size=13.5,
-            border_radius=ft.BorderRadius.all(6),
+            border_radius=ft.BorderRadius.all(8),
             content_padding=ft.Padding.symmetric(horizontal=14, vertical=12),
             border_color=ft.Colors.with_opacity(0.18, ft.Colors.ON_SURFACE),
-            focused_border_color=accent,
+            focused_border_color=active_theme_col,
         )
         content_in = ft.TextField(
-            label="Details & Notes",
-            hint_text="Provide context, what you've tried, or relevant notes...",
+            label=active_cat_config["content_label"],
+            hint_text=active_cat_config["content_hint"],
             text_size=13,
             multiline=True,
             min_lines=4,
             max_lines=8,
-            border_radius=ft.BorderRadius.all(6),
+            border_radius=ft.BorderRadius.all(8),
             content_padding=ft.Padding.symmetric(horizontal=14, vertical=12),
             border_color=ft.Colors.with_opacity(0.18, ft.Colors.ON_SURFACE),
-            focused_border_color=accent,
+            focused_border_color=active_theme_col,
         )
 
-        cat_choices = [
-            ("question", "❓ Question", ft.Colors.BLUE_600),
-            ("idea", "💡 Idea", ft.Colors.AMBER_800),
-            ("discussion", "💬 Discussion", ft.Colors.DEEP_PURPLE_500),
-        ]
         cat_pills = []
-        for cat_val, cat_label, cat_color in cat_choices:
-            is_c_sel = (state["selected_new_category"] == cat_val)
+        for cat_val in ("question", "idea", "discussion"):
+            cfg = cat_configs[cat_val]
+            is_c_sel = (cur_cat == cat_val)
             def _choose_cat(c):
                 return lambda _: _set_composer_cat(c)
 
             cat_pills.append(
                 ft.Container(
-                    padding=ft.Padding.symmetric(horizontal=12, vertical=6),
-                    border_radius=ft.BorderRadius.all(6),
-                    bgcolor=ft.Colors.with_opacity(0.18, cat_color) if is_c_sel else (ft.Colors.SURFACE_CONTAINER_HIGHEST if is_dark else "#F1F5F9"),
+                    padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+                    border_radius=ft.BorderRadius.all(10),
+                    bgcolor=ft.Colors.with_opacity(0.14 if is_c_sel else 0.04, cfg["color"]),
                     border=ft.Border.all(
                         1.5 if is_c_sel else 1.0,
-                        cat_color if is_c_sel else ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE),
+                        cfg["color"] if is_c_sel else ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE),
                     ),
                     ink=True,
                     on_click=_choose_cat(cat_val),
-                    content=ft.Text(
-                        cat_label,
-                        size=11.5,
-                        weight=ft.FontWeight.W_800 if is_c_sel else ft.FontWeight.W_600,
-                        color=cat_color if is_c_sel else ft.Colors.ON_SURFACE,
+                    content=ft.Row(
+                        spacing=6,
+                        tight=True,
+                        controls=[
+                            ft.Icon(cfg["icon"], size=14, color=cfg["color"] if is_c_sel else ft.Colors.GREY_600),
+                            ft.Text(
+                                "Question" if cat_val == "question" else ("Idea" if cat_val == "idea" else "Discussion"),
+                                size=12,
+                                weight=ft.FontWeight.W_800 if is_c_sel else ft.FontWeight.W_600,
+                                color=cfg["color"] if is_c_sel else ft.Colors.ON_SURFACE,
+                            ),
+                        ],
                     ),
                 )
             )
 
         def _set_composer_cat(c):
             state["selected_new_category"] = c
+            _render_view()
+
+        mod_choices = [("all", "🌐 Entire Course")] + [
+            (str(m.get("id")), f"Mod {i+1}: {m.get('title', 'Module')[:18]}")
+            for i, m in enumerate(module_list)
+            if m.get("id")
+        ]
+        mod_pills = []
+        for m_id, m_label in mod_choices:
+            is_m_sel = (state["selected_new_module_id"] == m_id)
+            def _choose_mod(mid):
+                return lambda _: _set_composer_mod(mid)
+            mod_pills.append(
+                ft.Container(
+                    padding=ft.Padding.symmetric(horizontal=10, vertical=6),
+                    border_radius=ft.BorderRadius.all(6),
+                    bgcolor=ft.Colors.with_opacity(0.18, ft.Colors.TEAL) if is_m_sel else (ft.Colors.SURFACE_CONTAINER_HIGHEST if is_dark else "#F1F5F9"),
+                    border=ft.Border.all(
+                        1.5 if is_m_sel else 1.0,
+                        ft.Colors.TEAL if is_m_sel else ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE),
+                    ),
+                    ink=True,
+                    on_click=_choose_mod(m_id),
+                    content=ft.Text(
+                        m_label,
+                        size=11,
+                        weight=ft.FontWeight.W_800 if is_m_sel else ft.FontWeight.W_600,
+                        color=ft.Colors.TEAL if is_m_sel else ft.Colors.ON_SURFACE,
+                    ),
+                )
+            )
+
+        def _set_composer_mod(mid):
+            state["selected_new_module_id"] = mid
             _render_view()
 
         def _on_publish(e):
@@ -673,7 +1083,13 @@ def build_discuss_tab_view(
                 return
             state["is_publishing"] = True
             _render_view()
-            page.run_task(_submit_new_topic, title_in.value, content_in.value, state["selected_new_category"])
+            page.run_task(
+                _submit_new_topic,
+                title_in.value,
+                content_in.value,
+                state["selected_new_category"],
+                state["selected_new_module_id"],
+            )
 
         def _on_cancel(e):
             state["is_composer_open"] = False
@@ -683,8 +1099,8 @@ def build_discuss_tab_view(
         if state.get("is_publishing"):
             publish_btn = ft.Container(
                 padding=ft.Padding.symmetric(horizontal=18, vertical=10),
-                border_radius=ft.BorderRadius.all(6),
-                bgcolor=ft.Colors.with_opacity(0.5, accent),
+                border_radius=ft.BorderRadius.all(8),
+                bgcolor=ft.Colors.with_opacity(0.5, active_theme_col),
                 content=ft.Row(
                     spacing=8,
                     tight=True,
@@ -697,53 +1113,80 @@ def build_discuss_tab_view(
         else:
             publish_btn = ft.Container(
                 padding=ft.Padding.symmetric(horizontal=18, vertical=10),
-                border_radius=ft.BorderRadius.all(6),
-                bgcolor=accent,
+                border_radius=ft.BorderRadius.all(8),
+                bgcolor=active_theme_col,
                 ink=True,
                 on_click=_on_publish,
                 content=ft.Row(
                     spacing=6,
                     tight=True,
                     controls=[
-                        ft.Icon(ft.Icons.CHECK_ROUNDED, size=16, color=ft.Colors.WHITE),
-                        ft.Text("Publish Topic", size=12.5, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE),
+                        ft.Icon(active_cat_config["btn_icon"], size=16, color=ft.Colors.WHITE),
+                        ft.Text(active_cat_config["btn_label"], size=12.5, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE),
                     ],
                 ),
             )
 
         return ft.Container(
+            expand=True,
             bgcolor=ft.Colors.SURFACE if is_dark else "#FFFFFF",
-            border_radius=ft.BorderRadius.all(8),
-            border=ft.Border.all(1.2, ft.Colors.with_opacity(0.18, accent)),
-            padding=ft.Padding.all(18),
+            border_radius=ft.BorderRadius.all(12),
+            border=ft.Border(
+                left=ft.BorderSide(4.5, active_theme_col),
+                top=ft.BorderSide(1.2, ft.Colors.with_opacity(0.18, active_theme_col)),
+                right=ft.BorderSide(1.2, ft.Colors.with_opacity(0.18, active_theme_col)),
+                bottom=ft.BorderSide(1.2, ft.Colors.with_opacity(0.18, active_theme_col)),
+            ),
+            padding=ft.Padding.symmetric(horizontal=18, vertical=16),
             content=ft.Column(
                 spacing=12,
+                scroll=ft.ScrollMode.AUTO,
                 controls=[
                     ft.Row(
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        spacing=8,
                         controls=[
                             ft.Row(
                                 spacing=8,
-                                tight=True,
+                                expand=True,
+                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
                                 controls=[
                                     ft.Container(
-                                        padding=ft.Padding.all(6),
-                                        border_radius=ft.BorderRadius.all(6),
-                                        bgcolor=ft.Colors.with_opacity(0.12, accent),
-                                        content=ft.Icon(ft.Icons.EDIT_NOTE_ROUNDED, size=16, color=accent),
+                                        padding=ft.Padding.all(8),
+                                        border_radius=ft.BorderRadius.all(8),
+                                        bgcolor=ft.Colors.with_opacity(0.14, active_theme_col),
+                                        content=ft.Icon(active_cat_config["icon"], size=18, color=active_theme_col),
                                     ),
-                                    ft.Text("Start a New Course Discussion", size=14, weight=ft.FontWeight.W_800),
+                                    ft.Column(
+                                        spacing=1,
+                                        expand=True,
+                                        controls=[
+                                            ft.Text(active_cat_config["title"], size=14, weight=ft.FontWeight.W_800),
+                                            ft.Text(active_cat_config["subtitle"], size=11, color=ft.Colors.GREY_500, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                                        ],
+                                    ),
                                 ],
                             ),
                             ft.IconButton(
                                 icon=ft.Icons.CLOSE_ROUNDED,
-                                icon_size=16,
+                                tooltip="Cancel & Close",
+                                icon_size=18,
                                 on_click=_on_cancel,
                             ),
                         ],
                     ),
-                    ft.Text("Select Category:", size=11.5, weight=ft.FontWeight.W_700, color=ft.Colors.GREY_500),
-                    ft.Row(spacing=8, controls=cat_pills),
+                    ft.Divider(height=1, color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                    ft.Text("Select Purpose & Category:", size=11.5, weight=ft.FontWeight.W_700, color=ft.Colors.GREY_500),
+                    ft.Row(spacing=8, wrap=True, controls=cat_pills),
+                    *(
+                        [
+                            ft.Text("Anchor to Curriculum:", size=11.5, weight=ft.FontWeight.W_700, color=ft.Colors.GREY_500),
+                            ft.Row(spacing=6, scroll=ft.ScrollMode.HIDDEN, controls=mod_pills),
+                        ]
+                        if module_list
+                        else []
+                    ),
                     title_in,
                     content_in,
                     ft.Row(
@@ -753,14 +1196,15 @@ def build_discuss_tab_view(
                             ft.OutlinedButton(
                                 "Cancel",
                                 style=ft.ButtonStyle(
-                                    padding=ft.Padding.symmetric(horizontal=14, vertical=10),
-                                    shape=ft.RoundedRectangleBorder(radius=6),
+                                    padding=ft.Padding.symmetric(horizontal=16, vertical=10),
+                                    shape=ft.RoundedRectangleBorder(radius=8),
                                 ),
                                 on_click=_on_cancel,
                             ),
                             publish_btn,
                         ],
                     ),
+                    ft.Container(height=24),
                 ],
             ),
         )
@@ -778,8 +1222,50 @@ def build_discuss_tab_view(
         is_owner = bool(author_id and my_user_id and author_id == my_user_id)
         replies = d.get("replies", [])
 
+        cat_key = str(d.get("category") or "question").lower().strip()
+        if is_solved:
+            drill_theme = ft.Colors.GREEN_600
+            section_title = f"Solutions & Discussion ({len(replies)})"
+            section_icon = ft.Icons.CHECK_CIRCLE_ROUNDED
+            reply_hint = "Add additional perspective or follow-up note..."
+            reply_btn_text = "Add Follow-up"
+            reply_btn_icon = ft.Icons.REPLY_ROUNDED
+            empty_text = "No follow-up replies yet."
+        elif cat_key == "question":
+            drill_theme = ft.Colors.BLUE_600
+            section_title = f"Answers & Solutions ({len(replies)})"
+            section_icon = ft.Icons.HELP_CENTER_ROUNDED
+            reply_hint = "Write a clear answer or step-by-step solution..."
+            reply_btn_text = "Post Answer"
+            reply_btn_icon = ft.Icons.CHECK_ROUNDED
+            empty_text = "No answers yet. Share your knowledge and help a classmate solve this!"
+        elif cat_key == "idea":
+            drill_theme = ft.Colors.AMBER_800
+            section_title = f"Community Feedback & Insights ({len(replies)})"
+            section_icon = ft.Icons.LIGHTBULB_ROUNDED
+            reply_hint = "Share your thoughts, suggestions, or critique on this idea..."
+            reply_btn_text = "Share Thought"
+            reply_btn_icon = ft.Icons.COMMENT_ROUNDED
+            empty_text = "No feedback yet. Be the first to share your thoughts on this idea!"
+        elif cat_key == "resource":
+            drill_theme = ft.Colors.TEAL_600
+            section_title = f"Reviews & Additions ({len(replies)})"
+            section_icon = ft.Icons.BOOKMARK_ROUNDED
+            reply_hint = "Leave feedback, alternative references, or discussion..."
+            reply_btn_text = "Contribute"
+            reply_btn_icon = ft.Icons.ADD_COMMENT_ROUNDED
+            empty_text = "No comments yet. Share your thoughts or complementary resources!"
+        else:
+            drill_theme = ft.Colors.DEEP_PURPLE_500
+            section_title = f"Discussion Thread ({len(replies)})"
+            section_icon = ft.Icons.FORUM_ROUNDED
+            reply_hint = "Contribute your thoughts or join the conversation..."
+            reply_btn_text = "Join Discussion"
+            reply_btn_icon = ft.Icons.SEND_ROUNDED
+            empty_text = "No replies yet. Start the conversation with your perspective!"
+
         reply_in = ft.TextField(
-            hint_text="Write a helpful answer or perspective...",
+            hint_text=reply_hint,
             text_size=13,
             multiline=True,
             min_lines=2,
@@ -788,7 +1274,7 @@ def build_discuss_tab_view(
             border_radius=ft.BorderRadius.all(8),
             content_padding=ft.Padding.symmetric(horizontal=14, vertical=12),
             border_color=ft.Colors.with_opacity(0.18, ft.Colors.ON_SURFACE),
-            focused_border_color=accent,
+            focused_border_color=drill_theme,
         )
 
         def _on_submit_reply(e):
@@ -821,9 +1307,28 @@ def build_discuss_tab_view(
             d["replies_count"] = len(d["replies"])
             _render_view()
 
+            async def _scroll_to_new_reply():
+                await asyncio.sleep(0.08)
+                target = state.get("thread_replies_col")
+                if target:
+                    try:
+                        await target.scroll_to(offset=-1, duration=250)
+                    except Exception:
+                        pass
+            asyncio.create_task(_scroll_to_new_reply())
+
             page.run_task(_submit_reply, d, clean_text, temp_id)
 
         reply_cards = []
+        replies_col = ft.Column(
+            spacing=8,
+            scroll=ft.ScrollMode.AUTO,
+            auto_scroll=True,
+            expand=True,
+            controls=reply_cards,
+        )
+        state["thread_replies_col"] = replies_col
+
         for r in replies:
             r_upvoted = r.get("has_upvoted", False)
             r_upvotes = r.get("upvotes_count", 0)
@@ -897,60 +1402,120 @@ def build_discuss_tab_view(
                 ft.Container(
                     padding=ft.Padding.all(16),
                     alignment=ft.Alignment.CENTER,
-                    content=ft.Text("No answers yet. Share your insights to help a classmate!", size=12, color=ft.Colors.GREY_500),
+                    content=ft.Text(empty_text, size=12, color=ft.Colors.GREY_500),
                 )
             )
 
         return ft.Container(
+            expand=True,
             content=ft.Column(
-                spacing=12,
-                scroll=ft.ScrollMode.AUTO,
+                spacing=10,
                 expand=True,
                 controls=[
-                    # Back nav button
-                    ft.TextButton(
-                        content=ft.Row(
-                            spacing=4,
-                            tight=True,
-                            controls=[
-                                ft.Icon(ft.Icons.ARROW_BACK_ROUNDED, size=14),
-                                ft.Text("Back to All Discussions", size=12, weight=ft.FontWeight.W_700),
-                            ],
-                        ),
-                        on_click=lambda _: _back_to_list(),
+                    # Back nav button + Status Badge & Module Badge
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        spacing=6,
+                        controls=[
+                            ft.TextButton(
+                                content=ft.Row(
+                                    spacing=4,
+                                    tight=True,
+                                    controls=[
+                                        ft.Icon(ft.Icons.ARROW_BACK_ROUNDED, size=14),
+                                        ft.Text("Back to Discussions", size=12, weight=ft.FontWeight.W_700),
+                                    ],
+                                ),
+                                on_click=lambda _: _back_to_list(),
+                            ),
+                            ft.Row(
+                                spacing=6,
+                                tight=True,
+                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                controls=[
+                                    *(
+                                        [
+                                            ft.Container(
+                                                padding=ft.Padding.symmetric(horizontal=7, vertical=2),
+                                                border_radius=ft.BorderRadius.all(6),
+                                                bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.TEAL),
+                                                content=ft.Row(
+                                                    spacing=3,
+                                                    tight=True,
+                                                    controls=[
+                                                        ft.Icon(ft.Icons.VIEW_MODULE_ROUNDED, size=11, color=ft.Colors.TEAL),
+                                                        ft.Text(d.get("module_title", "Module"), size=10, weight=ft.FontWeight.W_700, color=ft.Colors.TEAL),
+                                                    ],
+                                                ),
+                                            )
+                                        ]
+                                        if d.get("module_title")
+                                        else []
+                                    ),
+                                    _get_category_badge(d.get("category", "question"), is_solved),
+                                ],
+                            ),
+                        ],
                     ),
-                    # Original Post Full Card
+                    # Original Post Full Card with Left-Accent Border
                     ft.Container(
                         bgcolor=ft.Colors.SURFACE if is_dark else "#FFFFFF",
                         border_radius=ft.BorderRadius.all(14),
-                        border=ft.Border.all(
-                            1,
-                            ft.Colors.with_opacity(0.18, ft.Colors.GREEN) if is_solved else ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
+                        border=ft.Border(
+                            left=ft.BorderSide(4.5, drill_theme),
+                            top=ft.BorderSide(1, ft.Colors.with_opacity(0.18, drill_theme) if is_dark else ft.Colors.with_opacity(0.12, drill_theme)),
+                            right=ft.BorderSide(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                            bottom=ft.BorderSide(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
                         ),
-                        padding=ft.Padding.all(16),
+                        padding=ft.Padding.symmetric(horizontal=16, vertical=12),
                         content=ft.Column(
-                            spacing=10,
+                            spacing=6,
+                            tight=True,
                             controls=[
                                 ft.Row(
                                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                    spacing=6,
                                     controls=[
                                         _render_author_chip(d.get("author") or {}),
                                         ft.Row(
                                             spacing=6,
                                             tight=True,
+                                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
                                             controls=[
                                                 ft.Text(_format_date(d.get("created_at")), size=10.5, color=ft.Colors.GREY_500),
-                                                _get_category_badge(d.get("category", "question"), is_solved),
+                                                ft.PopupMenuButton(
+                                                    icon=ft.Icons.MORE_HORIZ_ROUNDED,
+                                                    icon_size=16,
+                                                    tooltip="Options",
+                                                    items=[
+                                                        ft.PopupMenuItem(
+                                                            content=ft.Row(
+                                                                spacing=6,
+                                                                tight=True,
+                                                                controls=[
+                                                                    ft.Icon(ft.Icons.FLAG_OUTLINED, size=13, color=ft.Colors.RED_400),
+                                                                    ft.Text("Report Post", size=11.5, color=ft.Colors.RED_400),
+                                                                ],
+                                                            ),
+                                                            on_click=lambda e, item=d: _open_report_dialog(item),
+                                                        ),
+                                                    ],
+                                                ),
                                             ],
                                         ),
                                     ],
                                 ),
-                                ft.Text(d.get("title", ""), size=15, weight=ft.FontWeight.W_800),
-                                ft.Text(d.get("content", ""), size=13, selectable=True),
+                                ft.Text(d.get("title", ""), size=15, weight=ft.FontWeight.W_800, max_lines=3, overflow=ft.TextOverflow.ELLIPSIS),
+                                ft.Container(
+                                    content=ft.Text(d.get("content", ""), size=12.5, selectable=True),
+                                ),
                                 ft.Divider(height=1, color=ft.Colors.with_opacity(0.05, ft.Colors.ON_SURFACE)),
                                 ft.Row(
                                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                    spacing=8,
                                     controls=[
                                         ft.Container(
                                             padding=ft.Padding.symmetric(horizontal=10, vertical=5),
@@ -988,19 +1553,23 @@ def build_discuss_tab_view(
                             ],
                         ),
                     ),
-                    # Section Title
+                    # Dynamic Category Section Title
                     ft.Row(
                         [
-                            ft.Icon(ft.Icons.QUESTION_ANSWER_ROUNDED, size=15, color=accent),
-                            ft.Text(f"Answers & Discussion ({len(replies)})", size=13.5, weight=ft.FontWeight.W_800),
+                            ft.Icon(section_icon, size=15, color=drill_theme),
+                            ft.Text(section_title, size=13.5, weight=ft.FontWeight.W_800),
                         ],
                         spacing=6,
+                        tight=True,
                     ),
-                    # Replies list
-                    ft.Column(spacing=8, controls=reply_cards),
-                    # Reply Composer
+                    # Dedicated Independently Scrollable Answers List
                     ft.Container(
-                        padding=ft.Padding.only(top=10),
+                        expand=True,
+                        content=replies_col,
+                    ),
+                    # Reply Composer Docked at Bottom with Category Accent
+                    ft.Container(
+                        padding=ft.Padding.only(top=6, bottom=2),
                         content=ft.Row(
                             spacing=10,
                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -1009,21 +1578,21 @@ def build_discuss_tab_view(
                                 (
                                     ft.Container(
                                         padding=ft.Padding.all(10),
-                                        content=ft.ProgressRing(width=20, height=20, stroke_width=2.5, color=accent),
+                                        content=ft.ProgressRing(width=20, height=20, stroke_width=2.5, color=drill_theme),
                                     )
                                     if state.get("is_submitting_reply")
                                     else ft.Container(
                                         padding=ft.Padding.symmetric(horizontal=14, vertical=10),
                                         border_radius=ft.BorderRadius.all(8),
-                                        bgcolor=accent,
+                                        bgcolor=drill_theme,
                                         ink=True,
                                         on_click=_on_submit_reply,
                                         content=ft.Row(
                                             spacing=6,
                                             tight=True,
                                             controls=[
-                                                ft.Icon(ft.Icons.SEND_ROUNDED, size=16, color=ft.Colors.WHITE),
-                                                ft.Text("Reply", size=12, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE),
+                                                ft.Icon(reply_btn_icon, size=16, color=ft.Colors.WHITE),
+                                                ft.Text(reply_btn_text, size=12, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE),
                                             ],
                                         ),
                                     )
@@ -1048,8 +1617,13 @@ def build_discuss_tab_view(
             page.update()
             return
 
+        # Dedicated scrollable creation view if composer is open
+        if state["is_composer_open"]:
+            content_socket.controls.append(_render_composer_card())
+            page.update()
+            return
+
         # 1. Header & Controls
-        is_composer_open = state["is_composer_open"]
 
         search_tf = ft.TextField(
             hint_text="Search questions, topics or ideas...",
@@ -1096,41 +1670,122 @@ def build_discuss_tab_view(
                 )
             )
 
+        # Module filter chips
+        mod_filter_chips = []
+        is_all_mod = (state["active_module_id"] == "all")
+        def _filter_mod_all(e):
+            return _on_module_filter("all")
+
+        mod_filter_chips.append(
+            ft.Container(
+                padding=ft.Padding.symmetric(horizontal=11, vertical=6),
+                border_radius=ft.BorderRadius.all(10),
+                bgcolor=ft.Colors.with_opacity(0.16, accent) if is_all_mod else (ft.Colors.SURFACE_CONTAINER_HIGHEST if is_dark else "#F1F5F9"),
+                border=ft.Border.all(1.2 if is_all_mod else 1.0, accent if is_all_mod else ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)),
+                ink=True,
+                on_click=_filter_mod_all,
+                content=ft.Text(
+                    "All Modules",
+                    size=11,
+                    weight=ft.FontWeight.W_800 if is_all_mod else ft.FontWeight.W_600,
+                    color=accent if is_all_mod else ft.Colors.ON_SURFACE,
+                ),
+            )
+        )
+
+        if current_module_id:
+            cur_title = mod_titles.get(current_module_id, "Current Module")
+            is_cur = (state["active_module_id"] == current_module_id)
+            def _filter_mod_cur(e, mid=current_module_id):
+                return _on_module_filter(mid)
+
+            mod_filter_chips.append(
+                ft.Container(
+                    padding=ft.Padding.symmetric(horizontal=11, vertical=6),
+                    border_radius=ft.BorderRadius.all(10),
+                    bgcolor=ft.Colors.with_opacity(0.18, ft.Colors.TEAL) if is_cur else (ft.Colors.SURFACE_CONTAINER_HIGHEST if is_dark else "#F1F5F9"),
+                    border=ft.Border.all(1.2 if is_cur else 1.0, ft.Colors.TEAL if is_cur else ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)),
+                    ink=True,
+                    on_click=_filter_mod_cur,
+                    content=ft.Row(
+                        spacing=4,
+                        tight=True,
+                        controls=[
+                            ft.Icon(ft.Icons.LOCATION_ON_ROUNDED, size=12, color=ft.Colors.TEAL),
+                            ft.Text(
+                                f"Current: {cur_title[:16]}",
+                                size=11,
+                                weight=ft.FontWeight.W_800 if is_cur else ft.FontWeight.W_600,
+                                color=ft.Colors.TEAL if is_cur else ft.Colors.ON_SURFACE,
+                            ),
+                        ],
+                    ),
+                )
+            )
+
+        for idx, mod in enumerate(module_list):
+            m_id = str(mod.get("id"))
+            if not m_id or m_id == current_module_id:
+                continue
+            m_name = mod.get("title", f"Module {idx+1}")
+            is_m_act = (state["active_module_id"] == m_id)
+            def _make_mod_clk(mid):
+                return lambda _: _on_module_filter(mid)
+            mod_filter_chips.append(
+                ft.Container(
+                    padding=ft.Padding.symmetric(horizontal=11, vertical=6),
+                    border_radius=ft.BorderRadius.all(10),
+                    bgcolor=ft.Colors.with_opacity(0.15, ft.Colors.BLUE_GREY) if is_m_act else (ft.Colors.SURFACE_CONTAINER_HIGHEST if is_dark else "#F1F5F9"),
+                    border=ft.Border.all(1.2 if is_m_act else 1.0, ft.Colors.BLUE_GREY if is_m_act else ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)),
+                    ink=True,
+                    on_click=_make_mod_clk(m_id),
+                    content=ft.Text(
+                        f"Mod {idx+1}: {m_name[:14]}",
+                        size=11,
+                        weight=ft.FontWeight.W_800 if is_m_act else ft.FontWeight.W_600,
+                        color=ft.Colors.BLUE_GREY if is_m_act else ft.Colors.ON_SURFACE,
+                    ),
+                )
+            )
+
         header_block = ft.Column(
             spacing=10,
             controls=[
                 ft.Row(
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    spacing=8,
                     controls=[
                         ft.Row(
                             spacing=8,
-                            tight=True,
+                            expand=True,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
                             controls=[
                                 ft.Icon(ft.Icons.FORUM_ROUNDED, size=18, color=accent),
                                 ft.Column(
                                     spacing=2,
+                                    expand=True,
                                     controls=[
-                                        ft.Text("Course Discussion Board", size=14.5, weight=ft.FontWeight.W_800),
-                                        ft.Text("Post questions and collaborate with classmates", size=11, color=ft.Colors.GREY_500),
+                                        ft.Text("Course Discussion Board", size=14, weight=ft.FontWeight.W_800, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                                        ft.Text("Post questions & collaborate", size=11, color=ft.Colors.GREY_500, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                                     ],
                                 ),
                             ],
                         ),
                         ft.Container(
-                            padding=ft.Padding.symmetric(horizontal=14, vertical=9),
+                            padding=ft.Padding.symmetric(horizontal=12, vertical=8),
                             border_radius=ft.BorderRadius.all(12),
                             bgcolor=accent,
                             ink=True,
                             on_click=lambda _: _toggle_composer(),
                             content=ft.Row(
-                                spacing=5,
+                                spacing=4,
                                 tight=True,
                                 controls=[
-                                    ft.Icon(ft.Icons.ADD_ROUNDED, size=16, color=ft.Colors.WHITE),
+                                    ft.Icon(ft.Icons.ADD_ROUNDED, size=15, color=ft.Colors.WHITE),
                                     ft.Text(
                                         "+ Start Discussion" if (getattr(page, "width", 800) or 800) >= 550 else "+ Post",
-                                        size=12,
+                                        size=11.5,
                                         weight=ft.FontWeight.W_800,
                                         color=ft.Colors.WHITE,
                                     ),
@@ -1145,20 +1800,27 @@ def build_discuss_tab_view(
                         search_tf,
                     ],
                 ),
+                *(
+                    [
+                        ft.Row(
+                            spacing=6,
+                            scroll=ft.ScrollMode.HIDDEN,
+                            controls=mod_filter_chips,
+                        )
+                    ]
+                    if module_list
+                    else []
+                ),
                 ft.Row(
                     spacing=6,
-                    scroll=ft.ScrollMode.AUTO,
+                    scroll=ft.ScrollMode.HIDDEN,
                     controls=cat_chips,
                 ),
             ],
         )
         content_socket.controls.append(header_block)
 
-        # 2. Composer Card if open
-        if is_composer_open:
-            content_socket.controls.append(_render_composer_card())
-
-        # 3. Feed Cards
+        # 2. Feed Cards
         if state["is_loading"]:
             content_socket.controls.append(
                 ft.Container(
@@ -1254,10 +1916,9 @@ def build_discuss_tab_view(
                             ),
                             ft.Text(z_title, size=15, weight=ft.FontWeight.W_800),
                             ft.Container(
-                                width=400,
                                 content=ft.Text(
                                     z_subtitle,
-                                    size=12.5,
+                                    size=12,
                                     color=ft.Colors.GREY_500,
                                     text_align=ft.TextAlign.CENTER,
                                 ),
@@ -1306,11 +1967,16 @@ def build_discuss_tab_view(
         state["active_category"] = cat
         page.run_task(_load_discussions)
 
+    def _on_module_filter(mid: str):
+        state["active_module_id"] = mid
+        page.run_task(_load_discussions)
+
     def _on_search(q: str):
         state["search_query"] = q.strip()
         page.run_task(_load_discussions)
 
-    # Initial load
+    # Initial render + async data load
+    _render_view()
     page.run_task(_load_discussions)
 
     return ft.Container(

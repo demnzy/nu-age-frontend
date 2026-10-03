@@ -49,6 +49,11 @@ async def profile_view(page: ft.Page):
             page.pop_dialog()
         except Exception:
             pass
+        try:
+            from src.services.auth_session import AuthSession
+            AuthSession.get_instance(page).set_logging_out(True)
+        except Exception:
+            pass
         refresh_token = await page.shared_preferences.get("refresh_token")
         if refresh_token:
             try:

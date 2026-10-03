@@ -104,7 +104,12 @@ def _safe_evaluate_expression(expr: str, ans_val: float = 0.0) -> str:
         return "Error"
 
 
-def build_exam_calculator(page: ft.Page, calculator_type: str = "basic", on_close=None) -> ft.Container:
+def build_exam_calculator(
+    page: ft.Page,
+    calculator_type: str = "basic",
+    on_close=None,
+    on_toggle_mode=None,
+) -> ft.Container:
     """Constructs an extensive, sleek floating calculator overlay card for candidates."""
     is_scientific = (calculator_type == "scientific")
 
@@ -272,6 +277,9 @@ def build_exam_calculator(page: ft.Page, calculator_type: str = "basic", on_clos
             expand=flex,
         )
 
+    screen_w = getattr(page, "width", None) or 360
+    max_w = max(240, int(screen_w - 24))
+
     # Keypads
     if not is_scientific:
         # Standard 4-function layout with Ans and AC (4x5)
@@ -282,7 +290,7 @@ def build_exam_calculator(page: ft.Page, calculator_type: str = "basic", on_clos
             ft.Row([make_btn("1"), make_btn("2"), make_btn("3"), make_btn("+", is_op=True)], spacing=6),
             ft.Row([make_btn("+/-"), make_btn("0"), make_btn("."), make_btn("=", is_accent=True)], spacing=6),
         ], spacing=6)
-        calc_width = 250
+        calc_width = min(250, max_w)
     else:
         # Scientific layout (5 columns) with Ans, AC, trig, powers, logs
         keypad = ft.Column([
@@ -294,14 +302,32 @@ def build_exam_calculator(page: ft.Page, calculator_type: str = "basic", on_clos
             ft.Row([make_btn("1"), make_btn("2"), make_btn("3"), make_btn(".", is_sci=True), make_btn("+", is_op=True)], spacing=4),
             ft.Row([make_btn("0", flex=2), make_btn("=", is_accent=True, flex=3)], spacing=4),
         ], spacing=4)
-        calc_width = 300
+        calc_width = min(300, max_w)
 
     # Header - Universal Candidate Branding
+    mode_btn = None
+    if on_toggle_mode:
+        mode_btn = ft.Container(
+            padding=ft.Padding.symmetric(horizontal=7, vertical=3),
+            border_radius=6,
+            bgcolor=ft.Colors.with_opacity(0.10, ft.Colors.PRIMARY),
+            ink=True,
+            tooltip=f"Switch to {'Basic' if is_scientific else 'Scientific'} mode",
+            on_click=on_toggle_mode,
+            content=ft.Text(
+                "Sci" if is_scientific else "Basic",
+                size=10,
+                weight=ft.FontWeight.BOLD,
+                color=ft.Colors.PRIMARY,
+            ),
+        )
+
     header = ft.Row([
         ft.Row([
             ft.Icon(ft.Icons.CALCULATE_ROUNDED, size=16, color=ft.Colors.PRIMARY),
             ft.Text("Calculator", size=13, weight=ft.FontWeight.BOLD),
-        ], spacing=6, tight=True),
+            *( [mode_btn] if mode_btn else [] ),
+        ], spacing=6, tight=True, vertical_alignment=ft.CrossAxisAlignment.CENTER),
         ft.IconButton(ft.Icons.CLOSE_ROUNDED, icon_size=16, tooltip="Close Calculator", on_click=on_close),
     ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
 

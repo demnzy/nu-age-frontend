@@ -22,12 +22,12 @@ from src.components.course_tabs import (
     build_course_tab_bar,
     build_practice_tab_view,
     build_discuss_tab_view,
-    build_progress_tab_view,
 )
 from src.components.need_help_drawer import (
     build_need_help_drawer,
     NeedHelpController,
     _get_auth_token,
+    AI_TUTOR_MOBILE_WIDTH,
 )
 
 def heal_markdown(text: str) -> str:
@@ -81,7 +81,7 @@ async def course_learner_view(
     # =========================================================
 
     UI_ACCENT = ft.Colors.PRIMARY
-    SIDEBAR_WIDTH = 340
+    SIDEBAR_WIDTH = 350
     DESKTOP_BREAKPOINT = 1024
     ACTION_BUTTON_HEIGHT = 42          # Ergonomic touch target (LMS standard)
     HEADER_RADIUS = 12
@@ -205,14 +205,35 @@ async def course_learner_view(
     active_player_tab = 0
     need_help_open = False
     need_help_controller = NeedHelpController()
-    drawer_socket = ft.Container(visible=False)
+    drawer_socket = ft.Container(
+        width=0,
+        visible=False,
+        expand=False,
+        animate=ft.Animation(duration=280, curve=ft.AnimationCurve.EASE_OUT_CUBIC),
+        animate_opacity=ft.Animation(duration=220, curve=ft.AnimationCurve.EASE_IN_OUT),
+        opacity=0.0,
+    )
     body_host = ft.Container(expand=True)
+    sidebar_backdrop = ft.Container(
+        left=0,
+        top=0,
+        right=0,
+        bottom=0,
+        bgcolor=ft.Colors.with_opacity(0.45, ft.Colors.BLACK),
+        visible=False,
+    )
 
-    def toggle_sidebar(e):
+    def toggle_sidebar(e=None):
         nonlocal sidebar_visible
         sidebar_visible = not sidebar_visible
-        refresh_layout_shell()
+        if is_desktop_layout():
+            refresh_layout_shell()
+        else:
+            sidebar_backdrop.visible = sidebar_visible
+            sidebar_container.visible = sidebar_visible
         page.update()
+
+    sidebar_backdrop.on_click = toggle_sidebar
 
     close_sidebar_button = ft.IconButton(
         icon=ft.Icons.CLOSE_ROUNDED,
@@ -259,7 +280,6 @@ async def course_learner_view(
     sidebar_progress_label = ft.Text("0% complete", color=UI_ACCENT, size=11, weight=ft.FontWeight.BOLD)
 
     top_progress_ring = ft.ProgressRing(width=13, height=13, stroke_width=2.5, color=UI_ACCENT, value=0)
-    top_progress_text = ft.Text("0%", size=11, weight=ft.FontWeight.BOLD, color=UI_ACCENT)
     top_progress_pill = ft.Container(
         padding=ft.Padding.symmetric(horizontal=10, vertical=5),
         border_radius=999,
@@ -267,7 +287,6 @@ async def course_learner_view(
         content=ft.Row(
             [
                 top_progress_ring,
-                top_progress_text,
             ],
             tight=True,
             spacing=6,
@@ -291,7 +310,6 @@ async def course_learner_view(
         sidebar_progress_bar.value = pct
         sidebar_progress_label.value = f"{int(pct * 100)}% complete"
         top_progress_ring.value = pct
-        top_progress_text.value = f"{int(pct * 100)}%"
 
     sidebar_container = ft.Container(
         width=SIDEBAR_WIDTH,
@@ -407,8 +425,10 @@ async def course_learner_view(
             alignment=ft.MainAxisAlignment.CENTER,
         ),
         center_title=False,
-        bgcolor=ft.Colors.SURFACE,
+        bgcolor="#FFFFFF" if getattr(page, "theme_mode", None) != ft.ThemeMode.DARK else ft.Colors.SURFACE,
         elevation=0,
+        elevation_on_scroll=0.0,
+        shadow_color=ft.Colors.TRANSPARENT,
         actions=[
             top_progress_pill,
             ft.Container(width=4),
@@ -428,6 +448,7 @@ async def course_learner_view(
         close_sidebar_button.visible = True
 
         if desktop_mode:
+            sidebar_backdrop.visible = False
             sidebar_container.visible = sidebar_visible
             sidebar_container.left = None
             sidebar_container.top = None
@@ -450,20 +471,13 @@ async def course_learner_view(
                 ft.Container(
                     expand=True,
                     alignment=ft.Alignment.TOP_CENTER,
-                    padding=ft.Padding.symmetric(horizontal=24, vertical=16),
+                    padding=ft.Padding.symmetric(horizontal=16, vertical=12),
                     content=main_content_area,
                 )
             )
 
             # AI Tutor Right-Hand Companion Sidebar
-            if need_help_open and drawer_socket.visible:
-                desktop_controls.append(
-                    ft.VerticalDivider(
-                        width=1,
-                        thickness=1,
-                        color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
-                    )
-                )
+            if need_help_open or drawer_socket.visible:
                 desktop_controls.append(drawer_socket)
 
             body_host.expand = True
@@ -479,6 +493,7 @@ async def course_learner_view(
             mobile_w = current_width or 360
             drawer_width = min(SIDEBAR_WIDTH, int(mobile_w * 0.85))
 
+            sidebar_backdrop.visible = sidebar_visible
             sidebar_container.visible = sidebar_visible
             sidebar_container.left = 0
             sidebar_container.top = 0
@@ -486,36 +501,28 @@ async def course_learner_view(
             sidebar_container.right = None
             sidebar_container.width = drawer_width
 
-            mobile_stack_controls = [
-                ft.Container(
-                    left=0,
-                    top=0,
-                    right=0,
-                    bottom=0,
-                    padding=ft.Padding.all(12),
-                    content=main_content_area,
-                )
-            ]
+            drawer_socket.left = 10
+            drawer_socket.right = 10
+            drawer_socket.bottom = 10
+            drawer_socket.top = None
+            drawer_socket.width = None
+            drawer_socket.visible = need_help_open
 
-            if sidebar_visible:
-                mobile_stack_controls.append(
+            body_host.expand = True
+            body_host.content = ft.Stack(
+                [
                     ft.Container(
                         left=0,
                         top=0,
                         right=0,
                         bottom=0,
-                        bgcolor=ft.Colors.with_opacity(0.45, ft.Colors.BLACK),
-                        on_click=toggle_sidebar,
-                    )
-                )
-                mobile_stack_controls.append(sidebar_container)
-
-            if need_help_open and drawer_socket.visible:
-                mobile_stack_controls.append(drawer_socket)
-
-            body_host.expand = True
-            body_host.content = ft.Stack(
-                mobile_stack_controls,
+                        padding=ft.Padding.all(12),
+                        content=main_content_area,
+                    ),
+                    sidebar_backdrop,
+                    sidebar_container,
+                    drawer_socket,
+                ],
                 expand=True,
             )
 
@@ -2930,6 +2937,8 @@ async def course_learner_view(
 
         if not is_desktop_layout():
             sidebar_visible = False
+            sidebar_backdrop.visible = False
+            sidebar_container.visible = False
 
         refresh_ui()
 
@@ -3497,6 +3506,7 @@ async def course_learner_view(
         def toggle_need_help(e=None):
             nonlocal need_help_open
             need_help_open = not need_help_open
+            is_desktop = is_desktop_layout()
             if need_help_open:
                 build_need_help_drawer(
                     page=page,
@@ -3510,10 +3520,49 @@ async def course_learner_view(
                     target_container=drawer_socket,
                 )
                 drawer_socket.visible = True
+                drawer_socket.expand = False
+                if is_desktop:
+                    drawer_socket.width = 0
+                    drawer_socket.opacity = 0.0
+                    refresh_layout_shell()
+                    page.update()
+
+                    async def _animate_open():
+                        await asyncio.sleep(0.02)
+                        drawer_socket.width = AI_TUTOR_MOBILE_WIDTH
+                        drawer_socket.expand = False
+                        drawer_socket.opacity = 1.0
+                        page.update()
+
+                    asyncio.create_task(_animate_open())
+                else:
+                    drawer_socket.left = 10
+                    drawer_socket.right = 10
+                    drawer_socket.bottom = 10
+                    drawer_socket.top = None
+                    drawer_socket.width = None
+                    drawer_socket.opacity = 1.0
+                    refresh_layout_shell()
+                    page.update()
             else:
-                drawer_socket.visible = False
-            refresh_layout_shell()
-            page.update()
+                if is_desktop:
+                    drawer_socket.width = 0
+                    drawer_socket.expand = False
+                    drawer_socket.opacity = 0.0
+                    page.update()
+
+                    async def _animate_close():
+                        await asyncio.sleep(0.30)
+                        if not need_help_open:
+                            drawer_socket.visible = False
+                            refresh_layout_shell()
+                            page.update()
+
+                    asyncio.create_task(_animate_close())
+                else:
+                    drawer_socket.visible = False
+                    refresh_layout_shell()
+                    page.update()
 
         # If already open during lesson navigation, dynamically update context without closing
         if need_help_open and need_help_controller.update_module_context:
@@ -3523,20 +3572,22 @@ async def course_learner_view(
                 new_is_assessment=is_assessment_lesson,
             )
 
+        ai_btn_color = ft.Colors.DEEP_PURPLE_500 if getattr(page, "theme_mode", None) != ft.ThemeMode.DARK else ft.Colors.DEEP_PURPLE_300
         need_help_btn = ft.Container(
             content=ft.Row(
                 [
-                    ft.Icon(ft.Icons.AUTO_AWESOME_ROUNDED, size=13, color=UI_ACCENT),
-                    ft.Text("Need Help?", size=11, weight=ft.FontWeight.W_700, color=UI_ACCENT),
+                    ft.Icon(ft.Icons.AUTO_AWESOME_ROUNDED, size=13, color=ai_btn_color),
+                    ft.Text("Need Help?", size=11, weight=ft.FontWeight.W_700, color=ai_btn_color),
                 ],
                 spacing=5,
                 tight=True,
             ),
-            bgcolor=ft.Colors.with_opacity(0.10, UI_ACCENT),
+            bgcolor=ft.Colors.with_opacity(0.10, ai_btn_color),
             padding=ft.Padding.symmetric(horizontal=10, vertical=5),
             border_radius=ft.BorderRadius.all(12),
-            border=ft.Border.all(1, ft.Colors.with_opacity(0.18, UI_ACCENT)),
+            border=ft.Border.all(1, ft.Colors.with_opacity(0.25, ai_btn_color)),
             ink=True,
+            visible=is_desktop_layout(),
             tooltip="Ask AI Doubt Assistant about this lesson",
             on_click=toggle_need_help,
         )
@@ -3694,17 +3745,18 @@ async def course_learner_view(
                 expand=True,
                 scroll=ft.ScrollMode.AUTO,
             )
-        elif active_player_tab == 2:
+        else:
+            modules_list = course_data.get("modules", [])
+            cur_mod_id = None
+            if 0 <= current_module_idx < len(modules_list):
+                cur_mod_id = str(modules_list[current_module_idx].get("id") or "")
+
             active_view_content = build_discuss_tab_view(
                 course_id=str(course_id),
                 course_title=course_data.get("course_title", "Course"),
                 page=page,
-            )
-        else:
-            active_view_content = ft.Column(
-                [build_progress_tab_view(course_data, page)],
-                expand=True,
-                scroll=ft.ScrollMode.AUTO,
+                modules=modules_list,
+                current_module_id=cur_mod_id,
             )
 
         main_content_area.content = ft.Container(

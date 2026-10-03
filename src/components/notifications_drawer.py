@@ -363,7 +363,7 @@ def open_notifications_drawer(page: ft.Page):
         if tab == "exams":
             filtered = [n for n in items if n.get("category") in ("exams", "cohorts")]
         elif tab == "courses":
-            filtered = [n for n in items if n.get("category") == "courses"]
+            filtered = [n for n in items if n.get("category") in ("courses", "discussion", "discussions")]
         elif tab == "chat":
             filtered = [n for n in items if n.get("category") == "chat"]
         else:
@@ -408,8 +408,8 @@ def open_notifications_drawer(page: ft.Page):
 
                 if cat in ("exams", "cohorts"):
                     cat_color = ft.Colors.ORANGE_600
-                elif cat == "courses":
-                    cat_color = ft.Colors.BLUE_600
+                elif cat in ("courses", "discussion", "discussions"):
+                    cat_color = ft.Colors.DEEP_PURPLE_500 if cat in ("discussion", "discussions") else ft.Colors.BLUE_600
                 elif cat == "chat":
                     cat_color = ft.Colors.GREEN_600
                 else:

@@ -36,6 +36,7 @@ AUTH_BYPASS_PATHS = (
     "/users/auth/resend-verification-otp",
     "/users/auth/reset-password",
     "/users/auth/verify-password",
+    "/users/auth/logout",
     "/users/auth/logout-all",
 )
 
