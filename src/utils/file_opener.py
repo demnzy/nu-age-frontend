@@ -4,6 +4,7 @@ import shutil
 import urllib.parse
 import subprocess
 import asyncio
+from typing import Any, Optional, Union
 import flet as ft
 
 
@@ -19,7 +20,12 @@ def show_page_snackbar(page: ft.Page, snack: Any):
         page, snack = snack, page
     # Coerce raw strings into SnackBar
     if isinstance(snack, str):
-        snack = ft.SnackBar(content=ft.Text(snack), duration=2500)
+        snack = ft.SnackBar(
+            content=ft.Text(snack, color=ft.Colors.WHITE, weight=ft.FontWeight.W_600, size=13),
+            bgcolor="#064E3B",
+            behavior=ft.SnackBarBehavior.FLOATING,
+            duration=2500,
+        )
     try:
         if hasattr(page, "open"):
             page.open(snack)

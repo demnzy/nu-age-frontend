@@ -1,10 +1,11 @@
 import asyncio
-
+import re
 import flet as ft
 from src.components.study_flashcards import build_flashcard_session
 from src.components.study_quiz import build_quiz
 from src.components.study_exam import build_exam
 from src.components.deck_inspector import open_deck_inspector
+from src.components.study_marketplace import StudyMarketplaceView
 
 
 from src.requests.study import (
@@ -17,6 +18,7 @@ from src.requests.study import (
     check_generation_status,
     import_youtube_material,
     get_youtube_recommendations,
+    delete_study_material,
 )
 from src.requests.chats import ask_ai_tutor_api
 from src.utils.file_opener import safe_set_clipboard, show_page_snackbar
@@ -261,9 +263,11 @@ def format_material_title(raw_title: str) -> str:
 async def self_study_view(page: ft.Page):
     visible_trigger=True
     token          = await page.shared_preferences.get("auth_token")
+    user_role      = await page.shared_preferences.get("user_role")
 
     # ── shared state ──────────────────────────────────────────────────────────
     state = {
+        "user_role":         user_role or "student",
         "materials":         [],
         "due_cards":         [],
         "all_due_cards":     [],
@@ -975,34 +979,56 @@ async def self_study_view(page: ft.Page):
 
         dialog_w = min(page.width - 32, 450) if page.width else 420
 
+        # Drop-in replacement for your existing `studio_dlg = ft.AlertDialog(...)` block.
+        # It still uses your existing names: _close_studio, dialog_w, modal_plan_badge,
+        # _section_label, studio_upload_tile, studio_gen_tile, bars_col, page.
+        # Colors come from the theme (PRIMARY / SURFACE / ON_SURFACE), so light and
+        # dark mode both keep working.
+
+        def _benefit_row(text: str) -> ft.Row:
+            return ft.Row(
+                spacing=8,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[
+                    ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED, size=14, color=ft.Colors.ORANGE_400),
+                    ft.Text(text, size=11.5, color=ft.Colors.with_opacity(0.8, ft.Colors.ON_SURFACE)),
+                ],
+            )
+
         studio_dlg = ft.AlertDialog(
             modal=True,
-            shape=ft.RoundedRectangleBorder(radius=18),
+            shape=ft.RoundedRectangleBorder(radius=22),
             bgcolor=ft.Colors.SURFACE,
+            title_padding=ft.Padding.only(left=22, right=12, top=18, bottom=0),
+            content_padding=ft.Padding.only(left=22, right=22, top=14, bottom=22),
             title=ft.Row(
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 controls=[
                     ft.Row(
-                        spacing=10,
+                        spacing=12,
                         expand=True,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         controls=[
                             ft.Container(
-                                width=32,
-                                height=32,
-                                border_radius=ft.BorderRadius.all(8),
-                                bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY),
+                                width=40,
+                                height=40,
+                                border_radius=ft.BorderRadius.all(13),
                                 alignment=ft.Alignment.CENTER,
-                                content=ft.Icon(ft.Icons.WORKSPACE_PREMIUM_ROUNDED, color=ft.Colors.PRIMARY, size=18),
+                                gradient=ft.LinearGradient(
+                                    colors=[ft.Colors.PRIMARY, ft.Colors.with_opacity(0.65, ft.Colors.PRIMARY)],
+                                    begin=ft.Alignment.TOP_LEFT,
+                                    end=ft.Alignment.BOTTOM_RIGHT,
+                                ),
+                                content=ft.Icon(ft.Icons.WORKSPACE_PREMIUM_ROUNDED, color=ft.Colors.ON_PRIMARY, size=20),
                             ),
                             ft.Column(
                                 spacing=1,
                                 expand=True,
                                 tight=True,
                                 controls=[
-                                    ft.Text("Studio & Quotas", size=15, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
-                                    ft.Text("Uploads, AI generation & limits", size=10.5, color=ft.Colors.GREY_500, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                                    ft.Text("Studio & Quotas", size=16, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                                    ft.Text("Uploads, AI generation & limits", size=11, color=ft.Colors.GREY_500, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                                 ],
                             ),
                         ],
@@ -1021,112 +1047,172 @@ async def self_study_view(page: ft.Page):
                 content=ft.Column(
                     tight=True,
                     scroll=ft.ScrollMode.AUTO,
-                    spacing=14,
+                    spacing=16,
                     controls=[
+                        # ── Subscription plan card ──
                         ft.Container(
-                            padding=ft.Padding.symmetric(horizontal=12, vertical=10),
-                            border_radius=ft.BorderRadius.all(10),
-                            bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
-                            border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                            padding=ft.Padding.symmetric(horizontal=14, vertical=12),
+                            border_radius=ft.BorderRadius.all(14),
+                            bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.PRIMARY),
+                            border=ft.Border.all(1, ft.Colors.with_opacity(0.25, ft.Colors.PRIMARY)),
                             content=ft.Row(
                                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
                                 controls=[
                                     ft.Row(
-                                        spacing=7,
+                                        spacing=10,
                                         tight=True,
+                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
                                         controls=[
-                                            ft.Icon(ft.Icons.CARD_MEMBERSHIP_ROUNDED, size=16, color=ft.Colors.PRIMARY),
-                                            ft.Text("Subscription Plan", size=12.5, weight=ft.FontWeight.W_700, color=ft.Colors.ON_SURFACE),
+                                            ft.Container(
+                                                width=32,
+                                                height=32,
+                                                border_radius=ft.BorderRadius.all(10),
+                                                bgcolor=ft.Colors.with_opacity(0.15, ft.Colors.PRIMARY),
+                                                alignment=ft.Alignment.CENTER,
+                                                content=ft.Icon(ft.Icons.CARD_MEMBERSHIP_ROUNDED, size=17, color=ft.Colors.PRIMARY),
+                                            ),
+                                            ft.Column(
+                                                spacing=1,
+                                                tight=True,
+                                                controls=[
+                                                    ft.Text("Subscription plan", size=12.5, weight=ft.FontWeight.W_700, color=ft.Colors.ON_SURFACE),
+                                                    ft.Text("Your current tier", size=10.5, color=ft.Colors.GREY_500),
+                                                ],
+                                            ),
                                         ],
                                     ),
                                     modal_plan_badge,
                                 ],
                             ),
                         ),
-                        _section_label("CREATIVE STUDIO"),
+
+                        # ── Creative studio ──
+                        ft.Column(
+                            spacing=8,
+                            tight=True,
+                            controls=[
+                                _section_label("CREATIVE STUDIO"),
+                                ft.Row(
+                                    spacing=10,
+                                    controls=[
+                                        studio_upload_tile,
+                                        studio_gen_tile,
+                                    ],
+                                ),
+                            ],
+                        ),
+
+                        # ── Quotas & usage ──
+                        ft.Column(
+                            spacing=8,
+                            tight=True,
+                            controls=[
+                                _section_label("PLAN QUOTAS & USAGE"),
+                                ft.Container(
+                                    padding=ft.Padding.all(14),
+                                    border_radius=ft.BorderRadius.all(14),
+                                    bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
+                                    border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                                    content=bars_col,
+                                ),
+                            ],
+                        ),
+
+                        # ── Actions ──
                         ft.Row(
                             spacing=10,
                             controls=[
-                                studio_upload_tile,
-                                studio_gen_tile,
-                            ],
-                        ),
-                        ft.Divider(height=1, color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
-                        _section_label("PLAN QUOTAS & USAGE"),
-                        bars_col,
-                        ft.Row(
-                            spacing=8,
-                            controls=[
-                                ft.ElevatedButton(
+                                ft.FilledButton(
                                     content=ft.Row(
                                         tight=True,
                                         spacing=6,
+                                        alignment=ft.MainAxisAlignment.CENTER,
                                         controls=[
-                                            ft.Icon(ft.Icons.BOLT_ROUNDED, size=13, color=ft.Colors.PURPLE_600),
-                                            ft.Text("Top-Up Boosters", size=11, color=ft.Colors.PURPLE_700, weight=ft.FontWeight.W_700),
+                                            ft.Icon(ft.Icons.BOLT_ROUNDED, size=15, color=ft.Colors.AMBER_400),
+                                            ft.Text("Top-Up Boosters", size=11.5, color=ft.Colors.ON_PRIMARY, weight=ft.FontWeight.W_700),
                                         ],
                                     ),
-                                    bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.PURPLE_600),
-                                    elevation=0,
-                                    height=34,
+                                    height=40,
                                     expand=True,
-                                    style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
+                                    style=ft.ButtonStyle(
+                                        bgcolor=ft.Colors.with_opacity(0.14, ft.Colors.AMBER),
+                                        side=ft.BorderSide(1, ft.Colors.with_opacity(0.35, ft.Colors.AMBER_400)),
+                                        shape=ft.RoundedRectangleBorder(radius=20),
+                                        elevation=0,
+                                    ),
                                     on_click=lambda _: (_close_studio(None), page.go("/store?tab=boosters")),
                                 ),
-                                ft.ElevatedButton(
+                                ft.FilledButton(
                                     content=ft.Row(
                                         tight=True,
                                         spacing=6,
+                                        alignment=ft.MainAxisAlignment.CENTER,
                                         controls=[
-                                            ft.Icon(ft.Icons.STOREFRONT_ROUNDED, size=13, color=ft.Colors.WHITE),
-                                            ft.Text("Open Store", size=11, color=ft.Colors.WHITE, weight=ft.FontWeight.W_700),
+                                            ft.Icon(ft.Icons.STOREFRONT_ROUNDED, size=15, color=ft.Colors.ON_PRIMARY),
+                                            ft.Text("Open Store", size=11.5, color=ft.Colors.ON_PRIMARY, weight=ft.FontWeight.W_800),
                                         ],
                                     ),
-                                    bgcolor=ft.Colors.PRIMARY,
-                                    elevation=0,
-                                    height=34,
+                                    height=40,
                                     expand=True,
-                                    style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
+                                    style=ft.ButtonStyle(
+                                        bgcolor=ft.Colors.PRIMARY,
+                                        shape=ft.RoundedRectangleBorder(radius=20),
+                                        elevation=0,
+                                    ),
                                     on_click=lambda _: (_close_studio(None), page.go("/store?tab=plans")),
                                 ),
                             ],
                         ),
+
+                        # ── Pro upsell ──
                         ft.Container(
-                            border_radius=ft.BorderRadius.all(12),
-                            bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.ORANGE_500),
+                            border_radius=ft.BorderRadius.all(16),
+                            padding=ft.Padding.all(14),
+                            gradient=ft.LinearGradient(
+                                colors=[
+                                    ft.Colors.with_opacity(0.16, ft.Colors.ORANGE_500),
+                                    ft.Colors.with_opacity(0.05, ft.Colors.ORANGE_500),
+                                ],
+                                begin=ft.Alignment.TOP_LEFT,
+                                end=ft.Alignment.BOTTOM_RIGHT,
+                            ),
                             border=ft.Border.all(1, ft.Colors.with_opacity(0.35, ft.Colors.ORANGE_500)),
-                            padding=ft.Padding.symmetric(horizontal=12, vertical=10),
                             content=ft.Column(
-                                spacing=6,
+                                spacing=10,
+                                tight=True,
                                 controls=[
                                     ft.Row(
-                                        spacing=6,
+                                        spacing=10,
+                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
                                         controls=[
-                                            ft.Icon(ft.Icons.WORKSPACE_PREMIUM_ROUNDED, size=15, color=ft.Colors.ORANGE_700),
-                                            ft.Text("Unlock Pro Scholar Quotas", size=12, weight=ft.FontWeight.W_800, color=ft.Colors.ORANGE_800),
+                                            ft.Container(
+                                                width=32,
+                                                height=32,
+                                                border_radius=ft.BorderRadius.all(10),
+                                                bgcolor=ft.Colors.with_opacity(0.18, ft.Colors.ORANGE_500),
+                                                alignment=ft.Alignment.CENTER,
+                                                content=ft.Icon(ft.Icons.WORKSPACE_PREMIUM_ROUNDED, size=17, color=ft.Colors.ORANGE_400),
+                                            ),
+                                            ft.Text("Unlock Pro Scholar Quotas", size=13, weight=ft.FontWeight.W_800, color=ft.Colors.ORANGE_400),
                                         ],
                                     ),
-                                    ft.Text(
-                                        "Get 45 material slots, 100 AI synthesis decks/mo, & priority study models.",
-                                        size=10.5,
-                                        color=ft.Colors.GREY_700,
-                                    ),
-                                    ft.ElevatedButton(
+                                    _benefit_row("45 material slots"),
+                                    _benefit_row("100 AI synthesis decks per month"),
+                                    ft.Container(
+                                        padding=ft.Padding.symmetric(vertical=9),
+                                        border_radius=ft.BorderRadius.all(10),
+                                        bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
+                                        alignment=ft.Alignment.CENTER,
                                         content=ft.Row(
                                             tight=True,
                                             spacing=6,
                                             alignment=ft.MainAxisAlignment.CENTER,
                                             controls=[
-                                                ft.Icon(ft.Icons.HOURGLASS_EMPTY_ROUNDED, size=12, color=ft.Colors.WHITE),
-                                                ft.Text("Upgrade Plans Coming Soon", size=11, color=ft.Colors.WHITE, weight=ft.FontWeight.W_700),
+                                                ft.Icon(ft.Icons.HOURGLASS_EMPTY_ROUNDED, size=13, color=ft.Colors.GREY_500),
+                                                ft.Text("Upgrade plans coming soon", size=11, weight=ft.FontWeight.W_600, color=ft.Colors.GREY_500),
                                             ],
                                         ),
-                                        bgcolor=ft.Colors.GREY_600,
-                                        height=32,
-                                        width=float("inf"),
-                                        disabled=True,
-                                        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), elevation=0),
                                     ),
                                 ],
                             ),
@@ -1174,6 +1260,7 @@ async def self_study_view(page: ft.Page):
                         ),
                         ft.Container(height=4),
                         _rail_icon_btn(ft.Icons.SPACE_DASHBOARD_ROUNDED, "Hub Home", lambda _: go_hub(), is_active=True),
+                        _rail_icon_btn(ft.Icons.STOREFRONT_ROUNDED, "Pack Store & Hub", lambda _: go_marketplace()),
                         _rail_icon_btn(ft.Icons.STYLE_ROUNDED, "Flashcards", lambda _: page.run_task(_start_flashcards, _current_selected_ids())),
                         _rail_icon_btn(ft.Icons.QUIZ_ROUNDED, "Quick Quiz", lambda _: page.run_task(_start_quiz, _current_selected_ids())),
                         _rail_icon_btn(ft.Icons.TIMER_OUTLINED, "Exam Simulator", lambda _: page.run_task(_start_exam, _current_selected_ids())),
@@ -1344,6 +1431,12 @@ async def self_study_view(page: ft.Page):
                                             "Hub Home",
                                             badge_control=None,
                                             on_click=lambda _: page.run_task(_back_to_hub) if (not state.get("on_hub") or state.get("active_material")) else None,
+                                        ),
+                                        _pinned_row(
+                                            ft.Icons.STOREFRONT_ROUNDED,
+                                            "Pack Store & Hub",
+                                            badge_control=None,
+                                            on_click=lambda _: go_marketplace(),
                                         ),
                                         _pinned_row(
                                             ft.Icons.STYLE_ROUNDED,
@@ -1534,6 +1627,120 @@ async def self_study_view(page: ft.Page):
         content_socket.content = _build_quiz(questions)
         page.update()
 
+    def _confirm_delete_material(mat: dict):
+        mtitle = mat.get("title") or "Untitled Document"
+        display_title = format_material_title(mtitle)
+        is_pack = (mat.get("source_type") or "").lower() == "pack_import"
+        mat_id = str(mat.get("id"))
+
+        async def _execute_delete(btn):
+            btn.disabled = True
+            btn.content = ft.Row(
+                tight=True,
+                spacing=6,
+                alignment=ft.MainAxisAlignment.CENTER,
+                controls=[
+                    ft.ProgressRing(width=16, height=16, stroke_width=2, color=ft.Colors.WHITE),
+                    ft.Text("Removing...", size=12, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE),
+                ],
+            )
+            page.update()
+
+            res = await delete_study_material(token, mat_id)
+            del_dlg.open = False
+            page.update()
+
+            if "error" in res:
+                show_page_snackbar(page, f"Could not remove: {res['error']}")
+            else:
+                show_page_snackbar(page, f"'{display_title}' removed from vault.")
+                state["materials"] = [m for m in state.get("materials", []) if str(m.get("id")) != mat_id]
+                go_hub("Refreshing Study Hub…")
+
+        def _cancel_delete(_):
+            del_dlg.open = False
+            page.update()
+
+        del_dlg_w = min(page.width - 44, 400) if page.width else 380
+        del_dlg = ft.AlertDialog(
+            modal=True,
+            shape=ft.RoundedRectangleBorder(radius=20),
+            bgcolor=ft.Colors.SURFACE,
+            content_padding=ft.Padding.all(22),
+            content=ft.Container(
+                width=del_dlg_w,
+                content=ft.Column(
+                    tight=True,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    spacing=14,
+                    controls=[
+                        ft.Container(
+                            width=54,
+                            height=54,
+                            border_radius=ft.BorderRadius.all(27),
+                            bgcolor=ft.Colors.with_opacity(0.10, ft.Colors.RED_600),
+                            alignment=ft.Alignment.CENTER,
+                            content=ft.Icon(ft.Icons.DELETE_FOREVER_ROUNDED, color=ft.Colors.RED_500, size=26),
+                        ),
+                        ft.Column(
+                            tight=True,
+                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            spacing=6,
+                            controls=[
+                                ft.Text(
+                                    "Remove Downloaded Pack?" if is_pack else "Delete Study Material?",
+                                    size=17,
+                                    weight=ft.FontWeight.W_800,
+                                    color=ft.Colors.ON_SURFACE,
+                                    text_align=ft.TextAlign.CENTER,
+                                ),
+                                ft.Text(
+                                    f"Are you sure you want to remove '{display_title}' from your vault? All its flashcards and quiz questions will be removed from your personal practice schedule.",
+                                    size=12,
+                                    color=ft.Colors.GREY_500,
+                                    text_align=ft.TextAlign.CENTER,
+                                ),
+                            ],
+                        ),
+                        ft.Container(height=4),
+                        ft.Row(
+                            spacing=10,
+                            alignment=ft.MainAxisAlignment.CENTER,
+                            controls=[
+                                ft.OutlinedButton(
+                                    "Cancel",
+                                    style=ft.ButtonStyle(
+                                        shape=ft.RoundedRectangleBorder(radius=10),
+                                        padding=ft.Padding.symmetric(horizontal=16, vertical=10),
+                                    ),
+                                    on_click=_cancel_delete,
+                                ),
+                                ft.ElevatedButton(
+                                    content=ft.Row(
+                                        tight=True,
+                                        spacing=6,
+                                        controls=[
+                                            ft.Icon(ft.Icons.DELETE_ROUNDED, size=15, color=ft.Colors.WHITE),
+                                            ft.Text("Remove from Vault", size=12, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE),
+                                        ],
+                                    ),
+                                    bgcolor=ft.Colors.RED_600,
+                                    style=ft.ButtonStyle(
+                                        shape=ft.RoundedRectangleBorder(radius=10),
+                                        padding=ft.Padding.symmetric(horizontal=16, vertical=10),
+                                    ),
+                                    on_click=lambda e: page.run_task(_execute_delete, e.control),
+                                ),
+                            ],
+                        ),
+                    ],
+                ),
+            ),
+        )
+        page.overlay.append(del_dlg)
+        del_dlg.open = True
+        page.update()
+
     def _confirm_exit_exam():
         def _submit_and_leave(e):
             exit_dlg.open = False
@@ -1687,6 +1894,28 @@ async def self_study_view(page: ft.Page):
         state["on_hub"] = False
         _set_appbar("Exam Simulator", _on_exam_back)
         content_socket.content = _build_exam(questions, duration_seconds)
+        page.update()
+
+    def go_marketplace():
+        state["on_hub"] = False
+        state["active_material"] = None
+        _set_appbar("Pack Store & Hub", go_hub)
+        user_role_str = str(state.get("user_role", "")).upper()
+        is_admin_user = ("ADMIN" in user_role_str)
+
+        def _on_pack_imported(imported_mat_id: str):
+            go_hub("Importing pack to vault…")
+
+        marketplace_view = StudyMarketplaceView(
+            page=page,
+            token=token,
+            user_vault_materials=state.get("materials", []),
+            on_pack_downloaded=_on_pack_imported,
+            on_navigate_back=go_hub,
+            on_open_coins_modal=_open_studio_modal,
+            is_admin=is_admin_user,
+        )
+        content_socket.content = marketplace_view.view_root
         page.update()
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -2154,6 +2383,13 @@ async def self_study_view(page: ft.Page):
                                     ft.Text(fmt_tag, size=10, weight=ft.FontWeight.W_800, color=fmt_color),
                                 ],
                             ),
+                        ),
+                        ft.IconButton(
+                            icon=ft.Icons.DELETE_OUTLINE_ROUNDED,
+                            icon_color=ft.Colors.RED_400,
+                            icon_size=18,
+                            tooltip="Remove from Vault",
+                            on_click=lambda _: _confirm_delete_material(mat),
                         ),
                     ],
                 ),
@@ -3444,26 +3680,65 @@ async def self_study_view(page: ft.Page):
             ],
         )
 
-        # 4. Jump back in Section
-        jump_header = ft.Row(
-            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            controls=[
-                ft.Text("Jump back in", size=17 if is_small else 19, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
-                ft.TextButton(
-                    "View all",
-                    style=ft.ButtonStyle(color=ft.Colors.PRIMARY),
-                    on_click=lambda _: _toggle_sidebar(None),
-                ) if len(materials) > 0 else ft.Container(),
-            ],
+        pack_hub_banner = ft.Container(
+            padding=ft.Padding.symmetric(horizontal=16, vertical=12),
+            border_radius=ft.BorderRadius.all(14),
+            bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
+            border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+            ink=True,
+            on_click=lambda _: go_marketplace(),
+            content=ft.Row(
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[
+                    ft.Row(
+                        spacing=10,
+                        tight=True,
+                        controls=[
+                            ft.Container(
+                                padding=ft.Padding.all(8),
+                                border_radius=ft.BorderRadius.all(10),
+                                bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.PRIMARY),
+                                content=ft.Icon(ft.Icons.STOREFRONT_ROUNDED, size=18, color=ft.Colors.PRIMARY),
+                            ),
+                            ft.Column(
+                                spacing=2,
+                                tight=True,
+                                controls=[
+                                    ft.Row(
+                                        spacing=6,
+                                        controls=[
+                                            ft.Text("Get Curated Study Packs from Peers", size=13, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
+                                            ft.Container(
+                                                padding=ft.Padding.symmetric(horizontal=5, vertical=1.5),
+                                                border_radius=ft.BorderRadius.all(5),
+                                                bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.AMBER),
+                                                content=ft.Text("EARN COINS", size=8.5, weight=ft.FontWeight.W_800, color=ft.Colors.AMBER_400),
+                                            ),
+                                        ],
+                                    ),
+                                    ft.Text("Download curated flashcards, quizzes & exam simulators prebuilt by peers and educators.", size=11, color=ft.Colors.GREY_500),
+                                ],
+                            ),
+                        ],
+                    ),
+                    ft.Icon(ft.Icons.ARROW_FORWARD_IOS_ROUNDED, size=14, color=ft.Colors.PRIMARY),
+                ],
+            ),
         )
 
         def _render_jump_card(mat: dict):
             mtitle = mat.get("title") or "Untitled Document"
             display_title = format_material_title(mtitle)
+            display_title = re.sub(r"\s*\(pack import\)\s*$", "", display_title, flags=re.I)
             stype = (mat.get("source_type") or "text").lower()
+            is_pack = (stype == "pack_import")
 
-            if "pdf" in stype or mtitle.lower().endswith(".pdf"):
+            if is_pack:
+                sub_label = "📦 Study Pack"
+                badge_color = ft.Colors.GREEN_600
+                badge_icon = ft.Icons.STOREFRONT_ROUNDED
+            elif "pdf" in stype or mtitle.lower().endswith(".pdf"):
                 sub_label = "PDF Notes"
                 badge_color = ft.Colors.RED_500
                 badge_icon = ft.Icons.PICTURE_AS_PDF_ROUNDED
@@ -3491,7 +3766,7 @@ async def self_study_view(page: ft.Page):
                 bgcolor=ft.Colors.SURFACE,
                 border_radius=ft.BorderRadius.all(16),
                 border=ft.Border.all(1, ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE)),
-                padding=ft.Padding.symmetric(horizontal=14, vertical=12),
+                padding=ft.Padding.symmetric(horizontal=12, vertical=10),
                 ink=True,
                 on_click=lambda _, m=mat: page.run_task(_open_material_cockpit, m),
                 shadow=ft.BoxShadow(
@@ -3504,7 +3779,7 @@ async def self_study_view(page: ft.Page):
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     controls=[
                         ft.Row(
-                            spacing=12,
+                            spacing=10,
                             tight=True,
                             expand=True,
                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -3517,7 +3792,7 @@ async def self_study_view(page: ft.Page):
                                     controls=[
                                         ft.Text(
                                             display_title,
-                                            size=13.5,
+                                            size=13,
                                             weight=ft.FontWeight.W_800,
                                             color=ft.Colors.ON_SURFACE,
                                             max_lines=1,
@@ -3527,28 +3802,50 @@ async def self_study_view(page: ft.Page):
                                             sub_label,
                                             size=11,
                                             weight=ft.FontWeight.W_600,
-                                            color=ft.Colors.GREY_500,
+                                            color=badge_color if is_pack else ft.Colors.GREY_500,
                                         ),
                                     ],
                                 ),
                             ],
                         ),
-                        # Right green action / sprout icon matching reference UI!
-                        ft.Container(
-                            width=32,
-                            height=32,
-                            border_radius=ft.BorderRadius.all(16),
-                            bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.GREEN_600),
-                            alignment=ft.Alignment.CENTER,
-                            content=ft.Icon(ft.Icons.PLAY_ARROW_ROUNDED, size=16, color=ft.Colors.GREEN_700),
+                        # Actions: Play & Delete
+                        ft.Row(
+                            spacing=2,
+                            tight=True,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            controls=[
+                                ft.IconButton(
+                                    icon=ft.Icons.DELETE_OUTLINE_ROUNDED,
+                                    icon_size=16,
+                                    icon_color=ft.Colors.GREY_500,
+                                    tooltip="Remove from Vault",
+                                    on_click=lambda e, m=mat: _confirm_delete_material(m),
+                                ),
+                                ft.Container(
+                                    width=30,
+                                    height=30,
+                                    border_radius=ft.BorderRadius.all(15),
+                                    bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.GREEN_600),
+                                    alignment=ft.Alignment.CENTER,
+                                    content=ft.Icon(ft.Icons.PLAY_ARROW_ROUNDED, size=16, color=ft.Colors.GREEN_700),
+                                ),
+                            ],
                         ),
                     ],
                 ),
             )
 
-        recent_materials = materials[:6] if materials else []
+        uploaded_materials = [m for m in materials if (m.get("source_type") or "").lower() != "pack_import"]
+        downloaded_packs = [m for m in materials if (m.get("source_type") or "").lower() == "pack_import"]
+
+        sections_controls = [
+            hero_section,
+            quick_actions_grid,
+            pack_hub_banner,
+        ]
+
         if not materials:
-            jump_content = ft.Container(
+            empty_vault = ft.Container(
                 bgcolor=ft.Colors.with_opacity(0.03, ft.Colors.ON_SURFACE),
                 border=ft.Border.all(1, ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE)),
                 border_radius=ft.BorderRadius.all(16),
@@ -3568,36 +3865,116 @@ async def self_study_view(page: ft.Page):
                         ),
                         ft.Text("No materials added yet", size=14, weight=ft.FontWeight.W_700, color=ft.Colors.ON_SURFACE),
                         ft.Text(
-                            "Upload lecture notes, slides, or paste content above to jump in.",
+                            "Upload lecture notes, slides, or download curated study packs from the marketplace.",
                             size=12,
                             color=ft.Colors.GREY_500,
                             text_align=ft.TextAlign.CENTER,
                         ),
                         ft.Container(height=4),
-                        ft.ElevatedButton(
-                            content=ft.Row(
-                                spacing=6,
-                                tight=True,
-                                controls=[
-                                    ft.Icon(ft.Icons.ADD_ROUNDED, size=15, color=ft.Colors.WHITE),
-                                    ft.Text("Add First Material", size=12, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE),
-                                ],
-                            ),
-                            bgcolor=ft.Colors.PRIMARY,
-                            height=36,
-                            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=9), elevation=0),
-                            on_click=lambda _: _open_upload_modal(initial_mode="file"),
+                        ft.Row(
+                            spacing=10,
+                            alignment=ft.MainAxisAlignment.CENTER,
+                            controls=[
+                                ft.ElevatedButton(
+                                    content=ft.Row(
+                                        spacing=6,
+                                        tight=True,
+                                        controls=[
+                                            ft.Icon(ft.Icons.ADD_ROUNDED, size=15, color=ft.Colors.WHITE),
+                                            ft.Text("Add Notes", size=12, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE),
+                                        ],
+                                    ),
+                                    bgcolor=ft.Colors.PRIMARY,
+                                    height=36,
+                                    style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=9), elevation=0),
+                                    on_click=lambda _: _open_upload_modal(initial_mode="file"),
+                                ),
+                                ft.OutlinedButton(
+                                    content=ft.Row(
+                                        spacing=6,
+                                        tight=True,
+                                        controls=[
+                                            ft.Icon(ft.Icons.STOREFRONT_ROUNDED, size=15, color=ft.Colors.PRIMARY),
+                                            ft.Text("Explore Marketplace", size=12, weight=ft.FontWeight.W_700, color=ft.Colors.PRIMARY),
+                                        ],
+                                    ),
+                                    height=36,
+                                    style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=9)),
+                                    on_click=lambda _: go_marketplace(),
+                                ),
+                            ],
                         ),
                     ],
                 ),
             )
+            sections_controls.append(empty_vault)
         else:
-            jump_cards = [_render_jump_card(m) for m in recent_materials]
-            jump_content = ft.ResponsiveRow(
-                spacing=10,
-                run_spacing=10,
-                controls=jump_cards,
-            )
+            # 1. Downloaded Study Packs Section (Separation of concerns)
+            if downloaded_packs:
+                pack_header = ft.Row(
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[
+                        ft.Row(
+                            spacing=8,
+                            tight=True,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            controls=[
+                                ft.Icon(ft.Icons.STOREFRONT_ROUNDED, size=18, color=ft.Colors.GREEN_600),
+                                ft.Text(f"Downloaded Study Packs ({len(downloaded_packs)})", size=16 if is_small else 18, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
+                            ],
+                        ),
+                        ft.TextButton(
+                            "Marketplace",
+                            style=ft.ButtonStyle(color=ft.Colors.GREEN_700),
+                            on_click=lambda _: go_marketplace(),
+                        ),
+                    ],
+                )
+                pack_grid = ft.ResponsiveRow(
+                    spacing=10,
+                    run_spacing=10,
+                    controls=[_render_jump_card(m) for m in downloaded_packs],
+                )
+                sections_controls.extend([
+                    pack_header,
+                    pack_grid,
+                    ft.Container(height=8),
+                ])
+
+            # 2. My Study Materials & Notes Section
+            if uploaded_materials:
+                mat_header = ft.Row(
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[
+                        ft.Row(
+                            spacing=8,
+                            tight=True,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            controls=[
+                                ft.Icon(ft.Icons.AUTO_STORIES_ROUNDED, size=18, color=ft.Colors.PRIMARY),
+                                ft.Text(f"My Uploads & Study Notes ({len(uploaded_materials)})", size=16 if is_small else 18, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
+                            ],
+                        ),
+                        ft.TextButton(
+                            "View all",
+                            style=ft.ButtonStyle(color=ft.Colors.PRIMARY),
+                            on_click=lambda _: _toggle_sidebar(None),
+                        ),
+                    ],
+                )
+                mat_grid = ft.ResponsiveRow(
+                    spacing=10,
+                    run_spacing=10,
+                    controls=[_render_jump_card(m) for m in uploaded_materials],
+                )
+                sections_controls.extend([
+                    mat_header,
+                    mat_grid,
+                ])
+
+        sections_controls.append(ft.Container(height=32))
 
         return ft.Column(
             expand=True,
@@ -3611,13 +3988,7 @@ async def self_study_view(page: ft.Page):
                     ),
                     content=ft.Column(
                         spacing=18,
-                        controls=[
-                            hero_section,
-                            quick_actions_grid,
-                            jump_header,
-                            jump_content,
-                            ft.Container(height=32),
-                        ],
+                        controls=sections_controls,
                     ),
                 ),
             ],
@@ -3637,12 +4008,14 @@ async def self_study_view(page: ft.Page):
             border_color=ft.Colors.with_opacity(0.15, ft.Colors.ON_SURFACE),
             focused_border_color=ft.Colors.PRIMARY,
             text_size=13,
+            expand=True,
             content_padding=ft.Padding.symmetric(horizontal=14, vertical=12),
         )
 
         title_field = ft.TextField(
             label="Custom Title (Optional)",
             hint_text="e.g. Intro to Machine Learning",
+            expand=True,
             prefix_icon=ft.Icons.TITLE_ROUNDED,
             border_radius=10,
             border_color=ft.Colors.with_opacity(0.15, ft.Colors.ON_SURFACE),

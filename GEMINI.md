@@ -45,5 +45,8 @@
 ## Callback & Event Handler Invariants
 - **Flexible Event Signatures**: Any UI event callback or toggle function (e.g., `toggle_need_help(e=None)`) must accept an optional event argument `e=None` so it can be invoked both directly and from Flet event triggers (`on_click=func`).
 
-
-
+## Dialog & Modal Lifecycle Invariants
+- **Clean Modal Dismissal**:
+  - **NEVER** call `page.overlay.remove(dlg)` when dismissing an `ft.AlertDialog`, `ft.BottomSheet`, or modal dialog.
+  - In Flet 0.86.5, removing the dialog control from `page.overlay` destroys the Python-to-Dart control reference before the Dart client completes the exit route transition, permanently orphaning the Flutter barrier and freezing the UI (infinite spinner).
+  - Always close dialogs strictly by setting `dlg.open = False` followed by `page.update()`.

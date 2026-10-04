@@ -24,6 +24,13 @@ from src.requests.platform_admin import (
     get_broadcast_history,
     get_platform_health,
 )
+from src.requests.marketplace import (
+    fetch_admin_pending_submissions,
+    review_admin_submission,
+    fetch_marketplace_packs,
+    update_admin_pack,
+)
+from src.components.study_pack_card import CATEGORY_PRESETS, StudyPackCard
 from src.utils.file_opener import show_page_snackbar
 
 
@@ -42,6 +49,10 @@ def _open_file_locally(filepath: str):
             subprocess.Popen(["xdg-open", filepath])
     except Exception as ex:
         print(f"[platform_admin] Could not open file: {ex}")
+
+
+# Fallback cover used when a pack has no cover image (change to your own generic PNG if needed)
+DEFAULT_PACK_COVER_URL = "https://placehold.co/800x450/png"
 
 
 async def platform_admin_view(page: ft.Page) -> ft.View:
@@ -98,6 +109,14 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
 
         "is_exporting_excel": False,
         "is_exporting_csv": False,
+
+        # Study Pack Marketplace State
+        "cached_study_packs": [],
+        "cached_pending_packs": [],
+        "is_loading_packs": False,
+        "packs_subtab": "pending",  # "pending" or "approved"
+        "packs_error": None,
+        "pending_packs_count": 0,
     }
 
     # Check if page already has an elevated token in session
@@ -318,6 +337,34 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
             _refresh_users_roster_ui()
         page.update()
 
+    async def _fetch_study_packs():
+        if not admin_state["token"]:
+            return
+        admin_state["is_loading_packs"] = True
+        admin_state["packs_error"] = None
+        if admin_state["active_tab"] == "study_packs":
+            _render_tab_content()
+            page.update()
+
+        pending_res = await fetch_admin_pending_submissions(admin_state["token"], page=1, limit=50)
+        catalog_res = await fetch_marketplace_packs(token=admin_state["token"], page=1, limit=50)
+
+        admin_state["is_loading_packs"] = False
+        if "error" in pending_res:
+            admin_state["packs_error"] = pending_res.get("error")
+        else:
+            admin_state["cached_pending_packs"] = pending_res.get("items", [])
+            admin_state["pending_packs_count"] = pending_res.get("total", len(admin_state["cached_pending_packs"]))
+
+        if "error" not in catalog_res:
+            admin_state["cached_study_packs"] = catalog_res.get("items", [])
+
+        # Update nav badge
+        nav_container.content = _build_nav_bar()
+        if admin_state["active_tab"] == "study_packs":
+            _render_tab_content()
+        page.update()
+
     # ─────────────────────────────────────────────────────────────────────────
     # C. LOCK-SCREEN GATE (UNAUTHENTICATED)
     # ─────────────────────────────────────────────────────────────────────────
@@ -514,11 +561,14 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
             page.run_task(_fetch_health)
         elif tab_name == "broadcast":
             page.run_task(_fetch_broadcast_history)
+        elif tab_name == "study_packs":
+            page.run_task(_fetch_study_packs)
 
     def _build_nav_bar() -> ft.Control:
         nav_buttons = [
             ("overview", "Overview", ft.Icons.DASHBOARD_ROUNDED, None),
             ("users", "User Directory", ft.Icons.PEOPLE_ROUNDED, admin_state["total_users"] if admin_state["total_users"] > 0 else None),
+            ("study_packs", "Study Packs", ft.Icons.STOREFRONT_ROUNDED, admin_state["pending_packs_count"] if admin_state["pending_packs_count"] > 0 else None),
             ("broadcast", "Push Broadcasts", ft.Icons.NOTIFICATIONS_ACTIVE_ROUNDED, None),
             ("export", "Export Center", ft.Icons.DOWNLOAD_ROUNDED, None),
         ]
@@ -2450,6 +2500,587 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
         )
 
     # ─────────────────────────────────────────────────────────────────────────
+    # H2. TAB 5: STUDY PACK MARKETPLACE MANAGEMENT & UNIFIED REVIEW CONSOLE
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _build_study_packs_tab() -> ft.Control:
+        subtab = admin_state["packs_subtab"]
+
+        # Subtab Buttons
+        pending_count = len(admin_state["cached_pending_packs"])
+        approved_count = len(admin_state["cached_study_packs"])
+
+        def _set_subtab(st: str):
+            admin_state["packs_subtab"] = st
+            _render_tab_content()
+            page.update()
+
+        subtab_bar = ft.Row([
+            ft.Container(
+                content=ft.Row([
+                    ft.Icon(ft.Icons.PENDING_ACTIONS_ROUNDED, size=16, color=palette["accent"] if subtab == "pending" else palette["text_muted"]),
+                    ft.Text(f"Pending Submissions ({pending_count})", size=13, weight=ft.FontWeight.BOLD if subtab == "pending" else ft.FontWeight.W_500, color=palette["text"] if subtab == "pending" else palette["text_muted"]),
+                ], spacing=8, tight=True),
+                bgcolor=ft.Colors.with_opacity(0.16, palette["accent"]) if subtab == "pending" else ft.Colors.TRANSPARENT,
+                border=ft.Border.all(1.2, palette["accent"] if subtab == "pending" else palette["border"]),
+                border_radius=8,
+                padding=ft.Padding.symmetric(horizontal=14, vertical=8),
+                ink=True,
+                on_click=lambda _: _set_subtab("pending"),
+            ),
+            ft.Container(
+                content=ft.Row([
+                    ft.Icon(ft.Icons.STORE_ROUNDED, size=16, color=palette["accent"] if subtab == "approved" else palette["text_muted"]),
+                    ft.Text(f"Marketplace Catalog ({approved_count})", size=13, weight=ft.FontWeight.BOLD if subtab == "approved" else ft.FontWeight.W_500, color=palette["text"] if subtab == "approved" else palette["text_muted"]),
+                ], spacing=8, tight=True),
+                bgcolor=ft.Colors.with_opacity(0.16, palette["accent"]) if subtab == "approved" else ft.Colors.TRANSPARENT,
+                border=ft.Border.all(1.2, palette["accent"] if subtab == "approved" else palette["border"]),
+                border_radius=8,
+                padding=ft.Padding.symmetric(horizontal=14, vertical=8),
+                ink=True,
+                on_click=lambda _: _set_subtab("approved"),
+            ),
+        ], spacing=10)
+
+        # Content Area based on subtab
+        if admin_state["is_loading_packs"]:
+            body_content = ft.Container(
+                alignment=ft.Alignment.CENTER,
+                padding=ft.Padding.symmetric(vertical=40),
+                content=ft.Column([
+                    ft.ProgressRing(width=32, height=32, stroke_width=3, color=palette["accent"]),
+                    ft.Text("Synchronizing Study Packs with Server…", size=12, color=palette["text_muted"]),
+                ], spacing=12, horizontal_alignment=ft.CrossAxisAlignment.CENTER, tight=True)
+            )
+        elif subtab == "pending":
+            if not admin_state["cached_pending_packs"]:
+                body_content = ft.Container(
+                    alignment=ft.Alignment.CENTER,
+                    padding=ft.Padding.symmetric(vertical=60),
+                    content=ft.Column([
+                        ft.Icon(ft.Icons.CHECK_CIRCLE_OUTLINE_ROUNDED, size=48, color=palette["success"]),
+                        ft.Text("All Caught Up!", size=16, weight=ft.FontWeight.BOLD, color=palette["text"]),
+                        ft.Text("No peer submissions are currently awaiting review.", size=12, color=palette["text_muted"]),
+                    ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=8, tight=True)
+                )
+            else:
+                pending_cards = []
+                for pack in admin_state["cached_pending_packs"]:
+                    pending_cards.append(_build_pending_pack_row(pack))
+                body_content = ft.Column(spacing=12, controls=pending_cards)
+        else:
+            if not admin_state["cached_study_packs"]:
+                body_content = ft.Container(
+                    alignment=ft.Alignment.CENTER,
+                    padding=ft.Padding.symmetric(vertical=60),
+                    content=ft.Column([
+                        ft.Icon(ft.Icons.INVENTORY_2_OUTLINED, size=48, color=palette["text_muted"]),
+                        ft.Text("No Marketplace Packs Found", size=16, weight=ft.FontWeight.BOLD, color=palette["text"]),
+                        ft.Text("Approved packs will appear here for live catalog maintenance.", size=12, color=palette["text_muted"]),
+                    ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=8, tight=True)
+                )
+            else:
+                catalog_items = []
+                for pack in admin_state["cached_study_packs"]:
+                    catalog_items.append(_build_admin_catalog_card(pack))
+                body_content = ft.ResponsiveRow(spacing=16, run_spacing=16, controls=catalog_items)
+
+        return ft.Container(
+            expand=True,
+            content=ft.Column(
+                expand=True,
+                scroll=ft.ScrollMode.AUTO,
+                spacing=16,
+                controls=[
+                    # Header
+                    ft.Container(
+                        bgcolor=palette["card_bg"],
+                        border=ft.Border.all(1, palette["border"]),
+                        border_radius=14,
+                        padding=20,
+                        content=ft.Row(
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            controls=[
+                                ft.Row([
+                                    ft.Container(
+                                        padding=ft.Padding.all(10),
+                                        border_radius=10,
+                                        bgcolor=ft.Colors.with_opacity(0.15, palette["accent"]),
+                                        content=ft.Icon(ft.Icons.STOREFRONT_ROUNDED, size=24, color=palette["accent"]),
+                                    ),
+                                    ft.Column([
+                                        ft.Text("Study Pack Marketplace Administration", size=16, weight=ft.FontWeight.BOLD, color=palette["text"]),
+                                        ft.Text("Review peer submissions, curate descriptions, assign cover art & pricing, and maintain the live catalog.", size=12, color=palette["text_muted"]),
+                                    ], spacing=2),
+                                ], spacing=12),
+                                ft.IconButton(
+                                    icon=ft.Icons.REFRESH_ROUNDED,
+                                    tooltip="Refresh Submissions & Catalog",
+                                    on_click=lambda _: page.run_task(_fetch_study_packs),
+                                ),
+                            ],
+                        ),
+                    ),
+                    subtab_bar,
+                    body_content,
+                ],
+            ),
+        )
+
+    def _build_pending_pack_row(pack: Dict[str, Any]) -> ft.Container:
+        pack_id = str(pack.get("id"))
+        title = pack.get("title", "Untitled")
+        desc = pack.get("description", "No description provided.")
+        category = pack.get("category", "General")
+        creator = pack.get("creator", {})
+        creator_name = creator.get("name", "Unknown Learner")
+        stats = pack.get("stats", {})
+        fc_count = stats.get("flashcards_count", 0)
+        q_count = stats.get("questions_count", 0)
+
+        async def _quick_approve(e):
+            e.control.disabled = True
+            page.update()
+            res = await review_admin_submission(
+                token=admin_state["token"],
+                pack_id=pack_id,
+                action="approve",
+                reward_coins=50,
+            )
+            if "error" in res:
+                show_page_snackbar(page, f"Approval failed: {res['error']}")
+                e.control.disabled = False
+                page.update()
+            else:
+                show_page_snackbar(page, "Study pack approved! Creator awarded 50 Nu-Coins.")
+                await _fetch_study_packs()
+
+        async def _quick_reject(e):
+            e.control.disabled = True
+            page.update()
+            res = await review_admin_submission(
+                token=admin_state["token"],
+                pack_id=pack_id,
+                action="reject",
+                review_notes="Did not meet quality standards.",
+            )
+            if "error" in res:
+                show_page_snackbar(page, f"Rejection failed: {res['error']}")
+                e.control.disabled = False
+                page.update()
+            else:
+                show_page_snackbar(page, "Submission rejected.")
+                await _fetch_study_packs()
+
+        return ft.Container(
+            bgcolor=palette["card_bg"],
+            border=ft.Border.all(1, palette["border"]),
+            border_radius=12,
+            padding=16,
+            content=ft.Column(
+                spacing=12,
+                controls=[
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[
+                            ft.Row([
+                                ft.Container(
+                                    padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+                                    border_radius=6,
+                                    bgcolor=palette["surface_variant"],
+                                    border=ft.Border.all(1, palette["border"]),
+                                    content=ft.Text(category.upper(), size=9.5, weight=ft.FontWeight.W_800, color=palette["accent"]),
+                                ),
+                                ft.Text(f"Submitted by {creator_name}", size=12, color=palette["text_muted"]),
+                            ], spacing=8),
+                            ft.Row([
+                                ft.Text(f"🎴 {fc_count} Flashcards", size=11.5, weight=ft.FontWeight.W_600, color=palette["text"]),
+                                ft.Text("•", size=11, color=palette["text_muted"]),
+                                ft.Text(f"📝 {q_count} Quiz MCQs", size=11.5, weight=ft.FontWeight.W_600, color=palette["text"]),
+                            ], spacing=6),
+                        ],
+                    ),
+                    ft.Column([
+                        ft.Text(title, size=15, weight=ft.FontWeight.BOLD, color=palette["text"]),
+                        ft.Text(desc, size=12, color=palette["text_muted"], max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
+                    ], spacing=4),
+                    ft.Divider(color=palette["border"], height=1),
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[
+                            ft.FilledButton(
+                                content=ft.Row([
+                                    ft.Icon(ft.Icons.AUTO_FIX_HIGH_ROUNDED, size=14, color=ft.Colors.WHITE),
+                                    ft.Text("Review & Curate Pack", size=12, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+                                ], spacing=6, tight=True),
+                                style=ft.ButtonStyle(
+                                    bgcolor=palette["accent"],
+                                    shape=ft.RoundedRectangleBorder(radius=8),
+                                    padding=ft.Padding.symmetric(horizontal=14, vertical=8),
+                                ),
+                                on_click=lambda _: _open_pack_inspector_dialog(pack, is_pending=True),
+                            ),
+                            ft.Row([
+                                ft.OutlinedButton(
+                                    "Reject",
+                                    icon=ft.Icons.CLOSE_ROUNDED,
+                                    style=ft.ButtonStyle(
+                                        color=palette["danger"],
+                                        side=ft.BorderSide(1, palette["danger"]),
+                                        shape=ft.RoundedRectangleBorder(radius=8),
+                                    ),
+                                    on_click=lambda e: page.run_task(_quick_reject, e),
+                                ),
+                                ft.FilledButton(
+                                    "Quick Approve (50 Coins)",
+                                    icon=ft.Icons.CHECK_ROUNDED,
+                                    style=ft.ButtonStyle(
+                                        bgcolor=palette["success"],
+                                        color=ft.Colors.WHITE,
+                                        shape=ft.RoundedRectangleBorder(radius=8),
+                                    ),
+                                    on_click=lambda e: page.run_task(_quick_approve, e),
+                                ),
+                            ], spacing=8),
+                        ],
+                    ),
+                ],
+            ),
+        )
+
+    def _build_admin_catalog_card(pack: Dict[str, Any]) -> ft.Container:
+        return ft.Container(
+            col={"sm": 12, "md": 6, "lg": 4},
+            content=ft.Stack(
+                controls=[
+                    StudyPackCard(pack=pack),
+                    ft.Container(
+                        alignment=ft.Alignment.TOP_RIGHT,
+                        padding=ft.Padding.all(8),
+                        content=ft.IconButton(
+                            icon=ft.Icons.EDIT_ROUNDED,
+                            icon_color=ft.Colors.WHITE,
+                            bgcolor=ft.Colors.with_opacity(0.85, palette["surface"]),
+                            tooltip="Edit Title, Description, Image & Pricing",
+                            on_click=lambda _, p=pack: _open_pack_inspector_dialog(p, is_pending=False),
+                        ),
+                    ),
+                ]
+            ),
+        )
+
+    def _open_pack_inspector_dialog(pack: Dict[str, Any], is_pending: bool = True):
+        pack_id = str(pack.get("id"))
+        category_val = [pack.get("category", "General")]
+
+        # Cover art is no longer edited here. Keep the pack's existing cover if it
+        # has one, otherwise fall back to the generic PNG so the backend always
+        # receives a valid image URL.
+        cover_url_to_submit = pack.get("cover_image_url") or DEFAULT_PACK_COVER_URL
+
+        def _field_style(text_size: float = 13) -> dict:
+            return dict(
+                bgcolor=palette["surface"],
+                border_color=palette["border"],
+                focused_border_color=palette["accent"],
+                border_radius=10,
+                text_size=text_size,
+                dense=True,
+                expand=True,
+                color=palette["text"],
+                label_style=ft.TextStyle(size=12, color=palette["text_muted"]),
+                hint_style=ft.TextStyle(size=12, color=palette["text_muted"]),
+            )
+
+        def _short(text: str, limit: int = 34) -> str:
+            text = (text or "").strip()
+            return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+        def _opt(key: str, label: str) -> ft.dropdown.Option:
+            # Explicit text color so options stay readable on the dark menu
+            return ft.dropdown.Option(
+                key=key,
+                text=_short(label),
+                content=ft.Text(
+                    _short(label),
+                    size=12.5,
+                    color=palette["text"],
+                    max_lines=1,
+                    overflow=ft.TextOverflow.ELLIPSIS,
+                ),
+            )
+
+        title_input = ft.TextField(
+            label="Pack Title *",
+            value=pack.get("title", ""),
+            **_field_style(13),
+        )
+
+        desc_input = ft.TextField(
+            label="Curated Description *",
+            value=pack.get("description", ""),
+            multiline=True,
+            min_lines=2,
+            max_lines=3,
+            **_field_style(12.5),
+        )
+
+        reward_input = ft.TextField(
+            label="Nu-Coin Reward to Creator",
+            value="50",
+            **_field_style(12),
+        )
+
+        notes_input = ft.TextField(
+            label="Review Notes / Rejection Reason",
+            hint_text="Feedback sent to learner in notification...",
+            **_field_style(12),
+        )
+
+        category_dropdown = ft.Dropdown(
+            label="Subject Category",
+            value=category_val[0],
+            options=[_opt(k, k) for k in CATEGORY_PRESETS.keys()],
+            menu_height=220,
+            **_field_style(12.5),
+        )
+        category_dropdown.on_select = lambda e: category_val.__setitem__(0, e.control.value)
+
+        price_dropdown = ft.Dropdown(
+            label="Pricing",
+            value=str(pack.get("price_coins", 0)),
+            options=[
+                _opt("0", "Free (0 Coins)"),
+                _opt("20", "20 Nu-Coins"),
+                _opt("50", "50 Nu-Coins"),
+                _opt("100", "100 Nu-Coins"),
+                _opt("200", "200 Nu-Coins"),
+            ],
+            menu_height=220,
+            **_field_style(12.5),
+        )
+
+        official_switch = ft.Switch(
+            value=bool(pack.get("is_official", False)),
+            active_color=palette["accent"],
+        )
+        official_row = ft.Container(
+            padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+            border_radius=10,
+            bgcolor=palette["surface"],
+            border=ft.Border.all(1, palette["border"]),
+            content=ft.Row(
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[
+                    ft.Row(
+                        spacing=10,
+                        expand=True,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[
+                            ft.Icon(ft.Icons.VERIFIED_ROUNDED, size=18, color=palette["accent"]),
+                            ft.Column(
+                                spacing=1,
+                                tight=True,
+                                expand=True,
+                                controls=[
+                                    ft.Text("Official Nu-Age pack", size=12.5, weight=ft.FontWeight.W_700, color=palette["text"]),
+                                    ft.Text(
+                                        "Shows the Official badge and lists it under the Official filter.",
+                                        size=11,
+                                        color=palette["text_muted"],
+                                    ),
+                                ],
+                            ),
+                        ],
+                    ),
+                    official_switch,
+                ],
+            ),
+        )
+
+        inspector_dlg = ft.AlertDialog(
+            modal=True,
+            shape=ft.RoundedRectangleBorder(radius=16),
+            bgcolor=palette["card_bg"],
+            content_padding=ft.Padding.all(22),
+            title=ft.Row([
+                ft.Container(
+                    content=ft.Icon(ft.Icons.TUNE_ROUNDED, size=20, color=palette["accent"]),
+                    bgcolor=ft.Colors.with_opacity(0.14, palette["accent"]),
+                    padding=8,
+                    border_radius=10,
+                ),
+                ft.Text(
+                    "Review & Curate Study Pack" if is_pending else "Edit Marketplace Pack",
+                    size=16,
+                    weight=ft.FontWeight.BOLD,
+                    color=palette["text"],
+                ),
+            ], spacing=10),
+        )
+
+        def _close_dlg():
+            inspector_dlg.open = False
+            page.update()
+
+        async def _do_approve(e):
+            e.control.disabled = True
+            page.update()
+            reward_val = 50
+            try:
+                reward_val = int(reward_input.value.strip())
+            except Exception:
+                reward_val = 50
+
+            price_val = 0
+            try:
+                price_val = int(price_dropdown.value or 0)
+            except Exception:
+                price_val = 0
+
+            res = await review_admin_submission(
+                token=admin_state["token"],
+                pack_id=pack_id,
+                action="approve",
+                reward_coins=reward_val,
+                title=title_input.value.strip(),
+                description=desc_input.value.strip(),
+                category=category_dropdown.value,
+                price_coins=price_val,
+                cover_image_url=cover_url_to_submit,
+                is_official=bool(official_switch.value),
+                review_notes=notes_input.value.strip() if notes_input.value else "Approved by Admin",
+            )
+            _close_dlg()
+            if "error" in res:
+                show_page_snackbar(page, f"Approval error: {res['error']}")
+            else:
+                show_page_snackbar(page, "Pack approved and published to the catalog!")
+                await _fetch_study_packs()
+
+        async def _do_reject(e):
+            e.control.disabled = True
+            page.update()
+            res = await review_admin_submission(
+                token=admin_state["token"],
+                pack_id=pack_id,
+                action="reject",
+                review_notes=notes_input.value.strip() if notes_input.value else "Did not meet quality requirements.",
+            )
+            _close_dlg()
+            if "error" in res:
+                show_page_snackbar(page, f"Rejection error: {res['error']}")
+            else:
+                show_page_snackbar(page, "Submission rejected.")
+                await _fetch_study_packs()
+
+        async def _do_save_existing(e):
+            e.control.disabled = True
+            page.update()
+            price_val = 0
+            try:
+                price_val = int(price_dropdown.value or 0)
+            except Exception:
+                price_val = 0
+
+            res = await update_admin_pack(
+                token=admin_state["token"],
+                pack_id=pack_id,
+                title=title_input.value.strip(),
+                description=desc_input.value.strip(),
+                category=category_dropdown.value,
+                price_coins=price_val,
+                cover_image_url=cover_url_to_submit,
+                is_official=bool(official_switch.value),
+            )
+            _close_dlg()
+            if "error" in res:
+                show_page_snackbar(page, f"Save error: {res['error']}")
+            else:
+                show_page_snackbar(page, "Pack details updated successfully!")
+                await _fetch_study_packs()
+
+        # Build actions (styled like the other buttons on this page)
+        cancel_btn = ft.TextButton(
+            content=ft.Text("Cancel", size=12.5, weight=ft.FontWeight.W_600, color=palette["text_muted"]),
+            on_click=lambda _: _close_dlg(),
+        )
+        if is_pending:
+            action_buttons = [
+                cancel_btn,
+                ft.OutlinedButton(
+                    "Reject",
+                    icon=ft.Icons.CLOSE_ROUNDED,
+                    style=ft.ButtonStyle(
+                        color=palette["danger"],
+                        side=ft.BorderSide(1, palette["danger"]),
+                        shape=ft.RoundedRectangleBorder(radius=8),
+                    ),
+                    on_click=lambda e: page.run_task(_do_reject, e),
+                ),
+                ft.FilledButton(
+                    "Approve & Publish",
+                    icon=ft.Icons.CHECK_ROUNDED,
+                    style=ft.ButtonStyle(
+                        bgcolor=palette["success"],
+                        color=ft.Colors.WHITE,
+                        shape=ft.RoundedRectangleBorder(radius=8),
+                    ),
+                    on_click=lambda e: page.run_task(_do_approve, e),
+                ),
+            ]
+        else:
+            action_buttons = [
+                cancel_btn,
+                ft.FilledButton(
+                    "Save Pack Updates",
+                    icon=ft.Icons.SAVE_ROUNDED,
+                    style=ft.ButtonStyle(
+                        bgcolor=palette["accent_glow"],
+                        color=ft.Colors.WHITE,
+                        shape=ft.RoundedRectangleBorder(radius=8),
+                    ),
+                    on_click=lambda e: page.run_task(_do_save_existing, e),
+                ),
+            ]
+
+        dlg_width = min(page.width - 32, 540) if page.width else 500
+        inspector_dlg.content = ft.Container(
+            width=dlg_width,
+            content=ft.Column(
+                tight=True,
+                spacing=12,
+                scroll=ft.ScrollMode.AUTO,
+                controls=[
+                    title_input,
+                    desc_input,
+                    ft.Row([
+                        ft.Container(expand=1, content=category_dropdown),
+                        ft.Container(expand=1, content=price_dropdown),
+                    ], spacing=10),
+                    official_row,
+                    # Additional fields if pending
+                    *(
+                        [
+                            ft.Row([
+                                ft.Container(expand=1, content=reward_input),
+                                ft.Container(expand=2, content=notes_input),
+                            ], spacing=10)
+                        ] if is_pending else []
+                    ),
+                ],
+            ),
+        )
+        inspector_dlg.actions = action_buttons
+        inspector_dlg.open = True
+        page.overlay.append(inspector_dlg)
+        page.update()
+
+    # ─────────────────────────────────────────────────────────────────────────
     # I. MASTER VIEW COMPOSER
     # ─────────────────────────────────────────────────────────────────────────
 
@@ -2458,6 +3089,8 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
             active_content_area.content = _build_overview_tab()
         elif admin_state["active_tab"] == "users":
             active_content_area.content = _build_users_tab()
+        elif admin_state["active_tab"] == "study_packs":
+            active_content_area.content = _build_study_packs_tab()
         elif admin_state["active_tab"] == "broadcast":
             active_content_area.content = _build_broadcast_tab()
         elif admin_state["active_tab"] == "export":
@@ -2571,4 +3204,3 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
             )
         ],
     )
-

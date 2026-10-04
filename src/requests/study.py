@@ -328,4 +328,29 @@ async def get_youtube_recommendations(token: str, query: str) -> list:
         "title": f"Search YouTube: {query} tutorials",
         "channel": "YouTube Search",
         "thumbnail": ""
-    }]
+    }]
+
+
+async def delete_study_material(token: str, material_id: str) -> dict:
+    """Deletes a study material from the user's vault."""
+    url = f"{api_url}/study/materials/{material_id}"
+    headers = {"Authorization": f"Bearer {token}"}
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0, verify=ssl_context) as client:
+            resp = await client.delete(url, headers=headers)
+            if resp.status_code in (200, 204):
+                try:
+                    return resp.json()
+                except Exception:
+                    return {"success": True}
+            elif resp.status_code == 404:
+                return {"error": "Material not found in vault."}
+            else:
+                try:
+                    err = resp.json()
+                    return {"error": err.get("detail", f"Failed with status {resp.status_code}")}
+                except Exception:
+                    return {"error": f"Failed with status {resp.status_code}"}
+    except Exception as e:
+        return {"error": str(e)}
