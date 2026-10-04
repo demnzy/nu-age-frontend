@@ -3708,16 +3708,16 @@ async def self_study_view(page: ft.Page):
                                     ft.Row(
                                         spacing=6,
                                         controls=[
-                                            ft.Text("Get Curated Study Packs from Peers", size=13, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
+                                            ft.Text("Get Curated Study Packs from Peers", size=10, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
                                             ft.Container(
                                                 padding=ft.Padding.symmetric(horizontal=5, vertical=1.5),
                                                 border_radius=ft.BorderRadius.all(5),
                                                 bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.AMBER),
-                                                content=ft.Text("EARN COINS", size=8.5, weight=ft.FontWeight.W_800, color=ft.Colors.AMBER_400),
+                                                content=ft.Text("EARN COINS", size=6.5, weight=ft.FontWeight.W_800, color=ft.Colors.AMBER_400),
                                             ),
                                         ],
                                     ),
-                                    ft.Text("Download curated flashcards, quizzes & exam simulators prebuilt by peers and educators.", size=11, color=ft.Colors.GREY_500),
+                                    ft.Text("Download curated study items", size=11, color=ft.Colors.GREY_500),
                                 ],
                             ),
                         ],

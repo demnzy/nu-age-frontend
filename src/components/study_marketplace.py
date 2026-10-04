@@ -254,18 +254,29 @@ class StudyMarketplaceView:
     # TOP APP HEADER
     # ─────────────────────────────────────────────────────────────────────────
     def _build_top_app_header(self) -> ft.Container:
-        self.header_actions_row = ft.Row(spacing=8, controls=[])
+        # wrap=True lets the buttons flow onto a second line on narrow screens
+        self.header_actions_row = ft.Row(
+            spacing=8,
+            run_spacing=8,
+            wrap=True,
+            alignment=ft.MainAxisAlignment.END,
+            controls=[],
+        )
         self._update_header_actions()
 
         return ft.Container(
             padding=ft.Padding.symmetric(horizontal=20, vertical=12),
             border=ft.Border.only(bottom=ft.BorderSide(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE))),
             content=ft.Row(
+                wrap=True,  # title block and actions wrap instead of overflowing
+                spacing=12,
+                run_spacing=10,
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 controls=[
                     ft.Row(
                         spacing=10,
+                        tight=True,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         controls=[
                             ft.IconButton(
@@ -280,6 +291,7 @@ class StudyMarketplaceView:
                                 controls=[
                                     ft.Row(
                                         spacing=8,
+                                        tight=True,
                                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                                         controls=[
                                             ft.Text("Study Pack Marketplace", size=17, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
@@ -287,11 +299,11 @@ class StudyMarketplaceView:
                                                 padding=ft.Padding.symmetric(horizontal=7, vertical=2),
                                                 border_radius=ft.BorderRadius.all(6),
                                                 bgcolor=ft.Colors.with_opacity(0.14, ft.Colors.ON_PRIMARY),
-                                                content=ft.Text("CURATED REVISION", size=9, weight=ft.FontWeight.W_800, color=ft.Colors.PRIMARY),
+                                                content=ft.Text("CURATED REVISION", size=7, weight=ft.FontWeight.W_800, color=ft.Colors.PRIMARY),
                                             ),
                                         ],
                                     ),
-                                    ft.Text("Prebuilt Flashcard Decks, Quizzes & Exam Simulators", size=11.5, color=ft.Colors.GREY_500),
+                                    ft.Text("Prebuilt Flashcard Decks, Quizzes & Exam Simulators", size=9.5, color=ft.Colors.GREY_500),
                                 ],
                             ),
                         ],
@@ -305,6 +317,9 @@ class StudyMarketplaceView:
     # HERO SPOTLIGHT BANNER (App Green Theme)
     # ─────────────────────────────────────────────────────────────────────────
     def _build_hero_spotlight(self) -> ft.Container:
+        # 40 outer padding + 48 hero padding = 88; never wider than the screen
+        hero_text_width = min(560, max(200, (self.page.width or 560) - 88))
+
         return ft.Container(
             padding=ft.Padding.all(24),
             border_radius=ft.BorderRadius.all(20),
@@ -345,7 +360,7 @@ class StudyMarketplaceView:
                             ),
                             ft.Text("The right choice of curated study packs", size=21, weight=ft.FontWeight.W_800, color="#FFFFFF"),
                             ft.Container(
-                                width=560,
+                                width=hero_text_width,
                                 content=ft.Text(
                                     "Choose from verified flashcards, quiz question banks, and exam simulators with new peer packs curated and reviewed by platform admins daily.",
                                     size=12.5,
