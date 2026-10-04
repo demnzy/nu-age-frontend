@@ -1134,11 +1134,11 @@ class StudyMarketplaceView:
                             _info_tile(
                                 ft.Icons.VERIFIED_USER_ROUNDED,
                                 "Admin review",
-                                "We check quality and add subject tags & cover art.",
+                                "We check quality and add subject tags & descriptive information",
                             ),
                             _info_tile(
                                 ft.Icons.MONETIZATION_ON_ROUNDED,
-                                "Earn 50 Nu-Coins",
+                                "Earn Nu-Coins",
                                 "Awarded to you once your pack is approved.",
                             ),
                         ],
