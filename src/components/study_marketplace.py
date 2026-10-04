@@ -743,7 +743,7 @@ class StudyMarketplaceView:
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                     controls=[
                         ft.Icon(icon, size=18, color=color),
-                        ft.Text(value, size=15, weight=ft.FontWeight.W_800, color=TEXT_MAIN),
+                        ft.Text(value, size=12, weight=ft.FontWeight.W_800, color=TEXT_MAIN),
                         ft.Text(label, size=10, color=TEXT_MUTED),
                     ],
                 ),
