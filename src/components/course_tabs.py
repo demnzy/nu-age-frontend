@@ -1445,7 +1445,8 @@ def build_discuss_tab_view(
                                                     tight=True,
                                                     controls=[
                                                         ft.Icon(ft.Icons.VIEW_MODULE_ROUNDED, size=11, color=ft.Colors.TEAL),
-                                                        ft.Text(d.get("module_title", "Module"), size=10, weight=ft.FontWeight.W_700, color=ft.Colors.TEAL),
+                                                        ft.Text(d.get("module_title", "Module"), size=10, weight=ft.FontWeight.W_700, color=ft.Colors.TEAL,max_lines=1,                        # Limit text to a single line
+                overflow=ft.TextOverflow.ELLIPSIS  ),
                                                     ],
                                                 ),
                                             )
@@ -1784,7 +1785,7 @@ def build_discuss_tab_view(
                                 controls=[
                                     ft.Icon(ft.Icons.ADD_ROUNDED, size=15, color=ft.Colors.WHITE),
                                     ft.Text(
-                                        "+ Start Discussion" if (getattr(page, "width", 800) or 800) >= 550 else "+ Post",
+                                        "+ Start Discussion" if (getattr(page, "width", 800) or 800) >= 550 else "Post",
                                         size=11.5,
                                         weight=ft.FontWeight.W_800,
                                         color=ft.Colors.WHITE,
