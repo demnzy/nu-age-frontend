@@ -353,27 +353,37 @@ async def self_study_view(page: ft.Page):
     # ─────────────────────────────────────────────────────────────────────────
     # SIDEBAR
     # ─────────────────────────────────────────────────────────────────────────
-    def _create_badge_control():
-        icon_ctrl = ft.Icon(ft.Icons.SHIELD_OUTLINED, size=10, color=ft.Colors.with_opacity(0.65, ft.Colors.ON_SURFACE))
-        text_ctrl = ft.Text("FREE", size=9, weight=ft.FontWeight.W_800, color=ft.Colors.with_opacity(0.80, ft.Colors.ON_SURFACE))
+    def _create_badge_control(compact: bool = False):
+        icon_size = 9 if compact else 10
+        text_size = 8 if compact else 9
+        icon_ctrl = ft.Icon(ft.Icons.SHIELD_OUTLINED, size=icon_size, color=ft.Colors.with_opacity(0.65, ft.Colors.ON_SURFACE))
+        text_ctrl = ft.Text(
+            "FREE",
+            size=text_size,
+            weight=ft.FontWeight.W_800,
+            color=ft.Colors.with_opacity(0.80, ft.Colors.ON_SURFACE),
+            max_lines=1,
+            no_wrap=True,
+            overflow=ft.TextOverflow.ELLIPSIS,
+        )
         badge = ft.Container(
-            padding=ft.Padding.symmetric(horizontal=8, vertical=2.5),
+            padding=ft.Padding.symmetric(horizontal=6 if compact else 8, vertical=2 if compact else 2.5),
             border_radius=ft.BorderRadius.all(999),
             border=ft.Border.all(1, ft.Colors.with_opacity(0.18, ft.Colors.ON_SURFACE)),
             bgcolor=ft.Colors.with_opacity(0.07, ft.Colors.ON_SURFACE),
             animate=ft.Animation(200, ft.AnimationCurve.EASE_OUT),
             content=ft.Row(
                 tight=True,
-                spacing=4,
+                spacing=3 if compact else 4,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 controls=[icon_ctrl, text_ctrl],
             ),
         )
-        badge.data = {"icon": icon_ctrl, "text": text_ctrl}
+        badge.data = {"icon": icon_ctrl, "text": text_ctrl, "icon_size": icon_size}
         return badge
 
     sidebar_plan_badge = _create_badge_control()
-    modal_plan_badge = _create_badge_control()
+    modal_plan_badge = _create_badge_control(compact=True)
 
     sidebar_materials_col = ft.Column(spacing=6, controls=[])
     bars_col = ft.Column(spacing=10, controls=[])
@@ -430,7 +440,7 @@ async def self_study_view(page: ft.Page):
             if not icon_ctrl or not text_ctrl:
                 continue
 
-            text_ctrl.value = label
+            text_ctrl.value = label if len(label) <= 14 else label[:13] + "…"
 
             if is_pro:
                 # Pro Scholar: Radiant violet/indigo gradient capsule with amber sparkle star
@@ -449,7 +459,7 @@ async def self_study_view(page: ft.Page):
                 )
                 icon_ctrl.name = ft.Icons.AUTO_AWESOME_ROUNDED
                 icon_ctrl.color = ft.Colors.AMBER_300
-                icon_ctrl.size = 10.5
+                icon_ctrl.size = badge.data.get("icon_size", 10)
                 text_ctrl.color = ft.Colors.WHITE
             elif is_unlimited:
                 # Unlimited: Radiant warm amber/orange gradient capsule
@@ -468,7 +478,7 @@ async def self_study_view(page: ft.Page):
                 )
                 icon_ctrl.name = ft.Icons.ALL_INCLUSIVE_ROUNDED
                 icon_ctrl.color = ft.Colors.WHITE
-                icon_ctrl.size = 10.5
+                icon_ctrl.size = badge.data.get("icon_size", 10)
                 text_ctrl.color = ft.Colors.WHITE
             else:
                 # Free: Sleek modern neutral capsule with shield icon
@@ -478,7 +488,7 @@ async def self_study_view(page: ft.Page):
                 badge.border = ft.Border.all(1, ft.Colors.with_opacity(0.18, ft.Colors.ON_SURFACE))
                 icon_ctrl.name = ft.Icons.SHIELD_OUTLINED
                 icon_ctrl.color = ft.Colors.with_opacity(0.65, ft.Colors.ON_SURFACE)
-                icon_ctrl.size = 10
+                icon_ctrl.size = badge.data.get("icon_size", 10)
                 text_ctrl.color = ft.Colors.with_opacity(0.80, ft.Colors.ON_SURFACE)
         
         # 2. Update Progress Bars
@@ -1061,7 +1071,7 @@ async def self_study_view(page: ft.Page):
                                 controls=[
                                     ft.Row(
                                         spacing=10,
-                                        tight=True,
+                                        expand=True,
                                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                                         controls=[
                                             ft.Container(
@@ -1075,13 +1085,15 @@ async def self_study_view(page: ft.Page):
                                             ft.Column(
                                                 spacing=1,
                                                 tight=True,
+                                                expand=True,
                                                 controls=[
-                                                    ft.Text("Subscription plan", size=12.5, weight=ft.FontWeight.W_700, color=ft.Colors.ON_SURFACE),
-                                                    ft.Text("Your current tier", size=10.5, color=ft.Colors.GREY_500),
+                                                    ft.Text("Subscription plan", size=12.5, weight=ft.FontWeight.W_700, color=ft.Colors.ON_SURFACE, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                                                    ft.Text("Your current tier", size=10.5, color=ft.Colors.GREY_500, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                                                 ],
                                             ),
                                         ],
                                     ),
+                                    ft.Container(width=8),
                                     modal_plan_badge,
                                 ],
                             ),
@@ -1130,10 +1142,13 @@ async def self_study_view(page: ft.Page):
                                         alignment=ft.MainAxisAlignment.CENTER,
                                         controls=[
                                             ft.Icon(ft.Icons.BOLT_ROUNDED, size=15, color=ft.Colors.AMBER_400),
-                                            ft.Text("Top-Up Boosters", size=11.5, color=ft.Colors.ON_PRIMARY, weight=ft.FontWeight.W_700),
+                                            ft.Text("Top Up", size=11.5, color=ft.Colors.ON_PRIMARY, weight=ft.FontWeight.W_700),
                                         ],
                                     ),
                                     height=40,
+                                    disabled=True,
+                                    opacity=0.45,
+                                    tooltip="Coming soon",
                                     expand=True,
                                     style=ft.ButtonStyle(
                                         bgcolor=ft.Colors.with_opacity(0.14, ft.Colors.AMBER),
@@ -1154,6 +1169,9 @@ async def self_study_view(page: ft.Page):
                                         ],
                                     ),
                                     height=40,
+                                    disabled=True,
+                                    opacity=0.45,
+                                    tooltip="Coming soon",
                                     expand=True,
                                     style=ft.ButtonStyle(
                                         bgcolor=ft.Colors.PRIMARY,
@@ -3705,6 +3723,7 @@ async def self_study_view(page: ft.Page):
                             ),
                             ft.ListTile(
                                 leading=ft.Icon(ft.Icons.STOREFRONT_ROUNDED, color=ft.Colors.PURPLE_600),
+                                visible=False,
                                 title=ft.Text("Store & Quotas", weight=ft.FontWeight.W_700),
                                 subtitle=ft.Text("Upgrade plans or get non-expiring AI generation packs"),
                                 on_click=lambda _: (setattr(sheet, "open", False), page.update(), page.go("/store")),
@@ -4089,14 +4108,12 @@ async def self_study_view(page: ft.Page):
             border_color=ft.Colors.with_opacity(0.15, ft.Colors.ON_SURFACE),
             focused_border_color=ft.Colors.PRIMARY,
             text_size=13,
-            expand=True,
             content_padding=ft.Padding.symmetric(horizontal=14, vertical=12),
         )
 
         title_field = ft.TextField(
             label="Custom Title (Optional)",
             hint_text="e.g. Intro to Machine Learning",
-            expand=True,
             prefix_icon=ft.Icons.TITLE_ROUNDED,
             border_radius=10,
             border_color=ft.Colors.with_opacity(0.15, ft.Colors.ON_SURFACE),
@@ -4346,6 +4363,7 @@ async def self_study_view(page: ft.Page):
                     ),
                     ft.TextButton(
                         "Visit Store",
+                        visible=False,
                         style=ft.ButtonStyle(
                             color=ft.Colors.RED_700,
                             padding=ft.Padding.symmetric(horizontal=6, vertical=0),
