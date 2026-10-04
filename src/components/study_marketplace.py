@@ -294,13 +294,7 @@ class StudyMarketplaceView:
                                         tight=True,
                                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                                         controls=[
-                                            ft.Text("Study Pack Marketplace", size=17, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
-                                            ft.Container(
-                                                padding=ft.Padding.symmetric(horizontal=7, vertical=2),
-                                                border_radius=ft.BorderRadius.all(6),
-                                                bgcolor=ft.Colors.with_opacity(0.14, ft.Colors.ON_PRIMARY),
-                                                content=ft.Text("CURATED REVISION", size=7, weight=ft.FontWeight.W_800, color=ft.Colors.PRIMARY),
-                                            ),
+                                            ft.Text("Study Pack Marketplace", size=17, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE)
                                         ],
                                     ),
                                     ft.Text("Prebuilt Flashcard Decks, Quizzes & Exam Simulators", size=9.5, color=ft.Colors.GREY_500),
@@ -1108,7 +1102,7 @@ class StudyMarketplaceView:
                                         tight=True,
                                         controls=[
                                             ft.Text("Publish a Study Pack", size=16, weight=ft.FontWeight.W_800, color=TEXT_MAIN),
-                                            ft.Text("Share your material with the community", size=11.5, color=TEXT_MUTED),
+                                            ft.Text("Share your material", size=10.5, color=TEXT_MUTED),
                                         ],
                                     ),
                                 ],
