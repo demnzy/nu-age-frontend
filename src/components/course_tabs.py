@@ -314,6 +314,7 @@ def build_discuss_tab_view(
     page: ft.Page,
     modules: Optional[List[Dict[str, Any]]] = None,
     current_module_id: Optional[str] = None,
+    is_offline: bool = False,
 ) -> ft.Container:
     """
     Builds the Course Discussion Board & Q&A Forum:
@@ -1275,6 +1276,7 @@ def build_discuss_tab_view(
             content_padding=ft.Padding.symmetric(horizontal=14, vertical=12),
             border_color=ft.Colors.with_opacity(0.18, ft.Colors.ON_SURFACE),
             focused_border_color=drill_theme,
+            disabled=is_offline,
         )
 
         def _on_submit_reply(e):
@@ -1571,34 +1573,57 @@ def build_discuss_tab_view(
                     # Reply Composer Docked at Bottom with Category Accent
                     ft.Container(
                         padding=ft.Padding.only(top=6, bottom=2),
-                        content=ft.Row(
-                            spacing=10,
-                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                            controls=[
-                                reply_in,
-                                (
-                                    ft.Container(
-                                        padding=ft.Padding.all(10),
-                                        content=ft.ProgressRing(width=20, height=20, stroke_width=2.5, color=drill_theme),
-                                    )
-                                    if state.get("is_submitting_reply")
-                                    else ft.Container(
-                                        padding=ft.Padding.symmetric(horizontal=14, vertical=10),
-                                        border_radius=ft.BorderRadius.all(8),
-                                        bgcolor=drill_theme,
-                                        ink=True,
-                                        on_click=_on_submit_reply,
-                                        content=ft.Row(
-                                            spacing=6,
-                                            tight=True,
-                                            controls=[
-                                                ft.Icon(reply_btn_icon, size=16, color=ft.Colors.WHITE),
-                                                ft.Text(reply_btn_text, size=12, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE),
-                                            ],
+                        content=(
+                            ft.Container(
+                                padding=ft.Padding.symmetric(horizontal=14, vertical=10),
+                                border_radius=ft.BorderRadius.all(10),
+                                bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.ORANGE),
+                                border=ft.Border.all(1, ft.Colors.with_opacity(0.25, ft.Colors.ORANGE)),
+                                content=ft.Row(
+                                    spacing=8,
+                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                    controls=[
+                                        ft.Icon(ft.Icons.WIFI_OFF_ROUNDED, size=16, color=ft.Colors.ORANGE_700),
+                                        ft.Text(
+                                            "Replies require an internet connection",
+                                            size=12,
+                                            color=ft.Colors.ORANGE_700,
+                                            weight=ft.FontWeight.W_600,
+                                            expand=True,
                                         ),
-                                    )
+                                    ],
                                 ),
-                            ],
+                            )
+                            if is_offline
+                            else ft.Row(
+                                spacing=10,
+                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                controls=[
+                                    reply_in,
+                                    (
+                                        ft.Container(
+                                            padding=ft.Padding.all(10),
+                                            content=ft.ProgressRing(width=20, height=20, stroke_width=2.5, color=drill_theme),
+                                        )
+                                        if state.get("is_submitting_reply")
+                                        else ft.Container(
+                                            padding=ft.Padding.symmetric(horizontal=14, vertical=10),
+                                            border_radius=ft.BorderRadius.all(8),
+                                            bgcolor=drill_theme,
+                                            ink=True,
+                                            on_click=_on_submit_reply,
+                                            content=ft.Row(
+                                                spacing=6,
+                                                tight=True,
+                                                controls=[
+                                                    ft.Icon(reply_btn_icon, size=16, color=ft.Colors.WHITE),
+                                                    ft.Text(reply_btn_text, size=12, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE),
+                                                ],
+                                            ),
+                                        )
+                                    ),
+                                ],
+                            )
                         ),
                     ),
                 ],
@@ -1773,25 +1798,48 @@ def build_discuss_tab_view(
                                 ),
                             ],
                         ),
-                        ft.Container(
-                            padding=ft.Padding.symmetric(horizontal=12, vertical=8),
-                            border_radius=ft.BorderRadius.all(12),
-                            bgcolor=accent,
-                            ink=True,
-                            on_click=lambda _: _toggle_composer(),
-                            content=ft.Row(
-                                spacing=4,
-                                tight=True,
-                                controls=[
-                                    ft.Icon(ft.Icons.ADD_ROUNDED, size=15, color=ft.Colors.WHITE),
-                                    ft.Text(
-                                        "+ Start Discussion" if (getattr(page, "width", 800) or 800) >= 550 else "Post",
-                                        size=11.5,
-                                        weight=ft.FontWeight.W_800,
-                                        color=ft.Colors.WHITE,
-                                    ),
-                                ],
-                            ),
+                        (
+                            ft.Container(
+                                padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+                                border_radius=ft.BorderRadius.all(12),
+                                bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.ORANGE),
+                                border=ft.Border.all(1, ft.Colors.with_opacity(0.25, ft.Colors.ORANGE)),
+                                tooltip="You are currently offline. Connect to the internet to post discussions.",
+                                content=ft.Row(
+                                    spacing=6,
+                                    tight=True,
+                                    controls=[
+                                        ft.Icon(ft.Icons.WIFI_OFF_ROUNDED, size=14, color=ft.Colors.ORANGE_700),
+                                        ft.Text(
+                                            "Offline",
+                                            size=11.5,
+                                            weight=ft.FontWeight.W_800,
+                                            color=ft.Colors.ORANGE_700,
+                                        ),
+                                    ],
+                                ),
+                            )
+                            if is_offline
+                            else ft.Container(
+                                padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+                                border_radius=ft.BorderRadius.all(12),
+                                bgcolor=accent,
+                                ink=True,
+                                on_click=lambda _: _toggle_composer(),
+                                content=ft.Row(
+                                    spacing=4,
+                                    tight=True,
+                                    controls=[
+                                        ft.Icon(ft.Icons.ADD_ROUNDED, size=15, color=ft.Colors.WHITE),
+                                        ft.Text(
+                                            "+ Start Discussion" if (getattr(page, "width", 800) or 800) >= 550 else "Post",
+                                            size=11.5,
+                                            weight=ft.FontWeight.W_800,
+                                            color=ft.Colors.WHITE,
+                                        ),
+                                    ],
+                                ),
+                            )
                         ),
                     ],
                 ),
@@ -1820,6 +1868,41 @@ def build_discuss_tab_view(
             ],
         )
         content_socket.controls.append(header_block)
+
+        # Offline notice banner
+        if is_offline:
+            content_socket.controls.append(
+                ft.Container(
+                    padding=ft.Padding.symmetric(horizontal=14, vertical=12),
+                    border_radius=ft.BorderRadius.all(10),
+                    bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.ORANGE),
+                    border=ft.Border.all(1, ft.Colors.with_opacity(0.25, ft.Colors.ORANGE)),
+                    content=ft.Row(
+                        spacing=10,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[
+                            ft.Icon(ft.Icons.WIFI_OFF_ROUNDED, size=18, color=ft.Colors.ORANGE_700),
+                            ft.Column(
+                                spacing=2,
+                                expand=True,
+                                controls=[
+                                    ft.Text(
+                                        "You're viewing this course offline",
+                                        size=12.5,
+                                        weight=ft.FontWeight.W_700,
+                                        color=ft.Colors.ORANGE_700,
+                                    ),
+                                    ft.Text(
+                                        "Discussions are read-only. Connect to the internet to post questions, share ideas, or reply to threads.",
+                                        size=11,
+                                        color=ft.Colors.ORANGE_800,
+                                    ),
+                                ],
+                            ),
+                        ],
+                    ),
+                )
+            )
 
         # 2. Feed Cards
         if state["is_loading"]:
@@ -1961,6 +2044,8 @@ def build_discuss_tab_view(
         page.update()
 
     def _toggle_composer():
+        if is_offline:
+            return
         state["is_composer_open"] = not state["is_composer_open"]
         _render_view()
 

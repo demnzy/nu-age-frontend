@@ -3756,6 +3756,7 @@ async def course_learner_view(
                 page=page,
                 modules=modules_list,
                 current_module_id=cur_mod_id,
+                is_offline=(back_target == "/offline"),
             )
 
         main_content_area.content = ft.Container(
