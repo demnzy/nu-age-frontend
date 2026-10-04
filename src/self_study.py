@@ -2299,7 +2299,7 @@ async def self_study_view(page: ft.Page):
         )
         status_badge_text = ft.Text(
             f"{progress_val[0]}% Generating" if is_generating else "Engine Ready",
-            size=10,
+            size=8,
             weight=ft.FontWeight.W_800,
             color=ft.Colors.AMBER_800 if is_generating else ft.Colors.GREEN_700,
         )
@@ -2380,7 +2380,7 @@ async def self_study_view(page: ft.Page):
                                 tight=True,
                                 controls=[
                                     ft.Icon(fmt_icon, size=13, color=fmt_color),
-                                    ft.Text(fmt_tag, size=10, weight=ft.FontWeight.W_800, color=fmt_color),
+                                    ft.Text(fmt_tag, size=8, weight=ft.FontWeight.W_800, color=fmt_color),
                                 ],
                             ),
                         ),
@@ -2396,16 +2396,41 @@ async def self_study_view(page: ft.Page):
             ],
         )
 
-        # 2. Material Info Banner with Real-time Progress Bar & Stage Label
+        # 2. Material Info Banner: accent strip on the left, title, short status pill
+        info_pill_color = ft.Colors.AMBER_700 if is_generating else ft.Colors.PURPLE_600
+        if is_generating:
+            info_pill_value = "Generating study deck…"
+        else:
+            info_pill_value = f"{due_count} flashcards due" if due_count else "Deck ready"
+
+        cockpit_info_icon = ft.Icon(
+            ft.Icons.AUTO_AWESOME_ROUNDED if is_generating else ft.Icons.STYLE_ROUNDED,
+            size=13,
+            color=info_pill_color,
+        )
         cockpit_due_text = ft.Text(
-            f"{due_count} flashcards due · Ready for quiz & exam simulation" if not is_generating else "AI Engine is generating targeted flashcards & questions...",
+            info_pill_value,
             size=11.5,
-            color=ft.Colors.GREY_500,
+            weight=ft.FontWeight.W_700,
+            color=info_pill_color,
+        )
+        cockpit_info_pill = ft.Container(
+            padding=ft.Padding.symmetric(horizontal=10, vertical=5),
+            border_radius=ft.BorderRadius.all(999),
+            bgcolor=ft.Colors.with_opacity(0.12, info_pill_color),
+            content=ft.Row(
+                spacing=6,
+                tight=True,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[cockpit_info_icon, cockpit_due_text],
+            ),
         )
         progress_bar = ft.ProgressBar(
             value=progress_val[0] / 100.0,
             color=ft.Colors.AMBER_600,
             bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.AMBER_600),
+            height=5,
+            border_radius=ft.BorderRadius.all(3),
             visible=is_generating,
         )
         stage_text = ft.Text(
@@ -2416,31 +2441,79 @@ async def self_study_view(page: ft.Page):
             visible=is_generating,
         )
 
+        # The accent strip is a separate positioned control inside a Stack. A single
+        # Border with a different colored left side can't be combined with rounded
+        # corners, so this keeps the radius clean and the accent flush to the edge.
         info_banner = ft.Container(
-            bgcolor=ft.Colors.SURFACE,
+            width=float("inf"),
             border_radius=ft.BorderRadius.all(16),
-            border=ft.Border(
-                left=ft.BorderSide(4.5, fmt_color),
-                top=ft.BorderSide(1, ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE)),
-                right=ft.BorderSide(1, ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE)),
-                bottom=ft.BorderSide(1, ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE)),
+            clip_behavior=ft.ClipBehavior.HARD_EDGE,
+            border=ft.Border.all(1, ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE)),
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment.TOP_LEFT,
+                end=ft.Alignment.BOTTOM_RIGHT,
+                colors=[
+                    ft.Colors.with_opacity(0.10, fmt_color),
+                    ft.Colors.SURFACE,
+                ],
             ),
-            padding=ft.Padding.all(16),
-            content=ft.Column(
-                spacing=6,
-                tight=True,
+            shadow=ft.BoxShadow(
+                blur_radius=12,
+                color=ft.Colors.with_opacity(0.04, ft.Colors.BLACK),
+                offset=ft.Offset(0, 3),
+            ),
+            content=ft.Stack(
                 controls=[
-                    ft.Text(display_title, size=17 if is_mobile else 20, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
-                    ft.Row(
-                        spacing=8,
-                        tight=True,
-                        controls=[
-                            ft.Icon(ft.Icons.CHECK_CIRCLE_OUTLINE_ROUNDED if not is_generating else ft.Icons.AUTO_AWESOME_ROUNDED, size=14, color=ft.Colors.GREEN_600 if not is_generating else ft.Colors.AMBER_600),
-                            cockpit_due_text,
-                        ],
+                    ft.Container(
+                        width=float("inf"),
+                        padding=ft.Padding.only(left=24, right=16, top=16, bottom=16),
+                        content=ft.Column(
+                            spacing=12,
+                            tight=True,
+                            controls=[
+                                ft.Row(
+                                    spacing=12,
+                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                    controls=[
+                                        ft.Container(
+                                            width=44,
+                                            height=44,
+                                            border_radius=ft.BorderRadius.all(12),
+                                            bgcolor=ft.Colors.with_opacity(0.14, fmt_color),
+                                            alignment=ft.Alignment.CENTER,
+                                            content=ft.Icon(fmt_icon, size=22, color=fmt_color),
+                                        ),
+                                        ft.Column(
+                                            spacing=2,
+                                            tight=True,
+                                            expand=True,
+                                            controls=[
+                                                ft.Text(
+                                                    fmt_tag.upper(),
+                                                    size=9.5,
+                                                    weight=ft.FontWeight.W_800,
+                                                    color=fmt_color,
+                                                ),
+                                                ft.Text(
+                                                    display_title,
+                                                    size=17 if is_mobile else 20,
+                                                    weight=ft.FontWeight.W_800,
+                                                    color=ft.Colors.ON_SURFACE,
+                                                    max_lines=2,
+                                                    overflow=ft.TextOverflow.ELLIPSIS,
+                                                ),
+                                            ],
+                                        ),
+                                    ],
+                                ),
+                                ft.Row(tight=True, controls=[cockpit_info_pill]),
+                                progress_bar,
+                                stage_text,
+                            ],
+                        ),
                     ),
-                    progress_bar,
-                    stage_text,
+                    # Accent strip pinned to the left edge, full height
+                    ft.Container(left=0, top=0, bottom=0, width=6, bgcolor=fmt_color),
                 ],
             ),
         )
@@ -2565,7 +2638,11 @@ async def self_study_view(page: ft.Page):
                 progress_bar.visible = True
                 stage_text.value = stage
                 stage_text.visible = True
-                cockpit_due_text.value = f"AI Engine in progress: {stage}"
+                cockpit_due_text.value = "Generating study deck…"
+                cockpit_due_text.color = ft.Colors.AMBER_700
+                cockpit_info_icon.name = ft.Icons.AUTO_AWESOME_ROUNDED
+                cockpit_info_icon.color = ft.Colors.AMBER_700
+                cockpit_info_pill.bgcolor = ft.Colors.with_opacity(0.12, ft.Colors.AMBER_700)
             else:
                 status_badge_icon.name = ft.Icons.CHECK_CIRCLE_ROUNDED
                 status_badge_icon.color = ft.Colors.GREEN_700
@@ -2575,8 +2652,12 @@ async def self_study_view(page: ft.Page):
 
                 progress_bar.visible = False
                 stage_text.visible = False
-                cnt_str = f"{fc_count} flashcards" if fc_count is not None else f"{len(scoped_cards)} flashcards"
-                cockpit_due_text.value = f"{cnt_str} ready · Ready for quiz & exam simulation"
+                ready_cnt = fc_count if fc_count is not None else len(scoped_cards)
+                cockpit_due_text.value = f"{ready_cnt} flashcards ready"
+                cockpit_due_text.color = ft.Colors.PURPLE_600
+                cockpit_info_icon.name = ft.Icons.STYLE_ROUNDED
+                cockpit_info_icon.color = ft.Colors.PURPLE_600
+                cockpit_info_pill.bgcolor = ft.Colors.with_opacity(0.12, ft.Colors.PURPLE_600)
 
             page.update()
 
@@ -4787,27 +4868,31 @@ async def self_study_view(page: ft.Page):
                 ink=True,
                 on_click=lambda _, m=mat: select_target_mat(m),
                 content=ft.Row(
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    spacing=10,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     controls=[
-                        ft.Row(
-                            spacing=10,
+                        ft.Container(
+                            width=28, height=28,
+                            bgcolor=ft.Colors.with_opacity(0.12, m_color),
+                            border_radius=ft.BorderRadius.all(7),
+                            alignment=ft.Alignment.CENTER,
+                            content=ft.Icon(m_icon, color=m_color, size=15),
+                        ),
+                        # expand=True lets the title column take the leftover width,
+                        # so long titles wrap / ellipsize instead of overflowing.
+                        ft.Column(
+                            spacing=1,
                             tight=True,
+                            expand=True,
                             controls=[
-                                ft.Container(
-                                    width=28, height=28,
-                                    bgcolor=ft.Colors.with_opacity(0.12, m_color),
-                                    border_radius=ft.BorderRadius.all(7),
-                                    alignment=ft.Alignment.CENTER,
-                                    content=ft.Icon(m_icon, color=m_color, size=15),
+                                ft.Text(
+                                    display_title,
+                                    size=12,
+                                    weight=ft.FontWeight.W_600,
+                                    max_lines=2,
+                                    overflow=ft.TextOverflow.ELLIPSIS,
                                 ),
-                                ft.Column(
-                                    spacing=1,
-                                    tight=True,
-                                    controls=[
-                                        ft.Text(display_title, size=12, weight=ft.FontWeight.W_600, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
-                                        ft.Text(m_tag, size=9, weight=ft.FontWeight.W_700, color=m_color),
-                                    ],
-                                ),
+                                ft.Text(m_tag, size=9, weight=ft.FontWeight.W_700, color=m_color),
                             ],
                         ),
                         radio_icon,
@@ -4855,7 +4940,8 @@ async def self_study_view(page: ft.Page):
                     controls=[
                         ft.Row(
                             spacing=10,
-                            tight=True,
+                            expand=True,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
                             controls=[
                                 ft.Container(
                                     width=32, height=32,
@@ -4867,9 +4953,10 @@ async def self_study_view(page: ft.Page):
                                 ft.Column(
                                     spacing=1,
                                     tight=True,
+                                    expand=True,
                                     controls=[
-                                        ft.Text(title, size=12.5, weight=ft.FontWeight.W_700),
-                                        ft.Text(desc, size=10.5, color=ft.Colors.GREY_500),
+                                        ft.Text(title, size=12.5, weight=ft.FontWeight.W_700, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                                        ft.Text(desc, size=10.5, color=ft.Colors.GREY_500, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
                                     ],
                                 ),
                             ],
@@ -4880,9 +4967,9 @@ async def self_study_view(page: ft.Page):
             )
             return card_box
 
-        out_flashcards = output_type_card(ft.Icons.STYLE_ROUNDED, "Flashcards", "Spaced Repetition Deck (SM-2 active recall)", ft.Colors.PURPLE_400, cb_flashcards)
-        out_quiz = output_type_card(ft.Icons.BOLT_ROUNDED, "Quick Quiz", "Targeted Drills with Instant Rationales", ft.Colors.TEAL_500, cb_quiz)
-        out_exam = output_type_card(ft.Icons.TIMER_OUTLINED, "Exam Simulator", "Full-Length Timed Test with Score Breakdown", ft.Colors.ORANGE_500, cb_exam)
+        out_flashcards = output_type_card(ft.Icons.STYLE_ROUNDED, "Flashcards", "Spaced Repetition Deck", ft.Colors.PURPLE_400, cb_flashcards)
+        out_quiz = output_type_card(ft.Icons.BOLT_ROUNDED, "Quick Quiz", "Targeted Drills.Instant Feedback", ft.Colors.TEAL_500, cb_quiz)
+        out_exam = output_type_card(ft.Icons.TIMER_OUTLINED, "Exam Simulator", "Full-Length Timed Test", ft.Colors.ORANGE_500, cb_exam)
 
         gen_btn = ft.ElevatedButton(
             content=ft.Row(
@@ -5071,7 +5158,7 @@ async def self_study_view(page: ft.Page):
         )
 
         materials_container = ft.Container(
-            height=min(140, max(60, len(mat_card_controls) * 55)),
+            height=min(160, max(64, len(mat_card_controls) * 64)),
             border_radius=ft.BorderRadius.all(12),
             border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
             bgcolor=ft.Colors.with_opacity(0.02, ft.Colors.ON_SURFACE),
@@ -5083,13 +5170,7 @@ async def self_study_view(page: ft.Page):
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
             controls=[
-                _section_label("TARGET STUDY MATERIAL (1 AT A TIME)"),
-                ft.Container(
-                    padding=ft.Padding.symmetric(horizontal=7, vertical=2),
-                    bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.PRIMARY),
-                    border_radius=ft.BorderRadius.all(6),
-                    content=ft.Text("Single Focus", size=10, weight=ft.FontWeight.W_700, color=ft.Colors.PRIMARY),
-                ),
+                _section_label("TARGET STUDY MATERIAL"),
             ],
         )
 
