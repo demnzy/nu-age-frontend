@@ -2008,7 +2008,7 @@ async def course_learner_view(
             visible=has_stdin and not is_sql and not is_html,
             padding=ft.Padding.symmetric(horizontal=12, vertical=8),
             border_radius=8,
-            bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.AMBER_400),
+            bgcolor=ft.Colors.with_opacity(0.80, ft.Colors.AMBER_300),
             border=ft.Border.all(1, ft.Colors.with_opacity(0.35, ft.Colors.AMBER_400)),
             content=ft.Row(
                 spacing=8,
@@ -2018,7 +2018,7 @@ async def course_learner_view(
                         "Beginner Tip: Your code requests user input! Enter your answers in the 'Program Input (stdin)' box below before clicking 'Run Code' (put each response on a new line).",
                         size=11,
                         weight=ft.FontWeight.W_500,
-                        color=ft.Colors.AMBER_300,
+                        color=ft.Colors.ON_PRIMARY,
                         expand=True,
                     ),
                 ],

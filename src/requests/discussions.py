@@ -31,7 +31,7 @@ def _get_local_course_discussions(course_id: str) -> List[Dict[str, Any]]:
                 "is_pinned": True,
                 "is_resolved": False,
                 "created_at": "2026-10-01T12:00:00Z",
-                "author": {"name": "Nu-Age Academic Team", "role": "teacher", "avatar": None},
+                "author": {"name": "Nu Age Team", "role": "teacher", "avatar": None},
                 "has_upvoted": False,
                 "is_owner": False,
                 "replies": [
