@@ -550,22 +550,60 @@ def build_results_view(
         else:
             state_color, state_icon, state_label = C_WRONG, ft.Icons.CLOSE_ROUNDED, "Incorrect"
 
-        body = ft.Column(spacing=8, visible=False)
+        body = ft.Column(spacing=10, visible=False)
 
         def _answer_line(label: str, text: str, color, strong=False):
             return ft.Row(
                 spacing=8,
                 vertical_alignment=ft.CrossAxisAlignment.START,
                 controls=[
-                    ft.Container(width=64, content=ft.Text(label, size=10, color=muted(0.50))),
-                    ft.Text(
-                        text,
-                        size=12,
-                        color=color,
-                        weight=ft.FontWeight.W_700 if strong else ft.FontWeight.W_400,
+                    ft.Container(
+                        width=72,
+                        padding=ft.Padding.only(top=2),
+                        content=ft.Text(label, size=10.5, weight=ft.FontWeight.W_700, color=muted(0.50)),
+                    ),
+                    ft.Container(
+                        content=ft.Markdown(
+                            str(text or ""),
+                            extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+                            selectable=True,
+                            code_theme="atom-one-dark",
+                        ),
                         expand=True,
                     ),
                 ],
+            )
+
+        # Full Question Text in Markdown
+        q_full_text = str(record.get("question") or "")
+        if q_full_text:
+            body.controls.append(
+                ft.Container(
+                    padding=ft.Padding.symmetric(vertical=4),
+                    content=ft.Markdown(
+                        q_full_text,
+                        extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+                        selectable=True,
+                        code_theme="atom-one-dark",
+                    ),
+                )
+            )
+
+        if record.get("image_url"):
+            body.controls.append(
+                ft.Container(
+                    padding=8,
+                    border_radius=RADIUS_SM,
+                    bgcolor=tint(ft.Colors.SURFACE_CONTAINER_HIGHEST, 0.4),
+                    border=ft.Border.all(1, hairline()),
+                    alignment=ft.Alignment.CENTER,
+                    content=ft.Image(
+                        src=record["image_url"],
+                        fit=ft.BoxFit.CONTAIN,
+                        height=160,
+                        border_radius=ft.BorderRadius.all(6),
+                    ),
+                )
             )
 
         if not is_right:
@@ -595,13 +633,15 @@ def build_results_view(
                         spacing=8,
                         vertical_alignment=ft.CrossAxisAlignment.START,
                         controls=[
-                            ft.Icon(ft.Icons.LIGHTBULB_OUTLINE_ROUNDED, size=15, color=C_INFO),
-                            ft.Text(
-                                record["explanation"],
-                                size=12,
-                                color=muted(0.80),
+                            ft.Icon(ft.Icons.LIGHTBULB_OUTLINE_ROUNDED, size=16, color=C_INFO),
+                            ft.Container(
+                                content=ft.Markdown(
+                                    str(record["explanation"] or ""),
+                                    extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+                                    selectable=True,
+                                    code_theme="atom-one-dark",
+                                ),
                                 expand=True,
-                                selectable=True,
                             ),
                         ],
                     ),

@@ -4,7 +4,7 @@ import urllib.parse
 import asyncio
 from datetime import datetime
 from src.components.bottom_appbar import get_bottom_appbar, NotificationManager
-from src.requests.auth import logout_request
+from src.requests.auth import logout_request, logout_all_devices_request
 from src.requests.enrollments import get_enrollments
 
 
@@ -49,6 +49,11 @@ async def profile_view(page: ft.Page):
             page.pop_dialog()
         except Exception:
             pass
+        try:
+            from src.services.auth_session import AuthSession
+            AuthSession.get_instance(page).set_logging_out(True)
+        except Exception:
+            pass
         refresh_token = await page.shared_preferences.get("refresh_token")
         if refresh_token:
             try:
@@ -72,7 +77,7 @@ async def profile_view(page: ft.Page):
 
         try:
             from src.services.auth_session import AuthSession
-            await AuthSession.get_instance().clear_tokens()
+            await AuthSession.get_instance(page).clear_tokens()
         except Exception:
             pass
 
@@ -99,6 +104,32 @@ async def profile_view(page: ft.Page):
 
         page.go("/login")
         page.update()
+
+    async def execute_logout_all(e):
+        try:
+            page.pop_dialog()
+        except Exception:
+            pass
+        token = await page.shared_preferences.get("auth_token")
+        if token:
+            try:
+                status, data = await logout_all_devices_request(token)
+                if status in (200, 201):
+                    revoked = data.get("revoked_count", 0) if isinstance(data, dict) else 0
+                    page.snack_bar = ft.SnackBar(
+                        content=ft.Text(f"Logged out from all devices ({revoked} sessions revoked)."),
+                        bgcolor=ft.Colors.GREEN_700
+                    )
+                    page.snack_bar.open = True
+                    page.update()
+                else:
+                    err_msg = data.get("detail", "Failed to revoke sessions on server.") if isinstance(data, dict) else "Error"
+                    print(f"[LogoutAll] Server response: {status} {err_msg}")
+            except Exception as ex:
+                print(f"[LogoutAll] Request error: {ex!r}")
+
+        # Local cleanup & logout
+        await execute_logout(e)
 
     def create_logout_dialog(is_dark: bool) -> ft.AlertDialog:
         p = get_profile_palette(is_dark)
@@ -140,6 +171,46 @@ async def profile_view(page: ft.Page):
             actions_padding=ft.Padding(left=16, right=16, top=0, bottom=16)
         )
 
+    def create_logout_all_dialog(is_dark: bool) -> ft.AlertDialog:
+        p = get_profile_palette(is_dark)
+        return ft.AlertDialog(
+            modal=True,
+            shape=ft.RoundedRectangleBorder(radius=18),
+            bgcolor=p["card_bg"],
+            title=ft.Row([
+                ft.Container(
+                    width=36, height=36, border_radius=18,
+                    bgcolor=ft.Colors.with_opacity(0.15, ft.Colors.RED_400),
+                    alignment=ft.Alignment.CENTER,
+                    content=ft.Icon(ft.Icons.DEVICES_ROUNDED, color=ft.Colors.RED_400, size=18)
+                ),
+                ft.Text("Log Out All Devices?", weight=ft.FontWeight.BOLD, size=16, color=p["text_primary"])
+            ], spacing=12),
+            content=ft.Text(
+                "This will invalidate all active refresh tokens and sign you out across all browsers and devices. You will need to sign back in everywhere.",
+                size=13,
+                color=p["text_muted"]
+            ),
+            actions=[
+                ft.TextButton(
+                    "Cancel", 
+                    style=ft.ButtonStyle(color=p["text_muted"]), 
+                    on_click=lambda e: page.pop_dialog()
+                ),
+                ft.FilledButton(
+                    "Log Out Everywhere", 
+                    style=ft.ButtonStyle(
+                        bgcolor=ft.Colors.RED_600, 
+                        color=ft.Colors.WHITE, 
+                        shape=ft.RoundedRectangleBorder(radius=10)
+                    ), 
+                    on_click=execute_logout_all
+                )
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+            actions_padding=ft.Padding(left=16, right=16, top=0, bottom=16)
+        )
+
     # ── Main Loader Function ──────────────────────────────────────────────────
     async def load_profile():
         nonlocal cached_enrollments
@@ -151,6 +222,11 @@ async def profile_view(page: ft.Page):
         async def handle_logout_click(e):
             current_dark = page.theme_mode == ft.ThemeMode.DARK
             page.show_dialog(create_logout_dialog(current_dark))
+            page.update()
+
+        async def handle_logout_all_click(e):
+            current_dark = page.theme_mode == ft.ThemeMode.DARK
+            page.show_dialog(create_logout_all_dialog(current_dark))
             page.update()
 
         user_data  = page.session.store.get("current_user") or {}
@@ -205,22 +281,27 @@ async def profile_view(page: ft.Page):
             ]
         )
 
+        profile_picture_url = user_data.get("profile_picture_url")
+        has_avatar = bool(profile_picture_url and isinstance(profile_picture_url, str) and profile_picture_url.startswith("http"))
         avatar_monogram = ft.Container(
             width=92, height=92, border_radius=46,
             bgcolor=ft.Colors.WHITE,
             alignment=ft.Alignment.CENTER,
             shadow=ft.BoxShadow(blur_radius=18, color=ft.Colors.with_opacity(0.25, ft.Colors.BLACK), offset=ft.Offset(0, 4)),
-            content=ft.Container(
-                width=84, height=84, border_radius=42,
+            content=ft.CircleAvatar(
+                radius=42,
                 bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY),
-                alignment=ft.Alignment.CENTER,
+                foreground_image_src=profile_picture_url if has_avatar else None,
                 content=ft.Text(
                     initials, 
                     size=30, 
                     weight=ft.FontWeight.W_800, 
                     color=ft.Colors.PRIMARY
                 )
-            )
+            ),
+            ink=True,
+            tooltip="Edit Profile & Photo",
+            on_click=lambda _: page.go("/edit-profile"),
         )
 
         verified_badge = ft.Container(
@@ -289,7 +370,6 @@ async def profile_view(page: ft.Page):
                         ),
                         on_click=handle_logout_click
                     ),
-                    ft.Text("STUDENT PROFILE", size=11, weight=ft.FontWeight.W_800, color=ft.Colors.with_opacity(0.9, ft.Colors.WHITE)),
                     ft.IconButton(
                         icon=ft.Icons.EDIT_ROUNDED,
                         icon_color=ft.Colors.WHITE,
@@ -409,6 +489,13 @@ async def profile_view(page: ft.Page):
             # 1. Apply new palette tokens in-place immediately (0ms delay, no re-layout)
             apply_theme_palette(new_is_dark)
 
+            # Instantly update BottomAppBar colors to match new mode
+            try:
+                from src.components.bottom_appbar import BottomAppBarThemeManager
+                BottomAppBarThemeManager.notify_theme_changed(new_is_dark)
+            except Exception:
+                pass
+
             # 2. Sync global theme in main.py without duplicate render
             toggle_fn = page.data.get("toggle_dark_mode") if isinstance(page.data, dict) else None
             if toggle_fn:
@@ -527,7 +614,6 @@ async def profile_view(page: ft.Page):
             (ft.Icons.BADGE_ROUNDED, "Username", f"@{username}" if username != "—" else "—"),
             (ft.Icons.ACCOUNT_BALANCE_ROUNDED, "University / College", university if university else "Not specified"),
             (ft.Icons.PERSON_OUTLINE_ROUNDED, "Gender", gender.title() if gender != "—" else "Not specified"),
-            (ft.Icons.VERIFIED_USER_OUTLINED, "Account Standing", "Active & Verified" if is_verified else "Active Student")
         ]
 
         detail_controls = [detail_item(d[0], d[1], d[2], idx == len(details_list) - 1) for idx, d in enumerate(details_list)]
@@ -638,6 +724,12 @@ async def profile_view(page: ft.Page):
             admin_title.color = p["text_primary"]
             admin_sub.color = p["text_muted"]
 
+            # 7. Update Security Card
+            security_card.bgcolor = p["card_bg"]
+            security_card.border = ft.Border.all(1, p["border_clr"])
+            security_title.color = p["text_primary"]
+            security_sub.color = p["text_muted"]
+
         # Super Admin Control Plane Access Card (Locked by default, verified via credentials)
         admin_title = ft.Text("Platform Super Admin Panel", size=13, weight=ft.FontWeight.BOLD, color=palette["text_primary"])
         admin_sub = ft.Text("User management, Excel export, bulk messaging & platform analytics.", size=11, color=palette["text_muted"])
@@ -672,6 +764,40 @@ async def profile_view(page: ft.Page):
             ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=14)
         )
 
+        # ── Security & Sessions Card ──────────────────────────────────────────
+        security_title = ft.Text("Log Out All Devices", size=13, weight=ft.FontWeight.BOLD, color=palette["text_primary"])
+        security_sub = ft.Text("Revoke active sessions and sign out across all browsers and devices.", size=11, color=palette["text_muted"])
+        security_card = ft.Container(
+            ink=True,
+            on_click=handle_logout_all_click,
+            border_radius=16,
+            border=ft.Border.all(1, palette["border_clr"]),
+            bgcolor=palette["card_bg"],
+            padding=ft.Padding.symmetric(horizontal=16, vertical=14),
+            shadow=ft.BoxShadow(blur_radius=8, color=ft.Colors.with_opacity(0.03, ft.Colors.BLACK), offset=ft.Offset(0, 2)),
+            content=ft.Row([
+                ft.Container(
+                    width=38, height=38, border_radius=12,
+                    bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.RED_400),
+                    alignment=ft.Alignment.CENTER,
+                    content=ft.Icon(ft.Icons.DEVICES_ROUNDED, color=ft.Colors.RED_400, size=18)
+                ),
+                ft.Column([
+                    security_title,
+                    security_sub
+                ], spacing=2, expand=True),
+                ft.Container(
+                    content=ft.Row([
+                        ft.Text("Log Out All", size=11, weight=ft.FontWeight.W_600, color=ft.Colors.RED_400),
+                        ft.Icon(ft.Icons.LOGOUT_ROUNDED, color=ft.Colors.RED_400, size=14),
+                    ], spacing=4, tight=True),
+                    padding=ft.Padding.symmetric(horizontal=10, vertical=6),
+                    border_radius=8,
+                    bgcolor=ft.Colors.with_opacity(0.10, ft.Colors.RED_400),
+                )
+            ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=14)
+        )
+
         # ── Content Assembly ──────────────────────────────────────────────────
         is_super_admin = _is_platform_super_admin(username, email)
 
@@ -683,6 +809,8 @@ async def profile_view(page: ft.Page):
             ft.Column([section_heading("Quick Hub Shortcuts", ft.Icons.GRID_VIEW_ROUNDED), shortcuts_grid], spacing=10),
             ft.Container(height=4),
             ft.Column([section_heading("Account & Academic Details", ft.Icons.BADGE_ROUNDED), account_card], spacing=10),
+            ft.Container(height=4),
+            ft.Column([section_heading("Security & Sessions", ft.Icons.SECURITY_ROUNDED), security_card], spacing=10),
         ]
 
         if is_super_admin:

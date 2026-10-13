@@ -194,7 +194,7 @@ def login_view(page: ft.Page):
                     await page.shared_preferences.set("refresh_token", l_data["refresh_token"])
                     try:
                         from src.services.auth_session import AuthSession
-                        session = AuthSession.get_instance()
+                        session = AuthSession.get_instance(page)
                         session.init(page)
                         await session.set_tokens(token, l_data["refresh_token"])
                     except Exception as ex:
@@ -358,7 +358,7 @@ def login_view(page: ft.Page):
                 await page.shared_preferences.set("refresh_token", data["refresh_token"])
                 try:
                     from src.services.auth_session import AuthSession
-                    session = AuthSession.get_instance()
+                    session = AuthSession.get_instance(page)
                     session.init(page)
                     await session.set_tokens(token, data["refresh_token"])
                 except Exception as ex:
@@ -448,8 +448,22 @@ def login_view(page: ft.Page):
         )
 
     # ── fields ────────────────────────────────────────────────────
+    prefill_val = getattr(page, "_prefill_login_identifier", None)
+    if not prefill_val and hasattr(page, "session") and hasattr(page.session, "store"):
+        try:
+            prefill_val = page.session.store.get("prefill_login_identifier")
+        except Exception:
+            prefill_val = None
+
+    if hasattr(page, "_prefill_login_identifier"):
+        try:
+            delattr(page, "_prefill_login_identifier")
+        except Exception:
+            pass
+
     email = field(
         label="Email or Username",
+        value=prefill_val or "",
         hint_text="name@example.com",
         prefix_icon=ft.Icons.PERSON_OUTLINE_ROUNDED,
         keyboard_type=ft.KeyboardType.EMAIL,

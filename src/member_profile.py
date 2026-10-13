@@ -64,6 +64,7 @@ async def member_profile_view(page: ft.Page, identifier: str):
             page.update()
             return
 
+        user_id = str(user_data.get("id") or user_data.get("user_id") or identifier).strip()
         first_name = user_data.get("first_name", "")
         last_name  = user_data.get("last_name", "")
         full_name  = f"{first_name} {last_name}".strip() or "Learner"
@@ -104,15 +105,17 @@ async def member_profile_view(page: ft.Page, identifier: str):
             ]
         )
 
+        profile_picture_url = user_data.get("profile_picture_url")
+        has_avatar = bool(profile_picture_url and isinstance(profile_picture_url, str) and profile_picture_url.startswith("http"))
         avatar_monogram = ft.Container(
             width=92, height=92, border_radius=46,
             bgcolor=ft.Colors.WHITE,
             alignment=ft.Alignment.CENTER,
             shadow=ft.BoxShadow(blur_radius=18, color=ft.Colors.with_opacity(0.25, ft.Colors.BLACK), offset=ft.Offset(0, 4)),
-            content=ft.Container(
-                width=84, height=84, border_radius=42,
+            content=ft.CircleAvatar(
+                radius=42,
                 bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY),
-                alignment=ft.Alignment.CENTER,
+                foreground_image_src=profile_picture_url if has_avatar else None,
                 content=ft.Text(
                     initials, 
                     size=30, 
@@ -238,7 +241,7 @@ async def member_profile_view(page: ft.Page, identifier: str):
                     padding=ft.Padding.symmetric(horizontal=18, vertical=12)
                 ),
                 expand=True,
-                on_click=lambda _: page.go("/nu-chat")
+                on_click=lambda _: page.go(f"/nu-chat?dm={user_id}")
             ),
             ft.OutlinedButton(
                 "Share",
@@ -321,7 +324,7 @@ async def member_profile_view(page: ft.Page, identifier: str):
                 ft.FilledButton(
                     "Chat",
                     style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10)),
-                    on_click=lambda _: page.go("/nu-chat")
+                    on_click=lambda _: page.go(f"/nu-chat?dm={user_id}")
                 )
             ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=14)
         )

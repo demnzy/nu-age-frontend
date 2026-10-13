@@ -1,12 +1,15 @@
 # -*- mode: python ; coding: utf-8 -*-
+from PyInstaller.utils.hooks import collect_submodules, collect_data_files
 
+yt_dlp_submodules = collect_submodules('yt_dlp')
+yt_dlp_datas = collect_data_files('yt_dlp')
 
 a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[('assets', 'assets')],
-    hiddenimports=[],
+    datas=[('assets', 'assets')] + yt_dlp_datas,
+    hiddenimports=['yt_dlp', 'flet_video', 'flet_webview', 'certifi'] + yt_dlp_submodules,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

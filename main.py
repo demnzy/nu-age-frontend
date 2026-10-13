@@ -38,6 +38,7 @@ from src.components.shimmer_skeletons import build_skeleton_view
 from src.components.bottom_appbar import PersistentBottomAppBar
 from src.notifications_view import notifications_view
 from src.platform_admin_view import platform_admin_view
+from src.store_view import store_view
 import os
 
 
@@ -161,8 +162,7 @@ def failure_copy(kind: str, ex: Exception = None, status: int = None) -> dict:
 # (still present + refresh failed == token dead OR network blip during the
 # call; absent == never had one). See route_change's 401/403 branch.
 async def try_refresh_token(page: ft.Page) -> bool:
-    session = AuthSession.get_instance()
-    session.init(page)
+    session = AuthSession.get_instance(page)
     new_token = await session.refresh_access_token()
     return new_token is not None
 
@@ -171,7 +171,7 @@ async def main(page: ft.Page):
     from src.local_db import init_local_db
     from src.download_manager import init_download_manager
     from src.services.auth_session import AuthSession
-    AuthSession.get_instance().init(page)
+    AuthSession.get_instance(page).init(page)
     if not getattr(page, "web", False):
         await init_local_db(page)
         await init_download_manager(page)
@@ -187,10 +187,10 @@ async def main(page: ft.Page):
                 break
 
             try:
-                session = AuthSession.get_instance()
-                if session.get_token_age_seconds() >= 2400:  # 40 minutes (access token expires at 60m)
-                    stored_token = await page.shared_preferences.get("auth_token")
-                    if stored_token:
+                stored_token = await page.shared_preferences.get("auth_token")
+                if stored_token:
+                    session = AuthSession.get_instance(page)
+                    if session.get_token_age_seconds(stored_token) >= 2400:  # 40 minutes (access token expires at 60m)
                         print("[Heartbeat] Access token is >= 40 minutes old. Proactively refreshing in background...")
                         await session.refresh_access_token()
             except Exception as ex:
@@ -342,6 +342,13 @@ async def main(page: ft.Page):
             splash_logo.src = "Nu age new logo.png"
             splash_logo.width = 400
             splash_logo.height = 600
+
+        # Synchronize BottomAppBar instantaneously on theme change
+        try:
+            from src.components.bottom_appbar import BottomAppBarThemeManager
+            BottomAppBarThemeManager.notify_theme_changed(is_dark)
+        except Exception:
+            pass
 
         if trigger_update:
             page.update()
@@ -1103,13 +1110,9 @@ async def main(page: ft.Page):
         def is_offline_capable_route(route):
             if getattr(page, "web", False):
                 return False
-            # Routes reachable without a network call succeeding, even
-            # though they still need to know "which user" (so NOT lumped
-            # in with is_public_route, which is for pre-login routes).
-            # /offline: the downloaded-courses list, reads only SQLite.
-            # /courses/{id}/learn: gets a second, offline-specific check
-            # below (only skips the auth gate if THIS SPECIFIC course was
-            # actually downloaded) rather than being blanket-exempted here.
+            r = (route or "").split("?")[0]
+            if r in ("/offline", "/self-study"):
+                return True
             return route == "/offline"
 
         async def is_route_for_downloaded_course(route):
@@ -1320,13 +1323,18 @@ async def main(page: ft.Page):
                     page.route = previous_view.route
 
                 route_change_state["pending_rerun"] = False
-                if getattr(page, "web", False):
-                    try:
-                        await page.push_route(page.route, skip_route_change_event=True)
-                    except Exception as resync_ex:
-                        print(f"restore_previous_or_fallback: push_route resync failed: {resync_ex!r}")
-                    finally:
-                        route_change_state["pending_rerun"] = False
+                # Resync both the Python-side Flet duplicate route gate (__last_route) and the
+                # Flutter client-side router (on Android, iOS, desktop, and web) back to page.route.
+                # Without this, Flutter's client-side navigator and Flet's before_event gate both
+                # remember the failed route as the "current" route, causing any subsequent tap to that
+                # destination to be dropped as a duplicate no-op.
+                setattr(page, "_Page__last_route", page.route)
+                try:
+                    await page.push_route(page.route)
+                except Exception as resync_ex:
+                    print(f"restore_previous_or_fallback: push_route resync failed: {resync_ex!r}")
+                finally:
+                    route_change_state["pending_rerun"] = False
                 return True
             else:
                 # Nothing safe to fall back to (first view of the session,
@@ -1375,25 +1383,35 @@ async def main(page: ft.Page):
             title: str = "Session expired",
             redirect_to_login: bool = True,
         ):
-            """Sleek dialog shown instead of silently kicking the user to login.
-            redirect_to_login=False is used for non-auth errors (network/server)
-            where we want to inform the user but not force them back to login."""
+            """Unified dialog handler that delegates to AuthSession.handle_session_expired
+            for auth expiration without creating duplicate or old AlertDialog boxes."""
+            if is_public_route(page.route):
+                return
+            session_inst = AuthSession.get_instance(page)
+            if session_inst._session_expired_shown or session_inst._is_logging_out:
+                return
+
+            if redirect_to_login:
+                await session_inst.handle_session_expired(message=message, title=title)
+                return
 
             def close_dialog(e=None):
-                page.pop_dialog()
-                if redirect_to_login:
-                    page.go("/login")
+                try:
+                    page.pop_dialog()
+                except Exception:
+                    pass
 
             dlg = ft.AlertDialog(
                 modal=True,
+                shape=ft.RoundedRectangleBorder(radius=16),
                 title=ft.Row(
-                    [ft.Icon(ft.Icons.LOCK_CLOCK, color=ft.Colors.PRIMARY), ft.Text(title)],
+                    [ft.Icon(ft.Icons.INFO_OUTLINE_ROUNDED, color=ft.Colors.PRIMARY), ft.Text(title, weight=ft.FontWeight.W_700)],
                     spacing=8,
                 ),
                 content=ft.Text(message),
                 actions=[
                     ft.FilledButton(
-                        "Log in again" if redirect_to_login else "OK",
+                        "OK",
                         on_click=close_dialog,
                     ),
                 ],
@@ -1401,9 +1419,8 @@ async def main(page: ft.Page):
             )
             page.show_dialog(dlg)
 
-            # Auto-dismiss/redirect after a few seconds if they don't tap the button
             await asyncio.sleep(auto_redirect_seconds)
-            if dlg.open:
+            if getattr(dlg, "open", False):
                 close_dialog()
 
         in_shell_route_flag = is_shell_route(page.route)
@@ -1411,8 +1428,8 @@ async def main(page: ft.Page):
         cached_token = page.session.store.get("session_auth_token") if hasattr(page, "session") and hasattr(page.session, "store") else None
         stored_token = await page.shared_preferences.get("auth_token")
 
-        session = AuthSession.get_instance()
-        token_stale = session.get_token_age_seconds() >= 2700  # 45 minutes
+        session = AuthSession.get_instance(page)
+        token_stale = session.get_token_age_seconds(stored_token) >= 2700  # 45 minutes
 
         needs_auth_check = (
             not is_public_route(page.route)
@@ -1682,16 +1699,37 @@ async def main(page: ft.Page):
             await load_view_and_report(edit_profile_view(page), page.route, active_skeleton, active_shimmer_task)
         elif page.route == "/organisations":
             await load_view_and_report(organisations_view(page), page.route, active_skeleton, active_shimmer_task)
-        elif page.route == "/network":
+        elif page.route == "/network" or (page.route and page.route.startswith("/network")):
             await load_view_and_report(network_view(page), page.route, active_skeleton, active_shimmer_task)
-        elif page.route == "/nu-chat":
-            await load_view_and_report(chat_view(page), page.route, active_skeleton, active_shimmer_task)
+        elif page.route in ("/nu-chat", "/chat") or (page.route and (page.route.startswith("/nu-chat?") or page.route.startswith("/chat?"))):
+            target_dm = None
+            target_ch = None
+            if page.route and "?" in page.route:
+                q_str = page.route.split("?", 1)[1]
+                for part in q_str.split("&"):
+                    if part.startswith("dm="):
+                        target_dm = part.split("=", 1)[1]
+                    elif part.startswith("channel="):
+                        target_ch = part.split("=", 1)[1]
+            await load_view_and_report(
+                chat_view(page, target_dm_user_id=target_dm, target_channel_id=target_ch),
+                page.route, active_skeleton, active_shimmer_task
+            )
         elif page.route == "/notifications":
             await load_view_and_report(notifications_view(page), page.route, active_skeleton, active_shimmer_task)
         elif troute.match("/courses/:id/stats"):
             await load_view_and_report(course_stats_view(page, troute.id), page.route, active_skeleton, active_shimmer_task)
-        elif page.route == "/self-study":
+        elif page.route and (page.route == "/self-study" or page.route.startswith("/self-study")):
             await load_view_and_report(self_study_view(page), page.route, active_skeleton, active_shimmer_task)
+        elif page.route == "/store" or (page.route and page.route.startswith("/store")):
+            tab = "plans"
+            if page.route and "?" in page.route:
+                q = page.route.split("?", 1)[1]
+                if "tab=boosters" in q:
+                    tab = "boosters"
+                elif "tab=org" in q:
+                    tab = "org"
+            await load_view_and_report(store_view(page, initial_tab=tab), page.route, active_skeleton, active_shimmer_task)
         elif troute.match("/organisations/:org_id/playlists"):
             user_data = page.session.store.get("current_user") or {} if hasattr(page, "session") and hasattr(page.session, "store") else {}
             u_role = str(user_data.get("role", "")).upper()
@@ -1963,6 +2001,46 @@ async def main(page: ft.Page):
 
     page.window.on_event = on_window_event
 
+    # ── PUSH NOTIFICATION DEEP LINK ROUTER ──────────────────────────
+    async def navigate_from_push(target_route: str):
+        """Dedicated router for push notifications and cold-start deep links.
+
+        Ensures in-flight auth checks, window resume, and shell state synchronize cleanly.
+        """
+        if not target_route:
+            return
+
+        print(f"[PushRouter] Notification navigation requested to: {target_route}")
+
+        # 1. Ensure user is authenticated if target is protected
+        tok = None
+        if hasattr(page, "shared_preferences"):
+            try:
+                tok = await page.shared_preferences.get("auth_token")
+            except Exception:
+                tok = None
+
+        if not tok and not _is_public_route(target_route):
+            print(f"[PushRouter] Unauthenticated tap on protected route {target_route}; redirecting to login.")
+            page.go("/login")
+            return
+
+        # 2. Wait up to 1.2s for any in-flight route_change or resume token check to settle
+        for _ in range(12):
+            if not route_change_state["in_flight"] and not resume_check_state["in_flight"]:
+                break
+            await asyncio.sleep(0.1)
+
+        # 3. If already on the exact target route, force reload so user sees fresh content
+        if page.route == target_route:
+            print(f"[PushRouter] Already on route {target_route}; refreshing active view.")
+            if is_shell_route(target_route):
+                persistent_nav_bar.set_active_route(target_route)
+            await route_change(None)
+        else:
+            print(f"[PushRouter] Navigating page to {target_route}")
+            page.go(target_route)
+
     # --- BUG FIX: intermittent white screen on FIRST load (distinct from
     # the token-expiry bug above — this can happen regardless of whether
     # a token exists, and a manual reload always "fixes" it) ---
@@ -1988,35 +2066,40 @@ async def main(page: ft.Page):
     # from an email) before route_change ever saw them. Now we only apply
     # that default when there's no real route to honor (fresh load with no
     # path, or bare "/").
+    has_token = None
+    try:
+        has_token = await asyncio.wait_for(
+            page.shared_preferences.get("auth_token"), timeout=5
+        )
+    except Exception as ex:
+        print(f"initial shared_preferences read failed: {ex!r}")
+        has_token = None
+
     if not page.route or page.route == "/":
-        try:
-            # Bounded wait, not just a try/except — an unready platform
-            # channel can hang rather than raise, and an unguarded await
-            # here would block bootstrap forever with no fallback at all.
-            has_token = await asyncio.wait_for(
-                page.shared_preferences.get("auth_token"), timeout=5
-            )
-        except Exception as ex:
-            # Covers both raised errors and the timeout above. If
-            # shared_preferences genuinely isn't ready/available yet,
-            # don't let that stall or crash session bootstrap and leave
-            # a blank screen with no recovery — fail safe to the public
-            # login route, which route_change can always render.
-            print(f"initial shared_preferences read failed: {ex!r}")
-            has_token = None
         page.route = "/dashboard" if has_token else "/"
+
+    # 0ms Cold-Start Notification Cache Hydration (Instant Badge Counter on Launch)
+    try:
+        from src.components.notifications_drawer import NotificationManager
+        await NotificationManager.init_from_cache(page)
+    except Exception as cache_ex:
+        print(f"[main.py] Notification cache hydration error: {cache_ex!r}")
+
+    if has_token:
+        try:
+            from src.services.notification_service import sync_learner_notifications
+            page.run_task(sync_learner_notifications, page, True)
+        except Exception:
+            pass
+
+    # Always initialize push notifications on mobile with the deep link navigator attached
+    try:
+        from src.services.push_notification_service import init_push_notifications, setup_user_push_notifications
+        page.run_task(init_push_notifications, page, None, navigate_from_push)
         if has_token:
-            try:
-                from src.services.notification_service import sync_learner_notifications
-                page.run_task(sync_learner_notifications, page, True)
-            except Exception:
-                pass
-            try:
-                from src.services.push_notification_service import init_push_notifications, setup_user_push_notifications
-                page.run_task(init_push_notifications, page)
-                page.run_task(setup_user_push_notifications, page, has_token)
-            except Exception:
-                pass
+            page.run_task(setup_user_push_notifications, page, has_token)
+    except Exception as push_ex:
+        print(f"[main.py] Push notification initialization error: {push_ex!r}")
 
     await route_change(None)
     # Belt-and-suspenders: if for any reason the manual call above didn't

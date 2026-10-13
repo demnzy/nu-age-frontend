@@ -4,13 +4,12 @@ Provides rich categorized notifications, urgent exam alerts, and real-time badge
 """
 
 from datetime import datetime, timezone
+import asyncio
 import flet as ft
 from src.components.notifications_drawer import NotificationManager, _format_relative_time, _format_notification_datetime
+from src.components.shimmer_skeletons import shimmer_box, grey_card, collect_shimmer_boxes
 from src.requests.Cohorts import get_learner_cohorts, start_cohort_exam
 from src.components.cohort_exam_runner import build_cohort_exam_view
-import asyncio
-
-import asyncio
 
 
 def get_effective_cohort_status(cohort: dict) -> str:
@@ -66,11 +65,15 @@ def get_effective_exam_status(exam: dict) -> str:
 async def notifications_view(page: ft.Page) -> ft.View:
     theme_color = ft.Colors.PRIMARY
 
+    initial_items = NotificationManager.get_all()
+    has_initial_data = len(initial_items) > 0
+
     state = {
         "tab": "all",
         "active_exams": [],
         "my_cohorts": [],
         "token": None,
+        "is_loading": not has_initial_data,
     }
 
     try:
@@ -99,17 +102,112 @@ async def notifications_view(page: ft.Page) -> ft.View:
         try:
             page.update()
         except Exception:
-            pass
+            NotificationManager.unsubscribe(update_unread_indicators)
 
     NotificationManager.subscribe(update_unread_indicators)
 
     def render_content():
+        # If loading with no initial cache, show high-fidelity LinkedIn-style shimmer skeletons
+        if state["is_loading"]:
+            def make_exam_banner_skeleton():
+                return grey_card(
+                    padding=16,
+                    radius=14,
+                    content=ft.Column([
+                        ft.Row([
+                            shimmer_box(radius=6, height=18, width=120, darker=True),
+                            shimmer_box(radius=4, height=12, width=80),
+                        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                        shimmer_box(radius=4, height=16, width=220),
+                        shimmer_box(radius=4, height=12, width=280),
+                        ft.Container(height=4),
+                        shimmer_box(radius=8, height=36, width=160, darker=True),
+                    ], spacing=6),
+                )
+
+            def make_cohort_hub_skeleton():
+                return grey_card(
+                    padding=14,
+                    radius=14,
+                    content=ft.Row([
+                        shimmer_box(radius=10, width=38, height=38, darker=True),
+                        ft.Column([
+                            ft.Row([
+                                shimmer_box(radius=4, height=14, width=140),
+                                shimmer_box(radius=6, height=14, width=50),
+                            ], spacing=6),
+                            shimmer_box(radius=4, height=11, width=220),
+                        ], spacing=4, expand=True),
+                        shimmer_box(radius=8, height=32, width=90, darker=True),
+                    ], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                )
+
+            def make_notification_card_skeleton():
+                return grey_card(
+                    padding=14,
+                    radius=12,
+                    content=ft.Row([
+                        shimmer_box(radius=10, width=40, height=40, darker=True),
+                        ft.Column([
+                            ft.Row([
+                                ft.Row([
+                                    shimmer_box(radius=999, width=7, height=7, darker=True),
+                                    shimmer_box(radius=4, height=13, width=160),
+                                ], spacing=6),
+                                shimmer_box(radius=4, height=12, width=65),
+                            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                            shimmer_box(radius=4, height=12, width=280),
+                            shimmer_box(radius=4, height=11, width=180),
+                        ], spacing=4, expand=True),
+                    ], spacing=12, vertical_alignment=ft.CrossAxisAlignment.START),
+                )
+
+            skeleton_items = [
+                make_exam_banner_skeleton(),
+                ft.Container(height=2),
+                make_cohort_hub_skeleton(),
+                ft.Container(
+                    padding=ft.Padding.only(top=10, bottom=4),
+                    content=ft.Row([
+                        shimmer_box(radius=6, height=16, width=60),
+                        ft.Container(height=1, expand=True, bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                    ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                ),
+                make_notification_card_skeleton(),
+                make_notification_card_skeleton(),
+                make_notification_card_skeleton(),
+                make_notification_card_skeleton(),
+            ]
+            content_list.controls = skeleton_items
+
+            boxes = []
+            for item in skeleton_items:
+                boxes.extend(collect_shimmer_boxes(item))
+
+            async def _pulse_loop():
+                phase = 0
+                while state.get("is_loading", False):
+                    try:
+                        for i, b in enumerate(boxes):
+                            on = (i + phase) % 3 == 0
+                            b.opacity = 0.65 if on else 0.3
+                        page.update()
+                        phase += 1
+                        await asyncio.sleep(0.3)
+                    except Exception:
+                        break
+
+            page.run_task(_pulse_loop)
+            return
+
         items = NotificationManager.get_all()
         tab = state["tab"]
         if tab == "exams":
             filtered = [n for n in items if n.get("category") in ("exams", "cohorts")]
         elif tab == "courses":
             filtered = [n for n in items if n.get("category") == "courses"]
+        elif tab == "chat":
+            filtered = [n for n in items if n.get("category") == "chat"]
         else:
             filtered = items
 
@@ -122,7 +220,6 @@ async def notifications_view(page: ft.Page) -> ft.View:
                 org_id = target_ex.get("org_id")
                 page.go(f"/cohorts/{c_id}/exams/{ex_id}?org_id={org_id}")
             return _launch
-
 
         # 1. Urgent live exam banner if any
         if state["active_exams"] and tab in ("all", "exams"):
@@ -263,15 +360,30 @@ async def notifications_view(page: ft.Page) -> ft.View:
                     cat_color = ft.Colors.ORANGE_600
                 elif cat == "courses":
                     cat_color = ft.Colors.BLUE_600
+                elif cat == "chat":
+                    cat_color = ft.Colors.GREEN_600
                 else:
                     cat_color = ft.Colors.PRIMARY
 
                 def make_tap_handler(notif):
                     def _do(_):
                         NotificationManager.mark_read(notif["id"])
+                        page.run_task(NotificationManager.persist_to_cache, page)
+                        b_id = notif.get("backend_id")
+                        if b_id and state["token"]:
+                            from src.requests.notifications import mark_notification_read
+                            page.run_task(mark_notification_read, state["token"], str(b_id))
                         update_unread_indicators()
                         if notif.get("on_action"):
-                            notif["on_action"]()
+                            try:
+                                notif["on_action"]()
+                            except TypeError:
+                                try:
+                                    notif["on_action"](page)
+                                except Exception:
+                                    pass
+                        elif notif.get("action_route"):
+                            page.go(notif["action_route"])
                         render_content()
                         page.update()
                     return _do
@@ -279,7 +391,7 @@ async def notifications_view(page: ft.Page) -> ft.View:
                 time_badge = ft.Container(
                     padding=ft.Padding.symmetric(horizontal=7, vertical=2.5),
                     border_radius=4,
-                    bgcolor=ft.Colors.with_opacity(0.12 if is_unread else 0.05, cat_color if is_unread else ft.Colors.ON_SURFACE),
+                    bgcolor=ft.Colors.with_opacity(0.14 if is_unread else 0.05, cat_color if is_unread else ft.Colors.ON_SURFACE),
                     content=ft.Text(
                         f"{info['time_badge']} · {info['relative']}",
                         size=10,
@@ -289,35 +401,40 @@ async def notifications_view(page: ft.Page) -> ft.View:
                 )
 
                 unread_dot = ft.Container(
-                    width=7, height=7, border_radius=3.5,
+                    width=8, height=8, border_radius=4,
                     bgcolor=cat_color,
                     visible=is_unread,
                 )
 
                 tile = ft.Container(
-                    padding=14,
+                    padding=ft.Padding.symmetric(horizontal=14, vertical=12),
                     border_radius=12,
-                    bgcolor=ft.Colors.with_opacity(0.07, cat_color) if is_unread else ft.Colors.SURFACE,
-                    border=ft.Border.all(1.2 if is_unread else 1, ft.Colors.with_opacity(0.24, cat_color) if is_unread else ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                    bgcolor=ft.Colors.with_opacity(0.08, cat_color) if is_unread else ft.Colors.SURFACE,
+                    border=ft.Border(
+                        left=ft.BorderSide(3.5, cat_color) if is_unread else ft.BorderSide(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                        top=ft.BorderSide(1, ft.Colors.with_opacity(0.18, cat_color) if is_unread else ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                        right=ft.BorderSide(1, ft.Colors.with_opacity(0.18, cat_color) if is_unread else ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                        bottom=ft.BorderSide(1, ft.Colors.with_opacity(0.18, cat_color) if is_unread else ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                    ),
                     ink=True,
                     on_click=make_tap_handler(n),
                     content=ft.Row([
                         ft.Container(
                             padding=10,
                             border_radius=10,
-                            bgcolor=ft.Colors.with_opacity(0.14 if is_unread else 0.08, cat_color),
+                            bgcolor=ft.Colors.with_opacity(0.16 if is_unread else 0.08, cat_color),
                             content=ft.Icon(n.get("icon", ft.Icons.NOTIFICATIONS_ROUNDED), size=20, color=cat_color),
                         ),
                         ft.Column([
                             ft.Row([
                                 ft.Row([
                                     unread_dot,
-                                    ft.Text(n.get("title", ""), size=13, weight=ft.FontWeight.BOLD if is_unread else ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE, expand=True),
-                                ], spacing=6, expand=True),
+                                    ft.Text(n.get("title", ""), size=13, weight=ft.FontWeight.BOLD if is_unread else ft.FontWeight.W_500, color=ft.Colors.ON_SURFACE, expand=True),
+                                ], spacing=6, expand=True, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                                 time_badge,
-                            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                            ft.Text(n.get("body", ""), size=12, color=ft.Colors.ON_SURFACE_VARIANT),
-                        ], spacing=3, expand=True),
+                            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                            ft.Text(n.get("body", ""), size=12, color=ft.Colors.ON_SURFACE if is_unread else ft.Colors.ON_SURFACE_VARIANT, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
+                        ], spacing=4, expand=True),
                     ], spacing=12, vertical_alignment=ft.CrossAxisAlignment.START),
                 )
                 tiles.append(tile)
@@ -341,6 +458,7 @@ async def notifications_view(page: ft.Page) -> ft.View:
         state["tab"] = tab_key
         tab_row.controls = [
             tab_btn("All", "all"),
+            tab_btn("Chat", "chat"),
             tab_btn("Exams & Cohorts", "exams"),
             tab_btn("Courses", "courses"),
         ]
@@ -361,36 +479,44 @@ async def notifications_view(page: ft.Page) -> ft.View:
 
     tab_row = ft.Row([
         tab_btn("All", "all"),
+        tab_btn("Chat", "chat"),
         tab_btn("Exams & Cohorts", "exams"),
         tab_btn("Courses", "courses"),
     ], spacing=8)
 
     def do_mark_all_read(_):
         NotificationManager.mark_all_read()
-        update_unread_indicators()
-        render_content()
-        page.update()
-
-    def do_clear_all(_):
-        NotificationManager.clear_all()
+        page.run_task(NotificationManager.persist_to_cache, page)
+        if state["token"]:
+            from src.requests.notifications import mark_all_notifications_read
+            page.run_task(mark_all_notifications_read, state["token"])
         update_unread_indicators()
         render_content()
         page.update()
 
     # Load background data for exams and cohorts
     async def load_active_data():
-        if state["token"]:
-            try:
-                from src.services.notification_service import sync_learner_notifications
-                await sync_learner_notifications(page, force=True)
-            except Exception:
-                pass
-            res = await get_learner_cohorts(state["token"])
-            state["active_exams"] = res.get("active_urgent_exams", [])
-            state["my_cohorts"] = res.get("cohorts", [])
+        try:
+            if state["token"]:
+                try:
+                    from src.services.notification_service import sync_learner_notifications
+                    await sync_learner_notifications(page, force=True)
+                except Exception as ex:
+                    print(f"[notifications_view] sync error: {ex}")
+                try:
+                    res = await get_learner_cohorts(state["token"])
+                    state["active_exams"] = res.get("active_urgent_exams", [])
+                    state["my_cohorts"] = res.get("cohorts", [])
+                except Exception as ex:
+                    print(f"[notifications_view] get_learner_cohorts error: {ex}")
+        finally:
+            state["is_loading"] = False
             update_unread_indicators()
             render_content()
-            page.update()
+            try:
+                page.update()
+            except Exception:
+                pass
 
     render_content()
     page.run_task(load_active_data)
@@ -407,10 +533,15 @@ async def notifications_view(page: ft.Page) -> ft.View:
                         ft.Text("Notifications", size=18, weight=ft.FontWeight.BOLD),
                         header_badge_container,
                     ], spacing=8, tight=True),
-                    ft.Row([
-                        ft.TextButton("Mark read", on_click=do_mark_all_read),
-                        ft.IconButton(ft.Icons.DELETE_SWEEP_OUTLINED, tooltip="Clear all", on_click=do_clear_all),
-                    ], spacing=2, tight=True),
+                    ft.TextButton(
+                        "Mark all read",
+                        icon=ft.Icons.DONE_ALL_ROUNDED,
+                        on_click=do_mark_all_read,
+                        style=ft.ButtonStyle(
+                            color=theme_color,
+                            padding=ft.Padding.symmetric(horizontal=10, vertical=4),
+                        ),
+                    ),
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
             ),
             ft.Container(
@@ -433,7 +564,8 @@ async def notifications_view(page: ft.Page) -> ft.View:
 
     return ft.View(
         route="/notifications",
-        controls=[content_socket],
+        controls=[ft.SafeArea(content=content_socket, expand=True)],
         bottom_appbar=bar_instance.bar,
         padding=0,
     )
+

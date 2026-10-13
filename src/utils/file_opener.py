@@ -3,29 +3,211 @@ import sys
 import shutil
 import urllib.parse
 import subprocess
+import asyncio
+from typing import Any, Optional, Union
 import flet as ft
 
 
-def show_page_snackbar(page: ft.Page, snack: ft.SnackBar):
+_toast_registry = {}  # {page_id: {"container": c, "text": t, "icon": i, "card": k, "dismiss_id": int}}
+
+
+def show_page_snackbar(page: ft.Page, snack: Any):
     """
-    Safely presents a SnackBar across different Flet runtime contexts
-    without throwing AttributeError on missing show_snack_bar.
+    Safely presents a sleek floating toast notification in page.overlay.
+    Unlike modal dialog routes, this never pops Flutter's Navigator,
+    guaranteeing page scroll offset is 100% preserved when the toast appears or dismisses.
     """
     if not page:
         return
+    # Guard against swapped arguments e.g. show_page_snackbar("text", page)
+    if isinstance(page, (str, ft.SnackBar)) and isinstance(snack, ft.Page):
+        page, snack = snack, page
+
+    message = ""
+    bg_color = "#064E3B"
+    text_color = ft.Colors.WHITE
+
+    if isinstance(snack, str):
+        message = snack
+    elif isinstance(snack, ft.SnackBar):
+        bg_color = snack.bgcolor or "#064E3B"
+        if isinstance(snack.content, ft.Text):
+            message = str(snack.content.value or "")
+        elif isinstance(snack.content, str):
+            message = snack.content
+        else:
+            message = str(getattr(snack.content, "value", snack.content))
+    elif hasattr(snack, "value"):
+        message = str(snack.value)
+    else:
+        message = str(snack)
+
+    message = (message or "").strip()
+    if not message:
+        return
+
+    # Choose icon & theme based on tone / message
+    m_lower = message.lower()
+    if any(w in m_lower for w in ("error", "fail", "could not", "invalid", "cannot")):
+        icon_name = ft.Icons.ERROR_OUTLINE_ROUNDED
+        icon_color = "#FCA5A5"
+        if bg_color == "#064E3B":
+            bg_color = "#7F1D1D"
+    elif any(w in m_lower for w in ("downloading", "saving", "adding", "removing", "refreshing")):
+        icon_name = ft.Icons.HOURGLASS_EMPTY_ROUNDED
+        icon_color = "#93C5FD"
+    elif any(w in m_lower for w in ("saved", "added", "success", "done", "completed")):
+        icon_name = ft.Icons.CHECK_CIRCLE_OUTLINE_ROUNDED
+        icon_color = "#86EFAC"
+    else:
+        icon_name = ft.Icons.INFO_OUTLINE_ROUNDED
+        icon_color = "#A7F3D0"
+
+    page_key = id(page)
+    state = _toast_registry.get(page_key)
+
+    # If active toast already mounted on this page, update in-place smoothly
+    if state and state.get("container") in getattr(page, "overlay", []):
+        container = state["container"]
+        txt_ctrl = state["text"]
+        icon_ctrl = state["icon"]
+        card = state["card"]
+
+        txt_ctrl.value = message
+        icon_ctrl.name = icon_name
+        icon_ctrl.color = icon_color
+        card.bgcolor = bg_color
+        container.opacity = 1.0
+        container.visible = True
+        state["dismiss_id"] = state.get("dismiss_id", 0) + 1
+        my_id = state["dismiss_id"]
+        try:
+            container.update()
+        except Exception:
+            try:
+                page.update()
+            except Exception:
+                pass
+    else:
+        txt_ctrl = ft.Text(
+            message,
+            size=12.5,
+            weight=ft.FontWeight.W_600,
+            color=text_color,
+            max_lines=2,
+            overflow=ft.TextOverflow.ELLIPSIS,
+        )
+        icon_ctrl = ft.Icon(icon_name, size=17, color=icon_color)
+        card = ft.Container(
+            padding=ft.Padding.symmetric(horizontal=16, vertical=10),
+            border_radius=ft.BorderRadius.all(12),
+            bgcolor=bg_color,
+            shadow=ft.BoxShadow(
+                blur_radius=16,
+                color=ft.Colors.with_opacity(0.28, ft.Colors.BLACK),
+                offset=ft.Offset(0, 4),
+            ),
+            content=ft.Row(
+                tight=True,
+                spacing=9,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[icon_ctrl, txt_ctrl],
+            ),
+        )
+        container = ft.Container(
+            bottom=26,
+            left=16,
+            right=16,
+            alignment=ft.Alignment.CENTER,
+            animate_opacity=250,
+            opacity=1.0,
+            visible=True,
+            content=card,
+        )
+
+        state = {
+            "container": container,
+            "text": txt_ctrl,
+            "icon": icon_ctrl,
+            "card": card,
+            "dismiss_id": 1,
+        }
+        _toast_registry[page_key] = state
+        my_id = 1
+
+        try:
+            if hasattr(page, "overlay") and page.overlay is not None:
+                page.overlay.append(container)
+                page.update()
+            else:
+                if hasattr(page, "show_dialog"):
+                    page.show_dialog(ft.SnackBar(content=ft.Text(message)))
+                return
+        except Exception as e:
+            print(f"[file_opener] Could not append overlay toast: {e}")
+            return
+
+    # Asynchronously auto-dismiss without popping Flutter Navigator
+    async def _auto_dismiss(t_id: int):
+        await asyncio.sleep(2.6)
+        curr = _toast_registry.get(page_key)
+        if not curr or curr.get("dismiss_id") != t_id:
+            return
+        try:
+            c = curr["container"]
+            c.opacity = 0.0
+            c.update()
+            await asyncio.sleep(0.3)
+            if curr.get("dismiss_id") == t_id:
+                c.visible = False
+                c.update()
+        except Exception:
+            pass
+
     try:
-        if hasattr(page, "open"):
-            page.open(snack)
-        elif hasattr(page, "show_snack_bar"):
-            page.show_snack_bar(snack)
-        elif hasattr(page, "show_dialog"):
-            page.show_dialog(snack)
-        elif hasattr(page, "overlay") and page.overlay is not None:
-            page.overlay.append(snack)
-            snack.open = True
-            page.update()
-    except Exception as e:
-        print(f"[file_opener] Could not display snackbar: {e}")
+        page.run_task(_auto_dismiss, my_id)
+    except Exception:
+        pass
+
+
+async def safe_set_clipboard(page: ft.Page, text: str):
+    """
+    Safely stores text into the system clipboard across Flet versions and platforms
+    without throwing AttributeError on missing set_clipboard.
+    """
+    if not page or text is None:
+        return
+    text = str(text)
+    try:
+        if hasattr(page, "clipboard"):
+            cb = getattr(page, "clipboard")
+            if hasattr(cb, "set") and callable(cb.set):
+                res = cb.set(text)
+                if asyncio.iscoroutine(res):
+                    await res
+                return
+            elif callable(cb):
+                res = cb(text)
+                if asyncio.iscoroutine(res):
+                    await res
+                return
+
+        if hasattr(page, "set_clipboard") and callable(page.set_clipboard):
+            res = page.set_clipboard(text)
+            if asyncio.iscoroutine(res):
+                await res
+            return
+
+        cb = ft.Clipboard()
+        if hasattr(page, "overlay") and page.overlay is not None and cb not in page.overlay:
+            page.overlay.append(cb)
+            if hasattr(page, "update"):
+                page.update()
+        res = cb.set(text)
+        if asyncio.iscoroutine(res):
+            await res
+    except Exception as ex:
+        print(f"[file_opener] Clipboard set notice: {ex}")
 
 
 async def open_or_download_asset(page: ft.Page, target_url_or_path: str, file_name: str = "Course Document"):

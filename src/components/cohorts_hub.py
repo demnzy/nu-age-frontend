@@ -35,6 +35,8 @@ from src.requests.Cohorts import (
     start_cohort_exam,
     get_exam_gradebook,
     export_exam_gradebook_csv,
+    get_cohort_health,
+    intervene_cohort,
 )
 
 _INPUT = {
@@ -617,11 +619,210 @@ def build_cohorts_tab(
 
         sub_tab_container = ft.Container(expand=True)
 
+        # ── INTERVENTION HELPER ──────────────────────────────────────────
+        def open_intervention_modal(target_user_id=None, target_user_name=None):
+            members_list = data.get("members", [])
+            is_single = bool(target_user_id)
+
+            if is_single:
+                dlg_title = f"Nudge {target_user_name or 'Learner'}"
+                default_msg = f"Hi {target_user_name or 'there'}, keep up the great effort in {c_name}! Take a few minutes today to advance your lessons."
+            else:
+                dlg_title = "Bulk Academic Nudge"
+                default_msg = f"Hi! Your cohort is actively progressing through {c_name}. Jump back into your modules today to stay on track."
+
+            selected_target = {"val": "inactive" if not is_single else "custom"}
+
+            msg_input = ft.TextField(
+                label="Custom Nudge Message",
+                value=default_msg,
+                multiline=True,
+                min_lines=3,
+                max_lines=5,
+                text_size=12.5,
+                border_radius=8,
+                focused_border_color=theme_color,
+                content_padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+            )
+
+            target_radios = []
+            if not is_single:
+                target_radios = [
+                    ft.Radio(value="inactive", label="Inactive Learners (At Risk & Disengaged)"),
+                    ft.Radio(value="disengaged", label="Only Disengaged (0% Progress)"),
+                    ft.Radio(value="all", label="All Enrolled Candidates"),
+                ]
+
+            dlg_ref = [None]
+
+            async def _send_nudge(e):
+                send_btn.disabled = True
+                send_btn.content = ft.Row([
+                    ft.ProgressRing(width=16, height=16, stroke_width=2, color=ft.Colors.WHITE),
+                    ft.Text("Sending...", size=12, color=ft.Colors.WHITE),
+                ], spacing=6, tight=True)
+                page.update()
+
+                uids = [str(target_user_id)] if target_user_id else None
+                res = await intervene_cohort(
+                    token=token,
+                    org_id=org_id,
+                    cohort_id=c_id,
+                    target_status=selected_target["val"],
+                    user_ids=uids,
+                    custom_title=f"Tutor Alert: {c_name}",
+                    custom_message=msg_input.value.strip() if msg_input.value else default_msg,
+                )
+
+                if dlg_ref[0]:
+                    dlg_ref[0].open = False
+                    page.update()
+
+                if "error" in res:
+                    show_snack(res["error"], is_error=True)
+                else:
+                    count = res.get("notified_count", 1)
+                    show_snack(f"Push & in-app nudge sent to {count} learner(s) via OneSignal.")
+
+            send_btn = ft.ElevatedButton(
+                content=ft.Row([
+                    ft.Icon(ft.Icons.NOTIFICATIONS_ACTIVE_ROUNDED, size=15, color=ft.Colors.WHITE),
+                    ft.Text("Send Nudge Alert", size=12, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE),
+                ], spacing=6, tight=True),
+                bgcolor=theme_color,
+                style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), padding=ft.Padding.symmetric(horizontal=16, vertical=10)),
+                on_click=lambda e: page.run_task(_send_nudge),
+            )
+
+            modal_content = ft.Column(
+                tight=True,
+                spacing=12,
+                controls=[
+                    ft.Text(
+                        f"Target: {target_user_name}" if is_single else "Select cohort target audience for OneSignal push notification:",
+                        size=12,
+                        color=ft.Colors.ON_SURFACE_VARIANT,
+                    ),
+                    *(
+                        [
+                            ft.RadioGroup(
+                                value=selected_target["val"],
+                                content=ft.Column(target_radios, spacing=4),
+                                on_change=lambda ev: selected_target.update({"val": ev.control.value}),
+                            )
+                        ]
+                        if not is_single
+                        else []
+                    ),
+                    msg_input,
+                ],
+            )
+
+            dlg = ft.AlertDialog(
+                shape=ft.RoundedRectangleBorder(radius=14),
+                title=ft.Row([
+                    ft.Icon(ft.Icons.CAMPAIGN_ROUNDED, color=theme_color, size=20),
+                    ft.Text(dlg_title, size=15, weight=ft.FontWeight.W_700),
+                ], spacing=8, tight=True),
+                content=ft.Container(
+                    width=min(400, (page.width - 40) if page.width else 380),
+                    content=modal_content,
+                ),
+                actions=[
+                    ft.TextButton("Cancel", on_click=lambda _: _close_nudge_dlg()),
+                    send_btn,
+                ],
+            )
+            dlg_ref[0] = dlg
+
+            def _close_nudge_dlg():
+                dlg.open = False
+                page.update()
+
+            page.overlay.append(dlg)
+            dlg.open = True
+            page.update()
+
         # ── SUB TAB: OVERVIEW ────────────────────────────────────────────
         def render_sub_overview():
             courses_list = data.get("courses", [])
             members_list = data.get("members", [])
             exams_list = data.get("exams", [])
+
+            h_summary = data.get("health_summary") or {}
+            on_track_cnt = h_summary.get("on_track", sum(1 for m in members_list if m.get("avg_progress", 0) >= 50.0))
+            at_risk_cnt = h_summary.get("at_risk", sum(1 for m in members_list if 0 < m.get("avg_progress", 0) < 50.0))
+            disengaged_cnt = h_summary.get("disengaged", sum(1 for m in members_list if m.get("avg_progress", 0) <= 0.0))
+
+            telemetry_card = ft.Container(
+                padding=16, border_radius=14,
+                bgcolor=ft.Colors.SURFACE,
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)),
+                content=ft.Column([
+                    ft.Row([
+                        ft.Row([
+                            ft.Icon(ft.Icons.HEALTH_AND_SAFETY_ROUNDED, color=theme_color, size=18),
+                            ft.Text("Learner Health & Telemetry", size=13, weight=ft.FontWeight.W_700, color=theme_color),
+                        ], spacing=6, expand=True),
+                        *(
+                            [
+                                ft.ElevatedButton(
+                                    content=ft.Row([
+                                        ft.Icon(ft.Icons.NOTIFICATIONS_ACTIVE_ROUNDED, size=13, color=ft.Colors.WHITE),
+                                        ft.Text("Bulk Nudge Inactive", size=11, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE),
+                                    ], spacing=5, tight=True),
+                                    bgcolor=theme_color,
+                                    style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), padding=ft.Padding.symmetric(horizontal=10, vertical=6)),
+                                    on_click=lambda _: open_intervention_modal(),
+                                )
+                            ]
+                            if is_admin and (at_risk_cnt + disengaged_cnt) > 0
+                            else []
+                        ),
+                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                    ft.Row([
+                        ft.Container(
+                            padding=ft.Padding.all(10), border_radius=10, expand=True,
+                            bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.GREEN),
+                            border=ft.Border.all(1, ft.Colors.with_opacity(0.18, ft.Colors.GREEN)),
+                            content=ft.Column([
+                                ft.Row([
+                                    ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED, size=14, color=ft.Colors.GREEN),
+                                    ft.Text("On Track", size=11, weight=ft.FontWeight.W_700, color=ft.Colors.GREEN_700),
+                                ], spacing=4),
+                                ft.Text(f"{on_track_cnt} Learners", size=14, weight=ft.FontWeight.W_800),
+                                ft.Text("≥ 50% Progress", size=9.5, color=ft.Colors.ON_SURFACE_VARIANT),
+                            ], spacing=2),
+                        ),
+                        ft.Container(
+                            padding=ft.Padding.all(10), border_radius=10, expand=True,
+                            bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.AMBER),
+                            border=ft.Border.all(1, ft.Colors.with_opacity(0.18, ft.Colors.AMBER)),
+                            content=ft.Column([
+                                ft.Row([
+                                    ft.Icon(ft.Icons.WARNING_ROUNDED, size=14, color=ft.Colors.AMBER_800),
+                                    ft.Text("At Risk", size=11, weight=ft.FontWeight.W_700, color=ft.Colors.AMBER_800),
+                                ], spacing=4),
+                                ft.Text(f"{at_risk_cnt} Learners", size=14, weight=ft.FontWeight.W_800),
+                                ft.Text("< 50% Progress", size=9.5, color=ft.Colors.ON_SURFACE_VARIANT),
+                            ], spacing=2),
+                        ),
+                        ft.Container(
+                            padding=ft.Padding.all(10), border_radius=10, expand=True,
+                            bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.RED),
+                            border=ft.Border.all(1, ft.Colors.with_opacity(0.18, ft.Colors.RED)),
+                            content=ft.Column([
+                                ft.Row([
+                                    ft.Icon(ft.Icons.CANCEL_ROUNDED, size=14, color=ft.Colors.RED),
+                                    ft.Text("Disengaged", size=11, weight=ft.FontWeight.W_700, color=ft.Colors.RED),
+                                ], spacing=4),
+                                ft.Text(f"{disengaged_cnt} Learners", size=14, weight=ft.FontWeight.W_800),
+                                ft.Text("0% Progress", size=9.5, color=ft.Colors.ON_SURFACE_VARIANT),
+                            ], spacing=2),
+                        ),
+                    ], spacing=10),
+                ], spacing=12),
+            )
 
             return ft.Column([
                 ft.Container(
@@ -648,6 +849,7 @@ def build_cohorts_tab(
                         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                     ], spacing=10),
                 ),
+                telemetry_card,
             ], spacing=12)
 
         # ── SUB TAB: COURSES ─────────────────────────────────────────────
@@ -817,6 +1019,32 @@ def build_cohorts_tab(
                         is_destructive=True,
                     )
 
+                h_status = m.get("health_status")
+                if not h_status:
+                    if m_prog >= 50.0:
+                        h_status = "on_track"
+                    elif m_prog > 0.0:
+                        h_status = "at_risk"
+                    else:
+                        h_status = "disengaged"
+
+                status_styles = {
+                    "on_track": (ft.Icons.CHECK_CIRCLE_ROUNDED, "On Track", ft.Colors.GREEN),
+                    "at_risk": (ft.Icons.WARNING_ROUNDED, "At Risk", ft.Colors.AMBER_800),
+                    "disengaged": (ft.Icons.CANCEL_ROUNDED, "Disengaged", ft.Colors.RED_500),
+                }
+                s_icon, s_label, s_color = status_styles.get(h_status, (ft.Icons.INFO_OUTLINE, "Enrolled", theme_color))
+
+                status_badge = ft.Container(
+                    padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+                    border_radius=ft.BorderRadius.all(6),
+                    bgcolor=ft.Colors.with_opacity(0.12, s_color),
+                    content=ft.Row([
+                        ft.Icon(s_icon, size=11, color=s_color),
+                        ft.Text(s_label, size=9.5, weight=ft.FontWeight.W_700, color=s_color),
+                    ], spacing=3, tight=True),
+                )
+
                 member_rows.append(
                     ft.Container(
                         padding=12, border_radius=12,
@@ -828,15 +1056,26 @@ def build_cohorts_tab(
                                 radius=18, bgcolor=ft.Colors.with_opacity(0.1, theme_color),
                             ),
                             ft.Column([
-                                ft.Text(m_name, size=13, weight=ft.FontWeight.BOLD),
+                                ft.Row([
+                                    ft.Text(m_name, size=13, weight=ft.FontWeight.BOLD),
+                                    status_badge,
+                                ], spacing=6, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                                 ft.Text(m.get("email", ""), size=11, color=ft.Colors.ON_SURFACE_VARIANT),
-                            ], spacing=1, expand=True),
+                            ], spacing=2, expand=True),
                             ft.Column([
                                 ft.Text(f"{m_prog}% Complete", size=11, weight=ft.FontWeight.BOLD, color=theme_color),
                                 ft.Container(
                                     width=70, content=ft.ProgressBar(value=m_prog / 100.0, height=4, color=theme_color),
                                 ),
                             ], spacing=2, horizontal_alignment=ft.CrossAxisAlignment.END),
+                            ft.IconButton(
+                                icon=ft.Icons.NOTIFICATIONS_ACTIVE_OUTLINED,
+                                icon_color=theme_color,
+                                icon_size=18,
+                                tooltip=f"Nudge {m_name}",
+                                on_click=lambda _, uid=m_uid, name=m_name: open_intervention_modal(target_user_id=uid, target_user_name=name),
+                                visible=is_admin,
+                            ),
                             ft.IconButton(
                                 icon=ft.Icons.PERSON_REMOVE_ROUNDED,
                                 icon_color=ft.Colors.RED_500,
@@ -927,7 +1166,39 @@ def build_cohorts_tab(
                 )
                 page.show_dialog(dlg)
 
+            h_summary = data.get("health_summary") or {}
+            at_risk_cnt = h_summary.get("at_risk", sum(1 for m in members_list if 0 < m.get("avg_progress", 0) < 50.0))
+            disengaged_cnt = h_summary.get("disengaged", sum(1 for m in members_list if m.get("avg_progress", 0) <= 0.0))
+            inactive_total = at_risk_cnt + disengaged_cnt
+
+            nudge_banner = (
+                ft.Container(
+                    padding=ft.Padding.symmetric(horizontal=14, vertical=10),
+                    border_radius=ft.BorderRadius.all(10),
+                    bgcolor=ft.Colors.with_opacity(0.10, ft.Colors.AMBER),
+                    border=ft.Border.all(1, ft.Colors.with_opacity(0.24, ft.Colors.AMBER)),
+                    content=ft.Row([
+                        ft.Row([
+                            ft.Icon(ft.Icons.WARNING_AMBER_ROUNDED, size=18, color=ft.Colors.AMBER_800),
+                            ft.Text(f"{inactive_total} learners need academic attention", size=12, weight=ft.FontWeight.W_700, color=ft.Colors.AMBER_900),
+                        ], spacing=8, expand=True),
+                        ft.ElevatedButton(
+                            content=ft.Row([
+                                ft.Icon(ft.Icons.NOTIFICATIONS_ACTIVE_ROUNDED, size=14, color=ft.Colors.WHITE),
+                                ft.Text("Bulk Nudge Inactive", size=11, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE),
+                            ], spacing=6, tight=True),
+                            bgcolor=theme_color,
+                            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), padding=ft.Padding.symmetric(horizontal=12, vertical=6)),
+                            on_click=lambda _: open_intervention_modal(),
+                        ),
+                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                )
+                if (is_admin and inactive_total > 0)
+                else None
+            )
+
             return ft.Column([
+                *( [nudge_banner] if nudge_banner else [] ),
                 ft.Row([
                     ft.Text(f"Cohort Roster ({len(members_list)})", size=13, weight=ft.FontWeight.BOLD),
                     ft.FilledButton(

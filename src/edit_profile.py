@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import flet as ft
 from src.components.bottom_appbar import get_bottom_appbar
 from src.requests.auth import reset_request
@@ -30,6 +31,11 @@ async def edit_profile_view(page: ft.Page) -> ft.View:
     gender     = user_data.get("gender", "Rather not say")
     university = user_data.get("university") or ""
     initials   = "".join([n[0] for n in full_name.split()[:2]]).upper() if full_name else "NU"
+    profile_pic = user_data.get("profile_picture_url")
+
+    selected_image_bytes = None
+    selected_image_filename = None
+    remove_picture_flag = False
 
     # ── Input Styles ──────────────────────────────────────────────────────────
     _input_style = {
@@ -174,6 +180,14 @@ async def edit_profile_view(page: ft.Page) -> ft.View:
         if gen != (user_data.get("gender") or "Rather not say"):
             updated_data["gender"] = gen
 
+        # Profile Picture Upload / Removal
+        if selected_image_bytes and selected_image_filename:
+            logo_b64 = base64.b64encode(selected_image_bytes).decode("utf-8")
+            updated_data["image_bytes"] = logo_b64
+            updated_data["image_filename"] = selected_image_filename
+        elif remove_picture_flag:
+            updated_data["remove_picture"] = True
+
         if not updated_data:
             show_feedback("No changes were made.", is_error=False)
             return
@@ -193,7 +207,12 @@ async def edit_profile_view(page: ft.Page) -> ft.View:
             status, data = await reset_request(token, updated_data)
 
             if status == 200:
-                user_data.update(updated_data)
+                if isinstance(data, dict):
+                    user_data.update(data)
+                else:
+                    user_data.update(updated_data)
+                    if remove_picture_flag:
+                        user_data["profile_picture_url"] = None
                 if hasattr(page.session.store, "set"):
                     page.session.store.set("current_user", user_data)
                 elif isinstance(page.session.store, dict):
@@ -268,22 +287,110 @@ async def edit_profile_view(page: ft.Page) -> ft.View:
         ]
     )
 
-    avatar_monogram = ft.Container(
-        width=88, height=88, border_radius=44,
-        bgcolor=ft.Colors.WHITE,
-        alignment=ft.Alignment.CENTER,
-        shadow=ft.BoxShadow(blur_radius=18, color=ft.Colors.with_opacity(0.25, ft.Colors.BLACK), offset=ft.Offset(0, 4)),
-        content=ft.Container(
-            width=80, height=80, border_radius=40,
-            bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY),
-            alignment=ft.Alignment.CENTER,
-            content=ft.Text(
-                initials, 
-                size=28, 
-                weight=ft.FontWeight.W_800, 
-                color=ft.Colors.PRIMARY
-            )
+    # ── Interactive Avatar Controls ───────────────────────────────────────────
+    avatar_circle = ft.CircleAvatar(
+        radius=40,
+        bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY),
+        foreground_image_src=profile_pic if (profile_pic and profile_pic.startswith("http")) else None,
+        content=ft.Text(
+            initials, 
+            size=28, 
+            weight=ft.FontWeight.W_800, 
+            color=ft.Colors.PRIMARY
         )
+    )
+
+    async def pick_profile_picture(ev):
+        nonlocal selected_image_bytes, selected_image_filename, remove_picture_flag
+        try:
+            files = await ft.FilePicker().pick_files(
+                allow_multiple=False,
+                file_type=ft.FilePickerFileType.IMAGE,
+                with_data=True
+            )
+            if files and len(files) > 0:
+                picked = files[0]
+                if not picked.bytes:
+                    show_feedback("Failed to read image data. Try another image.", is_error=True)
+                    return
+                if len(picked.bytes) > 5 * 1024 * 1024:
+                    show_feedback("Image exceeds maximum 5MB limit.", is_error=True)
+                    return
+                selected_image_bytes = picked.bytes
+                selected_image_filename = picked.name
+                remove_picture_flag = False
+                
+                # Instant local preview
+                b64 = base64.b64encode(selected_image_bytes).decode("utf-8")
+                avatar_circle.foreground_image_src = f"data:image/jpeg;base64,{b64}"
+                remove_photo_btn.visible = True
+                show_feedback(f"Photo selected: {picked.name} (Click Save Changes to apply)", is_error=False)
+                page.update()
+        except Exception as ex:
+            _log_error("pick_profile_picture", ex)
+            show_feedback("Could not open file picker. Try again.", is_error=True)
+
+    def remove_profile_picture(ev):
+        nonlocal selected_image_bytes, selected_image_filename, remove_picture_flag
+        selected_image_bytes = None
+        selected_image_filename = None
+        remove_picture_flag = True
+        avatar_circle.foreground_image_src = None
+        remove_photo_btn.visible = False
+        show_feedback("Photo marked for removal. Click Save Changes to apply.", is_error=False)
+        page.update()
+
+    camera_badge = ft.Container(
+        content=ft.Icon(ft.Icons.CAMERA_ALT_ROUNDED, size=15, color=ft.Colors.WHITE),
+        width=32,
+        height=32,
+        border_radius=16,
+        bgcolor=ft.Colors.PRIMARY,
+        border=ft.Border.all(2.5, ft.Colors.WHITE),
+        alignment=ft.Alignment.CENTER,
+        shadow=ft.BoxShadow(blur_radius=8, color=ft.Colors.with_opacity(0.35, ft.Colors.BLACK), offset=ft.Offset(0, 2)),
+        on_click=pick_profile_picture,
+        tooltip="Change photo",
+    )
+
+    avatar_monogram = ft.Container(
+        content=ft.Stack(
+            controls=[
+                ft.Container(
+                    left=4,
+                    top=4,
+                    width=88,
+                    height=88,
+                    border_radius=44,
+                    bgcolor=ft.Colors.WHITE,
+                    alignment=ft.Alignment.CENTER,
+                    shadow=ft.BoxShadow(blur_radius=18, color=ft.Colors.with_opacity(0.25, ft.Colors.BLACK), offset=ft.Offset(0, 4)),
+                    content=avatar_circle,
+                    on_click=pick_profile_picture,
+                ),
+                ft.Container(
+                    content=camera_badge,
+                    bottom=2,
+                    right=2,
+                )
+            ],
+            width=100,
+            height=100,
+        ),
+        tooltip="Click to change profile photo",
+        on_click=pick_profile_picture,
+    )
+
+    remove_photo_btn = ft.TextButton(
+        "Remove photo",
+        icon=ft.Icons.DELETE_OUTLINE_ROUNDED,
+        icon_color=ft.Colors.with_opacity(0.85, ft.Colors.WHITE),
+        style=ft.ButtonStyle(
+            color={"": ft.Colors.with_opacity(0.9, ft.Colors.WHITE)},
+            text_style=ft.TextStyle(size=11, weight=ft.FontWeight.W_500),
+        ),
+        visible=bool(profile_pic),
+        on_click=remove_profile_picture,
     )
 
     header = ft.Container(
@@ -320,6 +427,7 @@ async def edit_profile_view(page: ft.Page) -> ft.View:
                     ],
                 ),
                 avatar_monogram,
+                remove_photo_btn,
                 ft.Column([
                     ft.Text(full_name, size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE, text_align=ft.TextAlign.CENTER),
                     ft.Text(f"@{username}" if username else email, size=12, color=ft.Colors.with_opacity(0.85, ft.Colors.WHITE)),

@@ -31,10 +31,13 @@ def build_quiz(
     """Returns a Control for the full quiz session."""
     total = len(questions)
     if total == 0:
+        is_off = bool(page.route and ("offline=true" in page.route or page.route.startswith("/self-study/offline")))
         return ui.empty_state(
             ft.Icons.QUIZ_OUTLINED,
-            "No quiz questions yet",
-            "Generate questions from your study material first,\nthen come back for a quiz.",
+            "No quiz questions available" if is_off else "No quiz questions yet",
+            "This study material has no offline quiz questions cached.\nConnect to the internet to download this material."
+            if is_off
+            else "Generate questions from your study material first,\nthen come back for a quiz.",
             "Back to Hub",
             on_exit,
         )
@@ -56,19 +59,69 @@ def build_quiz(
     streak_pill = ui.pill("0 streak", ui.C_WARN, icon=ft.Icons.LOCAL_FIRE_DEPARTMENT_ROUNDED)
     score_pill = ui.pill("0 correct", ui.C_CORRECT, icon=ft.Icons.CHECK_CIRCLE_ROUNDED)
 
-    question_text = ft.Text(
+    question_markdown = ft.Markdown(
         "",
-        size=17,
-        weight=ft.FontWeight.W_700,
-        color=ft.Colors.ON_SURFACE,
+        extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
         selectable=True,
+        auto_follow_links=True,
+        code_theme="atom-one-dark",
     )
+    topic_pill = ft.Container(visible=False)
+    diagram_img = ft.Image(src="", fit=ft.BoxFit.CONTAIN, border_radius=ft.BorderRadius.all(8), height=190)
+    diagram_container = ft.Container(
+        visible=False,
+        border_radius=ft.BorderRadius.all(10),
+        bgcolor=ui.tint(ft.Colors.ON_SURFACE, 0.04),
+        border=ft.Border.all(1, ui.hairline(0.14)),
+        padding=8,
+        alignment=ft.Alignment.CENTER,
+    )
+
+    def _open_diagram_lightbox(url: str, title: str = "Question Diagram"):
+        if not url:
+            return
+        dlg = ft.AlertDialog(
+            modal=True,
+            title=ft.Row(
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                controls=[
+                    ft.Text(title, size=15, weight=ft.FontWeight.BOLD),
+                    ft.IconButton(
+                        ft.Icons.CLOSE_ROUNDED,
+                        tooltip="Close",
+                        on_click=lambda _: _close_lightbox(),
+                    ),
+                ],
+            ),
+            content=ft.Container(
+                width=520,
+                content=ft.Image(
+                    src=url,
+                    fit=ft.BoxFit.CONTAIN,
+                    border_radius=ft.BorderRadius.all(10),
+                ),
+            ),
+        )
+        def _close_lightbox():
+            dlg.open = False
+            page.update()
+
+        page.overlay.append(dlg)
+        dlg.open = True
+        page.update()
+
     options_col = ft.Column(spacing=9)
 
     # Feedback panel — hidden until an answer is submitted.
     fb_icon = ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED, size=20, color=ui.C_CORRECT)
     fb_title = ft.Text("", size=14, weight=ft.FontWeight.W_800, color=ui.C_CORRECT)
-    fb_expl = ft.Text("", size=12, color=ui.muted(0.80), selectable=True)
+    fb_expl = ft.Markdown(
+        "",
+        extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+        selectable=True,
+        auto_follow_links=True,
+        code_theme="atom-one-dark",
+    )
     feedback = ft.Container(
         visible=False,
         padding=13,
@@ -111,7 +164,15 @@ def build_quiz(
                 color=ui.muted(0.60),
             ),
         )
-        body = ft.Text(label, size=13, color=ft.Colors.ON_SURFACE, expand=True, selectable=False)
+        body = ft.Container(
+            content=ft.Markdown(
+                label,
+                extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+                selectable=False,
+                code_theme="atom-one-dark",
+            ),
+            expand=True,
+        )
         trailing = ft.Icon(ft.Icons.CIRCLE_OUTLINED, size=17, color=ui.hairline(0.18))
 
         tile = ft.Container(
@@ -140,8 +201,48 @@ def build_quiz(
         state["q_started"] = time.time()
 
         counter.value = f"Question {state['index'] + 1} of {total}"
-        question_text.value = str(q.get("question") or "—")
+        question_markdown.value = str(q.get("question") or "—")
         progress.set_current(state["index"])
+
+        # Render diagram if present
+        img_url = q.get("image_url")
+        if img_url:
+            diagram_img.src = str(img_url).strip()
+            diagram_container.content = ft.Column(
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                spacing=6,
+                controls=[
+                    diagram_img,
+                    ft.Row(
+                        tight=True,
+                        alignment=ft.MainAxisAlignment.CENTER,
+                        controls=[
+                            ft.Icon(ft.Icons.ZOOM_IN_ROUNDED, size=14, color=ft.Colors.PRIMARY),
+                            ft.Text("Tap diagram to enlarge", size=11, weight=ft.FontWeight.W_600, color=ft.Colors.PRIMARY),
+                        ],
+                    ),
+                ],
+            )
+            diagram_container.on_click = lambda _, u=str(img_url).strip(): _open_diagram_lightbox(u)
+            diagram_container.visible = True
+        else:
+            diagram_container.visible = False
+
+        # Render topic / exam metadata pill
+        meta_parts = []
+        if q.get("exam_type"):
+            meta_parts.append(str(q["exam_type"]))
+        if q.get("exam_year"):
+            meta_parts.append(str(q["exam_year"]))
+        if q.get("topic"):
+            meta_parts.append(str(q["topic"]))
+
+        if meta_parts:
+            topic_label = " • ".join(meta_parts)
+            topic_pill.content = ui.pill(topic_label, ui.C_INFO, icon=ft.Icons.SCHOOL_ROUNDED)
+            topic_pill.visible = True
+        else:
+            topic_pill.visible = False
 
         options_col.controls.clear()
         for i, opt in enumerate(q.get("options") or []):
@@ -230,6 +331,7 @@ def build_quiz(
                 "correct_index": correct_i,
                 "chosen_index": chosen,
                 "explanation": expl,
+                "image_url": q.get("image_url"),
                 "flagged": False,
                 "seconds": int(time.time() - state["q_started"]),
             }
@@ -297,8 +399,16 @@ def build_quiz(
                 ft.Column(
                     spacing=13,
                     controls=[
-                        ui.section_label("Question"),
-                        question_text,
+                        ft.Row(
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            controls=[
+                                ui.section_label("Question"),
+                                topic_pill,
+                            ],
+                        ),
+                        question_markdown,
+                        diagram_container,
                     ],
                 ),
                 padding=17,

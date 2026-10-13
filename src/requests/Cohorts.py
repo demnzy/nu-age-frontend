@@ -358,3 +358,51 @@ async def get_learner_cohorts(token: str) -> dict:
     except Exception as e:
         print(f"get_learner_cohorts error: {e}")
         return {"cohorts": [], "active_urgent_exams": []}
+
+
+# ── Cohort Health & Interventions ────────────────────────────────────────
+
+async def get_cohort_health(token: str, org_id: str, cohort_id: str) -> dict:
+    """Fetch cohort health telemetry breakdown and learner status."""
+    url = f"{api_url}/organisations/{org_id}/cohorts/{cohort_id}/health"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
+            res = await client.get(url, headers=headers)
+            if res.status_code == 200:
+                return res.json()
+            return {"error": res.text}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+async def intervene_cohort(
+    token: str,
+    org_id: str,
+    cohort_id: str,
+    target_status: str = "inactive",
+    user_ids: typing.Optional[typing.List[str]] = None,
+    custom_title: typing.Optional[str] = None,
+    custom_message: typing.Optional[str] = None,
+) -> dict:
+    """Dispatch targeted OneSignal push & in-app nudges to cohort learners."""
+    url = f"{api_url}/organisations/{org_id}/cohorts/{cohort_id}/intervene"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    payload = {
+        "target_status": target_status,
+        "user_ids": user_ids,
+        "custom_title": custom_title,
+        "custom_message": custom_message,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
+            res = await client.post(url, headers=headers, json=payload)
+            if res.status_code == 200:
+                return res.json()
+            try:
+                return {"error": res.json().get("detail", res.text)}
+            except Exception:
+                return {"error": res.text}
+    except Exception as e:
+        return {"error": str(e)}
+

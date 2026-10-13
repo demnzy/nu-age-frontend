@@ -13,8 +13,8 @@ from src.requests.chats import get_all_users
 from src.utils.quotes import get_random_quote, get_random_greeting, get_random_tip
 from src.utils.db_manager import get_weekly_activity, log_daily_activity
 from src.requests.Cohorts import get_learner_cohorts
-from src.components.learner_cohorts_hub import open_learner_cohorts_modal
 from src.local_db import has_any_downloaded_courses
+from src.components.quick_hub import get_quick_hub
 
 # ─────────────────────────────────────────────────────────────────────────────
 # HELPERS
@@ -57,10 +57,17 @@ FORCE_SHOW_ONBOARDING = None
 
 async def check_is_first_login(page: ft.Page) -> bool:
     """Check if the user is logging in for the first time."""
-    user_data = page.session.store.get("current_user") or {}
-    streak = user_data.get("streak", 0)
-    seen = streak > 2
-    return not seen
+    try:
+        has_seen = await page.shared_preferences.get("has_seen_onboarding")
+        if has_seen:
+            return False
+    except Exception:
+        pass
+    user_data = page.session.store.get("current_user") or {} if hasattr(page, "session") and hasattr(page.session, "store") else {}
+    if user_data.get("has_seen_onboarding"):
+        return False
+    streak = user_data.get("streak", 0) or 0
+    return streak == 0
 
 
 async def mark_onboarding_seen(page: ft.Page, data: dict = None) -> None:
@@ -190,19 +197,100 @@ async def dashboard_view(page: ft.Page):
     stat_finished = ft.Text("-", size=20, weight=ft.FontWeight.W_800, color=ft.Colors.SURFACE)
     stat_streak = ft.Text("-", size=20, weight=ft.FontWeight.W_800, color=ft.Colors.SURFACE)
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # 1. HEADER / HERO (Redesigned matching EduLearn & mobile inspo)
-    # ─────────────────────────────────────────────────────────────────────────
-    hero_art = ft.Container(
-        width=250,
-        height=170,
-        border_radius=ft.BorderRadius.all(16),
-        clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-        alignment=ft.Alignment.CENTER,
-        content=ft.Image(
-            src="hero_graduation.png",
-            fit=ft.BoxFit.CONTAIN,
+    user_init_data = page.session.store.get("current_user") or {}
+    dash_p_pic = user_init_data.get("profile_picture_url")
+    dash_fname = user_init_data.get("first_name", "")
+    dash_lname = user_init_data.get("last_name", "")
+    dash_inits = ((dash_fname[:1] if dash_fname else "") + (dash_lname[:1] if dash_lname else "")).upper() or "NU"
+    dash_has_pic = bool(dash_p_pic and isinstance(dash_p_pic, str) and dash_p_pic.startswith("http"))
+
+    # Desktop Showcase Avatar
+    dash_avatar_ctrl = ft.CircleAvatar(
+        radius=50,
+        bgcolor=ft.Colors.with_opacity(0.22, ft.Colors.WHITE),
+        foreground_image_src=dash_p_pic if dash_has_pic else None,
+        content=ft.Text(dash_inits, size=30, weight=ft.FontWeight.W_800, color=ft.Colors.WHITE),
+    )
+
+    dash_hero_avatar = ft.Container(
+        content=ft.Stack(
+            controls=[
+                ft.Container(
+                    content=dash_avatar_ctrl,
+                    border=ft.Border.all(3.5, ft.Colors.with_opacity(0.7, ft.Colors.WHITE)),
+                    border_radius=54,
+                    padding=2,
+                    shadow=ft.BoxShadow(
+                        blur_radius=22,
+                        color=ft.Colors.with_opacity(0.25, ft.Colors.BLACK),
+                        offset=ft.Offset(0, 6)
+                    ),
+                ),
+                ft.Container(
+                    content=ft.Container(
+                        content=ft.Icon(ft.Icons.EDIT_ROUNDED, size=13, color=ft.Colors.WHITE),
+                        width=28,
+                        height=28,
+                        border_radius=14,
+                        bgcolor=ft.Colors.PRIMARY,
+                        border=ft.Border.all(2, ft.Colors.WHITE),
+                        alignment=ft.Alignment.CENTER,
+                        shadow=ft.BoxShadow(blur_radius=6, color=ft.Colors.with_opacity(0.35, ft.Colors.BLACK), offset=ft.Offset(0, 2)),
+                    ),
+                    bottom=2,
+                    right=2,
+                )
+            ],
+            width=112,
+            height=112,
         ),
+        ink=True,
+        tooltip="View & Edit Profile",
+        on_click=lambda _: page.go("/profile"),
+    )
+
+    # Mobile Showcase Avatar
+    dash_avatar_mobile = ft.CircleAvatar(
+        radius=32,
+        bgcolor=ft.Colors.with_opacity(0.22, ft.Colors.WHITE),
+        foreground_image_src=dash_p_pic if dash_has_pic else None,
+        content=ft.Text(dash_inits, size=18, weight=ft.FontWeight.W_800, color=ft.Colors.WHITE),
+    )
+
+    dash_hero_avatar_mobile = ft.Container(
+        content=ft.Stack(
+            controls=[
+                ft.Container(
+                    content=dash_avatar_mobile,
+                    border=ft.Border.all(2.5, ft.Colors.with_opacity(0.7, ft.Colors.WHITE)),
+                    border_radius=36,
+                    padding=1.5,
+                    shadow=ft.BoxShadow(
+                        blur_radius=14,
+                        color=ft.Colors.with_opacity(0.2, ft.Colors.BLACK),
+                        offset=ft.Offset(0, 4)
+                    ),
+                ),
+                ft.Container(
+                    content=ft.Container(
+                        content=ft.Icon(ft.Icons.EDIT_ROUNDED, size=10, color=ft.Colors.WHITE),
+                        width=22,
+                        height=22,
+                        border_radius=11,
+                        bgcolor=ft.Colors.PRIMARY,
+                        border=ft.Border.all(1.5, ft.Colors.WHITE),
+                        alignment=ft.Alignment.CENTER,
+                    ),
+                    bottom=0,
+                    right=0,
+                )
+            ],
+            width=72,
+            height=72,
+        ),
+        ink=True,
+        tooltip="View & Edit Profile",
+        on_click=lambda _: page.go("/profile"),
     )
 
     def build_hero_content():
@@ -221,7 +309,10 @@ async def dashboard_view(page: ft.Page):
                             tip_container,
                         ],
                     ),
-                    hero_art,
+                    ft.Container(
+                        content=dash_hero_avatar,
+                        padding=ft.Padding.only(left=24, right=12),
+                    ),
                 ],
             )
         else:
@@ -240,14 +331,8 @@ async def dashboard_view(page: ft.Page):
                                 ],
                             ),
                             ft.Container(
-                                width=105,
-                                height=85,
-                                border_radius=ft.BorderRadius.all(12),
-                                clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-                                content=ft.Image(
-                                    src="hero_graduation.png",
-                                    fit=ft.BoxFit.CONTAIN,
-                                ),
+                                content=dash_hero_avatar_mobile,
+                                padding=ft.Padding.only(left=8),
                             ),
                         ],
                     ),
@@ -675,9 +760,12 @@ async def dashboard_view(page: ft.Page):
         content=build_trackers_layout((page.width or 400) >= 800),
     )
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # 6. CONTINUE LEARNING
-    # ─────────────────────────────────────────────────────────────────────────
+
+    quick_hub_section = ft.Container(
+        width=float("inf"),
+        content=get_quick_hub(page),
+    )
+
     continue_learning_section = ft.Container(
         width=float("inf"),
         opacity=0,
@@ -694,6 +782,19 @@ async def dashboard_view(page: ft.Page):
         user_data  = page.session.store.get("current_user") or {}
         first_name = user_data.get("first_name", "there")
         target_greeting = f"{get_random_greeting()} {first_name}!"
+
+        p_pic = user_data.get("profile_picture_url")
+        has_p = bool(p_pic and isinstance(p_pic, str) and p_pic.startswith("http"))
+        if has_p:
+            dash_avatar_ctrl.foreground_image_src = p_pic
+            dash_avatar_mobile.foreground_image_src = p_pic
+        else:
+            dash_avatar_ctrl.foreground_image_src = None
+            dash_avatar_mobile.foreground_image_src = None
+
+        dash_inits_updated = ((first_name[:1] if first_name else "") + (user_data.get("last_name", "")[:1] if user_data.get("last_name") else "")).upper() or "NU"
+        dash_avatar_ctrl.content.value = dash_inits_updated
+        dash_avatar_mobile.content.value = dash_inits_updated
 
         # Trigger fade animations immediately
         greeting_sub.opacity = 1
@@ -741,6 +842,7 @@ async def dashboard_view(page: ft.Page):
             
         active_count = len(enrolled_list)
         finished_count = sum(1 for c in enrolled_list if c.get("progress", 0.0) >= 100)
+
 
         # ── Fetch Learner Cohorts ────────────────────────────────────────────
         learner_cohorts_res = {"cohorts": []}
@@ -839,6 +941,7 @@ async def dashboard_view(page: ft.Page):
             page.update()
 
         page.run_task(animate_stats, active_count, finished_count, streak)
+
 
         # ── build continue-learning cards ─────────────────────────────────────
         enrolled_cards = []
@@ -1211,11 +1314,12 @@ async def dashboard_view(page: ft.Page):
                             content=ft.Column(
                                 spacing=16,
                                 controls=[
-                                    trackers_container,         # 1. Dual Course Mastery & Learning Focus Trackers
-                                    learner_cohorts_card,       # 2. My Training Cohorts Track
-                                    self_study_card,            # 3. Self-Study Hub
-                                    network_card,               # 4. Standalone Student Network Showcase
-                                    continue_learning_section,  # 5. Continue Learning Course Cards
+                                    quick_hub_section,          # 1. 4-tile Quick Launch Hub
+                                    continue_learning_section,  # 3. Continue Learning Course Cards
+                                    trackers_container,         # 4. Dual Course Mastery & Learning Focus Trackers
+                                    learner_cohorts_card,       # 5. My Training Cohorts Track
+                                    self_study_card,            # 6. Self-Study Hub
+                                    network_card,               # 7. Standalone Student Network Showcase
                                     ft.Container(height=24),
                                 ],
                             ),
@@ -1253,6 +1357,7 @@ async def dashboard_view(page: ft.Page):
         header.content = build_hero_content()
         self_study_card.content = build_self_study_content(is_desk)
         network_card.content = build_network_content(is_desk)
+        quick_hub_section.content = get_quick_hub(page)
         page.update()
 
     page.on_resize = on_dashboard_resize

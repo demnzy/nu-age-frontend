@@ -57,15 +57,91 @@ HLS_CONCURRENCY = 6
 
 class DownloadProgress:
     """Simple mutable progress holder a caller can poll or bind to a
-    progress bar. Not a callback-based design on purpose — Flet UIs
-    polling a shared object every N ms during a page.run_task is simpler
-    to wire up than plumbing a callback through every download step."""
+    progress bar. Supports cancellation and plain-language status reporting."""
 
     def __init__(self):
-        self.status = "pending"          # pending | fetching | downloading_assets | writing_db | done | error
+        self.status = "pending"          # pending | fetching | downloading_assets | writing_db | done | error | cancelled
         self.total_assets = 0
         self.completed_assets = 0
+        self.total_bytes = 0
+        self.downloaded_bytes = 0
         self.error_message = None
+        self.is_cancelled = False
+
+    def cancel(self):
+        self.is_cancelled = True
+        self.status = "cancelled"
+
+    def progress_fraction(self) -> float:
+        if self.total_assets <= 0:
+            return 0.0
+        return min(1.0, max(0.0, self.completed_assets / self.total_assets))
+
+    def status_text(self) -> str:
+        if self.status == "fetching":
+            return "Fetching course syllabus..."
+        elif self.status == "downloading_assets":
+            return f"Downloading assets ({self.completed_assets}/{self.total_assets})..."
+        elif self.status == "writing_db":
+            return "Finalizing offline storage..."
+        elif self.status == "done":
+            return "Downloaded for offline study."
+        elif self.status == "cancelled":
+            return "Download cancelled."
+        elif self.status == "error":
+            return f"Failed: {self.error_message or 'Unknown error'}"
+        return "Preparing download..."
+
+
+def format_size_bytes(bytes_count: int) -> str:
+    """Formats bytes to a clean human-readable string (KB, MB, GB)."""
+    if not bytes_count or bytes_count <= 0:
+        return "0 KB"
+    for unit in ["B", "KB", "MB", "GB"]:
+        if bytes_count < 1024.0:
+            return f"{bytes_count:.1f} {unit}" if unit in ("MB", "GB") else f"{int(bytes_count)} {unit}"
+        bytes_count /= 1024.0
+    return f"{bytes_count:.1f} TB"
+
+
+def get_plain_language_sync_status(downloaded_at_iso: str | None) -> str:
+    """Converts ISO timestamp into plain language like 'Synced 2 hours ago' or 'Synced just now'."""
+    if not downloaded_at_iso:
+        return "Downloaded for offline study"
+    try:
+        dt = datetime.fromisoformat(downloaded_at_iso.replace("Z", "+00:00"))
+        now = datetime.now(timezone.utc)
+        diff = (now - dt).total_seconds()
+        if diff < 60:
+            return "Downloaded · Synced just now"
+        elif diff < 3600:
+            mins = int(diff // 60)
+            return f"Downloaded · Synced {mins}m ago"
+        elif diff < 86400:
+            hrs = int(diff // 3600)
+            return f"Downloaded · Synced {hrs}h ago"
+        else:
+            days = int(diff // 86400)
+            return f"Downloaded · Synced {days}d ago"
+    except Exception:
+        return "Downloaded for offline study"
+
+
+async def get_wifi_only_preference(page: ft.Page) -> bool:
+    """Reads whether the user prefers downloads over Wi-Fi only."""
+    try:
+        val = await page.shared_preferences.get("download_wifi_only")
+        return bool(val) if val is not None else False
+    except Exception:
+        return False
+
+
+async def set_wifi_only_preference(page: ft.Page, enabled: bool):
+    """Sets the Wi-Fi only download preference."""
+    try:
+        await page.shared_preferences.set("download_wifi_only", enabled)
+    except Exception as ex:
+        print(f"[Offline] Error saving wifi_only preference: {ex}")
 
 
 async def download_course(page: ft.Page, course_id: str, progress: DownloadProgress = None) -> bool:
@@ -149,8 +225,13 @@ async def download_course(page: ft.Page, course_id: str, progress: DownloadProgr
     # whole asset up. Each individual request still gets its own budget.
     async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=15.0)) as client:
         for lesson, key, url in asset_jobs:
+            if progress.is_cancelled:
+                progress.status = "cancelled"
+                progress.error_message = "Download cancelled by user."
+                return False
             try:
                 local_path, size_bytes = await _download_asset(client, url, assets_dir)
+                progress.downloaded_bytes += size_bytes
                 lesson["content"][key] = local_path  # rewrite in place —
                                                        # this is what makes
                                                        # course_page.py's
@@ -631,3 +712,115 @@ def _safe_filename_from_url(url: str) -> str:
     # share a filename across different lessons.
     base_name = url.split("?")[0].rstrip("/").split("/")[-1] or "asset"
     return f"{uuid.uuid4().hex}_{base_name}"
+
+
+# ── Study Materials Offline Download Helpers ──────────────────────────────
+
+async def download_study_material(page: ft.Page, token: str, material: dict) -> bool:
+    """
+    Downloads all cards and assessment questions for a single study material / pack
+    and caches it into SQLite for complete offline study.
+    """
+    if getattr(page, "web", False) or not token or not material:
+        return False
+    mat_id = str(material.get("id"))
+    if not mat_id:
+        return False
+
+    try:
+        from src.requests.study import get_all_cards, get_exam_questions, get_quiz_questions
+        from src.local_db import save_study_material_offline
+
+        # Fetch flashcards (all, not just due)
+        cards = await get_all_cards(token, material_ids=[mat_id])
+
+        # Fetch questions from exam simulator endpoint (up to 50 questions)
+        exam_res = await get_exam_questions(token, material_ids=[mat_id])
+        questions = []
+        if isinstance(exam_res, dict):
+            questions = exam_res.get("questions") or []
+        elif isinstance(exam_res, list):
+            questions = exam_res
+
+        # If exam endpoint returned empty, fall back to quiz endpoint
+        if not questions:
+            quiz_res = await get_quiz_questions(token, material_ids=[mat_id])
+            if isinstance(quiz_res, list):
+                questions = quiz_res
+
+        save_study_material_offline(
+            material=material,
+            flashcards=cards or [],
+            questions=questions or [],
+            page=page,
+        )
+        return True
+    except Exception as e:
+        print(f"[DOWNLOAD ERROR] Failed to download study material {mat_id}: {e}")
+        return False
+
+
+async def download_all_study_materials(page: ft.Page, token: str) -> dict:
+    """
+    Downloads all materials, packs, cards, and questions in the student's vault.
+    Returns stats dict: {"materials": N, "cards": N, "questions": N}.
+    """
+    if getattr(page, "web", False) or not token:
+        return {"materials": 0, "cards": 0, "questions": 0}
+
+    try:
+        from src.requests.study import get_materials, get_all_cards, get_exam_questions, get_quiz_questions
+        from src.local_db import save_study_material_offline
+
+        mats = await get_materials(token)
+        if not mats:
+            return {"materials": 0, "cards": 0, "questions": 0}
+
+        mat_count = 0
+        total_cards = 0
+        total_questions = 0
+
+        for m in mats:
+            mid = str(m.get("id"))
+            if not mid:
+                continue
+            try:
+                cards = await get_all_cards(token, material_ids=[mid])
+                exam_res = await get_exam_questions(token, material_ids=[mid])
+                questions = []
+                if isinstance(exam_res, dict):
+                    questions = exam_res.get("questions") or []
+                elif isinstance(exam_res, list):
+                    questions = exam_res
+
+                if not questions:
+                    quiz_res = await get_quiz_questions(token, material_ids=[mid])
+                    if isinstance(quiz_res, list):
+                        questions = quiz_res
+
+                save_study_material_offline(
+                    material=m,
+                    flashcards=cards or [],
+                    questions=questions or [],
+                    page=page,
+                )
+                mat_count += 1
+                total_cards += len(cards or [])
+                total_questions += len(questions or [])
+            except Exception as item_err:
+                print(f"[DOWNLOAD ERROR] Material {mid} failed: {item_err}")
+
+        return {
+            "materials": mat_count,
+            "cards": total_cards,
+            "questions": total_questions,
+        }
+    except Exception as e:
+        print(f"[DOWNLOAD ERROR] download_all_study_materials failed: {e}")
+        return {"materials": 0, "cards": 0, "questions": 0}
+
+
+async def delete_downloaded_study_material(page: ft.Page, material_id: str) -> bool:
+    """Removes a downloaded study material from local SQLite storage."""
+    from src.local_db import delete_offline_study_material
+    return delete_offline_study_material(material_id, page=page)

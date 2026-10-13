@@ -67,6 +67,56 @@ async def get_channel_messages(token: str, channel_id: str, limit: int = 50, off
         return {"error": "Connection failed"}
 
 
+async def send_channel_message_api(token: str, channel_id: str, content: str, msg_type: str = "text"):
+    """Sends a message to a channel via REST."""
+    url = f"{api_url}/chat/channels/{channel_id}/messages"
+    headers = {"Authorization": f"Bearer {token}"}
+    payload = {"content": content, "type": msg_type}
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
+            resp = await client.post(url, headers=headers, json=payload)
+            if resp.status_code in (200, 201):
+                return resp.json()
+            return {"error": f"Status {resp.status_code}"}
+    except Exception as ex:
+        return {"error": str(ex)}
+
+
+async def ask_ai_tutor_api(
+    token: str,
+    query: str,
+    course_title: str = "Course",
+    module_title: str = "Module",
+    lesson_title: str = "Lesson",
+    lesson_content: str = "",
+    conversation_history: list = None,
+    is_assessment: bool = False,
+    material_id: str = None,
+):
+    """Calls the OpenAI-powered educational AI Doubt Assistant."""
+    url = f"{api_url}/study/ai-tutor"
+    headers = {"Authorization": f"Bearer {token}"}
+    payload = {
+        "query": query,
+        "course_title": course_title,
+        "module_title": module_title,
+        "lesson_title": lesson_title,
+        "lesson_content": lesson_content,
+        "conversation_history": conversation_history or [],
+        "is_assessment": is_assessment,
+        "material_id": str(material_id) if material_id else None,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(35.0, connect=10.0), verify=ssl_context) as client:
+            resp = await client.post(url, headers=headers, json=payload)
+            if resp.status_code == 200:
+                return resp.json()
+            return {"error": f"Server status {resp.status_code}"}
+    except Exception as ex:
+        return {"error": str(ex)}
+
+
+
 async def create_group_channel(token: str, name: str, channel_type: str, org_id: str = None, is_announcement: bool = False, member_ids: list = None):
     """Creates a new group chat (Custom or Org-wide)."""
     url = f"{api_url}/chat/channels"
@@ -247,17 +297,11 @@ async def get_group_members(token: str, channel_id: str):
         async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
             response = await client.get(url, headers=headers)
             if response.status_code == 200:
-                return response.json().get("member_ids", [])
-            return []
-    except httpx.TimeoutException:
-        print("get_group_members timed out.")
-        return []
-    except httpx.RequestError as e:
-        print(f"get_group_members connection error: {e}")
-        return []
+                return response.json()
+            return {}
     except Exception as e:
-        print(f"get_group_members unknown error: {e}")
-        return []
+        print(f"get_group_members error: {e}")
+        return {}
 
 
 async def add_group_members(token: str, channel_id: str, member_ids: list):
@@ -304,20 +348,21 @@ async def delete_chat_channel(token: str, channel_id: str):
 
 
 async def leave_group_channel(token: str, channel_id: str):
-    """Hits the DELETE /{chat_id}/leave endpoint."""
-    url = f"{api_url}/chats/{channel_id}/leave"
+    """Hits the DELETE /chat/channels/{channel_id}/leave endpoint."""
+    url = f"{api_url}/chat/channels/{channel_id}/leave"
     headers = {"Authorization": f"Bearer {token}"}
 
     try:
         async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
             response = await client.delete(url, headers=headers)
-            response.raise_for_status()
-            return response.json()
-    except httpx.TimeoutException:
-        return {"error": "Connection failed"}
-    except httpx.HTTPStatusError as e:
-        return {"error": str(e)}
-    except httpx.RequestError as e:
-        return {"error": "Connection failed"}
+            if response.status_code == 200:
+                return response.json()
+            elif response.status_code == 400:
+                try:
+                    err_detail = response.json().get("detail", "Cannot leave this group.")
+                    return {"error": err_detail}
+                except Exception:
+                    return {"error": response.text}
+            return {"error": f"Failed with status {response.status_code}"}
     except Exception as e:
         return {"error": str(e)}
