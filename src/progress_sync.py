@@ -39,8 +39,9 @@ async def sync_offline_progress(page: ft.Page, result: SyncResult = None) -> Syn
     if getattr(page, "web", False):
         result.status = "nothing_to_sync"
         return result
-    db = get_local_db(page)
+    from src.local_db import get_local_db, get_unsynced_study_reviews, mark_study_reviews_synced
 
+    db = get_local_db(page)
     rows = db.execute(
         """
         SELECT lesson_id, course_id, status, completed_at, quiz_answers, quiz_score
@@ -49,19 +50,30 @@ async def sync_offline_progress(page: ft.Page, result: SyncResult = None) -> Syn
         """
     ).fetchall()
 
-    if not rows:
+    unsynced_reviews = get_unsynced_study_reviews(page)
+
+    if not rows and not unsynced_reviews:
         result.status = "nothing_to_sync"
         return result
 
-    result.total = len(rows)
+    result.total = len(rows) + len(unsynced_reviews)
     result.status = "syncing"
 
-    token = await page.shared_preferences.get("auth_token")
+    token = None
+    if hasattr(page, "shared_preferences"):
+        try:
+            token = await page.shared_preferences.get("auth_token")
+        except Exception:
+            pass
+    if not token and hasattr(page, "session") and getattr(page.session, "store", None):
+        token = page.session.store.get("session_auth_token") or page.session.store.get("auth_token") or page.session.store.get("token")
+    if not token and hasattr(page, "client_storage"):
+        try:
+            token = await page.client_storage.get_async("token") or await page.client_storage.get_async("auth_token")
+        except Exception:
+            pass
+
     if not token:
-        # No valid session to sync under. Not an error — just can't
-        # proceed right now. Leave everything unsynced for next attempt,
-        # after route_change's normal refresh-token flow (re)establishes
-        # a token.
         result.status = "error"
         result.error_message = "Not logged in."
         return result
@@ -82,35 +94,36 @@ async def sync_offline_progress(page: ft.Page, result: SyncResult = None) -> Syn
     now = datetime.now(timezone.utc).isoformat()
     bulk_succeeded = False
 
-    # 1. Primary Strategy: Try bulk-sync
-    try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.post(
-                f"{BASE_URL}/courses/progress/bulk-sync",
-                headers={"Authorization": f"Bearer {token}"},
-                json={"entries": entries},
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                for item in data.get("results", []):
-                    if item.get("status") in ("synced", "skipped_already_completed", "skipped_not_found"):
-                        db.execute(
-                            "UPDATE lesson_progress SET synced_at = ? WHERE lesson_id = ?",
-                            (now, item["lesson_id"]),
-                        )
-                        synced_count += 1
-                db.commit()
-                bulk_succeeded = True
-            elif resp.status_code == 401:
-                result.status = "error"
-                result.error_message = "Session expired — please log in again."
-                return result
-            else:
-                print(f"[Sync] bulk-sync rejected with status {resp.status_code}: {resp.text}")
-    except httpx.RequestError as ex:
-        print(f"[Sync] bulk-sync network error: {ex}")
-    except Exception as ex:
-        print(f"[Sync] bulk-sync unexpected error: {ex}")
+    # 1. Primary Strategy: Try bulk-sync for lesson entries (if any exist)
+    if entries:
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.post(
+                    f"{BASE_URL}/courses/progress/bulk-sync",
+                    headers={"Authorization": f"Bearer {token}"},
+                    json={"entries": entries},
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    for item in data.get("results", []):
+                        if item.get("status") in ("synced", "skipped_already_completed", "skipped_not_found"):
+                            db.execute(
+                                "UPDATE lesson_progress SET synced_at = ? WHERE lesson_id = ?",
+                                (now, item["lesson_id"]),
+                            )
+                            synced_count += 1
+                    db.commit()
+                    bulk_succeeded = True
+                elif resp.status_code == 401:
+                    result.status = "error"
+                    result.error_message = "Session expired — please log in again."
+                    return result
+                else:
+                    print(f"[Sync] bulk-sync rejected with status {resp.status_code}: {resp.text}")
+        except httpx.RequestError as ex:
+            print(f"[Sync] bulk-sync network error: {ex}")
+        except Exception as ex:
+            print(f"[Sync] bulk-sync unexpected error: {ex}")
 
     # 2. Secondary Strategy: If bulk-sync was rejected or failed, sync individually via mark_complete
     if not bulk_succeeded:
@@ -151,10 +164,36 @@ async def sync_offline_progress(page: ft.Page, result: SyncResult = None) -> Syn
                 print(f"[Sync] Exception marking lesson {lesson_id} complete: {ex}")
         db.commit()
 
+    # 3. Synchronize any queued offline flashcard reviews
+    try:
+        from src.local_db import get_unsynced_study_reviews, mark_study_reviews_synced
+        unsynced_reviews = get_unsynced_study_reviews(page)
+        if unsynced_reviews and token:
+            from src.requests.study import post_review
+            synced_review_ids = []
+            for rev in unsynced_reviews:
+                try:
+                    res = await post_review(token, card_id=rev["card_id"], quality=rev["quality"])
+                    err_str = str(res.get("error", "")) if isinstance(res, dict) else ""
+                    if isinstance(res, dict) and not res.get("error"):
+                        synced_review_ids.append(rev["id"])
+                    elif "404" in err_str or "not found" in err_str.lower():
+                        print(f"[Sync] Flashcard {rev['card_id']} was removed from server; resolving review.")
+                        synced_review_ids.append(rev["id"])
+                except Exception as rev_err:
+                    print(f"[Sync] Flashcard review sync error: {rev_err}")
+            if synced_review_ids:
+                mark_study_reviews_synced(synced_review_ids, page=page)
+                synced_count += len(synced_review_ids)
+    except Exception as srs_sync_err:
+        print(f"[Sync] Study reviews sync exception: {srs_sync_err}")
+
     if synced_count > 0:
         result.synced = synced_count
-        result.failed = result.total - synced_count
+        result.failed = max(0, result.total - synced_count)
         result.status = "done"
+    elif result.total == 0:
+        result.status = "nothing_to_sync"
     else:
         result.status = "error"
         result.error_message = "Could not sync with server. Check internet connectivity."
@@ -168,7 +207,12 @@ async def has_unsynced_progress(page: ft.Page) -> bool:
     try:
         db = get_local_db(page)
         row = db.execute(
-            "SELECT 1 FROM lesson_progress WHERE synced_at IS NULL LIMIT 1"
+            """
+            SELECT 1 FROM lesson_progress WHERE synced_at IS NULL 
+            UNION ALL 
+            SELECT 1 FROM study_review_queue WHERE synced_at IS NULL 
+            LIMIT 1
+            """
         ).fetchone()
         return row is not None
     except Exception:

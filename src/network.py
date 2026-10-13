@@ -15,6 +15,22 @@ from src.requests.networks import (
     get_discover_peers, get_discover_org, get_discover_trending,
     send_request, accept_request, decline_request, cancel_outgoing_request, remove_friend
 )
+from src.utils.file_opener import show_page_snackbar
+from src.requests.study_partners import (
+    get_active_partnership,
+    get_partner_recommendations,
+    get_incoming_partnership_requests,
+    get_sent_partnership_requests,
+    invite_study_partner,
+    accept_partnership_request,
+    decline_partnership_request,
+    delete_partnership,
+    nudge_study_partner,
+)
+from src.components.partner_challenge_modal import (
+    show_create_duel_dialog,
+    show_duel_results_dialog,
+)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -198,7 +214,7 @@ async def network_view(page: ft.Page):
     header_subtitle_ref = ft.Ref[ft.Text]()
 
     # ── segmented control (clean underline/pill style matching reference) ──────
-    seg_labels = ["My Network", "Requests", "Discover"]
+    seg_labels = ["My Network", "Requests", "Discover", "Study Partners"]
 
     seg_row = ft.Container(
         margin=ft.Margin.only(top=4, bottom=4),
@@ -268,11 +284,17 @@ async def network_view(page: ft.Page):
         await asyncio.sleep(0)
 
         if idx == 0:
+            header_title.value = "Your Friends"
             await show_network()
         elif idx == 1:
+            header_title.value = "Requests"
             await show_requests()
         elif idx == 2:
+            header_title.value = "Discover Peers"
             await show_discover()
+        elif idx == 3:
+            header_title.value = "Study Partners"
+            await show_study_partners()
 
         if page.views and _is_mounted(content_socket):
             page.update()
@@ -1105,6 +1127,809 @@ async def network_view(page: ft.Page):
             ),
         )
 
+    # ─────────────────────────────────────────────────────────────────────────
+    # TAB 4 — STUDY PARTNERS (SEPARATED SUB-VIEWS & DEDUPLICATED INVITES)
+    # ─────────────────────────────────────────────────────────────────────────
+    study_subtab = {"index": 0}
+    locally_invited_ids = set()
+
+    async def show_study_partners():
+        if header_subtitle_ref.current and _is_mounted(header_subtitle_ref.current):
+            header_subtitle_ref.current.value = "Accountability Duos & Matchmaking"
+            header_subtitle_ref.current.update()
+
+        try:
+            active_res, recs_data, incoming_data, sent_data = await asyncio.gather(
+                get_active_partnership(token),
+                get_partner_recommendations(token, limit=12),
+                get_incoming_partnership_requests(token),
+                get_sent_partnership_requests(token),
+            )
+        except Exception as ex:
+            print(f"[show_study_partners] fetch failed: {ex}")
+            active_res = {"has_partnership": False}
+            recs_data = []
+            incoming_data = []
+            sent_data = []
+
+        active_res = active_res or {"has_partnership": False}
+        has_partnership = bool(active_res.get("has_partnership"))
+        partnership = active_res.get("partnership", {})
+        recs = list(recs_data or [])
+        incoming = list(incoming_data or [])
+        sent = list(sent_data or [])
+
+        # Auto-pick default subtab on first load if not explicitly set
+        if "initialized" not in study_subtab:
+            study_subtab["initialized"] = True
+            if has_partnership:
+                study_subtab["index"] = 0
+            elif incoming:
+                study_subtab["index"] = 2
+            else:
+                study_subtab["index"] = 1
+
+        def _render_partner_view():
+            current_idx = study_subtab["index"]
+
+            # ── Subtab Pill Header ───────────────────────────────────────────
+            invites_count = len(incoming) + len(sent)
+            subtab_row = ft.Container(
+                margin=ft.Margin.only(bottom=14),
+                content=ft.Row(
+                    spacing=8,
+                    scroll=ft.ScrollMode.HIDDEN,
+                    controls=[
+                        _subtab_pill("🤝 My Duo", 0, count=0),
+                        _subtab_pill("🎯 Recommended", 1, count=0),
+                        _subtab_pill("📬 Invitations", 2, count=invites_count, is_alert=bool(incoming)),
+                    ],
+                ),
+            )
+
+            body_controls = [subtab_row]
+
+            # ── SUBTAB 0: MY DUO (ACTIVE PARTNERSHIP COCKPIT) ─────────────────
+            if current_idx == 0:
+                if has_partnership:
+                    partner = partnership.get("partner") or {}
+                    p_id = partnership.get("id")
+                    p_first = partner.get("first_name", "Partner")
+                    p_last = partner.get("last_name", "")
+                    p_name = f"{p_first} {p_last}".strip()
+                    p_uni = partner.get("university") or "Campus Peer"
+                    duo_streak = partnership.get("duo_streak", 0)
+                    daily_target_mins = partnership.get("daily_target_minutes", 45)
+                    user_today_mins = partnership.get("user_today_minutes", 0)
+                    partner_today_mins = partnership.get("partner_today_minutes", 0)
+                    user_done = partnership.get("user_studied_today", False)
+                    partner_done = partnership.get("partner_studied_today", False)
+                    can_nudge = partnership.get("can_nudge", True)
+                    recent_challenges = partnership.get("recent_challenges", [])
+
+                    user_frac = min(user_today_mins / max(daily_target_mins, 1), 1.0)
+                    partner_frac = min(partner_today_mins / max(daily_target_mins, 1), 1.0)
+
+                    nudge_spinner = ft.ProgressRing(width=14, height=14, stroke_width=2, color=ft.Colors.PRIMARY, visible=False)
+                    is_nudging_network = False
+
+                    async def _nudge_partner_action(e=None):
+                        nonlocal is_nudging_network, can_nudge
+                        if is_nudging_network or not can_nudge:
+                            if not can_nudge:
+                                show_page_snackbar(page, f"You recently nudged {p_first}. Please wait before nudging again.")
+                            return
+                        is_nudging_network = True
+                        nudge_spinner.visible = True
+                        page.update()
+                        try:
+                            res = await nudge_study_partner(token, p_id)
+                            if res and not res.get("error"):
+                                can_nudge = False
+                                show_page_snackbar(page, f"Nudge sent to {p_first}! 🔥")
+                            else:
+                                show_page_snackbar(page, res.get("error", "Could not send nudge."))
+                        except Exception as n_err:
+                            show_page_snackbar(page, f"Error: {n_err}")
+                        finally:
+                            nudge_spinner.visible = False
+                            is_nudging_network = False
+                            page.update()
+
+                    def _confirm_end_partnership():
+                        confirm_dlg = ft.AlertDialog(
+                            modal=True,
+                            shape=ft.RoundedRectangleBorder(radius=16),
+                            bgcolor=ft.Colors.SURFACE,
+                            title=ft.Row([
+                                ft.Icon(ft.Icons.WARNING_ROUNDED, color=ft.Colors.RED_600, size=22),
+                                ft.Text("End Study Partnership?", size=15, weight=ft.FontWeight.W_800),
+                            ], spacing=8),
+                            content=ft.Text(
+                                f"Are you sure you want to end your accountability duo with {p_first}? Your shared duo streak ({duo_streak} days) will be reset.",
+                                size=12.5,
+                                color=ft.Colors.GREY_600,
+                            ),
+                            actions=[
+                                ft.TextButton("Keep Partner", on_click=lambda _: (setattr(confirm_dlg, "open", False), page.update())),
+                                ft.FilledButton(
+                                    "End Partnership",
+                                    style=ft.ButtonStyle(bgcolor=ft.Colors.RED_600, color=ft.Colors.WHITE),
+                                    on_click=lambda _: page.run_task(_execute_end_partner, confirm_dlg),
+                                ),
+                            ],
+                        )
+                        confirm_dlg.open = True
+                        page.overlay.append(confirm_dlg)
+                        page.update()
+
+                    async def _execute_end_partner(dlg):
+                        dlg.open = False
+                        page.update()
+                        await delete_partnership(token, p_id)
+                        show_page_snackbar(page, "Study partnership concluded.")
+                        await switch_tab(3)
+
+                    active_card = ft.Container(
+                        padding=ft.Padding.all(16),
+                        border_radius=ft.BorderRadius.all(18),
+                        bgcolor=ft.Colors.SURFACE,
+                        border=ft.Border.all(1.2, ft.Colors.with_opacity(0.18, ft.Colors.PRIMARY)),
+                        shadow=ft.BoxShadow(
+                            blur_radius=12,
+                            color=ft.Colors.with_opacity(0.04, ft.Colors.BLACK),
+                            offset=ft.Offset(0, 3),
+                        ),
+                        content=ft.Column(
+                            spacing=14,
+                            tight=True,
+                            controls=[
+                                ft.Row(
+                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                    controls=[
+                                        ft.Row(
+                                            spacing=12,
+                                            tight=True,
+                                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                            controls=[
+                                                _avatar(partner, radius=24),
+                                                ft.Column(
+                                                    spacing=2,
+                                                    tight=True,
+                                                    controls=[
+                                                        ft.Row([
+                                                            ft.Text(p_name, size=15, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
+                                                            ft.Container(
+                                                                width=7,
+                                                                height=7,
+                                                                border_radius=4,
+                                                                bgcolor=ft.Colors.GREEN if partner_done else ft.Colors.GREY_400,
+                                                            ),
+                                                        ], spacing=5, tight=True),
+                                                        ft.Text(p_uni, size=11, color=ft.Colors.GREY_500),
+                                                    ],
+                                                ),
+                                            ],
+                                        ),
+                                        ft.Row(
+                                            spacing=6,
+                                            tight=True,
+                                            controls=[
+                                                ft.Container(
+                                                    padding=ft.Padding.symmetric(horizontal=10, vertical=4),
+                                                    border_radius=ft.BorderRadius.all(12),
+                                                    gradient=ft.LinearGradient(
+                                                        colors=[ft.Colors.AMBER_600, ft.Colors.ORANGE_600],
+                                                        begin=ft.Alignment.TOP_LEFT,
+                                                        end=ft.Alignment.BOTTOM_RIGHT,
+                                                    ),
+                                                    content=ft.Row([
+                                                        ft.Icon(ft.Icons.LOCAL_FIRE_DEPARTMENT_ROUNDED, size=14, color=ft.Colors.WHITE),
+                                                        ft.Text(f"{duo_streak}d Streak", size=11, weight=ft.FontWeight.W_800, color=ft.Colors.WHITE),
+                                                    ], spacing=3, tight=True),
+                                                ),
+                                                ft.IconButton(
+                                                    icon=ft.Icons.MORE_VERT_ROUNDED,
+                                                    icon_size=18,
+                                                    icon_color=ft.Colors.GREY_500,
+                                                    tooltip="Partnership options",
+                                                    on_click=lambda _: _confirm_end_partnership(),
+                                                ),
+                                            ],
+                                        ),
+                                    ],
+                                ),
+                                ft.Container(
+                                    padding=ft.Padding.all(12),
+                                    border_radius=ft.BorderRadius.all(12),
+                                    bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
+                                    content=ft.Column(
+                                        spacing=8,
+                                        tight=True,
+                                        controls=[
+                                            ft.Row(
+                                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                                controls=[
+                                                    ft.Row([
+                                                        ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED if user_done else ft.Icons.RADIO_BUTTON_UNCHECKED_ROUNDED, size=14, color=ft.Colors.GREEN_600 if user_done else ft.Colors.GREY_500),
+                                                        ft.Text("You", size=11.5, weight=ft.FontWeight.W_700),
+                                                    ], spacing=5, tight=True),
+                                                    ft.Text(f"{user_today_mins} / {daily_target_mins} mins", size=11, weight=ft.FontWeight.W_600, color=ft.Colors.GREY_600),
+                                                ],
+                                            ),
+                                            ft.ProgressBar(value=user_frac, color=ft.Colors.PRIMARY, bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY), height=5),
+                                            ft.Row(
+                                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                                controls=[
+                                                    ft.Row([
+                                                        ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED if partner_done else ft.Icons.RADIO_BUTTON_UNCHECKED_ROUNDED, size=14, color=ft.Colors.GREEN_600 if partner_done else ft.Colors.GREY_500),
+                                                        ft.Text(p_first, size=11.5, weight=ft.FontWeight.W_700),
+                                                    ], spacing=5, tight=True),
+                                                    ft.Text(f"{partner_today_mins} / {daily_target_mins} mins", size=11, weight=ft.FontWeight.W_600, color=ft.Colors.GREY_600),
+                                                ],
+                                            ),
+                                            ft.ProgressBar(value=partner_frac, color=ft.Colors.TEAL_600, bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.TEAL), height=5),
+                                        ],
+                                    ),
+                                ),
+                                ft.Row(
+                                    spacing=10,
+                                    controls=[
+                                        ft.FilledButton(
+                                            content=ft.Row([
+                                                ft.Icon(ft.Icons.NOTIFICATIONS_ACTIVE_ROUNDED, size=14, color=ft.Colors.WHITE),
+                                                ft.Text("Nudge Partner", size=12, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE),
+                                                nudge_spinner,
+                                            ], spacing=5, tight=True),
+                                            style=ft.ButtonStyle(
+                                                bgcolor=ft.Colors.PRIMARY if can_nudge else ft.Colors.GREY_500,
+                                                shape=ft.RoundedRectangleBorder(radius=10),
+                                            ),
+                                            height=38,
+                                            expand=True,
+                                            disabled=not can_nudge,
+                                            on_click=lambda _: page.run_task(_nudge_partner_action),
+                                        ),
+                                        ft.OutlinedButton(
+                                            content=ft.Row([
+                                                ft.Icon(ft.Icons.SPORTS_ESPORTS_ROUNDED, size=14, color=ft.Colors.ORANGE_700),
+                                                ft.Text("Duel Challenge", size=12, weight=ft.FontWeight.W_700, color=ft.Colors.ORANGE_800),
+                                            ], spacing=5, tight=True),
+                                            style=ft.ButtonStyle(
+                                                side=ft.BorderSide(1, ft.Colors.ORANGE_300),
+                                                shape=ft.RoundedRectangleBorder(radius=10),
+                                            ),
+                                            height=38,
+                                            expand=True,
+                                            on_click=lambda _: show_create_duel_dialog(
+                                                page=page,
+                                                token=token,
+                                                partnership_id=p_id,
+                                                partner=partner,
+                                                available_materials=[],
+                                                on_duel_created=lambda: page.run_task(switch_tab, 3),
+                                            ),
+                                        ),
+                                    ],
+                                ),
+                            ],
+                        ),
+                    )
+
+                    body_controls.append(active_card)
+
+                    if recent_challenges:
+                        ch_items = []
+                        for ch in recent_challenges[:5]:
+                            ch_status = ch.get("status")
+                            needs_resp = ch.get("needs_my_response")
+                            if ch_status == "completed":
+                                res_txt = "Completed"
+                                res_col = ft.Colors.GREEN_700
+                            elif needs_resp:
+                                res_txt = "Waiting For You"
+                                res_col = ft.Colors.ORANGE_700
+                            else:
+                                res_txt = "Waiting for Partner"
+                                res_col = ft.Colors.BLUE_700
+
+                            ch_items.append(
+                                ft.Container(
+                                    padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+                                    border_radius=ft.BorderRadius.all(12),
+                                    bgcolor=ft.Colors.SURFACE,
+                                    border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                                    content=ft.Row(
+                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                        controls=[
+                                            ft.Row([
+                                                ft.Icon(ft.Icons.SPORTS_ESPORTS_ROUNDED, size=18, color=ft.Colors.ORANGE_600),
+                                                ft.Column([
+                                                    ft.Text(f"Duel ({ch.get('total_questions', 10)} Qs)", size=12.5, weight=ft.FontWeight.W_700),
+                                                    ft.Text(res_txt, size=10.5, color=res_col, weight=ft.FontWeight.W_600),
+                                                ], spacing=1, tight=True),
+                                            ], spacing=8, tight=True),
+                                            ft.TextButton(
+                                                "View Diagnostic",
+                                                on_click=lambda _, c=ch: show_duel_results_dialog(page, c, partner.get("id")),
+                                            ),
+                                        ],
+                                    ),
+                                )
+                            )
+
+                        body_controls.append(
+                            ft.Column(
+                                spacing=8,
+                                controls=[
+                                    _section_label("Recent Duo Duels"),
+                                    ft.Column(spacing=6, controls=ch_items),
+                                ],
+                            )
+                        )
+                else:
+                    # Empty state for My Duo
+                    body_controls.append(
+                        ft.Container(
+                            padding=ft.Padding.all(24),
+                            border_radius=ft.BorderRadius.all(16),
+                            bgcolor=ft.Colors.SURFACE,
+                            border=ft.Border.all(1, ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE)),
+                            content=ft.Column(
+                                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                spacing=12,
+                                controls=[
+                                    ft.Container(
+                                        padding=ft.Padding.all(16),
+                                        border_radius=ft.BorderRadius.all(32),
+                                        bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.PRIMARY),
+                                        content=ft.Icon(ft.Icons.HANDSHAKE_ROUNDED, size=36, color=ft.Colors.PRIMARY),
+                                    ),
+                                    ft.Text("No Active Study Partner Yet", size=16, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
+                                    ft.Text(
+                                        "Team up with a peer from your campus to track study habits, motivate each other with daily Duo Streaks, and duel on exam CBT questions.",
+                                        size=12,
+                                        color=ft.Colors.GREY_600,
+                                        text_align=ft.TextAlign.CENTER,
+                                    ),
+                                    ft.Container(height=4),
+                                    ft.FilledButton(
+                                        content=ft.Row([
+                                            ft.Icon(ft.Icons.SEARCH_ROUNDED, size=16, color=ft.Colors.ON_PRIMARY),
+                                            ft.Text("Browse Recommended Partners 🎯", size=12.5, weight=ft.FontWeight.W_700),
+                                        ], spacing=6, tight=True),
+                                        style=ft.ButtonStyle(
+                                            bgcolor=ft.Colors.PRIMARY,
+                                            shape=ft.RoundedRectangleBorder(radius=10),
+                                            padding=ft.Padding.symmetric(horizontal=16, vertical=10),
+                                        ),
+                                        on_click=lambda _: _select_subtab(1),
+                                    ),
+                                    *(
+                                        [
+                                            ft.OutlinedButton(
+                                                content=ft.Row([
+                                                    ft.Icon(ft.Icons.MAIL_OUTLINE_ROUNDED, size=15, color=ft.Colors.PRIMARY),
+                                                    ft.Text(f"You Have {len(incoming)} Pending Invite(s) 📬", size=12, weight=ft.FontWeight.W_700, color=ft.Colors.PRIMARY),
+                                                ], spacing=6, tight=True),
+                                                style=ft.ButtonStyle(
+                                                    shape=ft.RoundedRectangleBorder(radius=10),
+                                                    padding=ft.Padding.symmetric(horizontal=14, vertical=8),
+                                                ),
+                                                on_click=lambda _: _select_subtab(2),
+                                            )
+                                        ] if incoming else []
+                                    )
+                                ],
+                            ),
+                        )
+                    )
+
+            # ── SUBTAB 1: RECOMMENDED MATCHES ────────────────────────────────
+            elif current_idx == 1:
+                # Exclude users who are active partners, in pending incoming, pending sent, or locally invited
+                partner_id = (partnership.get("partner") or {}).get("id") if has_partnership else None
+                incoming_user_ids = {
+                    (req.get("user") or req.get("partner") or {}).get("id")
+                    for req in incoming if (req.get("user") or req.get("partner"))
+                }
+                sent_user_ids = {
+                    (s.get("user") or s.get("partner") or {}).get("id")
+                    for s in sent if (s.get("user") or s.get("partner"))
+                }
+                excluded_ids = {i for i in [partner_id] if i} | incoming_user_ids | sent_user_ids | locally_invited_ids
+
+                filtered_recs = [c for c in recs if c.get("id") and c.get("id") not in excluded_ids]
+
+                rec_cards = []
+                for cand in filtered_recs:
+                    c_id = cand.get("id")
+                    c_name = f"{cand.get('first_name', '')} {cand.get('last_name', '')}".strip() or "Student Peer"
+                    c_uni = cand.get("university") or "Campus Peer"
+                    c_badge = cand.get("badge") or "Study Peer"
+                    c_streak = cand.get("streak", 0)
+
+                    # Dynamic invite action
+                    btn_ref = ft.Ref[ft.FilledButton]()
+                    spinner_ref = ft.Ref[ft.ProgressRing]()
+
+                    async def _send_invite_action(target_id=c_id, target_name=c_name, b_ref=btn_ref, s_ref=spinner_ref, c_data=cand):
+                        if target_id in locally_invited_ids:
+                            return
+                        if b_ref.current:
+                            b_ref.current.disabled = True
+                        if s_ref.current:
+                            s_ref.current.visible = True
+                        page.update()
+
+                        try:
+                            res = await invite_study_partner(token, target_id)
+                            if res and not res.get("error"):
+                                locally_invited_ids.add(target_id)
+                                # Append to sent list
+                                sent.insert(0, {
+                                    "id": res.get("partnership_id"),
+                                    "user": c_data,
+                                    "partner": c_data,
+                                })
+                                show_page_snackbar(page, f"Duo invite sent to {target_name}! 🔥")
+                                # Smoothly rebuild view to update counters and clear invited peer
+                                _render_partner_view()
+                                page.update()
+                            else:
+                                err_msg = res.get("error", "Could not send invite.")
+                                show_page_snackbar(page, err_msg)
+                                if "already exists" in err_msg.lower():
+                                    locally_invited_ids.add(target_id)
+                                    _render_partner_view()
+                                    page.update()
+                                else:
+                                    if b_ref.current:
+                                        b_ref.current.disabled = False
+                                    if s_ref.current:
+                                        s_ref.current.visible = False
+                                    page.update()
+                        except Exception as inv_err:
+                            show_page_snackbar(page, f"Error: {inv_err}")
+                            if b_ref.current:
+                                b_ref.current.disabled = False
+                            if s_ref.current:
+                                s_ref.current.visible = False
+                            page.update()
+
+                    streak_pill = ft.Container()
+                    if c_streak and c_streak > 0:
+                        streak_pill = ft.Container(
+                            padding=ft.Padding.symmetric(horizontal=6, vertical=1.5),
+                            border_radius=ft.BorderRadius.all(6),
+                            bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.AMBER),
+                            content=ft.Row([
+                                ft.Icon(ft.Icons.LOCAL_FIRE_DEPARTMENT_ROUNDED, size=11, color=ft.Colors.AMBER_800),
+                                ft.Text(f"{c_streak}d", size=9, weight=ft.FontWeight.W_800, color=ft.Colors.AMBER_900),
+                            ], spacing=2, tight=True),
+                        )
+
+                    rec_cards.append(
+                        ft.Container(
+                            padding=ft.Padding.symmetric(horizontal=14, vertical=12),
+                            border_radius=ft.BorderRadius.all(14),
+                            bgcolor=ft.Colors.SURFACE,
+                            border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                            content=ft.Row(
+                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                controls=[
+                                    ft.Row(
+                                        spacing=10,
+                                        tight=True,
+                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                        controls=[
+                                            _avatar(cand, radius=20),
+                                            ft.Column(
+                                                spacing=2,
+                                                tight=True,
+                                                controls=[
+                                                    ft.Row([
+                                                        ft.Text(c_name, size=13, weight=ft.FontWeight.W_700, color=ft.Colors.ON_SURFACE),
+                                                        ft.Container(
+                                                            padding=ft.Padding.symmetric(horizontal=6, vertical=1.5),
+                                                            border_radius=ft.BorderRadius.all(6),
+                                                            bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.PRIMARY),
+                                                            content=ft.Text(c_badge, size=8.5, weight=ft.FontWeight.W_700, color=ft.Colors.PRIMARY),
+                                                        ),
+                                                        streak_pill,
+                                                    ], spacing=5, tight=True),
+                                                    ft.Text(c_uni, size=11, color=ft.Colors.GREY_500),
+                                                ],
+                                            ),
+                                        ],
+                                    ),
+                                    ft.FilledButton(
+                                        ref=btn_ref,
+                                        content=ft.Row([
+                                            ft.ProgressRing(ref=spinner_ref, width=12, height=12, stroke_width=2, color=ft.Colors.ON_PRIMARY, visible=False),
+                                            ft.Text("Invite as Duo", size=11, weight=ft.FontWeight.W_700),
+                                        ], spacing=4, tight=True),
+                                        style=ft.ButtonStyle(
+                                            bgcolor=ft.Colors.PRIMARY,
+                                            color=ft.Colors.ON_PRIMARY,
+                                            padding=ft.Padding.symmetric(horizontal=12, vertical=6),
+                                            shape=ft.RoundedRectangleBorder(radius=8),
+                                        ),
+                                        height=34,
+                                        on_click=lambda _, tid=c_id, nm=c_name, br=btn_ref, sr=spinner_ref, cd=cand: page.run_task(
+                                            _send_invite_action, tid, nm, br, sr, cd
+                                        ),
+                                    ),
+                                ],
+                            ),
+                        )
+                    )
+
+                body_controls.append(
+                    ft.Column(
+                        spacing=6,
+                        controls=[
+                            _section_label("Recommended Study Matches"),
+                            ft.Text("Matched by university campus, department, and active study habits.", size=11.5, color=ft.Colors.GREY_500),
+                        ],
+                    )
+                )
+
+                if rec_cards:
+                    body_controls.append(ft.Column(spacing=8, controls=rec_cards))
+                else:
+                    body_controls.append(
+                        ft.Container(
+                            padding=ft.Padding.all(24),
+                            border_radius=ft.BorderRadius.all(14),
+                            bgcolor=ft.Colors.with_opacity(0.03, ft.Colors.ON_SURFACE),
+                            content=ft.Column(
+                                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                spacing=8,
+                                controls=[
+                                    ft.Icon(ft.Icons.CHECK_CIRCLE_OUTLINE_ROUNDED, size=32, color=ft.Colors.PRIMARY),
+                                    ft.Text("All Recommended Matches Contacted!", size=14, weight=ft.FontWeight.W_700),
+                                    ft.Text(
+                                        "You've connected with or sent invites to the top recommended study peers on your campus. Check your Sent Invitations to track responses.",
+                                        size=11.5,
+                                        color=ft.Colors.GREY_500,
+                                        text_align=ft.TextAlign.CENTER,
+                                    ),
+                                    ft.TextButton("View Sent Invitations 📬", on_click=lambda _: _select_subtab(2)),
+                                ],
+                            ),
+                        )
+                    )
+
+            # ── SUBTAB 2: INVITATIONS (INCOMING & SENT PARTITIONED) ───────────
+            elif current_idx == 2:
+                # 1. Incoming Requests
+                incoming_cards = []
+                for req in incoming:
+                    req_id = req.get("id")
+                    req_user = req.get("partner") or req.get("user") or {}
+                    r_name = f"{req_user.get('first_name', '')} {req_user.get('last_name', '')}".strip() or "Student Peer"
+                    r_uni = req_user.get("university") or "Campus Peer"
+                    r_badge = req_user.get("badge") or "Study Peer"
+
+                    async def _accept_action(rid=req_id):
+                        res = await accept_partnership_request(token, rid)
+                        if res and not res.get("error"):
+                            show_page_snackbar(page, "Study Partnership formed! 🔥")
+                            await switch_tab(3)
+                        else:
+                            show_page_snackbar(page, res.get("error", "Failed to accept."))
+
+                    async def _decline_action(rid=req_id):
+                        await decline_partnership_request(token, rid)
+                        incoming[:] = [item for item in incoming if item.get("id") != rid]
+                        show_page_snackbar(page, "Invitation declined.")
+                        _render_partner_view()
+                        page.update()
+
+                    incoming_cards.append(
+                        ft.Container(
+                            padding=ft.Padding.all(12),
+                            border_radius=ft.BorderRadius.all(14),
+                            bgcolor=ft.Colors.SURFACE,
+                            border=ft.Border.all(1, ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY)),
+                            content=ft.Row(
+                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                controls=[
+                                    ft.Row([
+                                        _avatar(req_user, radius=20),
+                                        ft.Column([
+                                            ft.Row([
+                                                ft.Text(r_name, size=13, weight=ft.FontWeight.W_700),
+                                                ft.Container(
+                                                    padding=ft.Padding.symmetric(horizontal=6, vertical=1.5),
+                                                    border_radius=ft.BorderRadius.all(6),
+                                                    bgcolor=ft.Colors.with_opacity(0.10, ft.Colors.PRIMARY),
+                                                    content=ft.Text(r_badge, size=8.5, weight=ft.FontWeight.W_700, color=ft.Colors.PRIMARY),
+                                                ),
+                                            ], spacing=6, tight=True),
+                                            ft.Text(r_uni, size=10.5, color=ft.Colors.GREY_500),
+                                        ], spacing=2, tight=True),
+                                    ], spacing=10, tight=True),
+                                    ft.Row([
+                                        ft.FilledButton(
+                                            "Accept",
+                                            style=ft.ButtonStyle(
+                                                bgcolor=ft.Colors.PRIMARY,
+                                                padding=ft.Padding.symmetric(horizontal=12, vertical=4),
+                                                shape=ft.RoundedRectangleBorder(radius=8),
+                                            ),
+                                            height=32,
+                                            on_click=lambda _, rid=req_id: page.run_task(_accept_action, rid),
+                                        ),
+                                        ft.OutlinedButton(
+                                            "Decline",
+                                            style=ft.ButtonStyle(
+                                                padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+                                                shape=ft.RoundedRectangleBorder(radius=8),
+                                            ),
+                                            height=32,
+                                            on_click=lambda _, rid=req_id: page.run_task(_decline_action, rid),
+                                        ),
+                                    ], spacing=6, tight=True),
+                                ],
+                            ),
+                        )
+                    )
+
+                body_controls.append(
+                    ft.Column(
+                        spacing=8,
+                        controls=[
+                            _section_label(f"Incoming Duo Invitations ({len(incoming)})"),
+                            ft.Column(spacing=6, controls=incoming_cards) if incoming_cards else ft.Container(
+                                padding=ft.Padding.all(14),
+                                border_radius=ft.BorderRadius.all(12),
+                                bgcolor=ft.Colors.with_opacity(0.02, ft.Colors.ON_SURFACE),
+                                content=ft.Row([
+                                    ft.Icon(ft.Icons.MARK_EMAIL_READ_ROUNDED, size=18, color=ft.Colors.GREY_400),
+                                    ft.Text("No pending incoming invitations.", size=12, color=ft.Colors.GREY_500),
+                                ], spacing=8),
+                            ),
+                        ],
+                    )
+                )
+
+                # 2. Sent Requests
+                sent_cards = []
+                for s_req in sent:
+                    s_id = s_req.get("id")
+                    s_part = s_req.get("partner") or s_req.get("user") or {}
+                    s_name = f"{s_part.get('first_name', '')} {s_part.get('last_name', '')}".strip() or "Student Peer"
+                    s_uni = s_part.get("university") or "Campus Peer"
+
+                    async def _cancel_sent_action(sid=s_id):
+                        if sid:
+                            await delete_partnership(token, sid)
+                        sent[:] = [item for item in sent if item.get("id") != sid]
+                        show_page_snackbar(page, "Invitation cancelled.")
+                        _render_partner_view()
+                        page.update()
+
+                    sent_cards.append(
+                        ft.Container(
+                            padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+                            border_radius=ft.BorderRadius.all(12),
+                            bgcolor=ft.Colors.with_opacity(0.03, ft.Colors.ON_SURFACE),
+                            content=ft.Row(
+                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                controls=[
+                                    ft.Row([
+                                        _avatar(s_part, radius=18),
+                                        ft.Column([
+                                            ft.Text(s_name, size=12.5, weight=ft.FontWeight.W_600),
+                                            ft.Text(s_uni, size=10.5, color=ft.Colors.GREY_500),
+                                        ], spacing=1, tight=True),
+                                    ], spacing=8, tight=True),
+                                    ft.Row([
+                                        ft.Container(
+                                            padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+                                            border_radius=ft.BorderRadius.all(6),
+                                            bgcolor=ft.Colors.with_opacity(0.10, ft.Colors.ORANGE),
+                                            content=ft.Text("Waiting for response", size=9.5, weight=ft.FontWeight.W_700, color=ft.Colors.ORANGE_800),
+                                        ),
+                                        ft.IconButton(
+                                            icon=ft.Icons.CLOSE_ROUNDED,
+                                            icon_size=16,
+                                            icon_color=ft.Colors.RED_400,
+                                            tooltip="Cancel Invitation",
+                                            on_click=lambda _, sid=s_id: page.run_task(_cancel_sent_action, sid),
+                                        ),
+                                    ], spacing=4, tight=True),
+                                ],
+                            ),
+                        )
+                    )
+
+                body_controls.append(ft.Container(height=8))
+                body_controls.append(
+                    ft.Column(
+                        spacing=8,
+                        controls=[
+                            _section_label(f"Sent Invitations ({len(sent)})"),
+                            ft.Column(spacing=6, controls=sent_cards) if sent_cards else ft.Container(
+                                padding=ft.Padding.all(14),
+                                border_radius=ft.BorderRadius.all(12),
+                                bgcolor=ft.Colors.with_opacity(0.02, ft.Colors.ON_SURFACE),
+                                content=ft.Row([
+                                    ft.Icon(ft.Icons.OUTBOX_ROUNDED, size=18, color=ft.Colors.GREY_400),
+                                    ft.Text("No outgoing invitations waiting.", size=12, color=ft.Colors.GREY_500),
+                                ], spacing=8),
+                            ),
+                        ],
+                    )
+                )
+
+            content_socket.content = ft.Container(
+                expand=True,
+                content=ft.Column(
+                    expand=True,
+                    scroll=ft.ScrollMode.AUTO,
+                    controls=[
+                        ft.Container(
+                            padding=ft.Padding.symmetric(horizontal=16, vertical=12),
+                            content=ft.Column(
+                                spacing=16,
+                                controls=body_controls + [ft.Container(height=32)],
+                            ),
+                        ),
+                    ],
+                ),
+            )
+            if _is_mounted(content_socket):
+                content_socket.update()
+
+        def _select_subtab(idx: int):
+            study_subtab["index"] = idx
+            _render_partner_view()
+            page.update()
+
+        def _subtab_pill(label: str, idx: int, count: int = 0, is_alert: bool = False):
+            is_active = (study_subtab["index"] == idx)
+            badge_ctrl = []
+            if count > 0:
+                badge_bg = ft.Colors.ERROR if is_alert else (ft.Colors.ON_PRIMARY if is_active else ft.Colors.PRIMARY)
+                badge_fg = ft.Colors.WHITE if is_alert else (ft.Colors.PRIMARY if is_active else ft.Colors.ON_PRIMARY)
+                badge_ctrl.append(
+                    ft.Container(
+                        padding=ft.Padding.symmetric(horizontal=6, vertical=1),
+                        border_radius=ft.BorderRadius.all(10),
+                        bgcolor=badge_bg,
+                        content=ft.Text(str(count), size=10, weight=ft.FontWeight.W_800, color=badge_fg),
+                    )
+                )
+
+            return ft.Container(
+                padding=ft.Padding.symmetric(horizontal=12, vertical=7),
+                border_radius=ft.BorderRadius.all(16),
+                bgcolor=ft.Colors.PRIMARY if is_active else ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
+                ink=True,
+                on_click=lambda _, i=idx: _select_subtab(i),
+                content=ft.Row(
+                    spacing=6,
+                    tight=True,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[
+                        ft.Text(
+                            label,
+                            size=12,
+                            weight=ft.FontWeight.W_700 if is_active else ft.FontWeight.W_600,
+                            color=ft.Colors.ON_PRIMARY if is_active else ft.Colors.ON_SURFACE,
+                        ),
+                        *badge_ctrl,
+                    ],
+                ),
+            )
+
+        _render_partner_view()
+
     # ── Top Header matching reference UI (Clean, Minimalist, No Hero) ────────
     header_title = ft.Text(
         "Your Friends",
@@ -1198,7 +2023,10 @@ async def network_view(page: ft.Page):
             if _is_mounted(seg_row):
                 break
             await asyncio.sleep(0.01)
-        await switch_tab(0)
+        initial_tab = 0
+        if page.route and ("partners" in page.route or "study_partners" in page.route):
+            initial_tab = 3
+        await switch_tab(initial_tab)
 
     page.run_task(_boot)
 

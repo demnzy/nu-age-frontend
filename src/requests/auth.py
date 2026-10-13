@@ -2,7 +2,6 @@ import httpx
 from src.requests.net import ssl_context
 import json
 api_url = "https://api.nu-age.name.ng"
-
 async def login_request(email: str, password: str):
     # I bumped the timeout to 15 seconds. If the DB is waking up, 
     # giving it 5 extra seconds might just save the request.

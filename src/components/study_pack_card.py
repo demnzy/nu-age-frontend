@@ -1,62 +1,100 @@
+import re
 import flet as ft
 from typing import Dict, Any, Callable, Optional
 
 
 # ── CURATED SUBJECT THEME PRESETS ──
+# Inspired by modern edtech card palettes: vibrant, friendly, high-contrast
 CATEGORY_PRESETS = {
+    "JAMB UTME": {
+        "primary_color": "#059669",
+        "gradient": ("#10B981", "#047857"),
+        "icon": ft.Icons.WORKSPACE_PREMIUM_ROUNDED,
+        "accent": "#065F46",
+        "tag": "JAMB UTME CBT",
+    },
+    "WAEC / NECO": {
+        "primary_color": "#2563EB",
+        "gradient": ("#3B82F6", "#1D4ED8"),
+        "icon": ft.Icons.SCHOOL_ROUNDED,
+        "accent": "#1E40AF",
+        "tag": "WAEC & NECO SSCE",
+    },
+    "WAEC WASSCE": {
+        "primary_color": "#2563EB",
+        "gradient": ("#3B82F6", "#1D4ED8"),
+        "icon": ft.Icons.SCHOOL_ROUNDED,
+        "accent": "#1E40AF",
+        "tag": "WAEC WASSCE",
+    },
+    "NECO SSCE": {
+        "primary_color": "#0284C7",
+        "gradient": ("#0EA5E9", "#0369A1"),
+        "icon": ft.Icons.AUTO_STORIES_ROUNDED,
+        "accent": "#075985",
+        "tag": "NECO SSCE",
+    },
     "Medicine": {
-        "gradient": ("#065F46", "#047857"),
+        "primary_color": "#0D9488",
+        "gradient": ("#0D9488", "#059669"),
         "icon": ft.Icons.LOCAL_HOSPITAL_ROUNDED,
-        "accent": "#059669",
+        "accent": "#047857",
         "tag": "MEDICINE & HEALTH",
     },
     "STEM": {
-        "gradient": ("#0369A1", "#0284C7"),
+        "primary_color": "#6366F1",
+        "gradient": ("#6366F1", "#4F46E5"),
         "icon": ft.Icons.TERMINAL_ROUNDED,
-        "accent": "#0284C7",
+        "accent": "#4338CA",
         "tag": "STEM & COMPUTING",
     },
     "Law": {
-        "gradient": ("#B45309", "#D97706"),
+        "primary_color": "#8B5CF6",
+        "gradient": ("#8B5CF6", "#7C3AED"),
         "icon": ft.Icons.GAVEL_ROUNDED,
-        "accent": "#D97706",
+        "accent": "#6D28D9",
         "tag": "LAW & JUSTICE",
     },
     "Business": {
-        "gradient": ("#0F766E", "#0D9488"),
+        "primary_color": "#F59E0B",
+        "gradient": ("#F59E0B", "#D97706"),
         "icon": ft.Icons.TRENDING_UP_ROUNDED,
-        "accent": "#0D9488",
+        "accent": "#B45309",
         "tag": "BUSINESS & FINANCE",
     },
     "Languages": {
-        "gradient": ("#BE123C", "#E11D48"),
+        "primary_color": "#E11D48",
+        "gradient": ("#E11D48", "#BE123C"),
         "icon": ft.Icons.TRANSLATE_ROUNDED,
-        "accent": "#E11D48",
+        "accent": "#9F1239",
         "tag": "LANGUAGES & LINGUISTICS",
     },
     "Exam Prep": {
-        "gradient": ("#047857", "#10B981"),
+        "primary_color": "#0284C7",
+        "gradient": ("#0284C7", "#0369A1"),
         "icon": ft.Icons.WORKSPACE_PREMIUM_ROUNDED,
-        "accent": "#059669",
+        "accent": "#075985",
         "tag": "EXAM PREP & LICENSURE",
     },
     "General": {
-        "gradient": ("#065F46", "#10B981"),
+        "primary_color": "#059669",
+        "gradient": ("#10B981", "#059669"),
         "icon": ft.Icons.AUTO_AWESOME_ROUNDED,
-        "accent": "#059669",
+        "accent": "#047857",
         "tag": "GENERAL REVISION",
-    }
+    },
 }
 
 
 class StudyPackCard(ft.Container):
     """
     World-Class Educational Revision Pack Card.
-    Features:
-    - Split Card Architecture (Tactile colored header block + Crisp white body).
-    - Top Emblem Badge with Category Theme Icon.
-    - High-Yield Metric Pills for Flashcards, MCQs, and Exam Simulator.
-    - Clear pricing & high-contrast Action CTA button.
+    Inspired by clean, tactile edtech classes design:
+    - Vibrant, themed rounded container per subject category.
+    - Signature elevated white squircle container on left with large topic icon.
+    - Clean top metadata header (Category tag + Price/Vault status pill).
+    - Bold, ultra-crisp white title and educational breakdown metrics.
+    - Crisp white action button with tactile elevation and community stats.
     """
     def __init__(
         self,
@@ -69,16 +107,39 @@ class StudyPackCard(ft.Container):
         self.on_click_preview = on_click_preview
         self.on_toggle_like = on_toggle_like
 
+        category = pack.get("category", "General")
+        preset = CATEGORY_PRESETS.get(category)
+        if not preset:
+            cat_lower = str(category).lower()
+            for k, v in CATEGORY_PRESETS.items():
+                if k.lower() in cat_lower or cat_lower in k.lower():
+                    preset = v
+                    break
+        if not preset:
+            preset = CATEGORY_PRESETS["General"]
+        c1, c2 = preset["gradient"]
+        primary = preset["primary_color"]
+
         super().__init__(
             col={"sm": 12, "md": 6, "lg": 4},
-            bgcolor="#FFFFFF",
-            border_radius=ft.BorderRadius.all(18),
-            border=ft.Border.all(1, "#E2E8F0"),
-            padding=ft.Padding.all(0),
+            border_radius=ft.BorderRadius.all(22),
+            gradient=ft.LinearGradient(
+                colors=[c1, c2],
+                begin=ft.Alignment.TOP_LEFT,
+                end=ft.Alignment.BOTTOM_RIGHT,
+            ),
+            border=ft.Border.all(1, ft.Colors.with_opacity(0.18, ft.Colors.WHITE)),
+            shadow=ft.BoxShadow(
+                blur_radius=14,
+                spread_radius=0,
+                color=ft.Colors.with_opacity(0.18, primary),
+                offset=ft.Offset(0, 4),
+            ),
+            padding=ft.Padding.symmetric(horizontal=18, vertical=16),
             clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
             ink=True,
             on_click=self._handle_card_click,
-            content=self._build_card_content(),
+            content=self._build_card_content(preset),
         )
 
     def _handle_card_click(self, _):
@@ -88,327 +149,280 @@ class StudyPackCard(ft.Container):
             except TypeError:
                 self.on_click_preview(self.pack_id)
 
-    def _build_header_banner(self, category: str, is_official: bool, cover_url: Optional[str]) -> ft.Container:
-        preset = CATEGORY_PRESETS.get(category, CATEGORY_PRESETS["General"])
-        c1, c2 = preset["gradient"]
-        accent = preset["accent"]
-        icon = preset["icon"]
-        tag_text = preset.get("tag", category.upper())
-
-        # Top Badges
-        badges = [
-            ft.Container(
-                padding=ft.Padding.symmetric(horizontal=8, vertical=4),
-                border_radius=ft.BorderRadius.all(6),
-                bgcolor=ft.Colors.with_opacity(0.20, ft.Colors.BLACK),
-                border=ft.Border.all(1, ft.Colors.with_opacity(0.35, ft.Colors.WHITE)),
-                content=ft.Text(tag_text, size=9, weight=ft.FontWeight.W_800, color="#FFFFFF"),
-            ),
-        ]
-
-        if is_official:
-            badges.append(
-                ft.Container(
-                    padding=ft.Padding.symmetric(horizontal=8, vertical=4),
-                    border_radius=ft.BorderRadius.all(6),
-                    bgcolor=ft.Colors.with_opacity(0.85, "#78350F"),
-                    border=ft.Border.all(1, ft.Colors.with_opacity(0.6, "#FCD34D")),
-                    content=ft.Row(
-                        tight=True,
-                        spacing=3,
-                        controls=[
-                            ft.Icon(ft.Icons.VERIFIED_ROUNDED, size=11, color="#FBBF24"),
-                            ft.Text("OFFICIAL", size=9, weight=ft.FontWeight.W_800, color="#FEF3C7"),
-                        ],
-                    ),
-                )
-            )
-        else:
-            badges.append(
-                ft.Container(
-                    padding=ft.Padding.symmetric(horizontal=7, vertical=4),
-                    border_radius=ft.BorderRadius.all(6),
-                    bgcolor=ft.Colors.with_opacity(0.20, ft.Colors.BLACK),
-                    border=ft.Border.all(1, ft.Colors.with_opacity(0.3, ft.Colors.WHITE)),
-                    content=ft.Row(
-                        tight=True,
-                        spacing=3,
-                        controls=[
-                            ft.Icon(ft.Icons.PEOPLE_ALT_ROUNDED, size=10, color="#FFFFFF"),
-                            ft.Text("COMMUNITY", size=8.5, weight=ft.FontWeight.W_700, color="#FFFFFF"),
-                        ],
-                    ),
-                )
-            )
-
-        # Center Emblem Badge
-        center_emblem = ft.Container(
-            width=50,
-            height=50,
-            border_radius=ft.BorderRadius.all(25),
-            bgcolor="#FFFFFF",
-            alignment=ft.Alignment.CENTER,
-            content=ft.Icon(icon, size=26, color=accent),
-        )
-
-        return ft.Container(
-            height=125,
-            width=float("inf"),
-            gradient=ft.LinearGradient(
-                colors=[c1, c2],
-                begin=ft.Alignment.TOP_LEFT,
-                end=ft.Alignment.BOTTOM_RIGHT,
-            ),
-            content=ft.Column(
-                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                controls=[
-                    # Top Badges Row
-                    ft.Container(
-                        padding=ft.Padding.only(left=12, right=12, top=10),
-                        content=ft.Row(
-                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                            controls=badges,
-                        ),
-                    ),
-                    # Center Emblem
-                    ft.Container(
-                        alignment=ft.Alignment.CENTER,
-                        padding=ft.Padding.only(bottom=12),
-                        content=center_emblem,
-                    ),
-                ],
-            ),
-        )
-
-    def _build_card_content(self) -> ft.Column:
+    def _build_card_content(self, preset: Dict[str, Any]) -> ft.Column:
         pack = self.pack
-        title = pack.get("title", "Untitled Pack")
-        desc = pack.get("description", "")
-        category = pack.get("category", "General")
+        raw_title = pack.get("title", "Untitled Pack")
+        title = re.sub(r"(?i)\s*[\[\(]\s*pack\s*import\s*[\]\)]\s*[:\-–—]?\s*", " ", raw_title)
+        title = re.sub(r"(?i)^pack\s*import\s*[:\-–—]?\s*", "", title).strip() or "Study Pack"
         is_official = pack.get("is_official", False)
         price_coins = pack.get("price_coins", 0)
         is_owned = pack.get("is_owned", False)
+        is_creator = pack.get("is_creator", False)
         downloads_count = pack.get("downloads_count", 0)
+        likes_count = pack.get("likes_count", 0)
         fc_count = pack.get("flashcards_count", 0)
         q_count = pack.get("questions_count", 0)
-        cover_url = pack.get("cover_image_url")
 
         creator = pack.get("creator", {})
         creator_name = creator.get("name", "Nu-Age Official" if is_official else "Peer Creator")
+        primary_color = preset["primary_color"]
+        category_tag = preset.get("tag", "STUDY PACK")
 
-        # Price / Action Button
+        # ── CBT PAST QUESTIONS METADATA DETECTION ──
+        pack_data = pack.get("pack_data") or {}
+        questions_list = pack_data.get("questions") or []
+        exam_type = pack.get("exam_type")
+        exam_year = pack.get("exam_year")
+
+        if not exam_type:
+            for q in questions_list:
+                if q.get("exam_type"):
+                    exam_type = q["exam_type"]
+                    break
+        if not exam_type:
+            m = re.search(r"(?i)\b(JAMB(?:\s+UTME)?|WAEC(?:\s+WASSCE)?|NECO|POST-UTME|GCE|SAT|GRE|GMAT)\b", title)
+            if m:
+                exam_type = m.group(1).upper()
+        if not exam_year:
+            m = re.search(r"\b(201\d|202\d)\b", title)
+            if m:
+                exam_year = int(m.group(1))
+
+        is_cbt_pack = bool(
+            exam_type
+            or (q_count > 0 and fc_count == 0)
+            or "cbt" in str(category_tag).lower()
+            or bool(re.search(r"(?i)\b(CBT|JAMB|WAEC|NECO|UTME|WASSCE|SSCE|POST-UTME|SAT|GRE|GMAT)\b", title))
+        )
+
+        diagrams_count = pack.get("diagrams_count")
+        if diagrams_count is None:
+            diagrams_count = sum(1 for q in questions_list if q.get("image_url") or q.get("has_diagram"))
+        duration_minutes = pack.get("duration_minutes")
+
+        # ── 1. TOP METADATA ROW ──
+        # Left Tags: Category Tag + Exam Badge + Diagram Badge
+        left_tags = [
+            ft.Container(
+                padding=ft.Padding.symmetric(horizontal=9, vertical=4),
+                border_radius=ft.BorderRadius.all(8),
+                bgcolor=ft.Colors.with_opacity(0.20, ft.Colors.WHITE),
+                content=ft.Text(
+                    "CBT EXAM PAPER" if is_cbt_pack else category_tag,
+                    size=9.5,
+                    weight=ft.FontWeight.W_800,
+                    color=ft.Colors.WHITE,
+                ),
+            )
+        ]
+
+        if exam_type:
+            exam_label = f"{exam_type} {exam_year or ''}".strip()
+            left_tags.append(
+                ft.Container(
+                    padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+                    border_radius=ft.BorderRadius.all(8),
+                    bgcolor=ft.Colors.with_opacity(0.32, ft.Colors.BLACK),
+                    border=ft.Border.all(1, ft.Colors.with_opacity(0.40, ft.Colors.WHITE)),
+                    content=ft.Row([
+                        ft.Icon(ft.Icons.SCHOOL_ROUNDED, size=11, color="#FDE68A"),
+                        ft.Text(exam_label, size=9.5, weight=ft.FontWeight.W_800, color="#FEF3C7"),
+                    ], spacing=4, tight=True),
+                )
+            )
+
+        if diagrams_count > 0:
+            left_tags.append(
+                ft.Container(
+                    padding=ft.Padding.symmetric(horizontal=7, vertical=4),
+                    border_radius=ft.BorderRadius.all(8),
+                    bgcolor=ft.Colors.with_opacity(0.25, ft.Colors.BLACK),
+                    content=ft.Row([
+                        ft.Icon(ft.Icons.IMAGE_ROUNDED, size=10, color=ft.Colors.WHITE),
+                        ft.Text(f"{diagrams_count}", size=9.5, weight=ft.FontWeight.W_800, color=ft.Colors.WHITE),
+                    ], spacing=3, tight=True),
+                )
+            )
+
+        cat_tag_row = ft.Row(spacing=5, tight=True, wrap=True, expand=True, controls=left_tags)
+
+        # Right: Pricing / Ownership status pill
         if is_owned:
-            price_widget = ft.Column(
-                spacing=1,
-                tight=True,
-                controls=[
-                    ft.Row(
-                        tight=True,
-                        spacing=4,
-                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                        controls=[
-                            ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED, size=15, color="#059669"),
-                            ft.Text("In Vault", size=13.5, weight=ft.FontWeight.W_800, color="#059669"),
-                        ],
-                    ),
-                    ft.Text("Ready to Practice", size=10, color="#64748B"),
-                ],
-            )
-            action_btn = ft.Container(
-                padding=ft.Padding.symmetric(horizontal=12, vertical=6),
+            status_pill = ft.Container(
+                padding=ft.Padding.symmetric(horizontal=8, vertical=3.5),
                 border_radius=ft.BorderRadius.all(8),
-                bgcolor="#ECFDF5",
-                border=ft.Border.all(1, "#10B981"),
-                content=ft.Row(
-                    tight=True,
-                    spacing=4,
-                    controls=[
-                        ft.Text("Open", size=11, weight=ft.FontWeight.W_700, color="#059669"),
-                        ft.Icon(ft.Icons.ARROW_FORWARD_ROUNDED, size=12, color="#059669"),
-                    ],
-                ),
+                bgcolor=ft.Colors.WHITE,
+                content=ft.Row([
+                    ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED, size=11, color="#059669"),
+                    ft.Text("IN VAULT", size=9.5, weight=ft.FontWeight.W_800, color="#059669"),
+                ], spacing=3, tight=True),
             )
+            btn_text = "Open Cockpit" if is_cbt_pack else "Open"
+            btn_icon = ft.Icons.ARROW_FORWARD_ROUNDED
+        elif is_creator:
+            status_pill = ft.Container(
+                padding=ft.Padding.symmetric(horizontal=8, vertical=3.5),
+                border_radius=ft.BorderRadius.all(8),
+                bgcolor=ft.Colors.with_opacity(0.28, ft.Colors.BLACK),
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.50, "#A7F3D0")),
+                content=ft.Row([
+                    ft.Icon(ft.Icons.AUTO_AWESOME_ROUNDED, size=11, color="#A7F3D0"),
+                    ft.Text("CREATED BY YOU", size=9.5, weight=ft.FontWeight.W_800, color="#A7F3D0"),
+                ], spacing=3, tight=True),
+            )
+            btn_text = "Inspect Paper" if is_cbt_pack else "Inspect Pack"
+            btn_icon = ft.Icons.VISIBILITY_ROUNDED
+        elif is_official:
+            status_pill = ft.Container(
+                padding=ft.Padding.symmetric(horizontal=8, vertical=3.5),
+                border_radius=ft.BorderRadius.all(8),
+                bgcolor=ft.Colors.with_opacity(0.25, ft.Colors.BLACK),
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.35, ft.Colors.WHITE)),
+                content=ft.Row([
+                    ft.Icon(ft.Icons.VERIFIED_ROUNDED, size=11, color="#FDE68A"),
+                    ft.Text("OFFICIAL", size=9.5, weight=ft.FontWeight.W_800, color="#FEF3C7"),
+                ], spacing=3, tight=True),
+            )
+            btn_text = ("Take CBT" if price_coins == 0 else f"{price_coins} Coins") if is_cbt_pack else ("Get Pack" if price_coins == 0 else f"{price_coins} Coins")
+            btn_icon = ft.Icons.FILE_DOWNLOAD_ROUNDED if price_coins == 0 else ft.Icons.LOCK_OPEN_ROUNDED
         elif price_coins == 0:
-            price_widget = ft.Column(
-                spacing=1,
-                tight=True,
-                controls=[
-                    ft.Text("FREE", size=15, weight=ft.FontWeight.W_900, color="#059669"),
-                    ft.Text("Open Access", size=10, color="#64748B"),
-                ],
-            )
-            action_btn = ft.Container(
-                padding=ft.Padding.symmetric(horizontal=14, vertical=6.5),
+            status_pill = ft.Container(
+                padding=ft.Padding.symmetric(horizontal=8, vertical=3.5),
                 border_radius=ft.BorderRadius.all(8),
-                bgcolor="#059669",
-                content=ft.Row(
-                    tight=True,
-                    spacing=4,
-                    controls=[
-                        ft.Icon(ft.Icons.FILE_DOWNLOAD_ROUNDED, size=13, color="#FFFFFF"),
-                        ft.Text("Get Pack", size=11.5, weight=ft.FontWeight.W_700, color="#FFFFFF"),
-                    ],
-                ),
+                bgcolor=ft.Colors.with_opacity(0.20, ft.Colors.WHITE),
+                content=ft.Text("FREE ACCESS", size=9.5, weight=ft.FontWeight.W_800, color=ft.Colors.WHITE),
             )
+            btn_text = "Take CBT" if is_cbt_pack else "Get Pack"
+            btn_icon = ft.Icons.FILE_DOWNLOAD_ROUNDED
         else:
-            price_widget = ft.Column(
-                spacing=1,
-                tight=True,
-                controls=[
-                    ft.Row(
-                        tight=True,
-                        spacing=3,
-                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                        controls=[
-                            ft.Icon(ft.Icons.MONETIZATION_ON_ROUNDED, size=14, color="#D97706"),
-                            ft.Text(f"{price_coins}", size=15, weight=ft.FontWeight.W_900, color="#D97706"),
-                        ],
-                    ),
-                    ft.Text("Nu-Coins", size=10, color="#64748B"),
-                ],
-            )
-            action_btn = ft.Container(
-                padding=ft.Padding.symmetric(horizontal=14, vertical=6.5),
+            status_pill = ft.Container(
+                padding=ft.Padding.symmetric(horizontal=8, vertical=3.5),
                 border_radius=ft.BorderRadius.all(8),
-                bgcolor="#059669",
-                content=ft.Row(
-                    tight=True,
-                    spacing=4,
-                    controls=[
-                        ft.Icon(ft.Icons.LOCK_OPEN_ROUNDED, size=13, color="#FFFFFF"),
-                        ft.Text("Unlock", size=11.5, weight=ft.FontWeight.W_700, color="#FFFFFF"),
-                    ],
-                ),
+                bgcolor=ft.Colors.with_opacity(0.25, ft.Colors.BLACK),
+                content=ft.Row([
+                    ft.Icon(ft.Icons.MONETIZATION_ON_ROUNDED, size=11, color="#FDE68A"),
+                    ft.Text(f"{price_coins} COINS", size=9.5, weight=ft.FontWeight.W_800, color="#FDE68A"),
+                ], spacing=3, tight=True),
             )
+            btn_text = f"{price_coins} Coins"
+            btn_icon = ft.Icons.LOCK_OPEN_ROUNDED
 
-        return ft.Column(
-            spacing=0,
+        top_row = ft.Row(
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[cat_tag_row, status_pill],
+        )
+
+        # ── 2. CENTER CONTENT BLOCK: White Squircle Badge + Info Column ──
+        squircle_icon = ft.Icons.WORKSPACE_PREMIUM_ROUNDED if is_cbt_pack else preset["icon"]
+        squircle_badge = ft.Container(
+            width=64,
+            height=64,
+            border_radius=ft.BorderRadius.all(18),
+            bgcolor=ft.Colors.WHITE,
+            border=ft.Border.all(2, ft.Colors.with_opacity(0.35, primary_color)) if is_cbt_pack else None,
+            shadow=ft.BoxShadow(
+                blur_radius=10,
+                spread_radius=0,
+                color=ft.Colors.with_opacity(0.14, ft.Colors.BLACK),
+                offset=ft.Offset(0, 3),
+            ),
+            alignment=ft.Alignment.CENTER,
+            content=ft.Icon(squircle_icon, size=32, color=primary_color),
+        )
+
+        cbt_dur = duration_minutes if duration_minutes else q_count
+        cbt_benchmark_text = (
+            f"⏱ {q_count} Questions • {cbt_dur} Mins CBT"
+            if is_cbt_pack else
+            f"{fc_count} Cards • {q_count} Practice Qs"
+        )
+
+        info_column = ft.Column(
+            spacing=3,
             tight=True,
             controls=[
-                # 1. Header Banner
-                self._build_header_banner(category, is_official, cover_url),
-
-                # 2. Clean White Card Body
-                ft.Container(
-                    padding=ft.Padding.all(14),
-                    bgcolor="#FFFFFF",
-                    content=ft.Column(
-                        spacing=8,
-                        tight=True,
-                        controls=[
-                            # Title
-                            ft.Text(
-                                title,
-                                size=14.5,
-                                weight=ft.FontWeight.W_800,
-                                color="#0F172A",
-                                max_lines=1,
-                                overflow=ft.TextOverflow.ELLIPSIS,
-                            ),
-                            # Creator Attribution
-                            ft.Row(
-                                spacing=5,
-                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                controls=[
-                                    ft.Icon(
-                                        ft.Icons.VERIFIED_USER_ROUNDED if is_official else ft.Icons.ACCOUNT_CIRCLE_ROUNDED,
-                                        size=13,
-                                        color="#059669" if is_official else "#64748B",
-                                    ),
-                                    ft.Text(
-                                        f"by {creator_name}",
-                                        size=11,
-                                        color="#64748B",
-                                        weight=ft.FontWeight.W_600,
-                                        max_lines=1,
-                                        overflow=ft.TextOverflow.ELLIPSIS,
-                                    ),
-                                ],
-                            ),
-                            # Description Synopsis
-                            ft.Text(
-                                desc or "Curated flashcards, high-yield quiz bank, and exam simulator for rapid revision.",
-                                size=11.5,
-                                color="#64748B",
-                                max_lines=2,
-                                overflow=ft.TextOverflow.ELLIPSIS,
-                            ),
-                            # Educational Breakdown Pill Badges
-                            ft.Row(
-                                spacing=6,
-                                wrap=True,
-                                controls=[
-                                    ft.Container(
-                                        padding=ft.Padding.symmetric(horizontal=7, vertical=3),
-                                        border_radius=ft.BorderRadius.all(6),
-                                        bgcolor="#F0FDF4",
-                                        border=ft.Border.all(1, "#BBF7D0"),
-                                        content=ft.Row(
-                                            tight=True,
-                                            spacing=4,
-                                            controls=[
-                                                ft.Icon(ft.Icons.STYLE_ROUNDED, size=11, color="#166534"),
-                                                ft.Text(f"{fc_count} Cards", size=10, weight=ft.FontWeight.W_700, color="#166534"),
-                                            ],
-                                        ),
-                                    ),
-                                    ft.Container(
-                                        padding=ft.Padding.symmetric(horizontal=7, vertical=3),
-                                        border_radius=ft.BorderRadius.all(6),
-                                        bgcolor="#F0F9FF",
-                                        border=ft.Border.all(1, "#BAE6FD"),
-                                        content=ft.Row(
-                                            tight=True,
-                                            spacing=4,
-                                            controls=[
-                                                ft.Icon(ft.Icons.QUIZ_ROUNDED, size=11, color="#075985"),
-                                                ft.Text(f"{q_count} MCQs", size=10, weight=ft.FontWeight.W_700, color="#075985"),
-                                            ],
-                                        ),
-                                    ),
-                                    ft.Container(
-                                        padding=ft.Padding.symmetric(horizontal=7, vertical=3),
-                                        border_radius=ft.BorderRadius.all(6),
-                                        bgcolor="#FEF3C7",
-                                        border=ft.Border.all(1, "#FDE68A"),
-                                        content=ft.Row(
-                                            tight=True,
-                                            spacing=4,
-                                            controls=[
-                                                ft.Icon(ft.Icons.TIMER_ROUNDED, size=11, color="#92400E"),
-                                                ft.Text("Exam Sim", size=10, weight=ft.FontWeight.W_700, color="#92400E"),
-                                            ],
-                                        ),
-                                    ),
-                                    ft.Container(
-                                        padding=ft.Padding.symmetric(horizontal=6, vertical=3),
-                                        border_radius=ft.BorderRadius.all(6),
-                                        bgcolor="#F8FAFC",
-                                        border=ft.Border.all(1, "#E2E8F0"),
-                                        content=ft.Row(
-                                            tight=True,
-                                            spacing=3,
-                                            controls=[
-                                                ft.Icon(ft.Icons.DOWNLOAD_ROUNDED, size=11, color="#64748B"),
-                                                ft.Text(f"{downloads_count}", size=10, weight=ft.FontWeight.W_600, color="#64748B"),
-                                            ],
-                                        ),
-                                    ),
-                                ],
-                            ),
-                            ft.Divider(height=1, color="#F1F5F9"),
-                            # Footer: Price on left, Action Button on right
-                            ft.Row(
-                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                controls=[
-                                    price_widget,
-                                    action_btn,
-                                ],
-                            ),
-                        ],
-                    ),
+                ft.Text(
+                    title,
+                    size=16,
+                    weight=ft.FontWeight.W_800,
+                    color=ft.Colors.WHITE,
+                    max_lines=1,
+                    overflow=ft.TextOverflow.ELLIPSIS,
                 ),
+                ft.Text(
+                    cbt_benchmark_text,
+                    size=12,
+                    weight=ft.FontWeight.W_600,
+                    color=ft.Colors.with_opacity(0.92, ft.Colors.WHITE),
+                ),
+                ft.Text(
+                    f"by {creator_name} • CBT Exam Ready",
+                    size=11,
+                    color=ft.Colors.with_opacity(0.78, ft.Colors.WHITE),
+                    max_lines=1,
+                    overflow=ft.TextOverflow.ELLIPSIS,
+                ),
+            ],
+        )
+
+        body_row = ft.Row(
+            alignment=ft.MainAxisAlignment.START,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=14,
+            controls=[
+                squircle_badge,
+                ft.Container(content=info_column, expand=True),
+            ],
+        )
+
+        # ── 3. BOTTOM ROW: Social Stats + Tactile White CTA Pill ──
+        social_stats = ft.Row(
+            tight=True,
+            spacing=6,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                ft.Icon(ft.Icons.DOWNLOAD_ROUNDED, size=13, color=ft.Colors.with_opacity(0.85, ft.Colors.WHITE)),
+                ft.Text(f"{downloads_count}", size=11, weight=ft.FontWeight.W_700, color=ft.Colors.with_opacity(0.85, ft.Colors.WHITE)),
+                ft.Container(width=4),
+                ft.Icon(ft.Icons.FAVORITE_ROUNDED, size=12, color=ft.Colors.with_opacity(0.85, ft.Colors.WHITE)),
+                ft.Text(f"{likes_count}", size=11, weight=ft.FontWeight.W_700, color=ft.Colors.with_opacity(0.85, ft.Colors.WHITE)),
+            ],
+        )
+
+        cta_pill = ft.Container(
+            padding=ft.Padding.symmetric(horizontal=14, vertical=6),
+            border_radius=ft.BorderRadius.all(12),
+            bgcolor=ft.Colors.WHITE,
+            shadow=ft.BoxShadow(
+                blur_radius=6,
+                spread_radius=0,
+                color=ft.Colors.with_opacity(0.12, ft.Colors.BLACK),
+                offset=ft.Offset(0, 2),
+            ),
+            content=ft.Row(
+                tight=True,
+                spacing=5,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[
+                    ft.Text(btn_text, size=11.5, weight=ft.FontWeight.W_800, color=primary_color),
+                    ft.Icon(btn_icon, size=13, color=primary_color),
+                ],
+            ),
+        )
+
+        bottom_row = ft.Row(
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[social_stats, cta_pill],
+        )
+
+        return ft.Column(
+            spacing=12,
+            tight=True,
+            controls=[
+                top_row,
+                body_row,
+                bottom_row,
             ],
         )

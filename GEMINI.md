@@ -26,6 +26,10 @@
 - **Flex Expansion in Rows & Columns**:
   - NEVER instantiate `ft.Expanded(...)` (it does not exist in Flet and raises `AttributeError`). Set `expand=True` directly on child controls or wrap in `ft.Container(..., expand=True)`.
   - NEVER pass `constraints=ft.BoxConstraints(...)` to `ft.Container` in Flet 0.86.5. Use explicit responsive `width`/`height` or flex `expand=True`.
+  - **Wrap vs Flex Expansion (`wrap=True` vs `expand=True`)**:
+    - **NEVER** set `expand=True` on any child inside an `ft.Row(wrap=True)` or `ft.Column(wrap=True)`.
+    - In Flet / Flutter, setting `wrap=True` converts the parent into a Flutter `Wrap` widget. Flutter `Wrap` does not support flex children; placing an `expand=True` child inside a `Wrap` immediately throws `Expanded widget must be descendant of Row, Column, or Flex` and crashes the entire subview into an infinite solid grey error box.
+    - For responsive button rows, switch cleanly: render an `ft.Column(horizontal_alignment=ft.CrossAxisAlignment.STRETCH, ...)` on mobile screens (`is_mobile`), and a standard `ft.Row(spacing=..., controls=...)` without `wrap=True` on desktop screens.
 
 ## Clipboard & Services Conventions
 - **Clipboard Access**: NEVER call `page.set_clipboard(...)`. In Flet 0.86.5, `set_clipboard` does not exist on `Page` and will raise `AttributeError`.
@@ -50,3 +54,16 @@
   - **NEVER** call `page.overlay.remove(dlg)` when dismissing an `ft.AlertDialog`, `ft.BottomSheet`, or modal dialog.
   - In Flet 0.86.5, removing the dialog control from `page.overlay` destroys the Python-to-Dart control reference before the Dart client completes the exit route transition, permanently orphaning the Flutter barrier and freezing the UI (infinite spinner).
   - Always close dialogs strictly by setting `dlg.open = False` followed by `page.update()`.
+
+## UI Design, Theming & Component Reuse Invariants
+- **Strict Theme Token Adherence (Zero Hardcoded Foreign Palettes)**:
+  - NEVER hardcode arbitrary foreign color palettes (e.g. `#090D16`, `#0B132B`, `#0F172A`, `#2563EB`) for application containers, cards, headers, or backgrounds.
+  - ALWAYS use the application's semantic theme tokens:
+    - Backgrounds & Cards: `ft.Colors.SURFACE`, `ft.Colors.with_opacity(...)`, or leave transparent to inherit.
+    - Accents & Primary CTAs: `ft.Colors.PRIMARY` (matches the app's green brand identity), `ft.Colors.SECONDARY`.
+    - Text & Icons: `ft.Colors.ON_SURFACE`, `ft.Colors.ON_PRIMARY`, or semantic tokens from `src.components.study_ui` (`ui.C_CORRECT`, `ui.C_FLAG`, `ui.muted()`, `ui.hairline()`).
+  - All text and markdown must be dynamically legible across both Light Mode and Dark Mode.
+- **Mandatory Existing Component Reuse Over Ad-hoc Re-invention**:
+  - Before writing a new modal, widget, or auxiliary tool (such as an in-exam calculator, bottom sheet, or deck inspector), verify and reuse existing components in `src/components/` (e.g., `src.components.exam_calculator.build_exam_calculator`).
+  - Do NOT write parallel ad-hoc implementations that deviate from the existing UI/UX and theme tokens.
+

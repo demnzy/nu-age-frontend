@@ -29,9 +29,23 @@ from src.requests.marketplace import (
     review_admin_submission,
     fetch_marketplace_packs,
     update_admin_pack,
+    fetch_admin_all_packs,
+    toggle_admin_pack_visibility,
+    delete_admin_pack,
+    parse_past_questions_ai,
+    parse_past_questions_file_ai,
+    create_official_curated_pack,
+    fetch_admin_all_bundles,
+    create_study_bundle_admin,
+    update_study_bundle_admin,
+    toggle_admin_bundle_visibility,
+    delete_admin_bundle,
 )
 from src.components.study_pack_card import CATEGORY_PRESETS, StudyPackCard
+from src.components.question_curator_modal import show_question_curator_dialog
+from src.components.bundle_builder_modal import show_bundle_builder_dialog
 from src.utils.file_opener import show_page_snackbar
+from src.components import study_ui as ui
 
 
 def _open_file_locally(filepath: str):
@@ -71,11 +85,15 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
         "border_subtle": "#1B273F" if is_dark else "#F1F5F9",
         "text": "#F8FAFC" if is_dark else "#0F172A",
         "text_muted": "#94A3B8" if is_dark else "#64748B",
+        "subtext": "#94A3B8" if is_dark else "#64748B",
+        "muted": "#94A3B8" if is_dark else "#64748B",
         "accent": "#F59E0B",        # Amber Gold
         "accent_glow": "#D97706",
         "primary": ft.Colors.PRIMARY,
         "danger": "#EF4444",
         "danger_bg": ft.Colors.with_opacity(0.12, "#EF4444"),
+        "warning": "#F59E0B",
+        "warning_bg": ft.Colors.with_opacity(0.12, "#F59E0B"),
         "success": "#10B981",
         "success_bg": ft.Colors.with_opacity(0.12, "#10B981"),
         "info": "#0EA5E9",
@@ -114,9 +132,12 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
         "cached_study_packs": [],
         "cached_pending_packs": [],
         "is_loading_packs": False,
-        "packs_subtab": "pending",  # "pending" or "approved"
+        "packs_subtab": "pending",  # "pending", "approved", or "bundles"
         "packs_error": None,
         "pending_packs_count": 0,
+        "cached_bundles": [],
+        "is_loading_bundles": False,
+        "bundles_error": None,
     }
 
     # Check if page already has an elevated token in session
@@ -347,7 +368,9 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
             page.update()
 
         pending_res = await fetch_admin_pending_submissions(admin_state["token"], page=1, limit=50)
-        catalog_res = await fetch_marketplace_packs(token=admin_state["token"], page=1, limit=50)
+        catalog_res = await fetch_admin_all_packs(admin_state["token"], page=1, limit=100)
+        if "error" in catalog_res and not catalog_res.get("items"):
+            catalog_res = await fetch_marketplace_packs(token=admin_state["token"], page=1, limit=50)
 
         admin_state["is_loading_packs"] = False
         if "error" in pending_res:
@@ -361,6 +384,27 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
 
         # Update nav badge
         nav_container.content = _build_nav_bar()
+        if admin_state["active_tab"] == "study_packs":
+            _render_tab_content()
+        page.update()
+        await _fetch_bundles()
+
+    async def _fetch_bundles():
+        if not admin_state["token"]:
+            return
+        admin_state["is_loading_bundles"] = True
+        admin_state["bundles_error"] = None
+        if admin_state["active_tab"] == "study_packs" and admin_state["packs_subtab"] == "bundles":
+            _render_tab_content()
+            page.update()
+
+        b_res = await fetch_admin_all_bundles(admin_state["token"])
+        admin_state["is_loading_bundles"] = False
+        if "error" in b_res and not b_res.get("bundles"):
+            admin_state["bundles_error"] = b_res.get("error")
+        else:
+            admin_state["cached_bundles"] = b_res.get("bundles", [])
+
         if admin_state["active_tab"] == "study_packs":
             _render_tab_content()
         page.update()
@@ -976,7 +1020,7 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
 
         confirm_input.on_change = _on_confirm_change
 
-        async def _execute_delete(e):
+        async def _execute_delete(e=None):
             page.pop_dialog()
             status_code, data = await delete_user_account(admin_state["token"], str(u["id"]))
             if status_code == 200:
@@ -996,7 +1040,7 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
             else:
                 show_page_snackbar(page, ft.SnackBar(content=ft.Text(f"Failed to delete: {data.get('detail')}"), bgcolor=ft.Colors.RED_700))
 
-        delete_btn.on_click = lambda e: page.run_task(_execute_delete)
+        delete_btn.on_click = lambda e: page.run_task(_execute_delete, e)
 
         dlg = ft.AlertDialog(
             modal=True,
@@ -2506,14 +2550,857 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
     def _build_study_packs_tab() -> ft.Control:
         subtab = admin_state["packs_subtab"]
 
-        # Subtab Buttons
+        # Theme color palettes for gradient cards
+        theme_colors_map = {
+            "purple_indigo": ("#6366F1", "#8B5CF6"),
+            "oceanic_blue": ("#0284C7", "#06B6D4"),
+            "emerald_teal": ("#059669", "#10B981"),
+            "sunset_orange": ("#EA580C", "#F59E0B"),
+            "rose_amber": ("#E11D48", "#F43F5E"),
+            "midnight_dark": ("#1E293B", "#334155"),
+        }
+
+        # Subtab counts
         pending_count = len(admin_state["cached_pending_packs"])
         approved_count = len(admin_state["cached_study_packs"])
+        bundles_count = len(admin_state["cached_bundles"])
 
         def _set_subtab(st: str):
             admin_state["packs_subtab"] = st
             _render_tab_content()
             page.update()
+
+        # Shared publisher for both AI and Manual CBT curator paths
+        async def _on_publish_curated(final_data: dict):
+            show_page_snackbar(page, "Publishing official curated CBT pack...")
+            create_res = await create_official_curated_pack(
+                token=admin_state["token"],
+                title=final_data["title"],
+                description=final_data.get("description") or f"Official {final_data.get('exam_type', 'CBT')} Past Questions with step-by-step solutions and diagram figures.",
+                category=final_data.get("category", "General"),
+                price_coins=final_data.get("price_coins", 0),
+                theme_gradient=final_data.get("theme_gradient", "emerald_teal"),
+                duration_minutes=final_data.get("duration_minutes", 60),
+                questions=final_data["questions"],
+            )
+            if create_res.get("success") or create_res.get("id"):
+                show_page_snackbar(page, "🎉 Curated CBT Pack published to Marketplace successfully!")
+                await _fetch_study_packs()
+            else:
+                show_page_snackbar(page, f"Publish error: {create_res.get('error', 'Unknown')}")
+
+        def _open_blank_cbt_curator():
+            show_question_curator_dialog(
+                page=page,
+                initial_questions=[],
+                pack_title="New Official CBT Pack",
+                subject="General",
+                exam_type="JAMB UTME",
+                exam_year=2025,
+                initial_price_coins=0,
+                initial_theme_gradient="emerald_teal",
+                initial_description="Official past questions CBT practice pack with comprehensive solutions.",
+                initial_duration_minutes=60,
+                on_publish=lambda p_data: asyncio.create_task(_on_publish_curated(p_data)),
+            )
+
+        def _open_ai_cbt_ingest_modal():
+            screen_w = page.width or 800
+            screen_h = page.height or 800
+            is_mobile = screen_w < 640
+
+            subject_field = ft.TextField(label="Subject", value="Physics", dense=True, expand=True)
+            exam_field = ft.TextField(label="Exam Board", value="JAMB UTME", dense=True, width=140)
+            year_field = ft.TextField(label="Exam Year", value="2024", dense=True, width=100)
+
+            raw_text_field = ft.TextField(
+                label="Extracted / Pasted Exam Questions Text",
+                multiline=True,
+                min_lines=6,
+                max_lines=12,
+                hint_text="Paste question text or upload a document file (PDF, DOCX, TXT, MD, Images)...\nExample:\n1. In the circuit shown below...\nA. 4 Ω\nB. 8 Ω\nAnswer: B",
+            )
+
+            status_text = ft.Text("", size=12, color=palette["accent"])
+            uploaded_file_data = {"name": None, "bytes": None, "size_str": "", "char_count": 0}
+            active_mode = ["file"]  # "file" or "text"
+            show_text_preview = [False]
+
+            # File Badge UI Elements (when a file is picked)
+            file_badge_icon = ft.Icon(ft.Icons.DESCRIPTION_ROUNDED, size=24, color=palette["purple"])
+            file_badge_name = ft.Text("", size=13, weight=ft.FontWeight.BOLD, color=palette["text"], max_lines=1, overflow=ft.TextOverflow.ELLIPSIS)
+            file_badge_meta = ft.Text("", size=11, color=palette["text_muted"])
+            file_badge_status = ft.Container(
+                bgcolor=ui.tint(ui.C_CORRECT, 0.15),
+                border_radius=6,
+                padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+                content=ft.Row([
+                    ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED, size=13, color=ui.C_CORRECT),
+                    ft.Text("Ready for AI Processing", size=10.5, weight=ft.FontWeight.BOLD, color=ui.C_CORRECT),
+                ], spacing=4, tight=True),
+            )
+
+            def _clear_uploaded_file(_=None):
+                uploaded_file_data["name"] = None
+                uploaded_file_data["bytes"] = None
+                uploaded_file_data["size_str"] = ""
+                uploaded_file_data["char_count"] = 0
+                raw_text_field.value = ""
+                _update_mode_ui()
+                page.update()
+
+            file_card_container = ft.Container(
+                bgcolor=palette["surface"],
+                border=ft.Border.all(1.2, ui.tint(palette["purple"], 0.4)),
+                border_radius=10,
+                padding=14,
+                visible=False,
+                content=ft.Row([
+                    file_badge_icon,
+                    ft.Column([
+                        file_badge_name,
+                        ft.Row([file_badge_meta, file_badge_status], spacing=8, tight=True),
+                    ], spacing=3, expand=True),
+                    ft.OutlinedButton(
+                        "Change File",
+                        icon=ft.Icons.REFRESH_ROUNDED,
+                        style=ft.ButtonStyle(
+                            shape=ft.RoundedRectangleBorder(radius=8),
+                            side=ft.BorderSide(1, palette["border"]),
+                            color=palette["text"],
+                        ),
+                        on_click=lambda _: page.run_task(_pick_exam_file),
+                    ),
+                    ft.IconButton(
+                        icon=ft.Icons.DELETE_OUTLINE_ROUNDED,
+                        icon_color=palette["danger"],
+                        tooltip="Remove file",
+                        on_click=_clear_uploaded_file,
+                    ),
+                ], spacing=12, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            )
+
+            # Clickable Empty Dropzone Container
+            empty_dropzone = ft.Container(
+                bgcolor=palette["surface_variant"],
+                border=ft.Border.all(1.5, ui.tint(palette["purple"], 0.35)),
+                border_radius=12,
+                padding=ft.Padding.symmetric(horizontal=20, vertical=24),
+                ink=True,
+                on_click=lambda _: page.run_task(_pick_exam_file),
+                content=ft.Column([
+                    ft.Icon(ft.Icons.CLOUD_UPLOAD_ROUNDED, size=44, color=palette["purple"]),
+                    ft.Text("Click to Upload Past Questions Document", size=14, weight=ft.FontWeight.BOLD, color=palette["text"]),
+                    ft.Text(
+                        "Select an exam document from your computer.\nSupports PDF, Word (.docx), Plain Text (.txt), Markdown (.md), or Exam Photos (.png, .jpg)",
+                        size=11.5,
+                        color=palette["text_muted"],
+                        text_align=ft.TextAlign.CENTER,
+                    ),
+                    ft.Container(height=4),
+                    ft.Row([
+                        ft.FilledButton(
+                            "Browse Exam File",
+                            icon=ft.Icons.FOLDER_OPEN_ROUNDED,
+                            style=ft.ButtonStyle(
+                                bgcolor=palette["purple"],
+                                shape=ft.RoundedRectangleBorder(radius=8),
+                                padding=ft.Padding.symmetric(horizontal=16, vertical=10),
+                            ),
+                            on_click=lambda _: page.run_task(_pick_exam_file),
+                        ),
+                    ], alignment=ft.MainAxisAlignment.CENTER),
+                ], spacing=8, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+            )
+
+            # Optional Text Preview Box under file upload
+            preview_arrow = ft.Icon(ft.Icons.KEYBOARD_ARROW_RIGHT_ROUNDED, size=18, color=palette["text_muted"])
+            preview_text_container = ft.Container(visible=False, content=raw_text_field)
+
+            def _toggle_preview(_=None):
+                show_text_preview[0] = not show_text_preview[0]
+                preview_arrow.name = ft.Icons.KEYBOARD_ARROW_DOWN_ROUNDED if show_text_preview[0] else ft.Icons.KEYBOARD_ARROW_RIGHT_ROUNDED
+                preview_text_container.visible = show_text_preview[0]
+                page.update()
+
+            preview_toggle_header = ft.Container(
+                ink=True,
+                on_click=_toggle_preview,
+                padding=ft.Padding.symmetric(horizontal=6, vertical=4),
+                visible=False,
+                content=ft.Row([
+                    ft.Icon(ft.Icons.VISIBILITY_OUTLINED, size=16, color=palette["purple"]),
+                    ft.Text("Review / Edit Extracted Questions Text (Optional)", size=12, weight=ft.FontWeight.W_600, color=palette["text"]),
+                    preview_arrow,
+                ], spacing=6, tight=True),
+            )
+
+            # Paste Text Container (when in "text" mode)
+            def _load_sample_paper():
+                raw_text_field.value = (
+                    "1. In the circuit diagram below, calculate the equivalent resistance between terminals X and Y.\n"
+                    "A. 4 Ω\n"
+                    "B. 8 Ω\n"
+                    "C. 12 Ω\n"
+                    "D. 16 Ω\n"
+                    "Answer: B\n"
+                    "Explanation: Resistors R1 (12Ω) and R2 (6Ω) are connected in parallel: (12*6)/(12+6) = 4Ω. Resistor R3 (4Ω) is in series: 4 + 4 = 8Ω.\n"
+                    "Topic: Current Electricity\n\n"
+                    "2. Which of the following organelles is primarily responsible for aerobic cellular respiration in eukaryotes?\n"
+                    "A. Ribosome\n"
+                    "B. Mitochondria\n"
+                    "C. Golgi Apparatus\n"
+                    "D. Lysosome\n"
+                    "Answer: B\n"
+                    "Explanation: Mitochondria generate most of the chemical energy needed to power the cell's biochemical reactions through ATP synthesis.\n"
+                    "Topic: Cell Biology\n\n"
+                    "3. A car accelerates uniformly from rest at 3 m/s² for 10 seconds. Find the total distance covered.\n"
+                    "A. 150 m\n"
+                    "B. 300 m\n"
+                    "C. 75 m\n"
+                    "D. 200 m\n"
+                    "Answer: A\n"
+                    "Explanation: Using s = ut + 0.5at²: since u = 0, s = 0.5 * 3 * (10)² = 0.5 * 3 * 100 = 150 m.\n"
+                    "Topic: Mechanics"
+                )
+                page.update()
+
+            sample_btn = ft.TextButton(
+                "Load Sample JAMB Paper",
+                icon=ft.Icons.DESCRIPTION_OUTLINED,
+                on_click=lambda _: _load_sample_paper(),
+            )
+
+            paste_mode_box = ft.Column([
+                ft.Row([
+                    ft.Text("Paste Unstructured Exam Questions Text:", size=12, weight=ft.FontWeight.BOLD, color=palette["text"]),
+                    sample_btn,
+                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                raw_text_field,
+            ], spacing=6, visible=False)
+
+            file_mode_box = ft.Column([
+                empty_dropzone,
+                file_card_container,
+                preview_toggle_header,
+                preview_text_container,
+            ], spacing=10, visible=True)
+
+            def _update_mode_ui():
+                is_file = (active_mode[0] == "file")
+                file_mode_box.visible = is_file
+                paste_mode_box.visible = not is_file
+
+                has_file = bool(uploaded_file_data.get("name"))
+                empty_dropzone.visible = not has_file
+                file_card_container.visible = has_file
+                preview_toggle_header.visible = has_file and bool(raw_text_field.value)
+                if not has_file:
+                    preview_text_container.visible = False
+                    show_text_preview[0] = False
+
+                # Update mode switcher pills
+                mode_tab_file.bgcolor = ft.Colors.with_opacity(0.15, palette["purple"]) if is_file else ft.Colors.TRANSPARENT
+                mode_tab_file.border = ft.Border.all(1.2, palette["purple"] if is_file else palette["border"])
+                mode_tab_file_text.weight = ft.FontWeight.BOLD if is_file else ft.FontWeight.W_500
+                mode_tab_file_text.color = palette["text"] if is_file else palette["text_muted"]
+                mode_tab_file_icon.color = palette["purple"] if is_file else palette["text_muted"]
+
+                mode_tab_text.bgcolor = ft.Colors.with_opacity(0.15, palette["purple"]) if not is_file else ft.Colors.TRANSPARENT
+                mode_tab_text.border = ft.Border.all(1.2, palette["purple"] if not is_file else palette["border"])
+                mode_tab_text_text.weight = ft.FontWeight.BOLD if not is_file else ft.FontWeight.W_500
+                mode_tab_text_text.color = palette["text"] if not is_file else palette["text_muted"]
+                mode_tab_text_icon.color = palette["purple"] if not is_file else palette["text_muted"]
+
+            def _switch_mode(mode_val: str):
+                active_mode[0] = mode_val
+                _update_mode_ui()
+                page.update()
+
+            mode_tab_file_icon = ft.Icon(ft.Icons.UPLOAD_FILE_ROUNDED, size=16, color=palette["purple"])
+            mode_tab_file_text = ft.Text("Upload Document File", size=12.5, weight=ft.FontWeight.BOLD, color=palette["text"])
+            mode_tab_file = ft.Container(
+                content=ft.Row([mode_tab_file_icon, mode_tab_file_text], spacing=6, tight=True),
+                bgcolor=ft.Colors.with_opacity(0.15, palette["purple"]),
+                border=ft.Border.all(1.2, palette["purple"]),
+                border_radius=8,
+                padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+                ink=True,
+                on_click=lambda _: _switch_mode("file"),
+            )
+
+            mode_tab_text_icon = ft.Icon(ft.Icons.EDIT_NOTE_ROUNDED, size=16, color=palette["text_muted"])
+            mode_tab_text_text = ft.Text("Paste Questions Text", size=12.5, weight=ft.FontWeight.W_500, color=palette["text_muted"])
+            mode_tab_text = ft.Container(
+                content=ft.Row([mode_tab_text_icon, mode_tab_text_text], spacing=6, tight=True),
+                bgcolor=ft.Colors.TRANSPARENT,
+                border=ft.Border.all(1.2, palette["border"]),
+                border_radius=8,
+                padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+                ink=True,
+                on_click=lambda _: _switch_mode("text"),
+            )
+
+            mode_switcher_row = ft.Row([mode_tab_file, mode_tab_text], spacing=8)
+
+            async def _pick_exam_file(_=None):
+                try:
+                    files = await ft.FilePicker().pick_files(
+                        file_type=ft.FilePickerFileType.CUSTOM,
+                        allowed_extensions=["pdf", "docx", "txt", "md", "png", "jpg", "jpeg"],
+                        with_data=True,
+                    )
+                    if not files:
+                        return
+
+                    f = files[0]
+                    f_name = getattr(f, "name", None) or (os.path.basename(f.path) if getattr(f, "path", None) else "exam_document")
+                    f_bytes = getattr(f, "bytes", None)
+                    f_path = getattr(f, "path", None)
+
+                    if not f_bytes and f_path:
+                        try:
+                            with open(f_path, "rb") as fp:
+                                f_bytes = fp.read()
+                        except Exception as read_err:
+                            print(f"[File Read Error]: {read_err}")
+
+                    f_size_str = ""
+                    if f_bytes:
+                        sz = len(f_bytes)
+                        f_size_str = f"{sz / 1024:.1f} KB" if sz < 1024 * 1024 else f"{sz / (1024 * 1024):.1f} MB"
+
+                    extracted_text = ""
+                    ext = f_name.lower().split(".")[-1] if "." in f_name else ""
+
+                    if ext == "pdf":
+                        try:
+                            import fitz
+                            doc = fitz.open(stream=f_bytes, filetype="pdf") if f_bytes else (fitz.open(f_path) if f_path else None)
+                            if doc:
+                                for p in doc:
+                                    extracted_text += p.get_text() + "\n"
+                                doc.close()
+                        except Exception as pdf_err:
+                            show_page_snackbar(page, f"PDF text read: {pdf_err}")
+                    elif ext == "docx":
+                        try:
+                            import io, zipfile, xml.etree.ElementTree as ET
+                            data = f_bytes
+                            if not data and f_path:
+                                with open(f_path, "rb") as fp:
+                                    data = fp.read()
+                            if data:
+                                with zipfile.ZipFile(io.BytesIO(data)) as z:
+                                    xml_content = z.read("word/document.xml")
+                                    tree = ET.fromstring(xml_content)
+                                    texts = []
+                                    for elem in tree.iter():
+                                        if elem.tag.endswith('}t'):
+                                            if elem.text:
+                                                texts.append(elem.text)
+                                        elif elem.tag.endswith('}p'):
+                                            texts.append('\n')
+                                    extracted_text = "".join(texts)
+                        except Exception as docx_err:
+                            show_page_snackbar(page, f"DOCX text read: {docx_err}")
+                    elif ext in ["png", "jpg", "jpeg", "webp"]:
+                        extracted_text = ""
+                    else:
+                        if f_bytes:
+                            extracted_text = f_bytes.decode("utf-8", errors="ignore")
+                        elif f_path:
+                            with open(f_path, "r", encoding="utf-8", errors="ignore") as fp:
+                                extracted_text = fp.read()
+
+                    extracted_text = extracted_text.strip()
+                    uploaded_file_data["name"] = f_name
+                    uploaded_file_data["bytes"] = f_bytes
+                    uploaded_file_data["size_str"] = f_size_str
+                    uploaded_file_data["char_count"] = len(extracted_text)
+
+                    # Update file card
+                    file_badge_name.value = f_name
+                    if ext == "pdf":
+                        file_badge_icon.name = ft.Icons.PICTURE_AS_PDF_ROUNDED
+                        file_badge_icon.color = palette["danger"]
+                    elif ext in ["png", "jpg", "jpeg"]:
+                        file_badge_icon.name = ft.Icons.IMAGE_ROUNDED
+                        file_badge_icon.color = palette["accent"]
+                    else:
+                        file_badge_icon.name = ft.Icons.DESCRIPTION_ROUNDED
+                        file_badge_icon.color = palette["purple"]
+
+                    if extracted_text:
+                        raw_text_field.value = extracted_text
+                        file_badge_meta.value = f"{f_size_str} • {len(extracted_text):,} chars extracted"
+                    elif ext in ["png", "jpg", "jpeg"]:
+                        file_badge_meta.value = f"{f_size_str} • Image paper (AI Multimodal Transcription)"
+                    else:
+                        file_badge_meta.value = f"{f_size_str} • Ready for server parsing"
+
+                    # Smart subject, exam, and year inference from filename
+                    fn_lower = f_name.lower()
+                    for subj in ["physics", "chemistry", "biology", "mathematics", "maths", "english", "economics", "government", "literature", "crk", "irk", "commerce", "accounting", "geography", "history", "civic", "agric", "computer"]:
+                        if subj in fn_lower:
+                            subject_field.value = "Mathematics" if subj == "maths" else ("Agricultural Science" if subj == "agric" else subj.title())
+                            break
+                    for ex in ["jamb", "utme", "waec", "wassce", "neco", "post-utme"]:
+                        if ex in fn_lower:
+                            if ex in ["jamb", "utme"]:
+                                exam_field.value = "JAMB UTME"
+                            elif ex in ["waec", "wassce"]:
+                                exam_field.value = "WAEC WASSCE"
+                            elif ex == "neco":
+                                exam_field.value = "NECO SSCE"
+                            break
+                    import re
+                    year_match = re.search(r'\b(20\d{2}|19\d{2})\b', f_name)
+                    if year_match:
+                        year_field.value = year_match.group(1)
+
+                    _update_mode_ui()
+                    page.update()
+                except Exception as ex:
+                    show_page_snackbar(page, f"File picker error: {ex}")
+
+            parse_btn_content = ft.Row([
+                ft.Icon(ft.Icons.AUTO_AWESOME_ROUNDED, size=16, color=ft.Colors.WHITE),
+                ft.Text("Parse with AI Engine", size=13, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+            ], spacing=6, tight=True)
+
+            parse_btn = ft.FilledButton(
+                content=parse_btn_content,
+                style=ft.ButtonStyle(
+                    bgcolor=palette["purple"],
+                    shape=ft.RoundedRectangleBorder(radius=8),
+                    padding=ft.Padding.symmetric(horizontal=16, vertical=12),
+                ),
+                on_click=lambda e: asyncio.create_task(_execute_parse(e)),
+            )
+
+            ingest_dlg_ref = [None]
+
+            def _close_ingest(_=None):
+                if ingest_dlg_ref[0]:
+                    ingest_dlg_ref[0].open = False
+                    page.update()
+
+            async def _execute_parse(_):
+                txt = (raw_text_field.value or "").strip()
+                has_file = bool(uploaded_file_data.get("name") and uploaded_file_data.get("bytes"))
+
+                if not txt and not has_file:
+                    show_page_snackbar(page, "Please upload an exam document (PDF, DOCX, TXT, Images) or paste questions text.")
+                    return
+
+                status_text.value = "AI Engine is analyzing questions, diagrams & options..."
+                parse_btn_content.controls[0] = ft.ProgressRing(width=16, height=16, stroke_width=2, color=ft.Colors.WHITE)
+                parse_btn_content.controls[1].value = "Analyzing Document..."
+                parse_btn.disabled = True
+                page.update()
+
+                token = admin_state["token"]
+                year_str = (year_field.value or "").strip()
+                year_val = int(year_str) if year_str.isdigit() else 2024
+                parsed_subj = (subject_field.value or "").strip() or "General"
+                parsed_exam = (exam_field.value or "").strip() or "JAMB UTME"
+
+                # If text is present, parse text. If raw text empty but file uploaded, parse file.
+                if txt:
+                    res = await parse_past_questions_ai(
+                        token=token,
+                        raw_text=txt,
+                        subject=parsed_subj,
+                        exam_type=parsed_exam,
+                        exam_year=year_val,
+                    )
+                else:
+                    res = await parse_past_questions_file_ai(
+                        token=token,
+                        file_name=uploaded_file_data["name"],
+                        file_bytes=uploaded_file_data["bytes"],
+                        subject=parsed_subj,
+                        exam_type=parsed_exam,
+                        exam_year=year_val,
+                    )
+
+                _close_ingest()
+
+                if not res.get("success") and not res.get("questions"):
+                    show_page_snackbar(page, f"AI Extraction Failed: {res.get('error', 'Unknown')}")
+                    return
+
+                parsed_questions = res.get("questions", [])
+                suggested_title = res.get("suggested_title") or f"{exam_field.value or 'CBT'} {year_field.value or ''} {subject_field.value or ''} CBT Pack"
+
+                # Launch interactive Question Curator modal with AI extracted questions
+                show_question_curator_dialog(
+                    page=page,
+                    initial_questions=parsed_questions,
+                    pack_title=suggested_title,
+                    subject=(subject_field.value or "").strip() or "General",
+                    exam_type=(exam_field.value or "").strip() or "JAMB UTME",
+                    exam_year=year_val,
+                    initial_price_coins=0,
+                    initial_theme_gradient="emerald_teal",
+                    initial_description=f"Official {exam_field.value or 'CBT'} Past Questions with step-by-step solutions and diagram figures.",
+                    initial_duration_minutes=60,
+                    on_publish=lambda p_data: asyncio.create_task(_on_publish_curated(p_data)),
+                    token=token,
+                )
+
+            modal_w = min(740, int(screen_w * 0.95))
+            modal_h = min(620, int(screen_h * 0.88))
+
+            meta_inputs = (
+                ft.Row([subject_field, exam_field, year_field], spacing=10)
+                if not is_mobile
+                else ft.Column([
+                    subject_field,
+                    ft.Row([exam_field, year_field], spacing=10),
+                ], spacing=8)
+            )
+
+            dlg = ft.AlertDialog(
+                modal=True,
+                shape=ft.RoundedRectangleBorder(radius=14),
+                bgcolor=palette["card_bg"],
+                title=ft.Row([
+                    ft.Row([
+                        ft.Icon(ft.Icons.DOCUMENT_SCANNER_ROUNDED, color=palette["purple"], size=22),
+                        ft.Text("AI Past Questions Ingestion", size=16, weight=ft.FontWeight.BOLD, color=palette["text"]),
+                    ], tight=True, spacing=8),
+                    ft.IconButton(ft.Icons.CLOSE_ROUNDED, on_click=_close_ingest),
+                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                content=ft.Container(
+                    width=modal_w,
+                    height=modal_h,
+                    content=ft.Column([
+                        ft.Container(
+                            bgcolor=palette["surface_variant"],
+                            border=ft.Border.all(1, palette["border"]),
+                            border_radius=8,
+                            padding=10,
+                            content=ft.Row([
+                                ft.Icon(ft.Icons.AUTO_AWESOME_ROUNDED, size=16, color=palette["purple"]),
+                                ft.Text(
+                                    "Upload an exam document (PDF, Word DOCX, TXT, MD, Images) or paste questions text below. Our AI engine extracts questions, options A–E, solutions, topics, and diagrams into a structured CBT pack.",
+                                    size=11,
+                                    color=palette["text_muted"],
+                                    expand=True,
+                                ),
+                            ], spacing=8),
+                        ),
+                        meta_inputs,
+                        mode_switcher_row,
+                        file_mode_box,
+                        paste_mode_box,
+                        status_text,
+                    ], spacing=12, scroll=ft.ScrollMode.AUTO),
+                ),
+                actions=[
+                    ft.TextButton("Cancel", on_click=_close_ingest),
+                    parse_btn,
+                ],
+                actions_alignment=ft.MainAxisAlignment.END,
+            )
+            ingest_dlg_ref[0] = dlg
+            page.overlay.append(dlg)
+            dlg.open = True
+            page.update()
+
+
+        def _open_cbt_mode_picker():
+            choice_dlg_ref = [None]
+
+            def _close_choice():
+                if choice_dlg_ref[0]:
+                    choice_dlg_ref[0].open = False
+                    page.update()
+
+            choice_dlg = ft.AlertDialog(
+                modal=True,
+                shape=ft.RoundedRectangleBorder(radius=14),
+                bgcolor=palette["card_bg"],
+                title=ft.Row([
+                    ft.Icon(ft.Icons.AUTO_AWESOME_ROUNDED, color=palette["purple"], size=22),
+                    ft.Text("Curate Official CBT Pack", size=16, weight=ft.FontWeight.BOLD, color=palette["text"]),
+                ], spacing=8),
+                content=ft.Column([
+                    ft.Text("Select your preferred preparation method for this CBT exam pack:", size=13, color=palette["text_muted"]),
+                    ft.Container(height=4),
+                    ft.Container(
+                        bgcolor=palette["surface_variant"],
+                        border=ft.Border.all(1.2, palette["purple"]),
+                        border_radius=10,
+                        padding=14,
+                        ink=True,
+                        on_click=lambda _: (_close_choice(), _open_ai_cbt_ingest_modal()),
+                        content=ft.Row([
+                            ft.Container(
+                                content=ft.Icon(ft.Icons.DOCUMENT_SCANNER_ROUNDED, color=ft.Colors.WHITE, size=20),
+                                bgcolor=palette["purple"],
+                                padding=10,
+                                border_radius=8,
+                            ),
+                            ft.Column([
+                                ft.Text("AI Document & File Ingestion (Instant)", size=13, weight=ft.FontWeight.BOLD, color=palette["text"]),
+                                ft.Text("Upload exam documents (PDF, Word, TXT, MD, Images) or paste text to auto-extract with AI.", size=11, color=palette["text_muted"]),
+                            ], spacing=3, expand=True),
+                        ], spacing=12),
+                    ),
+                    ft.Container(
+                        bgcolor=palette["surface_variant"],
+                        border=ft.Border.all(1, palette["border"]),
+                        border_radius=10,
+                        padding=14,
+                        ink=True,
+                        on_click=lambda _: (_close_choice(), _open_blank_cbt_curator()),
+                        content=ft.Row([
+                            ft.Container(
+                                content=ft.Icon(ft.Icons.EDIT_NOTE_ROUNDED, color=palette["accent"], size=20),
+                                bgcolor=ft.Colors.with_opacity(0.15, palette["accent"]),
+                                padding=10,
+                                border_radius=8,
+                            ),
+                            ft.Column([
+                                ft.Text("Compose CBT Pack Manually", size=13, weight=ft.FontWeight.BOLD, color=palette["text"]),
+                                ft.Text("Build a clean exam paper question-by-question with options A-E, solutions, and custom duration.", size=11, color=palette["text_muted"]),
+                            ], spacing=3, expand=True),
+                        ], spacing=12),
+                    ),
+                ], spacing=10, tight=True),
+                actions=[
+                    ft.TextButton("Cancel", on_click=lambda _: _close_choice()),
+                ],
+            )
+            choice_dlg_ref[0] = choice_dlg
+            choice_dlg.open = True
+            page.overlay.append(choice_dlg)
+            page.update()
+
+        # Bundle Creation & Editing Handlers
+        async def _on_save_bundle(bundle_payload: dict):
+            bundle_id = bundle_payload.get("id")
+            if bundle_id:
+                show_page_snackbar(page, "Updating study bundle...")
+                res = await update_study_bundle_admin(
+                    token=admin_state["token"],
+                    bundle_id=str(bundle_id),
+                    title=bundle_payload.get("title"),
+                    description=bundle_payload.get("description"),
+                    category=bundle_payload.get("category"),
+                    pack_ids=bundle_payload.get("pack_ids"),
+                    price_coins=bundle_payload.get("price_coins"),
+                    discount_percentage=bundle_payload.get("discount_percentage"),
+                    theme_gradient=bundle_payload.get("theme_gradient"),
+                    banner_url=bundle_payload.get("banner_url"),
+                )
+                if res.get("success"):
+                    show_page_snackbar(page, "🎉 Study bundle updated successfully!")
+                    await _fetch_bundles()
+                else:
+                    show_page_snackbar(page, f"Failed to update bundle: {res.get('error', 'Unknown')}")
+            else:
+                show_page_snackbar(page, "Publishing new study bundle...")
+                res = await create_study_bundle_admin(
+                    token=admin_state["token"],
+                    title=bundle_payload["title"],
+                    description=bundle_payload.get("description", ""),
+                    category=bundle_payload.get("category", "JAMB UTME"),
+                    pack_ids=bundle_payload.get("pack_ids", []),
+                    price_coins=bundle_payload.get("price_coins", 0),
+                    discount_percentage=bundle_payload.get("discount_percentage", 0),
+                    theme_gradient=bundle_payload.get("theme_gradient", "purple_indigo"),
+                    banner_url=bundle_payload.get("banner_url"),
+                )
+                if res.get("success") or res.get("bundle_id"):
+                    show_page_snackbar(page, "🎉 Study bundle created and published successfully!")
+                    await _fetch_bundles()
+                else:
+                    show_page_snackbar(page, f"Failed to create bundle: {res.get('error', 'Unknown')}")
+
+        def _open_bundle_builder_modal(existing_bundle=None):
+            show_bundle_builder_dialog(
+                page=page,
+                available_packs=admin_state["cached_study_packs"],
+                existing_bundle=existing_bundle,
+                on_save=lambda b_data: asyncio.create_task(_on_save_bundle(b_data)),
+            )
+
+        def _build_admin_bundle_card(b: dict) -> ft.Container:
+            bundle_id = str(b.get("id"))
+            theme_key = b.get("theme_gradient", "purple_indigo")
+            c1, c2 = theme_colors_map.get(theme_key, ("#6366F1", "#8B5CF6"))
+            is_hidden = (b.get("status") == "hidden")
+
+            admin_banner_url = b.get("banner_url")
+            banner_img = None
+            if admin_banner_url and str(admin_banner_url).strip():
+                banner_img = ft.Container(
+                    height=90,
+                    border_radius=ft.BorderRadius.only(top_left=12, top_right=12),
+                    clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                    content=ft.Image(
+                        src=str(admin_banner_url).strip(),
+                        height=90,
+                        width=float("inf"),
+                        fit=ft.BoxFit.COVER,
+                    ),
+                )
+
+            banner_content = ft.Container(
+                gradient=ft.LinearGradient(
+                    begin=ft.Alignment.TOP_LEFT,
+                    end=ft.Alignment.BOTTOM_RIGHT,
+                    colors=[c1, c2],
+                ),
+                border_radius=ft.BorderRadius.only(top_left=12, top_right=12) if not banner_img else ft.BorderRadius.all(0),
+                padding=ft.Padding.all(14),
+                content=ft.Column([
+                    ft.Row([
+                        ft.Container(
+                            content=ft.Text(f"{b.get('discount_percentage', 0)}% OFF", size=10, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+                            bgcolor=ft.Colors.with_opacity(0.35, ft.Colors.BLACK),
+                            padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+                            border_radius=6,
+                        ),
+                        ft.Container(
+                            content=ft.Row([
+                                ft.Icon(ft.Icons.MONETIZATION_ON_ROUNDED, size=12, color=palette["accent"]),
+                                ft.Text(f"{b.get('price_coins', 0)} Coins", size=11, weight=ft.FontWeight.BOLD, color=palette["accent"]),
+                            ], spacing=3, tight=True),
+                            bgcolor=palette["surface"],
+                            padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+                            border_radius=6,
+                        ),
+                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                    ft.Text(b.get("title", "Untitled Bundle"), size=15, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
+                    ft.Text(f"{b.get('category', 'JAMB UTME')} • {b.get('packs_count', 0)} Packs Included", size=11.5, color=ft.Colors.WHITE70),
+                ], spacing=6),
+            )
+
+            async def _toggle_visibility(e):
+                res = await toggle_admin_bundle_visibility(admin_state["token"], bundle_id)
+                if "error" in res:
+                    show_page_snackbar(page, f"Toggle visibility failed: {res['error']}")
+                else:
+                    show_page_snackbar(page, res.get("message", "Bundle visibility updated."))
+                    await _fetch_bundles()
+
+            def _confirm_delete_bundle():
+                def _close_del():
+                    del_dlg.open = False
+                    page.update()
+
+                async def _do_delete_bundle(btn):
+                    btn.disabled = True
+                    page.update()
+                    res = await delete_admin_bundle(admin_state["token"], bundle_id)
+                    _close_del()
+                    if "error" in res:
+                        show_page_snackbar(page, f"Deletion failed: {res['error']}")
+                    else:
+                        show_page_snackbar(page, res.get("message", "Bundle permanently deleted."))
+                        await _fetch_bundles()
+
+                del_dlg = ft.AlertDialog(
+                    modal=True,
+                    shape=ft.RoundedRectangleBorder(radius=14),
+                    bgcolor=palette["card_bg"],
+                    title=ft.Row([
+                        ft.Icon(ft.Icons.DELETE_FOREVER_ROUNDED, color=palette["danger"], size=22),
+                        ft.Text("Permanently Delete Bundle?", size=16, weight=ft.FontWeight.BOLD, color=palette["text"]),
+                    ], spacing=8),
+                    content=ft.Text(f"Are you sure you want to permanently delete '{b.get('title')}'? This action cannot be undone.", size=13, color=palette["text_muted"]),
+                    actions=[
+                        ft.TextButton("Cancel", on_click=lambda _: _close_del()),
+                        ft.FilledButton(
+                            "Delete Bundle",
+                            icon=ft.Icons.DELETE_ROUNDED,
+                            style=ft.ButtonStyle(bgcolor=palette["danger"], color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8)),
+                            on_click=lambda ev: page.run_task(_do_delete_bundle, ev.control),
+                        ),
+                    ],
+                )
+                del_dlg.open = True
+                page.overlay.append(del_dlg)
+                page.update()
+
+            pack_chips = []
+            for p in b.get("packs", []):
+                pack_chips.append(
+                    ft.Container(
+                        bgcolor=palette["surface_variant"],
+                        border=ft.Border.all(1, palette["border"]),
+                        border_radius=6,
+                        padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+                        content=ft.Text(p.get("title", ""), size=11, color=palette["text"], max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                    )
+                )
+
+            status_pill = ft.Container(
+                content=ft.Row([
+                    ft.Container(width=6, height=6, border_radius=3, bgcolor=palette["warning"] if is_hidden else palette["success"]),
+                    ft.Text("Hidden" if is_hidden else "Live in Store", size=10.5, weight=ft.FontWeight.BOLD, color=palette["warning"] if is_hidden else palette["success"]),
+                ], spacing=5, tight=True),
+                bgcolor=palette["warning_bg"] if is_hidden else palette["success_bg"],
+                padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+                border_radius=6,
+            )
+
+            return ft.Container(
+                col={"xs": 12, "sm": 6, "md": 4, "lg": 4},
+                bgcolor=palette["card_bg"],
+                border=ft.Border.all(1.2, palette["border"]),
+                border_radius=12,
+                clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                content=ft.Column([
+                    *( [banner_img] if banner_img else [] ),
+                    banner_content,
+                    ft.Container(
+                        padding=14,
+                        content=ft.Column([
+                            ft.Row([
+                                status_pill,
+                                ft.Text(f"{b.get('downloads_count', 0)} Downloads", size=11, color=palette["text_muted"]),
+                            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                            ft.Text(b.get("description") or "Multi-pack curated collection with bundled discount pricing.", size=12, color=palette["text_muted"], max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
+                            ft.Row([
+                                ft.Text(f"📚 {b.get('total_questions', 0)} Questions", size=11.5, weight=ft.FontWeight.W_600, color=palette["text"]),
+                                ft.Text(f"⚡ {b.get('total_flashcards', 0)} Flashcards", size=11.5, weight=ft.FontWeight.W_600, color=palette["text"]),
+                            ], spacing=10),
+                            ft.Text("Constituent Study Packs:", size=11, weight=ft.FontWeight.BOLD, color=palette["text_muted"]),
+                            ft.Row(wrap=True, spacing=6, run_spacing=6, controls=pack_chips[:4] + ([ft.Text(f"+{len(pack_chips)-4} more", size=10, color=palette["accent"])] if len(pack_chips) > 4 else [])),
+                            ft.Divider(height=1, color=palette["border"]),
+                            ft.Row([
+                                ft.IconButton(
+                                    icon=ft.Icons.VISIBILITY_ROUNDED if is_hidden else ft.Icons.VISIBILITY_OFF_ROUNDED,
+                                    icon_color=palette["warning"] if is_hidden else palette["text_muted"],
+                                    tooltip="Publish to store" if is_hidden else "Hide from store",
+                                    icon_size=17,
+                                    on_click=_toggle_visibility,
+                                ),
+                                ft.IconButton(
+                                    icon=ft.Icons.EDIT_ROUNDED,
+                                    icon_color=palette["accent"],
+                                    tooltip="Edit Bundle Details & Packs",
+                                    icon_size=17,
+                                    on_click=lambda _, bundle_data=b: _open_bundle_builder_modal(existing_bundle=bundle_data),
+                                ),
+                                ft.IconButton(
+                                    icon=ft.Icons.DELETE_OUTLINE_ROUNDED,
+                                    icon_color=palette["danger"],
+                                    tooltip="Permanently Delete Bundle",
+                                    icon_size=17,
+                                    on_click=lambda _: _confirm_delete_bundle(),
+                                ),
+                            ], alignment=ft.MainAxisAlignment.END, spacing=4),
+                        ], spacing=10),
+                    ),
+                ], spacing=0),
+            )
 
         subtab_bar = ft.Row([
             ft.Container(
@@ -2540,16 +3427,50 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
                 ink=True,
                 on_click=lambda _: _set_subtab("approved"),
             ),
-        ], spacing=10)
+            ft.Container(
+                content=ft.Row([
+                    ft.Icon(ft.Icons.COLLECTIONS_BOOKMARK_ROUNDED, size=16, color=palette["accent"] if subtab == "bundles" else palette["text_muted"]),
+                    ft.Text(f"Study Bundles ({bundles_count})", size=13, weight=ft.FontWeight.BOLD if subtab == "bundles" else ft.FontWeight.W_500, color=palette["text"] if subtab == "bundles" else palette["text_muted"]),
+                ], spacing=8, tight=True),
+                bgcolor=ft.Colors.with_opacity(0.16, palette["accent"]) if subtab == "bundles" else ft.Colors.TRANSPARENT,
+                border=ft.Border.all(1.2, palette["accent"] if subtab == "bundles" else palette["border"]),
+                border_radius=8,
+                padding=ft.Padding.symmetric(horizontal=14, vertical=8),
+                ink=True,
+                on_click=lambda _: _set_subtab("bundles"),
+            ),
+            ft.Container(
+                content=ft.Row([
+                    ft.Icon(ft.Icons.ADD_BOX_ROUNDED, size=16, color=ft.Colors.WHITE),
+                    ft.Text("Compose Bundle", size=13, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+                ], spacing=6, tight=True),
+                bgcolor=palette["accent"],
+                border_radius=8,
+                padding=ft.Padding.symmetric(horizontal=14, vertical=8),
+                ink=True,
+                on_click=lambda _: _open_bundle_builder_modal(),
+            ),
+            ft.Container(
+                content=ft.Row([
+                    ft.Icon(ft.Icons.AUTO_AWESOME_ROUNDED, size=16, color=ft.Colors.WHITE),
+                    ft.Text("Curate CBT Pack", size=13, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+                ], spacing=6, tight=True),
+                bgcolor=palette["purple"],
+                border_radius=8,
+                padding=ft.Padding.symmetric(horizontal=14, vertical=8),
+                ink=True,
+                on_click=lambda _: _open_cbt_mode_picker(),
+            ),
+        ], spacing=10, scroll=ft.ScrollMode.AUTO)
 
         # Content Area based on subtab
-        if admin_state["is_loading_packs"]:
+        if admin_state["is_loading_packs"] or admin_state["is_loading_bundles"]:
             body_content = ft.Container(
                 alignment=ft.Alignment.CENTER,
                 padding=ft.Padding.symmetric(vertical=40),
                 content=ft.Column([
                     ft.ProgressRing(width=32, height=32, stroke_width=3, color=palette["accent"]),
-                    ft.Text("Synchronizing Study Packs with Server…", size=12, color=palette["text_muted"]),
+                    ft.Text("Synchronizing Study Content with Server…", size=12, color=palette["text_muted"]),
                 ], spacing=12, horizontal_alignment=ft.CrossAxisAlignment.CENTER, tight=True)
             )
         elif subtab == "pending":
@@ -2568,6 +3489,28 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
                 for pack in admin_state["cached_pending_packs"]:
                     pending_cards.append(_build_pending_pack_row(pack))
                 body_content = ft.Column(spacing=12, controls=pending_cards)
+        elif subtab == "bundles":
+            if not admin_state["cached_bundles"]:
+                body_content = ft.Container(
+                    alignment=ft.Alignment.CENTER,
+                    padding=ft.Padding.symmetric(vertical=60),
+                    content=ft.Column([
+                        ft.Icon(ft.Icons.COLLECTIONS_BOOKMARK_OUTLINED, size=48, color=palette["accent"]),
+                        ft.Text("No Study Bundles Created Yet", size=16, weight=ft.FontWeight.BOLD, color=palette["text"]),
+                        ft.Text("Combine multiple study packs into high-value bundles with custom discounts.", size=12, color=palette["text_muted"]),
+                        ft.FilledButton(
+                            "+ Compose First Bundle",
+                            icon=ft.Icons.ADD_ROUNDED,
+                            style=ft.ButtonStyle(bgcolor=palette["accent"], color=ft.Colors.WHITE),
+                            on_click=lambda _: _open_bundle_builder_modal(),
+                        ),
+                    ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10, tight=True)
+                )
+            else:
+                bundle_items = []
+                for b in admin_state["cached_bundles"]:
+                    bundle_items.append(_build_admin_bundle_card(b))
+                body_content = ft.ResponsiveRow(spacing=16, run_spacing=16, controls=bundle_items)
         else:
             if not admin_state["cached_study_packs"]:
                 body_content = ft.Container(
@@ -2611,12 +3554,12 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
                                     ),
                                     ft.Column([
                                         ft.Text("Study Pack Marketplace Administration", size=16, weight=ft.FontWeight.BOLD, color=palette["text"]),
-                                        ft.Text("Review peer submissions, curate descriptions, assign cover art & pricing, and maintain the live catalog.", size=12, color=palette["text_muted"]),
+                                        ft.Text("Review submissions, compose multi-pack bundles, curate CBT exams, and maintain catalog inventory.", size=12, color=palette["text_muted"]),
                                     ], spacing=2),
                                 ], spacing=12),
                                 ft.IconButton(
                                     icon=ft.Icons.REFRESH_ROUNDED,
-                                    tooltip="Refresh Submissions & Catalog",
+                                    tooltip="Refresh Submissions, Bundles & Catalog",
                                     on_click=lambda _: page.run_task(_fetch_study_packs),
                                 ),
                             ],
@@ -2752,23 +3695,160 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
         )
 
     def _build_admin_catalog_card(pack: Dict[str, Any]) -> ft.Container:
+        pack_id = str(pack.get("id"))
+        status = pack.get("status", "approved")
+        is_hidden = (status == "hidden")
+
+        async def _toggle_visibility(e):
+            e.control.disabled = True
+            page.update()
+            res = await toggle_admin_pack_visibility(admin_state["token"], pack_id)
+            if "error" in res:
+                show_page_snackbar(page, f"Visibility change failed: {res['error']}")
+                e.control.disabled = False
+                page.update()
+            else:
+                show_page_snackbar(page, res.get("message", "Pack visibility updated."))
+                await _fetch_study_packs()
+
+        def _confirm_delete(e):
+            def _close_del_dlg():
+                del_dlg.open = False
+                page.update()
+
+            async def _do_delete(btn):
+                btn.disabled = True
+                page.update()
+                res = await delete_admin_pack(admin_state["token"], pack_id)
+                _close_del_dlg()
+                if "error" in res:
+                    show_page_snackbar(page, f"Deletion failed: {res['error']}")
+                else:
+                    show_page_snackbar(page, res.get("message", "Study pack permanently deleted."))
+                    await _fetch_study_packs()
+
+            del_dlg = ft.AlertDialog(
+                modal=True,
+                shape=ft.RoundedRectangleBorder(radius=16),
+                bgcolor=palette["card_bg"],
+                title=ft.Row([
+                    ft.Icon(ft.Icons.DELETE_FOREVER_ROUNDED, color=palette["danger"], size=22),
+                    ft.Text("Permanently Delete Pack?", size=16, weight=ft.FontWeight.BOLD, color=palette["text"]),
+                ], spacing=8),
+                content=ft.Text(
+                    f"Are you sure you want to delete '{pack.get('title', 'this pack')}'? This will completely remove it from the catalog and vault databases. This action cannot be undone.",
+                    size=13,
+                    color=palette["text_muted"],
+                ),
+                actions=[
+                    ft.TextButton(
+                        content=ft.Text("Cancel", size=12.5, color=palette["text_muted"]),
+                        on_click=lambda _: _close_del_dlg(),
+                    ),
+                    ft.FilledButton(
+                        "Delete Permanently",
+                        icon=ft.Icons.DELETE_ROUNDED,
+                        style=ft.ButtonStyle(bgcolor=palette["danger"], color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8)),
+                        on_click=lambda ev: page.run_task(_do_delete, ev.control),
+                    ),
+                ],
+            )
+            del_dlg.open = True
+            page.overlay.append(del_dlg)
+            page.update()
+
+        # Status badge indicator
+        if is_hidden:
+            status_badge = ft.Container(
+                content=ft.Row([
+                    ft.Icon(ft.Icons.VISIBILITY_OFF_ROUNDED, size=11, color=palette["warning"]),
+                    ft.Text("HIDDEN FROM STORE", size=9.5, weight=ft.FontWeight.W_800, color=palette["warning"]),
+                ], spacing=4, tight=True),
+                bgcolor=palette["warning_bg"],
+                border=ft.Border.all(1, palette["warning"]),
+                border_radius=ft.BorderRadius.all(6),
+                padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+            )
+        elif status == "approved":
+            status_badge = ft.Container(
+                content=ft.Row([
+                    ft.Container(width=6, height=6, border_radius=3, bgcolor=palette["success"]),
+                    ft.Text("LIVE IN STORE", size=9.5, weight=ft.FontWeight.W_800, color=palette["success"]),
+                ], spacing=5, tight=True),
+                bgcolor=palette["success_bg"],
+                border=ft.Border.all(1, palette["success"]),
+                border_radius=ft.BorderRadius.all(6),
+                padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+            )
+        else:
+            status_badge = ft.Container(
+                content=ft.Text(status.upper(), size=9.5, weight=ft.FontWeight.W_800, color=palette["text_muted"]),
+                bgcolor=palette["surface_variant"],
+                border=ft.Border.all(1, palette["border"]),
+                border_radius=ft.BorderRadius.all(6),
+                padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+            )
+
         return ft.Container(
             col={"sm": 12, "md": 6, "lg": 4},
-            content=ft.Stack(
+            bgcolor=palette["card_bg"],
+            border=ft.Border.all(1, palette["border"]),
+            border_radius=ft.BorderRadius.all(18),
+            padding=ft.Padding.all(10),
+            content=ft.Column(
+                spacing=10,
+                tight=True,
+                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
                 controls=[
-                    StudyPackCard(pack=pack),
+                    # Dedicated Top Admin Command Strip (Clean separation; zero overlap with pack badges)
                     ft.Container(
-                        alignment=ft.Alignment.TOP_RIGHT,
-                        padding=ft.Padding.all(8),
-                        content=ft.IconButton(
-                            icon=ft.Icons.EDIT_ROUNDED,
-                            icon_color=ft.Colors.WHITE,
-                            bgcolor=ft.Colors.with_opacity(0.85, palette["surface"]),
-                            tooltip="Edit Title, Description, Image & Pricing",
-                            on_click=lambda _, p=pack: _open_pack_inspector_dialog(p, is_pending=False),
+                        padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+                        content=ft.Row(
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            controls=[
+                                status_badge,
+                                ft.Row([
+                                    ft.IconButton(
+                                        icon=ft.Icons.VISIBILITY_ROUNDED if is_hidden else ft.Icons.VISIBILITY_OFF_ROUNDED,
+                                        icon_color=palette["warning"] if is_hidden else palette["text_muted"],
+                                        bgcolor=palette["surface"],
+                                        tooltip="Publish pack to live store" if is_hidden else "Hide pack from store",
+                                        icon_size=16,
+                                        width=32,
+                                        height=32,
+                                        on_click=lambda e: page.run_task(_toggle_visibility, e),
+                                    ),
+                                    ft.IconButton(
+                                        icon=ft.Icons.EDIT_ROUNDED,
+                                        icon_color=palette["accent"],
+                                        bgcolor=palette["surface"],
+                                        tooltip="Edit Title, Description & Pricing",
+                                        icon_size=16,
+                                        width=32,
+                                        height=32,
+                                        on_click=lambda _, p=pack: _open_pack_inspector_dialog(p, is_pending=False),
+                                    ),
+                                    ft.IconButton(
+                                        icon=ft.Icons.DELETE_OUTLINE_ROUNDED,
+                                        icon_color=palette["danger"],
+                                        bgcolor=palette["surface"],
+                                        tooltip="Permanently Delete Pack",
+                                        icon_size=16,
+                                        width=32,
+                                        height=32,
+                                        on_click=_confirm_delete,
+                                    ),
+                                ], spacing=4, tight=True),
+                            ],
                         ),
                     ),
-                ]
+                    # Full Unobscured Study Pack Card
+                    StudyPackCard(
+                        pack=pack,
+                        on_click_preview=lambda p: _open_pack_inspector_dialog(p, is_pending=False),
+                    ),
+                ],
             ),
         )
 
@@ -3034,7 +4114,86 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
                 ),
             ]
         else:
+            is_currently_hidden = (pack.get("status") == "hidden")
+
+            async def _dlg_toggle_visibility(e):
+                _close_dlg()
+                res = await toggle_admin_pack_visibility(admin_state["token"], pack_id)
+                if "error" in res:
+                    show_page_snackbar(page, f"Visibility change failed: {res['error']}")
+                else:
+                    show_page_snackbar(page, res.get("message", "Pack visibility updated."))
+                    await _fetch_study_packs()
+
+            def _dlg_confirm_delete(e):
+                _close_dlg()
+
+                def _close_del():
+                    d_dlg.open = False
+                    page.update()
+
+                async def _do_del_pack(btn):
+                    btn.disabled = True
+                    page.update()
+                    res = await delete_admin_pack(admin_state["token"], pack_id)
+                    _close_del()
+                    if "error" in res:
+                        show_page_snackbar(page, f"Delete failed: {res['error']}")
+                    else:
+                        show_page_snackbar(page, res.get("message", "Pack permanently deleted."))
+                        await _fetch_study_packs()
+
+                d_dlg = ft.AlertDialog(
+                    modal=True,
+                    shape=ft.RoundedRectangleBorder(radius=16),
+                    bgcolor=palette["card_bg"],
+                    title=ft.Row([
+                        ft.Icon(ft.Icons.DELETE_FOREVER_ROUNDED, color=palette["danger"], size=22),
+                        ft.Text("Permanently Delete Pack?", size=16, weight=ft.FontWeight.BOLD, color=palette["text"]),
+                    ], spacing=8),
+                    content=ft.Text(
+                        f"Are you sure you want to permanently delete '{pack.get('title', 'this pack')}'? This action cannot be undone.",
+                        size=13,
+                        color=palette["text_muted"],
+                    ),
+                    actions=[
+                        ft.TextButton(
+                            content=ft.Text("Cancel", size=12.5, color=palette["text_muted"]),
+                            on_click=lambda _: _close_del(),
+                        ),
+                        ft.FilledButton(
+                            "Delete Permanently",
+                            icon=ft.Icons.DELETE_ROUNDED,
+                            style=ft.ButtonStyle(bgcolor=palette["danger"], color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8)),
+                            on_click=lambda ev: page.run_task(_do_del_pack, ev.control),
+                        ),
+                    ],
+                )
+                d_dlg.open = True
+                page.overlay.append(d_dlg)
+                page.update()
+
             action_buttons = [
+                ft.OutlinedButton(
+                    "Delete Pack",
+                    icon=ft.Icons.DELETE_OUTLINE_ROUNDED,
+                    style=ft.ButtonStyle(
+                        color=palette["danger"],
+                        side=ft.BorderSide(1, palette["danger"]),
+                        shape=ft.RoundedRectangleBorder(radius=8),
+                    ),
+                    on_click=_dlg_confirm_delete,
+                ),
+                ft.OutlinedButton(
+                    "Publish to Store" if is_currently_hidden else "Hide from Store",
+                    icon=ft.Icons.VISIBILITY_ROUNDED if is_currently_hidden else ft.Icons.VISIBILITY_OFF_ROUNDED,
+                    style=ft.ButtonStyle(
+                        color=palette["warning"] if not is_currently_hidden else palette["success"],
+                        side=ft.BorderSide(1, palette["warning"] if not is_currently_hidden else palette["success"]),
+                        shape=ft.RoundedRectangleBorder(radius=8),
+                    ),
+                    on_click=lambda e: page.run_task(_dlg_toggle_visibility, e),
+                ),
                 cancel_btn,
                 ft.FilledButton(
                     "Save Pack Updates",

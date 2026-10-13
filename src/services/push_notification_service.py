@@ -264,7 +264,11 @@ async def init_push_notifications(
             title = notif.get("title") or notif.get("heading") or "New Notification"
             body = notif.get("body") or notif.get("content") or ""
             category = custom_data.get("category", "announcement")
-            notif_id = custom_data.get("id") or f"push_{uuid.uuid4().hex[:8]}"
+            raw_id = custom_data.get("id") or custom_data.get("notif_id")
+            if raw_id:
+                notif_id = f"backend_{raw_id}" if not str(raw_id).startswith("backend_") else str(raw_id)
+            else:
+                notif_id = f"push_{uuid.uuid4().hex[:8]}"
 
             # 1. Feed into in-memory NotificationManager so badge & drawer update
             NotificationManager.upsert(

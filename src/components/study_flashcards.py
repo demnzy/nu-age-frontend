@@ -275,13 +275,20 @@ def build_flashcard_session(
         card = cards[state["index"]] or {}
         card_id = str(card.get("id") or "")
 
-        # Fire the review off quietly in the background without exposing the algorithm intervals
+        # Record locally in SQLite (updates local SM-2 schedule & queues for sync)
         try:
-            from src.requests.study import post_review
+            from src.local_db import record_offline_flashcard_review
+            record_offline_flashcard_review(card_id=card_id, quality=quality, page=page)
+        except Exception as srs_err:
+            print(f"[SRS] Local record error: {srs_err}")
 
-            asyncio.create_task(post_review(token, card_id=card_id, quality=quality))
-        except Exception:
-            pass
+        # If online with active token, attempt immediate cloud sync in background
+        if token:
+            try:
+                from src.requests.study import post_review
+                asyncio.create_task(post_review(token, card_id=card_id, quality=quality))
+            except Exception:
+                pass
 
         state["busy"] = False
         await _advance()
@@ -429,8 +436,12 @@ def build_flashcard_session(
                 ft.Row(
                     spacing=10,
                     controls=[
-                        ui.ghost_button("Back to Hub", lambda _: on_exit(),
-                                        icon=ft.Icons.HOME_ROUNDED, expand=True),
+                        ui.ghost_button(
+                            "Back to Cockpit" if material else "Back to Hub",
+                            lambda _: on_exit(),
+                            icon=ft.Icons.ARROW_BACK_ROUNDED if material else ft.Icons.HOME_ROUNDED,
+                            expand=True,
+                        ),
                         ui.primary_button("Study again", lambda _: on_restart(),
                                           icon=ft.Icons.REPLAY_ROUNDED, expand=True),
                     ],

@@ -712,3 +712,115 @@ def _safe_filename_from_url(url: str) -> str:
     # share a filename across different lessons.
     base_name = url.split("?")[0].rstrip("/").split("/")[-1] or "asset"
     return f"{uuid.uuid4().hex}_{base_name}"
+
+
+# ── Study Materials Offline Download Helpers ──────────────────────────────
+
+async def download_study_material(page: ft.Page, token: str, material: dict) -> bool:
+    """
+    Downloads all cards and assessment questions for a single study material / pack
+    and caches it into SQLite for complete offline study.
+    """
+    if getattr(page, "web", False) or not token or not material:
+        return False
+    mat_id = str(material.get("id"))
+    if not mat_id:
+        return False
+
+    try:
+        from src.requests.study import get_all_cards, get_exam_questions, get_quiz_questions
+        from src.local_db import save_study_material_offline
+
+        # Fetch flashcards (all, not just due)
+        cards = await get_all_cards(token, material_ids=[mat_id])
+
+        # Fetch questions from exam simulator endpoint (up to 50 questions)
+        exam_res = await get_exam_questions(token, material_ids=[mat_id])
+        questions = []
+        if isinstance(exam_res, dict):
+            questions = exam_res.get("questions") or []
+        elif isinstance(exam_res, list):
+            questions = exam_res
+
+        # If exam endpoint returned empty, fall back to quiz endpoint
+        if not questions:
+            quiz_res = await get_quiz_questions(token, material_ids=[mat_id])
+            if isinstance(quiz_res, list):
+                questions = quiz_res
+
+        save_study_material_offline(
+            material=material,
+            flashcards=cards or [],
+            questions=questions or [],
+            page=page,
+        )
+        return True
+    except Exception as e:
+        print(f"[DOWNLOAD ERROR] Failed to download study material {mat_id}: {e}")
+        return False
+
+
+async def download_all_study_materials(page: ft.Page, token: str) -> dict:
+    """
+    Downloads all materials, packs, cards, and questions in the student's vault.
+    Returns stats dict: {"materials": N, "cards": N, "questions": N}.
+    """
+    if getattr(page, "web", False) or not token:
+        return {"materials": 0, "cards": 0, "questions": 0}
+
+    try:
+        from src.requests.study import get_materials, get_all_cards, get_exam_questions, get_quiz_questions
+        from src.local_db import save_study_material_offline
+
+        mats = await get_materials(token)
+        if not mats:
+            return {"materials": 0, "cards": 0, "questions": 0}
+
+        mat_count = 0
+        total_cards = 0
+        total_questions = 0
+
+        for m in mats:
+            mid = str(m.get("id"))
+            if not mid:
+                continue
+            try:
+                cards = await get_all_cards(token, material_ids=[mid])
+                exam_res = await get_exam_questions(token, material_ids=[mid])
+                questions = []
+                if isinstance(exam_res, dict):
+                    questions = exam_res.get("questions") or []
+                elif isinstance(exam_res, list):
+                    questions = exam_res
+
+                if not questions:
+                    quiz_res = await get_quiz_questions(token, material_ids=[mid])
+                    if isinstance(quiz_res, list):
+                        questions = quiz_res
+
+                save_study_material_offline(
+                    material=m,
+                    flashcards=cards or [],
+                    questions=questions or [],
+                    page=page,
+                )
+                mat_count += 1
+                total_cards += len(cards or [])
+                total_questions += len(questions or [])
+            except Exception as item_err:
+                print(f"[DOWNLOAD ERROR] Material {mid} failed: {item_err}")
+
+        return {
+            "materials": mat_count,
+            "cards": total_cards,
+            "questions": total_questions,
+        }
+    except Exception as e:
+        print(f"[DOWNLOAD ERROR] download_all_study_materials failed: {e}")
+        return {"materials": 0, "cards": 0, "questions": 0}
+
+
+async def delete_downloaded_study_material(page: ft.Page, material_id: str) -> bool:
+    """Removes a downloaded study material from local SQLite storage."""
+    from src.local_db import delete_offline_study_material
+    return delete_offline_study_material(material_id, page=page)

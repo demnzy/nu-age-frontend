@@ -45,10 +45,13 @@ def build_exam(
     """
     total = len(questions)
     if total == 0:
+        is_off = bool(page.route and ("offline=true" in page.route or page.route.startswith("/self-study/offline")))
         return ui.empty_state(
             ft.Icons.ASSIGNMENT_OUTLINED,
-            "No exam questions yet",
-            "Generate questions from your study material first,\nthen sit a full exam.",
+            "No exam questions available" if is_off else "No exam questions yet",
+            "This study material has no offline exam questions cached.\nConnect to the internet to download this material."
+            if is_off
+            else "Generate questions from your study material first,\nthen sit a full exam.",
             "Back to Hub",
             on_exit,
         )
@@ -176,10 +179,57 @@ def build_exam(
 
     # ── question rendering ───────────────────────────────────────────────
     counter = ft.Text("", size=12, weight=ft.FontWeight.W_700, color=ui.muted(0.70))
-    question_text = ft.Text(
-        "", size=17, weight=ft.FontWeight.W_700,
-        color=ft.Colors.ON_SURFACE, selectable=True,
+    question_markdown = ft.Markdown(
+        "",
+        extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+        selectable=True,
+        auto_follow_links=True,
+        code_theme="atom-one-dark",
     )
+    topic_pill = ft.Container(visible=False)
+    diagram_img = ft.Image(src="", fit=ft.BoxFit.CONTAIN, border_radius=ft.BorderRadius.all(8), height=200)
+    diagram_container = ft.Container(
+        visible=False,
+        border_radius=ft.BorderRadius.all(10),
+        bgcolor=ui.tint(ft.Colors.ON_SURFACE, 0.04),
+        border=ft.Border.all(1, ui.hairline(0.14)),
+        padding=8,
+        alignment=ft.Alignment.CENTER,
+    )
+
+    def _open_diagram_lightbox(url: str, title: str = "Question Diagram"):
+        if not url:
+            return
+        dlg = ft.AlertDialog(
+            modal=True,
+            title=ft.Row(
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                controls=[
+                    ft.Text(title, size=15, weight=ft.FontWeight.BOLD),
+                    ft.IconButton(
+                        ft.Icons.CLOSE_ROUNDED,
+                        tooltip="Close",
+                        on_click=lambda _: _close_lightbox(),
+                    ),
+                ],
+            ),
+            content=ft.Container(
+                width=520,
+                content=ft.Image(
+                    src=url,
+                    fit=ft.BoxFit.CONTAIN,
+                    border_radius=ft.BorderRadius.all(10),
+                ),
+            ),
+        )
+        def _close_lightbox():
+            dlg.open = False
+            page.update()
+
+        page.overlay.append(dlg)
+        dlg.open = True
+        page.update()
+
     options_col = ft.Column(spacing=9)
 
     flag_btn = ft.Container(
@@ -285,7 +335,15 @@ def build_exam(
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 controls=[
                     letter_box,
-                    ft.Text(label, size=13, color=ft.Colors.ON_SURFACE, expand=True),
+                    ft.Container(
+                        content=ft.Markdown(
+                            label,
+                            extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+                            selectable=False,
+                            code_theme="atom-one-dark",
+                        ),
+                        expand=True,
+                    ),
                     ft.Icon(
                         ft.Icons.RADIO_BUTTON_CHECKED_ROUNDED if selected
                         else ft.Icons.CIRCLE_OUTLINED,
@@ -299,7 +357,64 @@ def build_exam(
     def _render_question():
         q = questions[state["index"]] or {}
         counter.value = f"Q {state['index'] + 1}/{total}" if compact else f"Question {state['index'] + 1} of {total}"
-        question_text.value = str(q.get("question") or "—")
+        question_markdown.value = str(q.get("question") or "—")
+
+        # Render diagram if present
+        raw_img = q.get("image_url")
+        clean_url = str(raw_img).strip() if raw_img else None
+        if clean_url:
+            if not (clean_url.startswith("http://") or clean_url.startswith("https://") or clean_url.startswith("data:")):
+                clean_url = f"https://api.nu-age.name.ng{clean_url if clean_url.startswith('/') else '/' + clean_url}"
+
+            fresh_img = ft.Image(
+                src=clean_url,
+                fit=ft.BoxFit.CONTAIN,
+                border_radius=ft.BorderRadius.all(8),
+                height=200,
+                error_content=ft.Container(
+                    padding=10,
+                    alignment=ft.Alignment.CENTER,
+                    content=ft.Row([
+                        ft.Icon(ft.Icons.BROKEN_IMAGE_ROUNDED, color=ui.C_WRONG, size=18),
+                        ft.Text("Could not load diagram", size=11, color=ui.muted(0.60)),
+                    ], spacing=6, tight=True),
+                ),
+            )
+            diagram_container.content = ft.Column(
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                spacing=6,
+                controls=[
+                    fresh_img,
+                    ft.Row(
+                        tight=True,
+                        alignment=ft.MainAxisAlignment.CENTER,
+                        controls=[
+                            ft.Icon(ft.Icons.ZOOM_IN_ROUNDED, size=14, color=ft.Colors.PRIMARY),
+                            ft.Text("Tap diagram to enlarge", size=11, weight=ft.FontWeight.W_600, color=ft.Colors.PRIMARY),
+                        ],
+                    ),
+                ],
+            )
+            diagram_container.on_click = lambda _, u=clean_url: _open_diagram_lightbox(u)
+            diagram_container.visible = True
+        else:
+            diagram_container.visible = False
+
+        # Render topic / exam metadata pill
+        meta_parts = []
+        if q.get("exam_type"):
+            meta_parts.append(str(q["exam_type"]))
+        if q.get("exam_year"):
+            meta_parts.append(str(q["exam_year"]))
+        if q.get("topic"):
+            meta_parts.append(str(q["topic"]))
+
+        if meta_parts:
+            topic_label = " • ".join(meta_parts)
+            topic_pill.content = ui.pill(topic_label, ui.C_INFO, icon=ft.Icons.SCHOOL_ROUNDED)
+            topic_pill.visible = True
+        else:
+            topic_pill.visible = False
 
         chosen = state["answers"].get(state["index"])
         options_col.controls.clear()
@@ -574,6 +689,7 @@ def build_exam(
                     "correct_index": correct_i,
                     "chosen_index": state["answers"].get(i),
                     "explanation": q.get("explanation"),
+                    "image_url": q.get("image_url"),
                     "flagged": i in state["flags"],
                     "seconds": 0,
                 }
@@ -680,9 +796,17 @@ def build_exam(
                         ft.Row(
                             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                            controls=[ui.section_label("Question"), flag_btn],
+                            controls=[
+                                ft.Row(
+                                    spacing=8,
+                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                    controls=[ui.section_label("Question"), topic_pill],
+                                ),
+                                flag_btn,
+                            ],
                         ),
-                        question_text,
+                        question_markdown,
+                        diagram_container,
                     ],
                 ),
                 padding=17,

@@ -1110,13 +1110,9 @@ async def main(page: ft.Page):
         def is_offline_capable_route(route):
             if getattr(page, "web", False):
                 return False
-            # Routes reachable without a network call succeeding, even
-            # though they still need to know "which user" (so NOT lumped
-            # in with is_public_route, which is for pre-login routes).
-            # /offline: the downloaded-courses list, reads only SQLite.
-            # /courses/{id}/learn: gets a second, offline-specific check
-            # below (only skips the auth gate if THIS SPECIFIC course was
-            # actually downloaded) rather than being blanket-exempted here.
+            r = (route or "").split("?")[0]
+            if r in ("/offline", "/self-study"):
+                return True
             return route == "/offline"
 
         async def is_route_for_downloaded_course(route):
@@ -1703,7 +1699,7 @@ async def main(page: ft.Page):
             await load_view_and_report(edit_profile_view(page), page.route, active_skeleton, active_shimmer_task)
         elif page.route == "/organisations":
             await load_view_and_report(organisations_view(page), page.route, active_skeleton, active_shimmer_task)
-        elif page.route == "/network":
+        elif page.route == "/network" or (page.route and page.route.startswith("/network")):
             await load_view_and_report(network_view(page), page.route, active_skeleton, active_shimmer_task)
         elif page.route in ("/nu-chat", "/chat") or (page.route and (page.route.startswith("/nu-chat?") or page.route.startswith("/chat?"))):
             target_dm = None
@@ -1723,7 +1719,7 @@ async def main(page: ft.Page):
             await load_view_and_report(notifications_view(page), page.route, active_skeleton, active_shimmer_task)
         elif troute.match("/courses/:id/stats"):
             await load_view_and_report(course_stats_view(page, troute.id), page.route, active_skeleton, active_shimmer_task)
-        elif page.route == "/self-study":
+        elif page.route and (page.route == "/self-study" or page.route.startswith("/self-study")):
             await load_view_and_report(self_study_view(page), page.route, active_skeleton, active_shimmer_task)
         elif page.route == "/store" or (page.route and page.route.startswith("/store")):
             tab = "plans"

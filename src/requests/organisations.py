@@ -283,4 +283,4 @@ async def remove_organisation_member(token: str, org_id: str, user_id: str) -> d
                 return {"error": error_detail}
     except Exception as e:
         print(f"remove_organisation_member error: {e}")
-        return {"error": str(e)}
+        return {"error": str(e)}
