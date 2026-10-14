@@ -732,7 +732,34 @@ def get_offline_exam_questions(material_ids: list | None = None, limit: int = 50
                 "exam_year": r["exam_year"] if "exam_year" in r.keys() else None,
             })
 
-        duration = max(len(questions) * 60, 300)
+        # Smart exam standard duration computation
+        exam_std = None
+        for q in questions:
+            et = str(q.get("exam_type") or "").strip().upper()
+            if et:
+                exam_std = et
+                break
+
+        if exam_std:
+            if "POST-UTME" in exam_std or "PUTME" in exam_std:
+                sec_per_q = 42
+            elif "JAMB" in exam_std or "UTME" in exam_std:
+                sec_per_q = 48
+            elif "WAEC" in exam_std or "WASSCE" in exam_std:
+                sec_per_q = 72
+            elif "NECO" in exam_std:
+                sec_per_q = 60
+            elif "SAT" in exam_std:
+                sec_per_q = 75
+            elif any(x in exam_std for x in ("NCLEX", "MCAT", "USMLE")):
+                sec_per_q = 84
+            else:
+                sec_per_q = 60
+        else:
+            sec_per_q = 60
+
+        total_secs = len(questions) * sec_per_q
+        duration = max(300, round(total_secs / 60) * 60)
         return {"questions": questions, "duration_seconds": duration}
     except Exception as e:
         print(f"[LOCAL DB ERROR] get_offline_exam_questions failed: {e}")

@@ -39,7 +39,7 @@ def build_whatsapp_spans(text: str, default_color: str, palette_map: dict, on_me
 
     pattern = re.compile(
         r'(https?://[^\s]+)|'
-        r'(@[a-zA-Z0-9_.-]+)|'
+        r'(@[\w.-]+)|'
         r'(\*[^\*\n]+\*)|'
         r'(_[^_\n]+_)|'
         r'(~[^~\n]+~)|'
@@ -401,12 +401,12 @@ async def chat_view(
         page.update()
 
         # Parse mentions (@username / @admin)
-        mentions = re.findall(r'@([a-zA-Z0-9_.-]+)', text)
+        mentions = re.findall(r'@([\w.-]+)', text)
         extra_meta = {}
         if mentions:
             extra_meta["mentions"] = mentions
             mention_ids = []
-            candidates = active_channel_members if active_channel_members else all_users_cache
+            candidates = active_channel_members
             for m in mentions:
                 m_clean = m.lower()
                 if m_clean in selected_mention_map:
@@ -456,7 +456,7 @@ async def chat_view(
             return
 
         val = msg_input.value or ""
-        match = re.search(r'(@)([a-zA-Z0-9_.-]*)$', val)
+        match = re.search(r'(@)([\w.-]*)$', val)
         if match:
             query = match.group(2).lower()
             autocomplete_list.controls.clear()
@@ -474,7 +474,7 @@ async def chat_view(
             # 1. Specialized @all tag (Admins Only)
             if is_group_admin and ("all".startswith(query) or query in "all"):
                 def _select_all(ev):
-                    msg_input.value = re.sub(r'@[a-zA-Z0-9_.-]*$', '@all ', msg_input.value or '')
+                    msg_input.value = re.sub(r'@[\w.-]*$', '@all ', msg_input.value or '')
                     autocomplete_card.visible = False
                     _update_send_btn_state()
                     page.update()
@@ -508,7 +508,7 @@ async def chat_view(
             # 2. Specialized @admin tag (Course Instructor / Group Admin)
             if "admin".startswith(query) or query in "admin":
                 def _select_admin(ev):
-                    msg_input.value = re.sub(r'@[a-zA-Z0-9_.-]*$', '@admin ', msg_input.value or '')
+                    msg_input.value = re.sub(r'@[\w.-]*$', '@admin ', msg_input.value or '')
                     autocomplete_card.visible = False
                     _update_send_btn_state()
                     page.update()
@@ -533,8 +533,8 @@ async def chat_view(
                 )
                 autocomplete_list.controls.append(admin_tile)
 
-            # 2. Group members alone
-            candidate_members = active_channel_members if active_channel_members else all_users_cache
+            # 2. Group members alone (strictly channel members; never leak arbitrary outside users)
+            candidate_members = active_channel_members
             my_uid = str(current_user_id[0]).strip().lower()
             admin_id_val = str(active_channel_admin_id[0]).strip().lower() if active_channel_admin_id[0] else ""
 
@@ -555,7 +555,7 @@ async def chat_view(
 
                 def _select_m(ev, tag_h=handle, uid=u_id_str):
                     selected_mention_map[tag_h.lower()] = uid
-                    msg_input.value = re.sub(r'@[a-zA-Z0-9_.-]*$', f'@{tag_h} ', msg_input.value or '')
+                    msg_input.value = re.sub(r'@[\w.-]*$', f'@{tag_h} ', msg_input.value or '')
                     autocomplete_card.visible = False
                     _update_send_btn_state()
                     page.update()
@@ -2056,7 +2056,7 @@ async def chat_view(
         msg_mentions = meta_payload.get("mentions", []) if isinstance(meta_payload, dict) else []
         msg_mention_ids = meta_payload.get("mention_ids", []) if isinstance(meta_payload, dict) else []
         msg_content = msg_dict.get("content", "") or ""
-        all_mentions = set([str(m).lstrip("@").strip().lower() for m in msg_mentions] + [str(m).strip().lower() for m in re.findall(r'@([a-zA-Z0-9_.-]+)', msg_content)])
+        all_mentions = set([str(m).lstrip("@").strip().lower() for m in msg_mentions] + [str(m).strip().lower() for m in re.findall(r'@([\w.-]+)', msg_content)])
         all_ids = set([str(m).strip().lower() for m in msg_mention_ids])
 
         sender_id_str = str((msg_dict.get("sender") or {}).get("id") or msg_dict.get("sender_id", "")).strip().lower()

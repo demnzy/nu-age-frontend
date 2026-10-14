@@ -1313,10 +1313,12 @@ class CBTExamEngine:
                 if curr_tok:
                     from src.requests.study_partners import get_active_partnership, log_partnership_activity
                     p_res = await get_active_partnership(curr_tok)
-                    if p_res and p_res.get("has_partnership") and p_res.get("partnership"):
-                        p_id = p_res["partnership"]["id"]
+                    if p_res and p_res.get("has_partnership"):
+                        p_list = p_res.get("partnerships") or ([p_res.get("partnership")] if p_res.get("partnership") else [])
                         study_mins = max(1, elapsed_seconds // 60)
-                        await log_partnership_activity(curr_tok, p_id, minutes_studied=study_mins, questions_solved=self.total)
+                        for p in p_list:
+                            if p and p.get("id"):
+                                await log_partnership_activity(curr_tok, p["id"], minutes_studied=study_mins, questions_solved=self.total)
             except Exception as p_err:
                 print(f"[CBT] Error logging partnership activity: {p_err}")
 

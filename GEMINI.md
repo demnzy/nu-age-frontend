@@ -67,3 +67,7 @@
   - Before writing a new modal, widget, or auxiliary tool (such as an in-exam calculator, bottom sheet, or deck inspector), verify and reuse existing components in `src/components/` (e.g., `src.components.exam_calculator.build_exam_calculator`).
   - Do NOT write parallel ad-hoc implementations that deviate from the existing UI/UX and theme tokens.
 
+## Chat & Mention Scoping Invariants
+- **Strict Channel Scoping for @ Mentions**: Autocomplete suggestion lists and mention parsers for group/course channels MUST strictly inspect `active_channel_members`. NEVER fall back to global platform caches (like `all_users_cache`), which leaks non-member identities and permits tagging users outside the group.
+
+

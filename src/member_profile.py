@@ -20,6 +20,7 @@ async def member_profile_view(page: ft.Page, identifier: str):
     # ── Initial Loading Socket ────────────────────────────────────────────────
     content_socket = ft.Container(
         expand=True,
+        clip_behavior=ft.ClipBehavior.HARD_EDGE,
         alignment=ft.Alignment.CENTER,
         content=ft.ProgressRing(color=ft.Colors.PRIMARY, stroke_width=3)
     )
@@ -186,9 +187,9 @@ async def member_profile_view(page: ft.Page, identifier: str):
                         icon_size=20,
                         tooltip="Go back",
                         style=ft.ButtonStyle(
-                            bgcolor={"": ft.Colors.with_opacity(0.18, ft.Colors.WHITE)},
-                            shape=ft.CircleBorder()
-                        ),
+    bgcolor={ft.ControlState.DEFAULT: ft.Colors.with_opacity(0.18, ft.Colors.WHITE)},
+    shape=ft.CircleBorder()
+),
                         on_click=handle_back
                     ),
                     ft.Text("PEER PROFILE", size=11, weight=ft.FontWeight.W_800, color=ft.Colors.with_opacity(0.85, ft.Colors.WHITE)),
@@ -395,7 +396,6 @@ async def member_profile_view(page: ft.Page, identifier: str):
         )
 
         content_socket.content = ft.Column(
-            expand=True,
             scroll=ft.ScrollMode.AUTO,
             spacing=0,
             controls=[

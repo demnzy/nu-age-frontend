@@ -668,6 +668,7 @@ Check it out 👉 : nu-age.com.ng"""
 
             # ── 5. Sticky Enrollment Card (Sidebar on desktop) ────────────────
             enrol_action_btn = ft.ElevatedButton(
+                width=float("inf"),
                 content=ft.Row(
                     alignment=ft.MainAxisAlignment.CENTER,
                     tight=True,
@@ -682,7 +683,7 @@ Check it out 👉 : nu-age.com.ng"""
                             "Continue Learning" if is_already_enrolled else "Enroll in Course",
                             size=15,
                             weight=ft.FontWeight.W_700,
-                            color=ft.Colors.ON_PRIMARY,
+                            color=ft.Colors.ON_PRIMARY
                         ),
                     ],
                 ),
@@ -748,6 +749,7 @@ Check it out 👉 : nu-age.com.ng"""
                         enrollment_status_banner,
                         enrol_action_btn,
                         ft.OutlinedButton(
+                            width=float("inf"),
                             content=ft.Row(
                                 alignment=ft.MainAxisAlignment.CENTER,
                                 tight=True,

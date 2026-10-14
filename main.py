@@ -1721,6 +1721,17 @@ async def main(page: ft.Page):
             await load_view_and_report(course_stats_view(page, troute.id), page.route, active_skeleton, active_shimmer_task)
         elif page.route and (page.route == "/self-study" or page.route.startswith("/self-study")):
             await load_view_and_report(self_study_view(page), page.route, active_skeleton, active_shimmer_task)
+        elif page.route and (page.route == "/leaderboards" or page.route.startswith("/leaderboards")):
+            tab = "objectives"
+            if page.route and "?" in page.route:
+                q = page.route.split("?", 1)[1]
+                if "tab=leaderboards" in q:
+                    tab = "leaderboards"
+                elif "tab=history" in q:
+                    tab = "history"
+            from src.leaderboards_view import leaderboards_view
+            target_back = previous_route if (previous_route and previous_route != "/leaderboards") else "/dashboard"
+            await load_view_and_report(leaderboards_view(page, initial_tab=tab, back_target=target_back), page.route, active_skeleton, active_shimmer_task)
         elif page.route == "/store" or (page.route and page.route.startswith("/store")):
             tab = "plans"
             if page.route and "?" in page.route:

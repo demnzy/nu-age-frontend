@@ -766,6 +766,147 @@ async def dashboard_view(page: ft.Page):
         content=get_quick_hub(page),
     )
 
+    def _build_leaderboards_action_card(coins_count: int = 0, streak_count: int = 0) -> ft.Container:
+        is_dark = getattr(page, "theme_mode", None) == ft.ThemeMode.DARK
+        card_bg = ft.Colors.SURFACE if is_dark else "#FFFFFF"
+        border_clr = ft.Colors.with_opacity(0.12, ft.Colors.WHITE) if is_dark else ft.Colors.GREY_200
+        is_mobile = bool(page.width and page.width < 768)
+
+        coins_pill = ft.Container(
+            padding=ft.Padding.symmetric(horizontal=10, vertical=5),
+            border_radius=ft.BorderRadius.all(10),
+            bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.AMBER),
+            content=ft.Row(
+                spacing=5,
+                tight=True,
+                controls=[
+                    ft.Icon(ft.Icons.MONETIZATION_ON_ROUNDED, size=15, color=ft.Colors.AMBER_800),
+                    ft.Text(f"{coins_count} Nu-Coins", size=11.5, weight=ft.FontWeight.W_800, color=ft.Colors.AMBER_900),
+                ],
+            ),
+        )
+
+        streak_pill = ft.Container(
+            padding=ft.Padding.symmetric(horizontal=10, vertical=5),
+            border_radius=ft.BorderRadius.all(10),
+            bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.ORANGE),
+            content=ft.Row(
+                spacing=5,
+                tight=True,
+                controls=[
+                    ft.Icon(ft.Icons.LOCAL_FIRE_DEPARTMENT_ROUNDED, size=15, color=ft.Colors.ORANGE_800),
+                    ft.Text(f"{streak_count}d Streak", size=11.5, weight=ft.FontWeight.W_800, color=ft.Colors.ORANGE_900),
+                ],
+            ),
+        )
+
+        action_btn = ft.ElevatedButton(
+            content=ft.Row(
+                tight=True,
+                spacing=6,
+                controls=[
+                    ft.Icon(ft.Icons.LEADERBOARD_ROUNDED, size=16, color=ft.Colors.WHITE),
+                    ft.Text("View Leaderboards", size=12, weight=ft.FontWeight.W_800, color=ft.Colors.WHITE),
+                ],
+            ),
+            bgcolor=ft.Colors.PRIMARY,
+            height=38,
+            style=ft.ButtonStyle(
+                shape=ft.RoundedRectangleBorder(radius=10),
+                elevation=0,
+                padding=ft.Padding.symmetric(horizontal=14),
+            ),
+            on_click=lambda _: page.go("/leaderboards"),
+        )
+
+        left_side = ft.Row(
+            spacing=12,
+            tight=True,
+            expand=True,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                ft.Container(
+                    width=44,
+                    height=44,
+                    border_radius=ft.BorderRadius.all(12),
+                    gradient=ft.LinearGradient(
+                        colors=[ft.Colors.AMBER_600, ft.Colors.ORANGE_600],
+                        begin=ft.Alignment.TOP_LEFT,
+                        end=ft.Alignment.BOTTOM_RIGHT,
+                    ),
+                    alignment=ft.Alignment.CENTER,
+                    content=ft.Icon(ft.Icons.EMOJI_EVENTS_ROUNDED, color=ft.Colors.WHITE, size=24),
+                ),
+                ft.Column(
+                    spacing=3,
+                    tight=True,
+                    expand=True,
+                    controls=[
+                        ft.Row(
+                            spacing=8,
+                            tight=True,
+                            controls=[
+                                ft.Text("Campus Leaderboards & Objectives", size=13.5, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE)
+                            ],
+                        ),
+                        ft.Text(
+                            "Complete daily learning objectives to earn Nu-Coins & climb the rankings.",
+                            size=11,
+                            color=ft.Colors.GREY_500,
+                            max_lines=1,
+                            overflow=ft.TextOverflow.ELLIPSIS,
+                        ),
+                        ft.Row(
+                            spacing=8,
+                            tight=True,
+                            controls=[coins_pill, streak_pill],
+                        ),
+                    ],
+                ),
+            ],
+        )
+
+        if is_mobile:
+            content_layout = ft.Column(
+                spacing=12,
+                tight=True,
+                controls=[
+                    left_side,
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.END,
+                        controls=[action_btn],
+                    ),
+                ],
+            )
+        else:
+            content_layout = ft.Row(
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[
+                    left_side,
+                    action_btn,
+                ],
+            )
+
+        return ft.Container(
+            width=float("inf"),
+            bgcolor=card_bg,
+            border_radius=ft.BorderRadius.all(16),
+            border=ft.Border.all(1, border_clr),
+            padding=ft.Padding.symmetric(horizontal=16, vertical=14),
+            shadow=ft.BoxShadow(
+                blur_radius=8,
+                color=ft.Colors.with_opacity(0.04, ft.Colors.BLACK),
+                offset=ft.Offset(0, 2),
+            ),
+            content=content_layout,
+        )
+
+    leaderboards_action_card = ft.Container(
+        width=float("inf"),
+        content=_build_leaderboards_action_card(),
+    )
+
     continue_learning_section = ft.Container(
         width=float("inf"),
         opacity=0,
@@ -854,6 +995,108 @@ async def dashboard_view(page: ft.Page):
             pass
 
         my_cohorts = learner_cohorts_res.get("cohorts", [])
+
+        # ── Fetch Active Study Duo Partnership for Incoming Duel Banner ──────
+        incoming_duel_container = ft.Container(visible=False)
+        try:
+            if token:
+                from src.requests.study_partners import get_active_partnership
+                from src.components.partner_challenge_modal import show_duel_results_dialog
+                p_res = await asyncio.wait_for(get_active_partnership(token), timeout=3.5)
+                if p_res and p_res.get("has_partnership"):
+                    all_partnerships = p_res.get("partnerships") or ([p_res.get("partnership")] if p_res.get("partnership") else [])
+                    active_duel = None
+                    p_id_str = ""
+                    for p_item in all_partnerships:
+                        ch_match = next((c for c in p_item.get("recent_challenges", []) if c.get("needs_my_response") and c.get("status") == "challenger_done"), None)
+                        if ch_match:
+                            active_duel = ch_match
+                            p_id_str = str(p_item.get("id") or "")
+                            break
+                    if active_duel:
+                        c_name = active_duel.get("challenger_name", "Partner")
+                        c_title = active_duel.get("title", "15-Q Quickfire Duel")
+                        incoming_duel_container.visible = True
+                        incoming_duel_container.content = ft.Container(
+                            padding=ft.Padding.symmetric(horizontal=16, vertical=12),
+                            border_radius=ft.BorderRadius.all(14),
+                            bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.ORANGE),
+                            border=ft.Border.all(1.5, ft.Colors.with_opacity(0.4, ft.Colors.ORANGE_700)),
+                            shadow=ft.BoxShadow(blur_radius=10, color=ft.Colors.with_opacity(0.08, ft.Colors.ORANGE_700), offset=ft.Offset(0, 3)),
+                            content=ft.Row(
+                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                controls=[
+                                    ft.Row(
+                                        spacing=10,
+                                        tight=True,
+                                        expand=True,
+                                        controls=[
+                                            ft.Container(
+                                                width=36,
+                                                height=36,
+                                                border_radius=ft.BorderRadius.all(10),
+                                                bgcolor=ft.Colors.ORANGE_800,
+                                                alignment=ft.Alignment.CENTER,
+                                                content=ft.Icon(ft.Icons.FLASH_ON_ROUNDED, color=ft.Colors.WHITE, size=20),
+                                            ),
+                                            ft.Column(
+                                                spacing=2,
+                                                tight=True,
+                                                expand=True,
+                                                controls=[
+                                                    ft.Text(f"⚔️ {c_name} challenged you to a 15-Q Duel!", size=13, weight=ft.FontWeight.W_800, color=ft.Colors.ORANGE_900),
+                                                    ft.Text(f"{c_title} • 15 Questions • Beat their score!", size=11, color=ft.Colors.ORANGE_800),
+                                                ],
+                                            ),
+                                        ],
+                                    ),
+                                    ft.ElevatedButton(
+                                        content=ft.Row(
+                                            tight=True,
+                                            spacing=4,
+                                            controls=[
+                                                ft.Icon(ft.Icons.PLAY_ARROW_ROUNDED, size=15, color=ft.Colors.WHITE),
+                                                ft.Text("Play Duel Now", size=11.5, weight=ft.FontWeight.W_800, color=ft.Colors.WHITE),
+                                            ],
+                                        ),
+                                        bgcolor=ft.Colors.ORANGE_800,
+                                        color=ft.Colors.WHITE,
+                                        height=34,
+                                        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10), elevation=0),
+                                        on_click=lambda _: show_duel_results_dialog(
+                                            page=page,
+                                            challenge=active_duel,
+                                            current_user_id=str(user_data.get("id") or ""),
+                                            token=token,
+                                            partnership_id=p_id_str,
+                                            on_duel_updated=lambda: page.run_task(fetch_dashboard_data),
+                                        ),
+                                    ),
+                                ],
+                            ),
+                        )
+        except Exception:
+            pass
+
+        # ── Fetch Nu-Coins for Leaderboards Action Card ──────────────────────
+        coins_bal = user_data.get("coins_balance", 0)
+        try:
+            if token:
+                from src.requests.objectives import get_platform_objectives_api
+                obj_res = await asyncio.wait_for(get_platform_objectives_api(token), timeout=2.5)
+                if obj_res and "coins_balance" in obj_res:
+                    coins_bal = obj_res.get("coins_balance", coins_bal)
+                    if hasattr(page, "session") and hasattr(page.session, "store"):
+                        u_store = page.session.store.get("current_user") or {}
+                        u_store["coins_balance"] = coins_bal
+        except Exception:
+            pass
+
+        leaderboards_action_card.content = _build_leaderboards_action_card(
+            coins_count=coins_bal,
+            streak_count=streak,
+        )
 
         # ── Learner Training Cohorts Card ─────────────────────────────────────
         learner_cohorts_card = ft.Container()
@@ -1314,7 +1557,9 @@ async def dashboard_view(page: ft.Page):
                             content=ft.Column(
                                 spacing=16,
                                 controls=[
+                                    incoming_duel_container,     # 0. Active Incoming 15-Q Duel Banner (Shows only when challenged!)
                                     quick_hub_section,          # 1. 4-tile Quick Launch Hub
+                                    leaderboards_action_card,   # 2. Campus Leaderboards & Objectives Card (Prominent & Visible!)
                                     continue_learning_section,  # 3. Continue Learning Course Cards
                                     trackers_container,         # 4. Dual Course Mastery & Learning Focus Trackers
                                     learner_cohorts_card,       # 5. My Training Cohorts Track

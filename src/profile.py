@@ -36,6 +36,7 @@ async def profile_view(page: ft.Page):
     # ── Initial Loading Socket ────────────────────────────────────────────────
     content_socket = ft.Container(
         expand=True,
+        clip_behavior=ft.ClipBehavior.HARD_EDGE,
         alignment=ft.Alignment.CENTER,
         content=ft.ProgressRing(color=ft.Colors.PRIMARY, stroke_width=3),
     )
@@ -365,9 +366,9 @@ async def profile_view(page: ft.Page):
                         icon_size=19,
                         tooltip="Log out",
                         style=ft.ButtonStyle(
-                            bgcolor={"": ft.Colors.with_opacity(0.18, ft.Colors.WHITE)},
-                            shape=ft.CircleBorder()
-                        ),
+    bgcolor={ft.ControlState.DEFAULT: ft.Colors.with_opacity(0.18, ft.Colors.WHITE)},
+    shape=ft.CircleBorder()
+),
                         on_click=handle_logout_click
                     ),
                     ft.IconButton(
@@ -376,9 +377,9 @@ async def profile_view(page: ft.Page):
                         icon_size=19,
                         tooltip="Edit profile",
                         style=ft.ButtonStyle(
-                            bgcolor={"": ft.Colors.with_opacity(0.18, ft.Colors.WHITE)},
-                            shape=ft.CircleBorder()
-                        ),
+    bgcolor={ft.ControlState.DEFAULT: ft.Colors.with_opacity(0.18, ft.Colors.WHITE)},
+    shape=ft.CircleBorder()
+),
                         on_click=lambda _: page.go("/edit-profile")
                     )
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
@@ -835,7 +836,6 @@ async def profile_view(page: ft.Page):
         )
 
         content_socket.content = ft.Column(
-            expand=True,
             scroll=ft.ScrollMode.AUTO,
             spacing=0,
             controls=[

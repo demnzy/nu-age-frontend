@@ -3025,11 +3025,17 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
                         exam_year=year_val,
                     )
 
-                _close_ingest()
-
                 if not res.get("success") and not res.get("questions"):
+                    status_text.value = f"AI Extraction Failed: {res.get('error', 'Unknown error. Please check file format or try pasting text.')}"
+                    status_text.color = ft.Colors.RED_400
+                    parse_btn.disabled = False
+                    parse_btn_content.controls[0] = ft.Icon(ft.Icons.AUTO_AWESOME_ROUNDED, size=15, color=ft.Colors.WHITE)
+                    parse_btn_content.controls[1].value = "Analyze & Extract Questions"
+                    page.update()
                     show_page_snackbar(page, f"AI Extraction Failed: {res.get('error', 'Unknown')}")
                     return
+
+                _close_ingest()
 
                 parsed_questions = res.get("questions", [])
                 suggested_title = res.get("suggested_title") or f"{exam_field.value or 'CBT'} {year_field.value or ''} {subject_field.value or ''} CBT Pack"

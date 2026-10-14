@@ -51,37 +51,62 @@ def show_duel_results_dialog(
     total_q = challenge.get("total_questions", 15)
     coins_awarded = challenge.get("coins_awarded", 0)
     
-    is_challenger = str(challenge.get("challenger_id")) == str(current_user_id)
-    needs_my_response = (not is_challenger) and (status == "challenger_done" or d_score is None)
+    # Resolve my_user_id cleanly:
+    user_data = page.session.store.get("current_user") or {} if hasattr(page, "session") and hasattr(page.session, "store") else {}
+    my_user_id = str(current_user_id or user_data.get("id") or "")
+
+    challenger_id = str(challenge.get("challenger_id") or challenge.get("challenger", {}).get("id") or "")
+    challenged_id = str(challenge.get("challenged_id") or challenge.get("challenged", {}).get("id") or "")
+
+    if my_user_id and challenger_id:
+        is_challenger = (my_user_id == challenger_id)
+    else:
+        is_challenger = bool(challenge.get("is_challenger", True))
+
+    needs_my_response = bool(challenge.get("needs_my_response")) if challenge.get("needs_my_response") is not None else ((not is_challenger) and status == "challenger_done")
+
+    # Map scores & times strictly so 'You' is ALWAYS your run:
+    if is_challenger:
+        my_score_val = c_score
+        my_time_val = c_time
+        partner_score_val = d_score
+        partner_time_val = d_time
+        partner_label = challenge.get("challenged_name") or challenge.get("challenged", {}).get("first_name") or "Partner"
+    else:
+        my_score_val = d_score
+        my_time_val = d_time
+        partner_score_val = c_score
+        partner_time_val = c_time
+        partner_label = challenge.get("challenger_name") or challenge.get("challenger", {}).get("first_name") or "Partner"
 
     challenger_name = challenge.get("challenger_name") or "Challenger"
     challenged_name = challenge.get("challenged_name") or "Partner"
 
     # Outcome banner
     if status == "completed":
-        if not winner_id:
+        if not winner_id or winner_id == "tie":
             outcome_title = "🤝 It's a Tie!"
-            outcome_subtitle = f"Both learners scored equally ({c_score}/{total_q})! +20 Nu-Coins each."
+            outcome_subtitle = f"Both learners scored equally! +20 Nu-Coins each."
             banner_color = ft.Colors.AMBER_700
             banner_bg = ft.Colors.with_opacity(0.12, ft.Colors.AMBER)
-        elif str(winner_id) == str(current_user_id):
+        elif str(winner_id) == my_user_id:
             outcome_title = "🏆 Victory!"
-            outcome_subtitle = f"You won the 15-Q Duel! +35 Nu-Coins awarded."
+            outcome_subtitle = f"You won the 15-Q Duel against {partner_label}! +35 Nu-Coins awarded."
             banner_color = ft.Colors.GREEN_700
             banner_bg = ft.Colors.with_opacity(0.12, ft.Colors.GREEN)
         else:
             outcome_title = "⚔️ Good Battle!"
-            outcome_subtitle = f"Your partner won this round! You earned +10 Nu-Coins for completing the duel."
+            outcome_subtitle = f"{partner_label} won this round! You earned +10 Nu-Coins for completing the duel."
             banner_color = ft.Colors.BLUE_700
             banner_bg = ft.Colors.with_opacity(0.12, ft.Colors.BLUE)
     elif needs_my_response:
         outcome_title = "⚔️ Duel Challenge Awaiting You!"
-        outcome_subtitle = f"Your partner has completed 15 questions! Beat their score in 15 seconds per question."
+        outcome_subtitle = f"{partner_label} completed 15 questions! Beat their score in 15 seconds per question."
         banner_color = ft.Colors.ORANGE_700
         banner_bg = ft.Colors.with_opacity(0.12, ft.Colors.ORANGE)
     else:
         outcome_title = "⏳ Duel Pending Partner Response"
-        outcome_subtitle = f"You scored {c_score}/{total_q}. Your partner has been alerted via push notification."
+        outcome_subtitle = f"You scored {my_score_val}/{total_q}. {partner_label} has been alerted via push notification."
         banner_color = ft.Colors.TEAL_700
         banner_bg = ft.Colors.with_opacity(0.12, ft.Colors.TEAL)
 
@@ -97,7 +122,7 @@ def show_duel_results_dialog(
                     tight=True,
                     controls=[
                         ft.Icon(ft.Icons.MILITARY_TECH_ROUNDED, color=ft.Colors.PRIMARY, size=24),
-                        ft.Text("Quickfire Duel Diagnostic", size=16, weight=ft.FontWeight.W_800),
+                        ft.Text("Quickfire Duel Result", size=12, weight=ft.FontWeight.W_800),
                     ],
                 ),
                 ft.IconButton(
@@ -144,13 +169,13 @@ def show_duel_results_dialog(
                                     controls=[
                                         ft.Text("You", size=12, weight=ft.FontWeight.W_700, color=ft.Colors.PRIMARY),
                                         ft.Text(
-                                            f"{c_score if is_challenger else (d_score if d_score is not None else '—')}/{total_q}",
-                                            size=24,
+                                            f"{my_score_val}/{total_q}" if my_score_val is not None else "Pending...",
+                                            size=24 if my_score_val is not None else 14,
                                             weight=ft.FontWeight.W_900,
                                             color=ft.Colors.ON_SURFACE,
                                         ),
                                         ft.Text(
-                                            f"⏱ {_format_time(c_time if is_challenger else (d_time or 0))}",
+                                            f"⏱ {_format_time(my_time_val or 0)}" if my_time_val is not None else "Not played",
                                             size=11,
                                             color=ft.Colors.GREY_500,
                                         ),
@@ -169,15 +194,15 @@ def show_duel_results_dialog(
                                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                                     spacing=4,
                                     controls=[
-                                        ft.Text("Partner", size=12, weight=ft.FontWeight.W_700, color=ft.Colors.GREY_600),
+                                        ft.Text(partner_label, size=12, weight=ft.FontWeight.W_700, color=ft.Colors.GREY_600),
                                         ft.Text(
-                                            f"{d_score if is_challenger else (c_score if c_score is not None else '—')}/{total_q}" if (d_score is not None or not is_challenger) else "Pending...",
-                                            size=24 if (d_score is not None or not is_challenger) else 14,
-                                            weight=ft.FontWeight.W_900 if (d_score is not None or not is_challenger) else ft.FontWeight.W_600,
-                                            color=ft.Colors.ON_SURFACE if (d_score is not None or not is_challenger) else ft.Colors.ORANGE_600,
+                                            f"{partner_score_val}/{total_q}" if partner_score_val is not None else "Pending...",
+                                            size=24 if partner_score_val is not None else 14,
+                                            weight=ft.FontWeight.W_900 if partner_score_val is not None else ft.FontWeight.W_600,
+                                            color=ft.Colors.ON_SURFACE if partner_score_val is not None else ft.Colors.ORANGE_600,
                                         ),
                                         ft.Text(
-                                            f"⏱ {_format_time(d_time if is_challenger else (c_time or 0))}" if (d_time is not None or not is_challenger) else "Awaiting run...",
+                                            f"⏱ {_format_time(partner_time_val or 0)}" if partner_time_val is not None else "Awaiting run...",
                                             size=11,
                                             color=ft.Colors.GREY_500,
                                         ),
@@ -187,21 +212,23 @@ def show_duel_results_dialog(
                         ],
                     ),
                     # Format badge
-                    ft.Row(
+                    ft.ResponsiveRow(
                         alignment=ft.MainAxisAlignment.CENTER,
                         spacing=12,
                         controls=[
                             ft.Container(
                                 padding=ft.Padding.symmetric(horizontal=10, vertical=4),
                                 border_radius=ft.BorderRadius.all(8),
+                                col={"sm": 6, "md": 4},
                                 bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.PRIMARY),
                                 content=ft.Text(f"⚡ {total_q} Questions • 15s/Q", size=11, weight=ft.FontWeight.W_600, color=ft.Colors.PRIMARY),
                             ),
                             ft.Container(
                                 padding=ft.Padding.symmetric(horizontal=10, vertical=4),
+                                col={"sm": 6, "md": 4},
                                 border_radius=ft.BorderRadius.all(8),
                                 bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.AMBER),
-                                content=ft.Text("🪙 +35 Win • +10 Finish", size=11, weight=ft.FontWeight.W_600, color=ft.Colors.AMBER_800),
+                                content=ft.Text("🏆 +35 Win • 🥈 +10 Runner-Up", size=11, weight=ft.FontWeight.W_600, color=ft.Colors.AMBER_800),
                             ),
                         ],
                     ),
@@ -223,19 +250,29 @@ def show_duel_results_dialog(
     if needs_my_response and token and partnership_id:
         def _start_accept_duel(e=None):
             _close()
-            questions = challenge.get("question_snapshot", [])
-            start_quickfire_duel_flow(
-                page=page,
-                token=token,
-                partnership_id=partnership_id,
-                pack_id=str(challenge.get("pack_id") or ""),
-                pack_title=challenge.get("title", "Quickfire Duel"),
-                partner_name=challenger_name,
-                is_accepting_challenge=True,
-                challenge_id=str(c_id),
-                seeded_questions=questions,
-                on_completed=on_duel_updated,
-            )
+            questions = list(challenge.get("question_snapshot") or [])
+            async def _launch():
+                nonlocal questions
+                if not questions:
+                    c_data = await get_partner_challenge(token, str(c_id))
+                    if c_data and c_data.get("question_snapshot"):
+                        questions = list(c_data.get("question_snapshot"))
+                if not questions:
+                    show_page_snackbar(page, "Could not load challenge questions.")
+                    return
+                start_quickfire_duel_flow(
+                    page=page,
+                    token=token,
+                    partnership_id=partnership_id,
+                    pack_id=str(challenge.get("pack_id") or ""),
+                    pack_title=challenge.get("title", "Quickfire Duel"),
+                    partner_name=challenger_name,
+                    is_accepting_challenge=True,
+                    challenge_id=str(c_id),
+                    seeded_questions=questions,
+                    on_completed=on_duel_updated,
+                )
+            page.run_task(_launch)
 
         dlg.actions.insert(0, ft.ElevatedButton(
             content=ft.Row(
@@ -311,7 +348,7 @@ def start_quickfire_duel_flow(
                     tight=True,
                     controls=[
                         ft.Icon(ft.Icons.FLASH_ON_ROUNDED, color=ft.Colors.PRIMARY, size=22),
-                        ft.Text(f"Quickfire Duel • {pack_title[:20]}", size=14, weight=ft.FontWeight.W_800),
+                        ft.Text(f"Quickfire Duel", size=14, weight=ft.FontWeight.W_800),
                     ],
                 ),
                 timer_text,
@@ -347,7 +384,8 @@ def start_quickfire_duel_flow(
 
     def _close_duel():
         nonlocal active_timer_task
-        if active_timer_task and not active_timer_task.done():
+        curr_task = asyncio.current_task()
+        if active_timer_task and active_timer_task != curr_task and not active_timer_task.done():
             active_timer_task.cancel()
         duel_dlg.open = False
         page.update()
@@ -371,7 +409,7 @@ def start_quickfire_duel_flow(
             page.update()
 
         if question_seconds_left <= 0 and not answered_current and duel_dlg.open:
-            await _handle_answer(None, is_timeout=True)
+            asyncio.create_task(_handle_answer(None, is_timeout=True))
 
     def _render_question():
         nonlocal current_idx, question_seconds_left, answered_current, active_timer_task
@@ -399,7 +437,8 @@ def start_quickfire_duel_flow(
         page.update()
 
         # Start 15s timer for this question
-        if active_timer_task and not active_timer_task.done():
+        curr_task = asyncio.current_task()
+        if active_timer_task and active_timer_task != curr_task and not active_timer_task.done():
             active_timer_task.cancel()
         active_timer_task = asyncio.create_task(_run_countdown())
 
@@ -430,7 +469,8 @@ def start_quickfire_duel_flow(
         if answered_current:
             return
         answered_current = True
-        if active_timer_task and not active_timer_task.done():
+        curr_task = asyncio.current_task()
+        if active_timer_task and active_timer_task != curr_task and not active_timer_task.done():
             active_timer_task.cancel()
 
         q_data = questions[current_idx]
@@ -471,7 +511,10 @@ def start_quickfire_duel_flow(
         page.update()
 
         # Brief delay to absorb feedback, then advance
-        await asyncio.sleep(0.9)
+        try:
+            await asyncio.sleep(0.9)
+        except asyncio.CancelledError:
+            pass
 
         if not duel_dlg.open:
             return
@@ -500,6 +543,21 @@ def start_quickfire_duel_flow(
                     show_page_snackbar(page, f"Duel submitted! {res.get('message', 'Completed!')} 🏆")
                     if on_completed:
                         on_completed()
+                    # Reopen results dialog to display victory slip!
+                    async def _reopen():
+                        updated_ch = await get_partner_challenge(token, challenge_id)
+                        if updated_ch and not updated_ch.get("error"):
+                            u_data = page.session.store.get("current_user") or {} if hasattr(page, "session") and hasattr(page.session, "store") else {}
+                            current_uid = str(u_data.get("id") or "")
+                            show_duel_results_dialog(
+                                page=page,
+                                challenge=updated_ch,
+                                current_user_id=current_uid,
+                                token=token,
+                                partnership_id=partnership_id,
+                                on_duel_updated=on_completed,
+                            )
+                    page.run_task(_reopen)
                 else:
                     show_page_snackbar(page, res.get("error", "Error submitting challenge."))
             else:
@@ -547,18 +605,151 @@ def show_create_duel_dialog(
     pack_options = []
     for m in (available_materials or []):
         m_id = str(m.get("id") or m.get("pack_id"))
-        m_title = str(m.get("title", "Untitled"))[:35]
-        pack_options.append(ft.dropdown.Option(m_id, m_title))
+        m_title = str(m.get("title", "Untitled"))[:38]
+        q_count = m.get("questions_count")
+        if q_count is None and isinstance(m.get("pack_data"), dict):
+            q_count = len(m["pack_data"].get("questions", []))
+        label_txt = f"{m_title[:32]} ({q_count}Q)" if q_count else m_title
+        pack_options.append(
+            ft.dropdown.Option(
+                key=m_id,
+                text=m_title,
+                content=ft.Text(
+                    label_txt,
+                    size=12.5,
+                    weight=ft.FontWeight.W_600,
+                    color=ft.Colors.ON_SURFACE,
+                    max_lines=1,
+                    overflow=ft.TextOverflow.ELLIPSIS,
+                ),
+            )
+        )
 
     if not pack_options:
-        pack_options.append(ft.dropdown.Option("general", "General Academic Pack"))
+        pack_options.append(
+            ft.dropdown.Option(
+                key="general",
+                text="General Academic Pack",
+                content=ft.Text(
+                    "General Academic Pack",
+                    size=12.5,
+                    weight=ft.FontWeight.W_600,
+                    color=ft.Colors.ON_SURFACE,
+                ),
+            )
+        )
 
     pack_dd = ft.Dropdown(
         label="Select Study Pack for Duel",
         value=pack_options[0].key if pack_options else None,
         options=pack_options,
         border_radius=10,
+        height=48,
+        dense=True,
+        text_size=13,
+        color=ft.Colors.ON_SURFACE,
+        bgcolor=ft.Colors.SURFACE,
+        fill_color=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
+        filled=True,
+        border_color=ft.Colors.with_opacity(0.18, ft.Colors.ON_SURFACE),
+        focused_border_color=ft.Colors.PRIMARY,
+        menu_height=220,  # compact, scrollable dropdown popup menu
+        menu_style=ft.MenuStyle(
+            bgcolor=ft.Colors.SURFACE,
+            shape=ft.RoundedRectangleBorder(radius=10),
+            side=ft.BorderSide(1, ft.Colors.with_opacity(0.18, ft.Colors.ON_SURFACE)),
+            elevation=6,
+        ),
     )
+
+    async def _fetch_and_populate_packs():
+        try:
+            from src.requests.study import get_materials
+            from src.requests.marketplace import fetch_my_submissions
+            from src.requests.study_partners import get_shared_study_packs_api
+            from src.local_db import get_offline_study_materials
+
+            tasks = [
+                get_materials(token) if token else asyncio.sleep(0),
+                fetch_my_submissions(token) if token else asyncio.sleep(0),
+                get_shared_study_packs_api(token, partnership_id) if (token and partnership_id) else asyncio.sleep(0),
+            ]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            loaded_items = list(available_materials or [])
+
+            # 1. Vault materials
+            if len(results) > 0 and isinstance(results[0], list):
+                loaded_items.extend(results[0])
+
+            # 2. My published/created study packs
+            if len(results) > 1 and isinstance(results[1], dict):
+                subs_items = results[1].get("items")
+                if isinstance(subs_items, list):
+                    loaded_items.extend(subs_items)
+
+            # 3. Shared packs with duo partner
+            if len(results) > 2 and isinstance(results[2], list):
+                for sp in results[2]:
+                    if isinstance(sp, dict):
+                        loaded_items.append(sp.get("pack") or sp)
+
+            # 4. Local offline materials
+            try:
+                local_mats = get_offline_study_materials(page)
+                if local_mats and isinstance(local_mats, list):
+                    loaded_items.extend(local_mats)
+            except Exception:
+                pass
+
+            seen_ids = set()
+            new_options = []
+            for m in loaded_items:
+                if not isinstance(m, dict):
+                    continue
+                m_id = str(m.get("id") or m.get("pack_id") or "").strip()
+                if not m_id or m_id in seen_ids or m_id == "None":
+                    continue
+                seen_ids.add(m_id)
+
+                m_title = str(m.get("title", "Untitled")).strip()
+                q_count = m.get("questions_count")
+                if q_count is None and isinstance(m.get("pack_data"), dict):
+                    q_count = len(m["pack_data"].get("questions", []))
+
+                label_txt = f"{m_title[:32]} ({q_count}Q)" if q_count else m_title[:38]
+                new_options.append(
+                    ft.dropdown.Option(
+                        key=m_id,
+                        text=m_title,
+                        content=ft.Text(
+                            label_txt,
+                            size=12.5,
+                            weight=ft.FontWeight.W_600,
+                            color=ft.Colors.ON_SURFACE,
+                            max_lines=1,
+                            overflow=ft.TextOverflow.ELLIPSIS,
+                        ),
+                    )
+                )
+
+            if new_options:
+                pack_dd.options = new_options
+                if not pack_dd.value or pack_dd.value not in seen_ids or pack_dd.value == "general":
+                    pack_dd.value = new_options[0].key
+                if dlg.open:
+                    try:
+                        if getattr(pack_dd, "page", None):
+                            pack_dd.update()
+                        else:
+                            page.update()
+                    except Exception:
+                        try:
+                            page.update()
+                        except Exception:
+                            pass
+        except Exception as ex:
+            print(f"[show_create_duel_dialog] _fetch_and_populate_packs error: {ex}")
 
     progress_ring = ft.ProgressRing(width=20, height=20, stroke_width=2.5, color=ft.Colors.PRIMARY, visible=False)
     launch_btn = ft.ElevatedButton(
@@ -583,7 +774,7 @@ def show_create_duel_dialog(
         try:
             chosen_pack_id = pack_dd.value
             chosen_pack_title = "Study Pack"
-            for opt in pack_options:
+            for opt in pack_dd.options:
                 if opt.key == chosen_pack_id:
                     chosen_pack_title = opt.text
                     break
@@ -675,7 +866,7 @@ def show_create_duel_dialog(
                             spacing=8,
                             controls=[
                                 ft.Icon(ft.Icons.LOCAL_FIRE_DEPARTMENT_ROUNDED, color=ft.Colors.AMBER_800, size=18),
-                                ft.Text("Rewards: +35 Nu-Coins to Winner • +10 to Runner-Up", size=11.5, weight=ft.FontWeight.W_700, color=ft.Colors.AMBER_900),
+                                ft.Text("Rewards: +35 to Winner • +10 to Runner-Up • +20 each on Draw", size=11, weight=ft.FontWeight.W_700, color=ft.Colors.AMBER_900),
                             ],
                         ),
                     ),
@@ -699,3 +890,202 @@ def show_create_duel_dialog(
     page.overlay.append(dlg)
     dlg.open = True
     page.update()
+    page.run_task(_fetch_and_populate_packs)
+
+
+def show_flashcard_preview_dialog(
+    page: ft.Page,
+    token: str,
+    partnership_id: str,
+    pack_id: str,
+    pack_title: str,
+    partner_name: str,
+    flashcards: list,
+    on_duel_start: Optional[Callable] = None,
+):
+    """
+    Renders a flashcard-only preview dialog for a shared study pack.
+    Questions are strictly withheld to preserve competition integrity.
+    Provides a direct CTA to launch a 15-Question Quickfire Duel.
+    """
+    card_idx = 0
+    total_cards = len(flashcards)
+    showing_front = True
+
+    index_text = ft.Text(f"Card 1 of {total_cards}" if total_cards else "No cards", size=12, weight=ft.FontWeight.W_700, color=ft.Colors.GREY_600)
+    card_type_tag = ft.Container(
+        padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+        border_radius=ft.BorderRadius.all(6),
+        bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY),
+        content=ft.Text("FRONT (PROMPT)", size=10, weight=ft.FontWeight.W_700, color=ft.Colors.PRIMARY),
+    )
+
+    init_card_val = flashcards[0].get("front", "Empty") if total_cards else "No flashcards in this deck."
+    card_md = ft.Markdown(
+        value=init_card_val,
+        selectable=False,
+        extension_set=ft.MarkdownExtensionSet.GITHUB_FLAVORED,
+        md_style_sheet=ft.MarkdownStyleSheet(
+            text_alignment=ft.TextAlign.CENTER,
+            p_text_style=ft.TextStyle(
+                size=15,
+                weight=ft.FontWeight.W_600,
+                color=ft.Colors.ON_SURFACE,
+                height=1.4,
+            ),
+        ),
+    )
+
+    card_box = ft.Container(
+        height=190,
+        padding=ft.Padding.symmetric(horizontal=16, vertical=14),
+        border_radius=ft.BorderRadius.all(16),
+        bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
+        border=ft.Border.all(1.5, ft.Colors.with_opacity(0.15, ft.Colors.PRIMARY)),
+        alignment=ft.Alignment.CENTER,
+        ink=True,
+        content=ft.Column(
+            controls=[card_md],
+            alignment=ft.MainAxisAlignment.CENTER,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            scroll=ft.ScrollMode.AUTO,
+        ),
+    )
+
+    def _update_card_view():
+        nonlocal showing_front
+        if not flashcards:
+            return
+        curr = flashcards[card_idx]
+        index_text.value = f"Card {card_idx + 1} of {total_cards}"
+        if showing_front:
+            card_type_tag.content.value = "FRONT (PROMPT)"
+            card_type_tag.bgcolor = ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY)
+            card_type_tag.content.color = ft.Colors.PRIMARY
+            card_md.value = curr.get("front") or curr.get("prompt") or curr.get("term") or "No front text"
+            card_box.border = ft.Border.all(1.5, ft.Colors.with_opacity(0.15, ft.Colors.PRIMARY))
+        else:
+            card_type_tag.content.value = "BACK (ANSWER)"
+            card_type_tag.bgcolor = ft.Colors.with_opacity(0.12, ft.Colors.GREEN)
+            card_type_tag.content.color = ft.Colors.GREEN_700
+            card_md.value = curr.get("back") or curr.get("answer") or curr.get("definition") or "No back text"
+            card_box.border = ft.Border.all(1.5, ft.Colors.with_opacity(0.25, ft.Colors.GREEN))
+        page.update()
+
+    def _flip(e=None):
+        nonlocal showing_front
+        showing_front = not showing_front
+        _update_card_view()
+
+    card_box.on_click = _flip
+
+    def _prev_card(e=None):
+        nonlocal card_idx, showing_front
+        if card_idx > 0:
+            card_idx -= 1
+            showing_front = True
+            _update_card_view()
+
+    def _next_card(e=None):
+        nonlocal card_idx, showing_front
+        if card_idx < total_cards - 1:
+            card_idx += 1
+            showing_front = True
+            _update_card_view()
+
+    prev_btn = ft.IconButton(ft.Icons.ARROW_BACK_IOS_ROUNDED, icon_size=16, on_click=_prev_card)
+    next_btn = ft.IconButton(ft.Icons.ARROW_FORWARD_IOS_ROUNDED, icon_size=16, on_click=_next_card)
+
+    dlg_ref = [None]
+    def _close(e=None):
+        if dlg_ref[0]:
+            dlg_ref[0].open = False
+            page.update()
+
+    async def _start_duel_from_preview():
+        _close()
+        from src.requests.study_partners import generate_quickfire_from_pack_api
+        q_res = await generate_quickfire_from_pack_api(token, partnership_id, pack_id)
+        if q_res.get("status") == "success" and q_res.get("questions"):
+            start_quickfire_duel_flow(
+                page=page,
+                token=token,
+                partnership_id=partnership_id,
+                pack_id=pack_id,
+                pack_title=pack_title,
+                partner_name=partner_name,
+                is_accepting_challenge=False,
+                seeded_questions=q_res.get("questions"),
+                on_completed=on_duel_start,
+            )
+        else:
+            show_page_snackbar(page, q_res.get("error", "Could not seed questions from pack."))
+
+    duel_cta = ft.ElevatedButton(
+        content=ft.Row(
+            tight=True,
+            spacing=6,
+            controls=[
+                ft.Icon(ft.Icons.FLASH_ON_ROUNDED, size=15, color=ft.Colors.WHITE),
+                ft.Text("⚔️ Challenge on this Pack", size=12, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE),
+            ],
+        ),
+        bgcolor=ft.Colors.ORANGE_800,
+        height=36,
+        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10), elevation=0),
+        on_click=lambda _: page.run_task(_start_duel_from_preview),
+    )
+
+    dlg = ft.AlertDialog(
+        modal=True,
+        shape=ft.RoundedRectangleBorder(radius=20),
+        bgcolor=ft.Colors.SURFACE,
+        title=ft.Row(
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            controls=[
+                ft.Row(
+                    spacing=8,
+                    tight=True,
+                    controls=[
+                        ft.Icon(ft.Icons.STYLE_ROUNDED, color=ft.Colors.PRIMARY, size=22),
+                        ft.Text(f"Flashcard Preview", size=12, weight=ft.FontWeight.W_800),
+                    ],
+                ),
+                ft.IconButton(ft.Icons.CLOSE_ROUNDED, icon_size=18, on_click=_close),
+            ],
+        ),
+        content=ft.Container(
+            width=460,
+            content=ft.Column(
+                tight=True,
+                spacing=12,
+                controls=[
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[index_text, card_type_tag],
+                    ),
+                    card_box,
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.CENTER,
+                        spacing=16,
+                        controls=[
+                            prev_btn,
+                            ft.TextButton("Tap Card to Flip 🔄", on_click=_flip),
+                            next_btn,
+                        ],
+                    )
+                ],
+            ),
+        ),
+        actions=[
+            ft.TextButton("Close", on_click=_close),
+            duel_cta,
+        ],
+    )
+
+    dlg_ref[0] = dlg
+    page.overlay.append(dlg)
+    dlg.open = True
+    page.update()
+

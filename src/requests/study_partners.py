@@ -6,16 +6,28 @@ api_url = "https://api.nu-age.name.ng"
 DEFAULT_TIMEOUT = httpx.Timeout(15.0)
 
 
+_PARTNERSHIPS_CACHE: dict = {}
+
+
 async def get_active_partnership(token: str) -> dict:
     url = f"{api_url}/study/partnerships/active"
     headers = {"Authorization": f"Bearer {token}"}
+    cache_key = token[:16] if token else "anon"
     try:
         async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
             resp = await client.get(url, headers=headers)
             resp.raise_for_status()
-            return resp.json()
+            data = resp.json()
+            if not data or not isinstance(data, dict):
+                data = {"has_partnership": False}
+            if data.get("has_partnership"):
+                _PARTNERSHIPS_CACHE[cache_key] = data
+            return data
     except Exception as e:
-        return {"has_partnership": False, "error": str(e)}
+        cached = _PARTNERSHIPS_CACHE.get(cache_key)
+        if cached:
+            return {**cached, "is_offline": True}
+        return {"has_partnership": False, "is_offline": True, "error": str(e)}
 
 
 async def get_partner_recommendations(token: str, limit: int = 10) -> list:
@@ -233,9 +245,12 @@ async def submit_partner_challenge(
     url = f"{api_url}/study/partnerships/challenges/{challenge_id}/submit"
     headers = {"Authorization": f"Bearer {token}"}
     payload = {
+        "score": challenged_score,
+        "time_seconds": challenged_time_seconds,
+        "breakdown": challenged_breakdown or {},
         "challenged_score": challenged_score,
         "challenged_time_seconds": challenged_time_seconds,
-        "challenged_breakdown": challenged_breakdown or {}
+        "challenged_breakdown": challenged_breakdown or {},
     }
     try:
         async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
@@ -360,5 +375,44 @@ async def log_partnership_study_activity_api(
     except Exception as e:
         print(f"[log_partnership_study_activity_api] error: {e}")
         return {"status": "error", "error": str(e)}
+
+
+async def get_challenge_history_api(token: str, partnership_id: Optional[str] = None, limit: int = 20) -> list:
+    if partnership_id:
+        url = f"{api_url}/study/partnerships/{partnership_id}/challenges/history"
+    else:
+        url = f"{api_url}/study/partnerships/challenges/history"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
+            resp = await client.get(url, headers=headers, params={"limit": limit})
+            if resp.status_code == 404:
+                return []
+            resp.raise_for_status()
+            data = resp.json()
+            if isinstance(data, dict):
+                return data.get("challenges", [])
+            elif isinstance(data, list):
+                return data
+            return []
+    except Exception as e:
+        print(f"[get_challenge_history_api] error: {e}")
+        return []
+
+
+async def preview_shared_study_pack_api(token: str, partnership_id: str, pack_id: str) -> dict:
+    url = f"{api_url}/study/partnerships/{partnership_id}/shared-packs/{pack_id}/preview"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
+            resp = await client.get(url, headers=headers)
+            if resp.status_code == 404:
+                return {"error": "Preview not available on this server yet."}
+            resp.raise_for_status()
+            return resp.json()
+    except Exception as e:
+        print(f"[preview_shared_study_pack_api] error: {e}")
+        return {"error": str(e)}
+
 
 

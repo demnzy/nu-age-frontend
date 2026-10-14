@@ -1,3 +1,4 @@
+from flet import ScrollMode
 import asyncio
 import re
 from typing import Optional, Callable, Dict, Any, List
@@ -265,6 +266,7 @@ class StudyMarketplaceView:
             border=ft.Border.all(1, "#E2E8F0"),
             content=ft.Row(
                 tight=True,
+                scroll= ft.ScrollMode.HIDDEN,
                 spacing=4,
                 controls=[
                     # Browse Store Tab
@@ -772,9 +774,60 @@ class StudyMarketplaceView:
 
     def _build_bundles_view(self) -> ft.Control:
         # Bundles Hero Banner
+        narrow = (self.page.width or 0) < 600  # unknown width on first build counts as narrow
+
+        text_col = ft.Column(
+            expand=not narrow,  # only expand beside the button; in the stacked layout it would fight the scroll height
+            spacing=6,
+            tight=True,
+            controls=[
+                ft.Row(
+                    wrap=True, spacing=6, run_spacing=2,
+                    controls=[
+                        ft.Icon(ft.Icons.AUTO_AWESOME_MOTION_ROUNDED, size=15, color="#A5B4FC"),
+                        ft.Text("MULTI-SUBJECT CBT COMBOS", size=11, weight=ft.FontWeight.W_800, color="#A5B4FC"),
+                    ],
+                ),
+                ft.Text(
+                    "JAMB UTME & WAEC Revision Bundles",
+                    size=18 if narrow else 22,
+                    weight=ft.FontWeight.W_800,
+                    color=ft.Colors.WHITE,
+                ),
+                ft.Text(
+                    "Save coins and get all your required exam subjects in 1-click. "
+                    "Includes complete past questions, CBT timers, step-by-step explanations, and diagrams."
+                    if narrow else
+                    "Save coins and get all your required exam subjects in 1-click.\n"
+                    "Includes complete past questions, CBT timers, step-by-step explanations, and diagrams.",
+                    size=12 if narrow else 13,
+                    color=ft.Colors.WHITE70,
+                ),
+            ],
+        )
+
+        refresh_btn = ft.ElevatedButton(
+            content=ft.Row(
+                [
+                    ft.Icon(ft.Icons.REFRESH_ROUNDED, size=14, color="#3730A3"),
+                    ft.Text("Refresh Combos", size=12, weight=ft.FontWeight.BOLD, color="#3730A3", no_wrap=True),
+                ],
+                spacing=4,
+                tight=True,
+                alignment=ft.MainAxisAlignment.CENTER,
+            ),
+            style=ft.ButtonStyle(
+                bgcolor=ft.Colors.WHITE,
+                shape=ft.RoundedRectangleBorder(radius=ft.BorderRadius.all(10)),
+                padding=ft.Padding.symmetric(horizontal=14, vertical=8),
+            ),
+            height=40 if narrow else None,
+            on_click=lambda _: self.page.run_task(self._load_bundles_data),
+        )
+
         banner = ft.Container(
-            padding=ft.Padding.all(24),
-            border_radius=ft.BorderRadius.all(20),
+            padding=ft.Padding.all(16 if narrow else 24),
+            border_radius=ft.BorderRadius.all(16 if narrow else 20),
             gradient=ft.LinearGradient(
                 colors=["#312E81", "#4338CA", "#1E1B4B"],
                 begin=ft.Alignment.TOP_LEFT,
@@ -787,53 +840,19 @@ class StudyMarketplaceView:
                 color=ft.Colors.with_opacity(0.18, "#312E81"),
                 offset=ft.Offset(0, 4),
             ),
-            content=ft.Row(
-                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                wrap=True,
-                spacing=16,
-                controls=[
-                    ft.Column(
-                        spacing=6,
-                        tight=True,
-                        controls=[
-                            ft.Row(
-                                [
-                                    ft.Icon(ft.Icons.AUTO_AWESOME_MOTION_ROUNDED, size=15, color="#A5B4FC"),
-                                    ft.Text("MULTI-SUBJECT CBT COMBOS", size=11, weight=ft.FontWeight.W_800, color="#A5B4FC"),
-                                ],
-                                spacing=6,
-                                tight=True,
-                            ),
-                            ft.Text(
-                                "JAMB UTME & WAEC Revision Bundles",
-                                size=22,
-                                weight=ft.FontWeight.W_800,
-                                color=ft.Colors.WHITE,
-                            ),
-                            ft.Text(
-                                "Save coins and get all your required exam subjects in 1-click.\nIncludes complete past questions, CBT timers, step-by-step explanations, and diagrams.",
-                                size=13,
-                                color=ft.Colors.WHITE70,
-                            ),
-                        ],
-                    ),
-                    ft.ElevatedButton(
-                        content=ft.Row(
-                            [
-                                ft.Icon(ft.Icons.REFRESH_ROUNDED, size=14, color="#3730A3"),
-                                ft.Text("Refresh Combos", size=12, weight=ft.FontWeight.BOLD, color="#3730A3"),
-                            ],
-                            spacing=4,
-                            tight=True,
-                        ),
-                        bgcolor=ft.Colors.WHITE,
-                        style=ft.ButtonStyle(
-                            shape=ft.RoundedRectangleBorder(radius=ft.BorderRadius.all(10)),
-                            padding=ft.Padding.symmetric(horizontal=14, vertical=8),
-                        ),
-                        on_click=lambda _: self.page.run_task(self._load_bundles_data),
-                    ),
-                ],
+            content=(
+                ft.Column(
+                    spacing=14,
+                    horizontal_alignment=ft.CrossAxisAlignment.STRETCH,  # button fills the width
+                    controls=[text_col, refresh_btn],
+                )
+                if narrow else
+                ft.Row(
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    spacing=16,
+                    controls=[text_col, refresh_btn],
+                )
             ),
         )
 
@@ -2125,8 +2144,7 @@ class StudyMarketplaceView:
                             spacing=1,
                             tight=True,
                             controls=[
-                                ft.Text("100% Free Peer Material", size=12, weight=ft.FontWeight.W_800, color="#065F46"),
-                                ft.Text("A personal copy will be added directly to your vault.", size=11, color="#047857"),
+                                ft.Text("100% Free Peer Material", size=12, weight=ft.FontWeight.W_800, color="#065F46")
                             ],
                         ),
                     ],
@@ -2308,6 +2326,8 @@ class StudyMarketplaceView:
         def _field_style() -> dict:
             return dict(
                 bgcolor=FIELD_BG,
+                fill_color=FIELD_BG,
+                filled=True,
                 border_color=FIELD_BORDER,
                 focused_border_color=ACCENT,
                 border_radius=12,
@@ -2342,7 +2362,13 @@ class StudyMarketplaceView:
             options=mat_options,
             value=mat_options[0].key if mat_options else None,
             on_select=_on_mat_change,
-            menu_height=220,  # caps the popup height; list scrolls beyond ~5 items
+            menu_height=180,  # compact, scrollable popup menu
+            menu_style=ft.MenuStyle(
+                bgcolor=FIELD_BG,
+                shape=ft.RoundedRectangleBorder(radius=10),
+                side=ft.BorderSide(1, FIELD_BORDER),
+                elevation=6,
+            ),
             **_field_style(),
         )
 

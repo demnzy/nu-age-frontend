@@ -219,6 +219,7 @@ async def network_view(page: ft.Page):
     seg_row = ft.Container(
         margin=ft.Margin.only(top=4, bottom=4),
         content=ft.Row(
+            scroll=ft.ScrollMode.HIDDEN,
             spacing=16,
             alignment=ft.MainAxisAlignment.START,
             controls=[],
@@ -1307,7 +1308,6 @@ async def network_view(page: ft.Page):
                                                                 bgcolor=ft.Colors.GREEN if partner_done else ft.Colors.GREY_400,
                                                             ),
                                                         ], spacing=5, tight=True),
-                                                        ft.Text(p_uni, size=11, color=ft.Colors.GREY_500),
                                                     ],
                                                 ),
                                             ],
@@ -1326,7 +1326,7 @@ async def network_view(page: ft.Page):
                                                     ),
                                                     content=ft.Row([
                                                         ft.Icon(ft.Icons.LOCAL_FIRE_DEPARTMENT_ROUNDED, size=14, color=ft.Colors.WHITE),
-                                                        ft.Text(f"{duo_streak}d Streak", size=11, weight=ft.FontWeight.W_800, color=ft.Colors.WHITE),
+                                                        ft.Text(f"{duo_streak}d Streak", size=10, weight=ft.FontWeight.W_800, color=ft.Colors.WHITE),
                                                     ], spacing=3, tight=True),
                                                 ),
                                                 ft.IconButton(
@@ -1451,7 +1451,7 @@ async def network_view(page: ft.Page):
                                                 ], spacing=1, tight=True),
                                             ], spacing=8, tight=True),
                                             ft.TextButton(
-                                                "View Diagnostic",
+                                                "View Result",
                                                 on_click=lambda _, c=ch: show_duel_results_dialog(page, c, partner.get("id")),
                                             ),
                                         ],
@@ -1612,59 +1612,73 @@ async def network_view(page: ft.Page):
 
                     rec_cards.append(
                         ft.Container(
-                            padding=ft.Padding.symmetric(horizontal=14, vertical=12),
-                            border_radius=ft.BorderRadius.all(14),
-                            bgcolor=ft.Colors.SURFACE,
-                            border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
-                            content=ft.Row(
-                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+    padding=ft.Padding.symmetric(horizontal=14, vertical=12),
+    border_radius=ft.BorderRadius.all(14),
+    bgcolor=ft.Colors.SURFACE,
+    border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+    content=ft.Row(
+        spacing=10,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        controls=[
+            # Left side takes whatever width the button leaves
+            ft.Row(
+                expand=True,
+                spacing=10,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[
+                    _avatar(cand, radius=20),
+                    ft.Column(
+                        expand=True,
+                        spacing=3,
+                        tight=True,
+                        controls=[
+                            ft.Text(
+                                c_name, size=13, weight=ft.FontWeight.W_700,
+                                color=ft.Colors.ON_SURFACE,
+                                max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
+                            ),
+                            # Badge + streak wrap onto a new line if space runs out
+                            ft.Row(
+                                wrap=True, spacing=5, run_spacing=3,
                                 controls=[
-                                    ft.Row(
-                                        spacing=10,
-                                        tight=True,
-                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                        controls=[
-                                            _avatar(cand, radius=20),
-                                            ft.Column(
-                                                spacing=2,
-                                                tight=True,
-                                                controls=[
-                                                    ft.Row([
-                                                        ft.Text(c_name, size=13, weight=ft.FontWeight.W_700, color=ft.Colors.ON_SURFACE),
-                                                        ft.Container(
-                                                            padding=ft.Padding.symmetric(horizontal=6, vertical=1.5),
-                                                            border_radius=ft.BorderRadius.all(6),
-                                                            bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.PRIMARY),
-                                                            content=ft.Text(c_badge, size=8.5, weight=ft.FontWeight.W_700, color=ft.Colors.PRIMARY),
-                                                        ),
-                                                        streak_pill,
-                                                    ], spacing=5, tight=True),
-                                                    ft.Text(c_uni, size=11, color=ft.Colors.GREY_500),
-                                                ],
-                                            ),
-                                        ],
+                                    ft.Container(
+                                        padding=ft.Padding.symmetric(horizontal=6, vertical=1.5),
+                                        border_radius=ft.BorderRadius.all(6),
+                                        bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.PRIMARY),
+                                        content=ft.Text(c_badge, size=8.5, weight=ft.FontWeight.W_700, color=ft.Colors.PRIMARY),
                                     ),
-                                    ft.FilledButton(
-                                        ref=btn_ref,
-                                        content=ft.Row([
-                                            ft.ProgressRing(ref=spinner_ref, width=12, height=12, stroke_width=2, color=ft.Colors.ON_PRIMARY, visible=False),
-                                            ft.Text("Invite as Duo", size=11, weight=ft.FontWeight.W_700),
-                                        ], spacing=4, tight=True),
-                                        style=ft.ButtonStyle(
-                                            bgcolor=ft.Colors.PRIMARY,
-                                            color=ft.Colors.ON_PRIMARY,
-                                            padding=ft.Padding.symmetric(horizontal=12, vertical=6),
-                                            shape=ft.RoundedRectangleBorder(radius=8),
-                                        ),
-                                        height=34,
-                                        on_click=lambda _, tid=c_id, nm=c_name, br=btn_ref, sr=spinner_ref, cd=cand: page.run_task(
-                                            _send_invite_action, tid, nm, br, sr, cd
-                                        ),
-                                    ),
+                                    streak_pill,
                                 ],
                             ),
-                        )
+                            ft.Text(
+                                c_uni, size=11, color=ft.Colors.GREY_500,
+                                max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
+                            ),
+                        ],
+                    ),
+                ],
+            ),
+            # Button keeps its natural size
+            ft.FilledButton(
+                ref=btn_ref,
+                content=ft.Row([
+                    ft.ProgressRing(ref=spinner_ref, width=12, height=12, stroke_width=2, color=ft.Colors.ON_PRIMARY, visible=False),
+                    ft.Text("Invite as Duo", size=11, weight=ft.FontWeight.W_700, no_wrap=True),
+                ], spacing=4, tight=True),
+                style=ft.ButtonStyle(
+                    bgcolor=ft.Colors.PRIMARY,
+                    color=ft.Colors.ON_PRIMARY,
+                    padding=ft.Padding.symmetric(horizontal=12, vertical=6),
+                    shape=ft.RoundedRectangleBorder(radius=8),
+                ),
+                height=34,
+                on_click=lambda _, tid=c_id, nm=c_name, br=btn_ref, sr=spinner_ref, cd=cand: page.run_task(
+                    _send_invite_action, tid, nm, br, sr, cd
+                ),
+            ),
+        ],
+    ),
+)
                     )
 
                 body_controls.append(
@@ -1730,54 +1744,81 @@ async def network_view(page: ft.Page):
                         page.update()
 
                     incoming_cards.append(
-                        ft.Container(
-                            padding=ft.Padding.all(12),
-                            border_radius=ft.BorderRadius.all(14),
-                            bgcolor=ft.Colors.SURFACE,
-                            border=ft.Border.all(1, ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY)),
-                            content=ft.Row(
-                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                                controls=[
-                                    ft.Row([
-                                        _avatar(req_user, radius=20),
-                                        ft.Column([
-                                            ft.Row([
-                                                ft.Text(r_name, size=13, weight=ft.FontWeight.W_700),
-                                                ft.Container(
-                                                    padding=ft.Padding.symmetric(horizontal=6, vertical=1.5),
-                                                    border_radius=ft.BorderRadius.all(6),
-                                                    bgcolor=ft.Colors.with_opacity(0.10, ft.Colors.PRIMARY),
-                                                    content=ft.Text(r_badge, size=8.5, weight=ft.FontWeight.W_700, color=ft.Colors.PRIMARY),
-                                                ),
-                                            ], spacing=6, tight=True),
-                                            ft.Text(r_uni, size=10.5, color=ft.Colors.GREY_500),
-                                        ], spacing=2, tight=True),
-                                    ], spacing=10, tight=True),
-                                    ft.Row([
-                                        ft.FilledButton(
-                                            "Accept",
-                                            style=ft.ButtonStyle(
-                                                bgcolor=ft.Colors.PRIMARY,
-                                                padding=ft.Padding.symmetric(horizontal=12, vertical=4),
-                                                shape=ft.RoundedRectangleBorder(radius=8),
-                                            ),
-                                            height=32,
-                                            on_click=lambda _, rid=req_id: page.run_task(_accept_action, rid),
+    ft.Container(
+        padding=ft.Padding.all(12),
+        border_radius=ft.BorderRadius.all(14),
+        bgcolor=ft.Colors.SURFACE,
+        border=ft.Border.all(1, ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY)),
+        # Phone (< 480px): info on top, buttons below. Wider: one row.
+        content=(ft.Column if (page.width or 0) < 480 else ft.Row)(
+            spacing=10,
+            **({} if (page.width or 0) < 480 else {"vertical_alignment": ft.CrossAxisAlignment.CENTER}),
+            controls=[
+                ft.Row(
+                    expand=(page.width or 0) >= 480,
+                    spacing=10,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[
+                        _avatar(req_user, radius=20),
+                        ft.Column(
+                            expand=True,
+                            spacing=3,
+                            tight=True,
+                            controls=[
+                                ft.Text(
+                                    r_name, size=13, weight=ft.FontWeight.W_700,
+                                    max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
+                                ),
+                                ft.Row(
+                                    wrap=True, spacing=5, run_spacing=3,
+                                    controls=[
+                                        ft.Container(
+                                            padding=ft.Padding.symmetric(horizontal=6, vertical=1.5),
+                                            border_radius=ft.BorderRadius.all(6),
+                                            bgcolor=ft.Colors.with_opacity(0.10, ft.Colors.PRIMARY),
+                                            content=ft.Text(r_badge, size=8.5, weight=ft.FontWeight.W_700, color=ft.Colors.PRIMARY),
                                         ),
-                                        ft.OutlinedButton(
-                                            "Decline",
-                                            style=ft.ButtonStyle(
-                                                padding=ft.Padding.symmetric(horizontal=8, vertical=4),
-                                                shape=ft.RoundedRectangleBorder(radius=8),
-                                            ),
-                                            height=32,
-                                            on_click=lambda _, rid=req_id: page.run_task(_decline_action, rid),
-                                        ),
-                                    ], spacing=6, tight=True),
-                                ],
+                                    ],
+                                ),
+                                ft.Text(
+                                    r_uni, size=10.5, color=ft.Colors.GREY_500,
+                                    max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
+                                ),
+                            ],
+                        ),
+                    ],
+                ),
+                ft.Row(
+                    spacing=8,
+                    tight=(page.width or 0) >= 480,
+                    controls=[
+                        ft.FilledButton(
+                            "Accept",
+                            expand=(page.width or 0) < 480,
+                            style=ft.ButtonStyle(
+                                bgcolor=ft.Colors.PRIMARY,
+                                padding=ft.Padding.symmetric(horizontal=12, vertical=4),
+                                shape=ft.RoundedRectangleBorder(radius=8),
                             ),
-                        )
-                    )
+                            height=34,
+                            on_click=lambda _, rid=req_id: page.run_task(_accept_action, rid),
+                        ),
+                        ft.OutlinedButton(
+                            "Decline",
+                            expand=(page.width or 0) < 480,
+                            style=ft.ButtonStyle(
+                                padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+                                shape=ft.RoundedRectangleBorder(radius=8),
+                            ),
+                            height=34,
+                            on_click=lambda _, rid=req_id: page.run_task(_decline_action, rid),
+                        ),
+                    ],
+                ),
+            ],
+        ),
+    )
+)
 
                 body_controls.append(
                     ft.Column(
@@ -1815,37 +1856,65 @@ async def network_view(page: ft.Page):
 
                     sent_cards.append(
                         ft.Container(
-                            padding=ft.Padding.symmetric(horizontal=12, vertical=10),
-                            border_radius=ft.BorderRadius.all(12),
-                            bgcolor=ft.Colors.with_opacity(0.03, ft.Colors.ON_SURFACE),
-                            content=ft.Row(
-                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                                controls=[
-                                    ft.Row([
-                                        _avatar(s_part, radius=18),
-                                        ft.Column([
-                                            ft.Text(s_name, size=12.5, weight=ft.FontWeight.W_600),
-                                            ft.Text(s_uni, size=10.5, color=ft.Colors.GREY_500),
-                                        ], spacing=1, tight=True),
-                                    ], spacing=8, tight=True),
-                                    ft.Row([
-                                        ft.Container(
-                                            padding=ft.Padding.symmetric(horizontal=8, vertical=3),
-                                            border_radius=ft.BorderRadius.all(6),
-                                            bgcolor=ft.Colors.with_opacity(0.10, ft.Colors.ORANGE),
-                                            content=ft.Text("Waiting for response", size=9.5, weight=ft.FontWeight.W_700, color=ft.Colors.ORANGE_800),
-                                        ),
-                                        ft.IconButton(
-                                            icon=ft.Icons.CLOSE_ROUNDED,
-                                            icon_size=16,
-                                            icon_color=ft.Colors.RED_400,
-                                            tooltip="Cancel Invitation",
-                                            on_click=lambda _, sid=s_id: page.run_task(_cancel_sent_action, sid),
-                                        ),
-                                    ], spacing=4, tight=True),
-                                ],
+    padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+    border_radius=ft.BorderRadius.all(12),
+    bgcolor=ft.Colors.with_opacity(0.03, ft.Colors.ON_SURFACE),
+    content=ft.Row(
+        spacing=8,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        controls=[
+            # Left side takes whatever width the status pill + button leave
+            ft.Row(
+                expand=True,
+                spacing=8,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[
+                    _avatar(s_part, radius=18),
+                    ft.Column(
+                        expand=True,
+                        spacing=1,
+                        tight=True,
+                        controls=[
+                            ft.Text(
+                                s_name, size=12.5, weight=ft.FontWeight.W_600,
+                                max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
                             ),
-                        )
+                            ft.Text(
+                                s_uni, size=10.5, color=ft.Colors.GREY_500,
+                                max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
+                            ),
+                        ],
+                    ),
+                ],
+            ),
+            # Status pill + cancel keep their natural size
+            ft.Row(
+                spacing=4,
+                tight=True,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[
+                    ft.Container(
+                        padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+                        border_radius=ft.BorderRadius.all(6),
+                        bgcolor=ft.Colors.with_opacity(0.10, ft.Colors.ORANGE),
+                        content=ft.Text(
+                            "Pending" if (page.width or 0) < 420 else "Waiting for response",
+                            size=9.5, weight=ft.FontWeight.W_700,
+                            color=ft.Colors.ORANGE_800, no_wrap=True,
+                        ),
+                    ),
+                    ft.IconButton(
+                        icon=ft.Icons.CLOSE_ROUNDED,
+                        icon_size=16,
+                        icon_color=ft.Colors.RED_400,
+                        tooltip="Cancel Invitation",
+                        on_click=lambda _, sid=s_id: page.run_task(_cancel_sent_action, sid),
+                    ),
+                ],
+            ),
+        ],
+    ),
+)
                     )
 
                 body_controls.append(ft.Container(height=8))

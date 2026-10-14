@@ -181,13 +181,15 @@ async def get_quiz_questions(token: str, material_ids: typing.Optional[list] = N
         return []
 
 
-async def get_exam_questions(token: str, material_ids: typing.Optional[list] = None) -> list:
+async def get_exam_questions(token: str, material_ids: typing.Optional[list] = None, limit: typing.Optional[int] = None) -> list:
     url = f"{api_url}/study/exam/questions"
     headers = {"Authorization": f"Bearer {token}"}
     params = {}
 
     if material_ids:
         params["material_ids"] = ",".join(material_ids)
+    if limit is not None:
+        params["limit"] = str(limit)
 
     try:
         async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:

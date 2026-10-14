@@ -8,6 +8,7 @@ from src.components.study_exam import build_exam
 from src.components.deck_inspector import open_deck_inspector
 from src.components.study_marketplace import StudyMarketplaceView
 from src.components.study_partner_cockpit import build_study_partner_cockpit
+from src.components.dashboard_duo_section import build_dashboard_duo_section
 
 
 from src.requests.study import (
@@ -439,7 +440,14 @@ async def self_study_view(page: ft.Page):
     # ─────────────────────────────────────────────────────────────────────────
     # MAIN CONTENT SOCKET (Fixed Single-Tree Layout)
     # ─────────────────────────────────────────────────────────────────────────
-    content_socket = ft.Container(expand=True, content=_loading("Loading Study Hub…"))
+    content_socket = ft.Container(
+        expand=True,
+        content=_loading("Loading Study Hub…"),
+        opacity=1,
+        offset=ft.Offset(0, 0),
+        animate_opacity=ft.Animation(350, ft.AnimationCurve.DECELERATE),
+        animate_offset=ft.Animation(350, ft.AnimationCurve.DECELERATE),
+    )
 
     def _set_loading(label="Loading…"):
         curr = content_socket.content
@@ -1782,13 +1790,15 @@ async def self_study_view(page: ft.Page):
                 try:
                     p_res = await get_active_partnership(token)
                     if p_res and p_res.get("has_partnership"):
-                        p_id = p_res.get("partnership", {}).get("id")
-                        await log_partnership_study_activity_api(
-                            token=token,
-                            partnership_id=str(p_id),
-                            minutes_spent=elapsed_mins,
-                            questions_completed=max(1, elapsed_mins * 2),
-                        )
+                        p_list = p_res.get("partnerships") or ([p_res.get("partnership")] if p_res.get("partnership") else [])
+                        for p in p_list:
+                            if p and p.get("id"):
+                                await log_partnership_study_activity_api(
+                                    token=token,
+                                    partnership_id=str(p["id"]),
+                                    minutes_spent=elapsed_mins,
+                                    questions_completed=max(1, elapsed_mins * 2),
+                                )
                 except Exception as ex:
                     print(f"[_report_partner_activity] error: {ex}")
             page.run_task(_report_partner_activity)
@@ -2274,9 +2284,17 @@ async def self_study_view(page: ft.Page):
                         return await _open_material_cockpit(target_mat, skip_spinner=True)
 
             if state.get("active_material"):
-                content_socket.content = _build_material_cockpit(state["active_material"], state.get("active_material_cards") or [])
+                target_ui = _build_material_cockpit(state["active_material"], state.get("active_material_cards") or [])
             else:
-                content_socket.content = _build_hub(due_cards or [], materials or [])
+                target_ui = _build_hub(due_cards or [], materials or [])
+
+            content_socket.opacity = 0
+            content_socket.offset = ft.Offset(0, 0.03)
+            page.update()
+            await asyncio.sleep(0.04)
+            content_socket.content = target_ui
+            content_socket.opacity = 1
+            content_socket.offset = ft.Offset(0, 0)
         except Exception as ex:
             import traceback
             print(f"[_load_hub: build view failed]: {ex}")
@@ -2374,7 +2392,7 @@ async def self_study_view(page: ft.Page):
 
         try:
             result = await asyncio.wait_for(
-                get_exam_questions(token, material_ids), timeout=15
+                get_exam_questions(token, material_ids, limit=calc_limit), timeout=15
             )
             if isinstance(result, dict):
                 questions = result.get("questions") or []
@@ -4932,19 +4950,177 @@ async def self_study_view(page: ft.Page):
 
         async def _share_material_with_partner(mat_item):
             if not token:
+                show_page_snackbar(page, "Please log in to share study packs!")
                 return
             p_res = await get_active_partnership(token)
-            if not p_res or not p_res.get("has_partnership"):
-                show_page_snackbar(page, "Pair up with a study partner first to share packs!")
+            if p_res.get("is_offline"):
+                show_page_snackbar(page, "You are currently offline. Connect to the internet to share study packs!")
                 return
-            partnership = p_res.get("partnership", {})
-            partnership_id = partnership.get("id")
+            if not p_res or not p_res.get("has_partnership"):
+                show_page_snackbar(page, "Pair up with a study partner first to share packs! Go to Study Network to connect.")
+                return
+
+            partnerships = p_res.get("partnerships") or ([p_res.get("partnership")] if p_res.get("partnership") else [])
+            if not partnerships:
+                show_page_snackbar(page, "No active Duo Streaks found. Connect with a study partner in the Study Network!")
+                return
+
             pack_id = mat_item.get("pack_id") or mat_item.get("id")
-            res = await share_study_pack_api(token, str(partnership_id), str(pack_id))
-            if res.get("status") == "success":
-                show_page_snackbar(page, res.get("message", "Study pack shared with partner!"))
-            else:
-                show_page_snackbar(page, res.get("error", "Failed to share study pack."))
+            pack_title = clean_pack_import_tag(format_material_title(mat_item.get("title") or "Study Pack"))
+
+            share_dlg = [None]
+            def _close_dlg(e=None):
+                if share_dlg[0]:
+                    share_dlg[0].open = False
+                    page.update()
+
+            partners_col = ft.Column(spacing=10, tight=True, scroll=ft.ScrollMode.AUTO)
+            for p_item in partnerships:
+                p_id = str(p_item.get("id") or "")
+                p_info = p_item.get("partner", {})
+                p_first = p_info.get("first_name", "Partner")
+                p_full = f"{p_first} {p_info.get('last_name', '')}".strip()
+                p_streak = p_item.get("duo_streak", 0)
+                p_exam = p_item.get("target_exam") or "General Exam"
+                p_uni = p_info.get("university") or ""
+                p_initials = f"{p_first[:1]}{(p_info.get('last_name') or '')[:1]}".upper()
+
+                action_btn = ft.ElevatedButton(
+                    content=ft.Row(
+                        spacing=4,
+                        tight=True,
+                        controls=[
+                            ft.Icon(ft.Icons.SEND_ROUNDED, size=13, color=ft.Colors.WHITE),
+                            ft.Text("Share", size=11, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE),
+                        ],
+                    ),
+                    bgcolor=ft.Colors.PRIMARY,
+                    height=32,
+                    style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), elevation=0),
+                )
+
+                async def _do_send_share(partner_id=p_id, partner_name=p_first, btn_ref=action_btn):
+                    btn_ref.disabled = True
+                    btn_ref.content = ft.ProgressRing(width=14, height=14, stroke_width=2, color=ft.Colors.WHITE)
+                    page.update()
+                    res = await share_study_pack_api(token, partner_id, str(pack_id))
+                    if res.get("status") == "success":
+                        show_page_snackbar(page, f"Shared '{pack_title[:22]}' with {partner_name}! 🎉 +20🪙 on accept")
+                        _close_dlg()
+                    else:
+                        show_page_snackbar(page, res.get("error", "Failed to share study pack."))
+                        btn_ref.disabled = False
+                        btn_ref.content = ft.Row(
+                            spacing=4,
+                            tight=True,
+                            controls=[
+                                ft.Icon(ft.Icons.SEND_ROUNDED, size=13, color=ft.Colors.WHITE),
+                                ft.Text("Share", size=11, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE),
+                            ],
+                        )
+                        page.update()
+
+                action_btn.on_click = (lambda pid=p_id, pn=p_first, b=action_btn: lambda _: page.run_task(_do_send_share, pid, pn, b))()
+
+                partners_col.controls.append(
+                    ft.Container(
+                        padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+                        border_radius=ft.BorderRadius.all(12),
+                        bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
+                        border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                        content=ft.Row(
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            controls=[
+                                ft.Row(
+                                    spacing=10,
+                                    tight=True,
+                                    expand=True,
+                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                    controls=[
+                                        ft.CircleAvatar(
+                                            content=ft.Text(p_initials, size=12, weight=ft.FontWeight.W_800, color=ft.Colors.PRIMARY),
+                                            bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY),
+                                            radius=18,
+                                        ),
+                                        ft.Column(
+                                            spacing=2,
+                                            tight=True,
+                                            expand=True,
+                                            controls=[
+                                                ft.Text(p_full, size=13, weight=ft.FontWeight.W_700, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                                                ft.Row(
+                                                    spacing=8,
+                                                    tight=True,
+                                                    controls=[
+                                                        ft.Container(
+                                                            padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+                                                            border_radius=ft.BorderRadius.all(6),
+                                                            bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.ORANGE),
+                                                            content=ft.Text(f"🔥 {p_streak}d streak", size=9.5, weight=ft.FontWeight.W_800, color=ft.Colors.ORANGE_800),
+                                                        ),
+                                                        ft.Text(f"🎯 {p_exam}", size=10, color=ft.Colors.GREY_500, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                                                    ],
+                                                ),
+                                            ],
+                                        ),
+                                    ],
+                                ),
+                                action_btn,
+                            ],
+                        ),
+                    )
+                )
+
+            share_dlg[0] = ft.AlertDialog(
+                modal=True,
+                shape=ft.RoundedRectangleBorder(radius=18),
+                bgcolor=ft.Colors.SURFACE,
+                title=ft.Row(
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    controls=[
+                        ft.Row(
+                            spacing=8,
+                            tight=True,
+                            controls=[
+                                ft.Icon(ft.Icons.FOLDER_SHARED_ROUNDED, color=ft.Colors.PRIMARY, size=22),
+                                ft.Text("Share Study Pack", size=15, weight=ft.FontWeight.W_800),
+                            ],
+                        ),
+                        ft.IconButton(icon=ft.Icons.CLOSE_ROUNDED, icon_size=18, on_click=_close_dlg),
+                    ],
+                ),
+                content=ft.Container(
+                    width=460,
+                    content=ft.Column(
+                        spacing=12,
+                        tight=True,
+                        controls=[
+                            ft.Container(
+                                padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+                                border_radius=ft.BorderRadius.all(10),
+                                bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.PRIMARY),
+                                content=ft.Row(
+                                    spacing=8,
+                                    controls=[
+                                        ft.Icon(ft.Icons.AUTO_STORIES_ROUNDED, size=16, color=ft.Colors.PRIMARY),
+                                        ft.Text(f"Sharing: {pack_title}", size=12, weight=ft.FontWeight.W_700, color=ft.Colors.PRIMARY, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, expand=True),
+                                    ],
+                                ),
+                            ),
+                            ft.Text("Choose which Duo Streak partner to share this pack with:", size=11.5, color=ft.Colors.GREY_500),
+                            ft.Container(
+                                height=min(320, max(80, len(partnerships) * 72)),
+                                content=partners_col,
+                            ),
+                        ],
+                    ),
+                ),
+                actions=[ft.TextButton("Cancel", on_click=_close_dlg)],
+            )
+            page.overlay.append(share_dlg[0])
+            share_dlg[0].open = True
+            page.update()
 
         def _render_jump_card(mat: dict):
             mtitle = mat.get("title") or "Untitled Document"
@@ -4968,7 +5144,7 @@ async def self_study_view(page: ft.Page):
                 badge_color = ft.Colors.AMBER_600
                 badge_icon = ft.Icons.AUTO_AWESOME_MOTION_ROUNDED
             elif is_cbt:
-                sub_label = "🎯 CBT Exam Paper"
+                sub_label = "🎯 CBT Exam"
                 badge_color = ft.Colors.INDIGO_900
                 badge_icon = ft.Icons.WORKSPACE_PREMIUM_ROUNDED
             elif is_pack:

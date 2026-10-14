@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "flet": {
+      "command": "C:\\Users\\Admin\\Desktop\\Code\\NU-Front\\.venv\\Scripts\\flet.exe",
+      "args": [
+        "mcp"
+      ],
+      "env": {
+        "FLET_MCP_ENABLE_API": "1",
+        "FLET_MCP_ENABLE_ICONS": "1",
+        "FLET_MCP_ENABLE_EXAMPLES": "1",
+        "FLET_MCP_ENABLE_CLI": "1"
+      }
+    }
+  }
+}
