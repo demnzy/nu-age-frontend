@@ -1452,7 +1452,7 @@ async def network_view(page: ft.Page):
                                             ], spacing=8, tight=True),
                                             ft.TextButton(
                                                 "View Result",
-                                                on_click=lambda _, c=ch: show_duel_results_dialog(page, c, partner.get("id")),
+                                                on_click=lambda _, c=ch: show_duel_results_dialog(page=page, challenge=c, current_user_id="", token=token, partnership_id=p_id),
                                             ),
                                         ],
                                     ),

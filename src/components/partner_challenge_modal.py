@@ -43,27 +43,45 @@ def show_duel_results_dialog(
     """
     c_id = challenge.get("id")
     status = challenge.get("status")
-    c_score = challenge.get("challenger_score", 0)
-    c_time = challenge.get("challenger_time_seconds", 0)
-    d_score = challenge.get("challenged_score")
-    d_time = challenge.get("challenged_time_seconds")
     winner_id = challenge.get("winner_id")
     total_q = challenge.get("total_questions", 15)
     coins_awarded = challenge.get("coins_awarded", 0)
     
-    # Resolve my_user_id cleanly:
+    # Resolve current user cleanly:
     user_data = page.session.store.get("current_user") or {} if hasattr(page, "session") and hasattr(page.session, "store") else {}
-    my_user_id = str(current_user_id or user_data.get("id") or "")
+    session_uid = str(user_data.get("id") or "")
+    my_user_id = session_uid or str(current_user_id or "")
 
     challenger_id = str(challenge.get("challenger_id") or challenge.get("challenger", {}).get("id") or "")
     challenged_id = str(challenge.get("challenged_id") or challenge.get("challenged", {}).get("id") or "")
 
-    if my_user_id and challenger_id:
+    if session_uid and challenger_id and session_uid == challenger_id:
+        is_challenger = True
+    elif session_uid and challenged_id and session_uid == challenged_id:
+        is_challenger = False
+    elif my_user_id and challenger_id:
         is_challenger = (my_user_id == challenger_id)
     else:
         is_challenger = bool(challenge.get("is_challenger", True))
 
     needs_my_response = bool(challenge.get("needs_my_response")) if challenge.get("needs_my_response") is not None else ((not is_challenger) and status == "challenger_done")
+
+    # Resilient score and timing retrieval (supports full challenge & history item dicts):
+    c_score = challenge.get("challenger_score")
+    if c_score is None:
+        c_score = challenge.get("my_score") if is_challenger else challenge.get("partner_score")
+
+    c_time = challenge.get("challenger_time_seconds")
+    if c_time is None:
+        c_time = challenge.get("my_time_seconds") if is_challenger else challenge.get("partner_time_seconds")
+
+    d_score = challenge.get("challenged_score")
+    if d_score is None:
+        d_score = challenge.get("partner_score") if is_challenger else challenge.get("my_score")
+
+    d_time = challenge.get("challenged_time_seconds")
+    if d_time is None:
+        d_time = challenge.get("partner_time_seconds") if is_challenger else challenge.get("my_time_seconds")
 
     # Map scores & times strictly so 'You' is ALWAYS your run:
     if is_challenger:
@@ -71,19 +89,20 @@ def show_duel_results_dialog(
         my_time_val = c_time
         partner_score_val = d_score
         partner_time_val = d_time
-        partner_label = challenge.get("challenged_name") or challenge.get("challenged", {}).get("first_name") or "Partner"
+        partner_label = challenge.get("partner_name") or challenge.get("challenged_name") or challenge.get("challenged", {}).get("first_name") or "Partner"
     else:
         my_score_val = d_score
         my_time_val = d_time
         partner_score_val = c_score
         partner_time_val = c_time
-        partner_label = challenge.get("challenger_name") or challenge.get("challenger", {}).get("first_name") or "Partner"
+        partner_label = challenge.get("partner_name") or challenge.get("challenger_name") or challenge.get("challenger", {}).get("first_name") or "Partner"
 
     challenger_name = challenge.get("challenger_name") or "Challenger"
     challenged_name = challenge.get("challenged_name") or "Partner"
 
     # Outcome banner
-    if status == "completed":
+    is_completed = (status == "completed") or (winner_id is not None) or (my_score_val is not None and partner_score_val is not None and not needs_my_response)
+    if is_completed:
         if not winner_id or winner_id == "tie":
             outcome_title = "🤝 It's a Tie!"
             outcome_subtitle = f"Both learners scored equally! +20 Nu-Coins each."
@@ -109,6 +128,18 @@ def show_duel_results_dialog(
         outcome_subtitle = f"You scored {my_score_val}/{total_q}. {partner_label} has been alerted via push notification."
         banner_color = ft.Colors.TEAL_700
         banner_bg = ft.Colors.with_opacity(0.12, ft.Colors.TEAL)
+
+    partner_score_text = ft.Text(
+        f"{partner_score_val}/{total_q}" if partner_score_val is not None else "Pending...",
+        size=24 if partner_score_val is not None else 14,
+        weight=ft.FontWeight.W_900 if partner_score_val is not None else ft.FontWeight.W_600,
+        color=ft.Colors.ON_SURFACE if partner_score_val is not None else ft.Colors.ORANGE_600,
+    )
+    partner_time_text = ft.Text(
+        f"⏱ {_format_time(partner_time_val or 0)}" if partner_time_val is not None else "Awaiting run...",
+        size=11,
+        color=ft.Colors.GREY_500,
+    )
 
     dlg = ft.AlertDialog(
         modal=True,
@@ -195,17 +226,8 @@ def show_duel_results_dialog(
                                     spacing=4,
                                     controls=[
                                         ft.Text(partner_label, size=12, weight=ft.FontWeight.W_700, color=ft.Colors.GREY_600),
-                                        ft.Text(
-                                            f"{partner_score_val}/{total_q}" if partner_score_val is not None else "Pending...",
-                                            size=24 if partner_score_val is not None else 14,
-                                            weight=ft.FontWeight.W_900 if partner_score_val is not None else ft.FontWeight.W_600,
-                                            color=ft.Colors.ON_SURFACE if partner_score_val is not None else ft.Colors.ORANGE_600,
-                                        ),
-                                        ft.Text(
-                                            f"⏱ {_format_time(partner_time_val or 0)}" if partner_time_val is not None else "Awaiting run...",
-                                            size=11,
-                                            color=ft.Colors.GREY_500,
-                                        ),
+                                        partner_score_text,
+                                        partner_time_text,
                                     ],
                                 ),
                             ),
@@ -291,6 +313,24 @@ def show_duel_results_dialog(
     page.overlay.append(dlg)
     dlg.open = True
     page.update()
+
+    if partner_score_val is None and token and c_id:
+        async def _refresh_live_duel():
+            try:
+                live = await get_partner_challenge(token, str(c_id))
+                if live and not live.get("error"):
+                    live_p_s = live.get("challenged_score") if is_challenger else live.get("challenger_score")
+                    live_p_t = live.get("challenged_time_seconds") if is_challenger else live.get("challenger_time_seconds")
+                    if live_p_s is not None:
+                        partner_score_text.value = f"{live_p_s}/{total_q}"
+                        partner_score_text.size = 24
+                        partner_score_text.weight = ft.FontWeight.W_900
+                        partner_score_text.color = ft.Colors.ON_SURFACE
+                        partner_time_text.value = f"⏱ {_format_time(live_p_t or 0)}"
+                        page.update()
+            except Exception:
+                pass
+        page.run_task(_refresh_live_duel)
 
 
 def start_quickfire_duel_flow(

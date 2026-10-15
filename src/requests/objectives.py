@@ -75,7 +75,7 @@ DEFAULT_PRELIM_OBJECTIVES = [
 ]
 
 
-_LAST_KNOWN_COINS = 100
+_LAST_KNOWN_COINS = 0
 
 
 async def get_platform_objectives_api(token: str) -> dict:

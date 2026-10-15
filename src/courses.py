@@ -14,10 +14,10 @@ from src.components.coding_playground import CodingPlayground
 # Section keys/order for navigation
 SECTION_ENROLLED = 0
 SECTION_AVAILABLE = 1
-SECTION_PLAYLISTS = 2
-SECTION_COMPLETED = 3
-SECTION_ORG = 4
-SECTION_PLAYGROUND = 5
+SECTION_PLAYGROUND = 2
+SECTION_PLAYLISTS = 3
+SECTION_COMPLETED = 4
+SECTION_ORG = 5
 
 
 def _is_mounted(control: ft.Control) -> bool:
@@ -942,8 +942,10 @@ async def courses_view(page: ft.Page):
 
         # Organisation courses
         org_list = await get_courses(token, {"is_public": "organisation"})
+        org_pill = next((p for p in tab_pills if getattr(p, "data", None) == SECTION_ORG), None)
         if isinstance(org_list, list) and len(org_list) > 0:
-            tab_pills[SECTION_ORG].visible = True
+            if org_pill:
+                org_pill.visible = True
             for course in org_list:
                 course_name = course.get("name", "Untitled Course")
                 image_url = course.get("image_url", "")
@@ -968,7 +970,10 @@ async def courses_view(page: ft.Page):
                     card.col = {"xs": 12, "sm": 6, "md": 6, "lg": 4}
                     org_cards.append(card)
         else:
-            tab_pills[SECTION_ORG].visible = False
+            if org_pill:
+                org_pill.visible = False
+        if _is_mounted(tab_bar_scroll_row):
+            tab_bar_scroll_row.update()
 
         org_container = ft.ResponsiveRow(spacing=16, run_spacing=16)
         org_container.controls = org_cards

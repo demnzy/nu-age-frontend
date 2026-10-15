@@ -157,6 +157,19 @@ def _run_migrations(conn: sqlite3.Connection):
         CREATE INDEX IF NOT EXISTS idx_progress_course ON lesson_progress(course_id);
         CREATE INDEX IF NOT EXISTS idx_progress_unsynced ON lesson_progress(synced_at);
 
+        CREATE TABLE IF NOT EXISTS downloaded_lesson_audio (
+            id TEXT PRIMARY KEY,
+            lesson_id TEXT NOT NULL,
+            course_id TEXT NOT NULL,
+            language TEXT NOT NULL,
+            local_path TEXT NOT NULL,
+            remote_url TEXT,
+            size_bytes INTEGER DEFAULT 0,
+            downloaded_at TEXT NOT NULL,
+            UNIQUE(lesson_id, language)
+        );
+        CREATE INDEX IF NOT EXISTS idx_lesson_audio_lesson ON downloaded_lesson_audio(lesson_id, language);
+
         CREATE TABLE IF NOT EXISTS chat_channels (
             id TEXT PRIMARY KEY,
             name TEXT,
@@ -408,6 +421,65 @@ def is_study_material_downloaded(material_id: str, page: ft.Page = None) -> bool
         return row is not None
     except Exception:
         return False
+
+
+def get_offline_lesson_audio(lesson_id: str, language: str, page: ft.Page = None) -> str | None:
+    """Returns absolute local path to downloaded audio if it exists on disk, else None."""
+    if page is not None and getattr(page, "web", False):
+        return None
+    if not lesson_id or not language:
+        return None
+    try:
+        db = get_local_db(page)
+        row = db.execute(
+            "SELECT local_path FROM downloaded_lesson_audio WHERE lesson_id = ? AND language = ? LIMIT 1",
+            (str(lesson_id), str(language).lower())
+        ).fetchone()
+        if row and row[0] and os.path.exists(row[0]):
+            return row[0]
+        return None
+    except Exception:
+        return None
+
+
+def is_lesson_audio_cached(lesson_id: str, language: str, page: ft.Page = None) -> bool:
+    """Returns True if local audio is cached and present on disk."""
+    return get_offline_lesson_audio(lesson_id, language, page) is not None
+
+
+def save_offline_lesson_audio(
+    lesson_id: str,
+    course_id: str,
+    language: str,
+    local_path: str,
+    remote_url: str = "",
+    size_bytes: int = 0,
+    page: ft.Page = None,
+):
+    """Saves or updates a downloaded lesson audio reference in SQLite."""
+    if page is not None and getattr(page, "web", False):
+        return
+    if not lesson_id or not language or not local_path:
+        return
+    try:
+        db = get_local_db(page)
+        row_id = str(uuid.uuid4())
+        now_iso = datetime.now(timezone.utc).isoformat()
+        with db:
+            db.execute(
+                """
+                INSERT INTO downloaded_lesson_audio (id, lesson_id, course_id, language, local_path, remote_url, size_bytes, downloaded_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(lesson_id, language) DO UPDATE SET
+                    local_path = excluded.local_path,
+                    remote_url = excluded.remote_url,
+                    size_bytes = excluded.size_bytes,
+                    downloaded_at = excluded.downloaded_at
+                """,
+                (row_id, str(lesson_id), str(course_id or ""), str(language).lower(), str(local_path), str(remote_url or ""), int(size_bytes or 0), now_iso)
+            )
+    except Exception as e:
+        print(f"[local_db] Notice saving offline lesson audio: {e}")
 
 
 # ── Study Materials & SRS Local DB Operations ─────────────────────────────

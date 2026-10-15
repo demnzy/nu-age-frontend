@@ -68,7 +68,7 @@ class StudyMarketplaceView:
         self.active_category = "All"
         self.search_query = ""
         self.sort_by = "popular"
-        self.user_coins = 100
+        self.user_coins = 0
         self.packs: List[Dict[str, Any]] = []
         self.is_loading = True
         self.active_tab = "browse"  # "browse", "bundles", "my_submissions"
@@ -89,7 +89,7 @@ class StudyMarketplaceView:
         self.content_container = ft.Container()
         self.main_body_container = ft.Container()
         self.subnav_bar_container = ft.Container()
-        self.coins_badge_text = ft.Text(" Loading", size=12, weight=ft.FontWeight.W_700, color=ft.Colors.AMBER_400)
+        self.coins_badge_text = ft.Text(" ... Coins", size=12, weight=ft.FontWeight.W_700, color=ft.Colors.AMBER_400)
         self.header_actions_row = ft.Row(
             spacing=8,
             run_spacing=8,

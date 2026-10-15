@@ -29,6 +29,7 @@ from src.components.need_help_drawer import (
     _get_auth_token,
     AI_TUTOR_MOBILE_WIDTH,
 )
+from src.components.lesson_audio_player import LessonAudioPlayer
 
 def heal_markdown(text: str) -> str:
     """Auto-heals legacy markdown anomalies such as truncated Mermaid URLs."""
@@ -205,6 +206,7 @@ async def course_learner_view(
     active_player_tab = 0
     need_help_open = False
     need_help_controller = NeedHelpController()
+    current_audio_player = None
     drawer_socket = ft.Container(
         width=0,
         visible=False,
@@ -408,12 +410,23 @@ async def course_learner_view(
         overflow=ft.TextOverflow.ELLIPSIS,
     )
 
+    def _handle_back_navigation(e=None):
+        nonlocal current_audio_player
+        if current_audio_player is not None:
+            try:
+                current_audio_player.dispose()
+            except Exception:
+                pass
+            current_audio_player = None
+            page.active_lesson_audio_player = None
+        page.go(back_target)
+
     page_appbar = ft.AppBar(
         leading=ft.IconButton(
             ft.Icons.ARROW_BACK_ROUNDED,
             icon_color=ft.Colors.ON_SURFACE,
             tooltip="Back",
-            on_click=lambda _: page.go(back_target),
+            on_click=_handle_back_navigation,
         ),
         title=ft.Column(
             [
@@ -2645,12 +2658,28 @@ async def course_learner_view(
                         page.update()
 
                     def close_dialog_and_go(e=None):
+                        nonlocal current_audio_player
+                        if current_audio_player:
+                            try:
+                                current_audio_player.dispose()
+                            except Exception:
+                                pass
+                            current_audio_player = None
+                            page.active_lesson_audio_player = None
                         page.pop_dialog()
                         page.go(back_target)
 
                     is_offline = back_target == "/offline"
 
                     def close_dialog_and_go_stats(e=None):
+                        nonlocal current_audio_player
+                        if current_audio_player:
+                            try:
+                                current_audio_player.dispose()
+                            except Exception:
+                                pass
+                            current_audio_player = None
+                            page.active_lesson_audio_player = None
                         page.pop_dialog()
                         page.go(f"/courses/{course_id}/stats")
 
@@ -2970,6 +2999,14 @@ async def course_learner_view(
     )
 
     def refresh_ui():
+        nonlocal current_audio_player
+        if current_audio_player is not None:
+            try:
+                current_audio_player.dispose()
+            except Exception:
+                pass
+            current_audio_player = None
+
         sidebar_column.controls.clear()
         refresh_progress_header()
 
@@ -3666,13 +3703,43 @@ async def course_learner_view(
             ),
         )
 
+        # Determine if active lesson has narratable text
+        les_type = str(active_les.get("type", "")).lower()
+        has_text_content = bool(
+            active_les.get("content", {}).get("text")
+            or active_les.get("content", {}).get("notes")
+            or active_les.get("content", {}).get("steps")
+            or active_les.get("content", {}).get("scenario")
+            or active_les.get("content", {}).get("cards")
+        )
+        is_narratable = (les_type in ["text", "stepper", "scenario", "cards", "cloze"] or has_text_content) and les_type not in ["video", "document", "code_lab"]
+
+        audio_player_ctrl = None
+        if is_narratable:
+            current_audio_player = LessonAudioPlayer(
+                page=page,
+                lesson_id=str(active_les.get("id", "")),
+                course_id=str(course_id or ""),
+                lesson_title=active_les.get("title", ""),
+                lesson_type=les_type,
+                is_offline_mode=bool(fetch_course_data is not None),
+            )
+            audio_player_ctrl = current_audio_player
+            page.active_lesson_audio_player = current_audio_player
+        else:
+            page.active_lesson_audio_player = None
+
+        body_controls = [header_container]
+        if audio_player_ctrl:
+            body_controls.extend([ft.Container(height=10), audio_player_ctrl])
+        body_controls.extend([
+            ft.Container(height=14),
+            render_lesson_ui(active_les),
+            ft.Container(height=24),
+        ])
+
         lesson_body_scroll.content = ft.Column(
-            [
-                header_container,
-                ft.Container(height=14),
-                render_lesson_ui(active_les),
-                ft.Container(height=24),
-            ],
+            body_controls,
             scroll=ft.ScrollMode.AUTO,
             expand=True,
             spacing=0,

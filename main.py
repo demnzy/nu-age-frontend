@@ -187,7 +187,8 @@ async def main(page: ft.Page):
                 break
 
             try:
-                stored_token = await page.shared_preferences.get("auth_token")
+                sp = ft.SharedPreferences()
+                stored_token = await sp.get("auth_token")
                 if stored_token:
                     session = AuthSession.get_instance(page)
                     if session.get_token_age_seconds(stored_token) >= 2400:  # 40 minutes (access token expires at 60m)
@@ -1087,6 +1088,27 @@ async def main(page: ft.Page):
         previous_shell_route = getattr(shell_view, "route", None)
 
         clean_route = (page.route or "").split("?")[0]
+
+        # Immediate lifecycle teardown: stop and release audio when navigating away from lesson
+        if previous_route != clean_route or not clean_route.startswith("/courses/"):
+            active_player = getattr(page, "active_lesson_audio_player", None)
+            if active_player is not None:
+                try:
+                    active_player.dispose()
+                except Exception:
+                    pass
+                page.active_lesson_audio_player = None
+            if hasattr(page, "services") and page.services:
+                for s in list(page.services):
+                    if s.__class__.__name__ == "Audio":
+                        try:
+                            page.run_task(s.release)
+                        except Exception:
+                            pass
+                        try:
+                            page.services.remove(s)
+                        except Exception:
+                            pass
         troute = ft.TemplateRoute(clean_route)
 
         # Defensive Window Fullscreen Reset Guard:
@@ -1426,7 +1448,8 @@ async def main(page: ft.Page):
         in_shell_route_flag = is_shell_route(page.route)
         current_user = page.session.store.get("current_user") if hasattr(page, "session") and hasattr(page.session, "store") else None
         cached_token = page.session.store.get("session_auth_token") if hasattr(page, "session") and hasattr(page.session, "store") else None
-        stored_token = await page.shared_preferences.get("auth_token")
+        sp = ft.SharedPreferences()
+        stored_token = await sp.get("auth_token")
 
         session = AuthSession.get_instance(page)
         token_stale = session.get_token_age_seconds(stored_token) >= 2700  # 45 minutes
@@ -1963,6 +1986,22 @@ async def main(page: ft.Page):
         return route in ["/", "/login", "/signup", "/platform-admin"] or (route or "").startswith("/accept-invite/")
 
     async def on_window_event(e: ft.WindowEvent):
+        if e.data in ("close", "hide", "minimize"):
+            active_player = getattr(page, "active_lesson_audio_player", None)
+            if active_player is not None:
+                try:
+                    active_player.dispose()
+                except Exception:
+                    pass
+                page.active_lesson_audio_player = None
+            if hasattr(page, "services") and page.services:
+                for s in list(page.services):
+                    if s.__class__.__name__ == "Audio":
+                        try:
+                            await s.pause()
+                        except Exception:
+                            pass
+            return
         if e.data not in ("focus", "restore", "show"):
             return
         if _is_public_route(page.route):

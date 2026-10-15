@@ -67,11 +67,11 @@ async def get_channel_messages(token: str, channel_id: str, limit: int = 50, off
         return {"error": "Connection failed"}
 
 
-async def send_channel_message_api(token: str, channel_id: str, content: str, msg_type: str = "text"):
+async def send_channel_message_api(token: str, channel_id: str, content: str, msg_type: str = "text", metadata_payload: dict = None):
     """Sends a message to a channel via REST."""
     url = f"{api_url}/chat/channels/{channel_id}/messages"
     headers = {"Authorization": f"Bearer {token}"}
-    payload = {"content": content, "type": msg_type}
+    payload = {"content": content, "type": msg_type, "metadata_payload": metadata_payload}
     try:
         async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
             resp = await client.post(url, headers=headers, json=payload)
