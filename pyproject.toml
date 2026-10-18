@@ -52,6 +52,14 @@ copyright = "Copyright (C) 2023-2026 by Nu Age"
 path = "."
 bundle_id = "com.mycompany.nuage"
 
+# Fix for the Android build failure:
+#   "generated bindings expect package:jni ^1.1.0, but 1.0.x was imported"
+# Flet 0.86.5's build template forces jni 1.0.0, but current Flutter plugins
+# (jni_flutter 1.0.4+1, shared_preferences_android 2.5.0) need jni >= 1.1.0.
+# Remove this override once you upgrade to a Flet release that drops the pin.
+[tool.flet.flutter.pubspec.dependency_overrides]
+jni = "^1.1.0"
+
 [tool.flet.icons]
 android = "assets/icon.png"
 splash_android = "assets/splash_android.png"
@@ -80,10 +88,6 @@ permissions = [
     "android.permission.READ_EXTERNAL_STORAGE",
     # Write/save files to external storage (downloads, exports, saved files)
     "android.permission.WRITE_EXTERNAL_STORAGE",
-
-    # ─── STORAGE (Android 10+) ────────────────────────────────────────────────
-    # Allows app to opt out of scoped storage (needed if you access arbitrary paths)
-    "android.permission.MANAGE_EXTERNAL_STORAGE",
 
     # ─── MEDIA (Android 13+ replacements for READ_EXTERNAL_STORAGE) ───────────
     # Read image files (jpg, png, gif, webp, etc.)
