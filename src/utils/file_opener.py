@@ -74,8 +74,8 @@ def show_page_snackbar(page: ft.Page, snack: Any):
     except Exception:
         page_width = 400.0
 
-    max_toast_width = min(max(260.0, page_width - 32.0), 480.0)
-    is_multiline = len(message) > 35 or "\n" in message or page_width < 450
+    max_toast_width = min(max(260.0, page_width - 32.0), 520.0)
+    is_multiline = len(message) > 40 or "\n" in message or page_width < 450
     card_width = max_toast_width if is_multiline else None
 
     # If active toast already mounted on this page, update in-place smoothly
@@ -88,20 +88,28 @@ def show_page_snackbar(page: ft.Page, snack: Any):
         txt_ctrl.value = message
         txt_ctrl.max_lines = 5
         txt_ctrl.no_wrap = False
+        txt_ctrl.text_align = ft.TextAlign.CENTER
         icon_ctrl.name = icon_name
         icon_ctrl.color = icon_color
         card.bgcolor = bg_color
         card.width = card_width
         card.border_radius = ft.BorderRadius.all(24)
+        right_spacer = ft.Container(width=18)
         card.content = ft.Row(
-            spacing=10,
+            spacing=8,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            alignment=ft.MainAxisAlignment.CENTER if not is_multiline else ft.MainAxisAlignment.START,
+            alignment=ft.MainAxisAlignment.CENTER,
             tight=not is_multiline,
             controls=[
                 icon_ctrl,
-                ft.Container(content=txt_ctrl, expand=True) if is_multiline else txt_ctrl,
+                ft.Container(content=txt_ctrl, expand=True, alignment=ft.Alignment.CENTER) if is_multiline else txt_ctrl,
+                right_spacer,
             ],
+        )
+        container.content = ft.Row(
+            alignment=ft.MainAxisAlignment.CENTER,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[card],
         )
         container.opacity = 1.0
         container.visible = True
@@ -122,9 +130,11 @@ def show_page_snackbar(page: ft.Page, snack: Any):
             color=text_color,
             max_lines=5,
             no_wrap=False,
+            text_align=ft.TextAlign.CENTER,
             overflow=ft.TextOverflow.ELLIPSIS,
         )
         icon_ctrl = ft.Icon(icon_name, size=18, color=icon_color)
+        right_spacer = ft.Container(width=18)
         card = ft.Container(
             padding=ft.Padding.symmetric(horizontal=16, vertical=10),
             border_radius=ft.BorderRadius.all(24),
@@ -136,25 +146,30 @@ def show_page_snackbar(page: ft.Page, snack: Any):
                 offset=ft.Offset(0, 4),
             ),
             content=ft.Row(
-                spacing=10,
+                spacing=8,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                alignment=ft.MainAxisAlignment.CENTER if not is_multiline else ft.MainAxisAlignment.START,
+                alignment=ft.MainAxisAlignment.CENTER,
                 tight=not is_multiline,
                 controls=[
                     icon_ctrl,
-                    ft.Container(content=txt_ctrl, expand=True) if is_multiline else txt_ctrl,
+                    ft.Container(content=txt_ctrl, expand=True, alignment=ft.Alignment.CENTER) if is_multiline else txt_ctrl,
+                    right_spacer,
                 ],
             ),
         )
         container = ft.Container(
             bottom=26,
-            left=16,
-            right=16,
+            left=0,
+            right=0,
             alignment=ft.Alignment.CENTER,
             animate_opacity=250,
             opacity=1.0,
             visible=True,
-            content=card,
+            content=ft.Row(
+                alignment=ft.MainAxisAlignment.CENTER,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[card],
+            ),
         )
 
         state = {

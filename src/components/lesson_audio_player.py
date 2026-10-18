@@ -80,6 +80,7 @@ class LessonAudioPlayer(ft.Container):
         self._cached_token: Optional[str] = None
         self.current_lang = "en"
         self.is_playing = False
+        self.is_paused = False
         self.is_loading = False
         self.is_preparing = False
         self.is_service_loaded = False
@@ -704,14 +705,28 @@ class LessonAudioPlayer(ft.Container):
         if self._is_busy:
             return
 
-        logger.info(f"Play clicked! playing={self.is_playing}, preparing={self.is_preparing}, ready={self.is_verified_ready}")
+        logger.info(f"Play clicked! playing={self.is_playing}, paused={self.is_paused}, preparing={self.is_preparing}, ready={self.is_verified_ready}")
         if self.is_playing:
             self.is_playing = False
+            self.is_paused = True
             self.pending_play_request = False
             self._update_play_button_ui()
             self._stop_waveform_animation()
             if hasattr(self.target_page, "run_task"):
                 self.target_page.run_task(self.pause_playback)
+            return
+
+        # INSTANT RESUME: If audio is paused and source is attached, resume immediately (zero lag, no spinner)
+        if self.is_paused and self._current_loaded_uri:
+            logger.info(f"[AUDIO] Instant resume from pause at {self.position_seconds:.1f}s")
+            self.is_playing = True
+            self.is_paused = False
+            self.is_loading = False
+            self.pending_play_request = False
+            self._update_play_button_ui()
+            self._start_waveform_animation()
+            if hasattr(self.target_page, "run_task"):
+                self.target_page.run_task(self._do_instant_resume)
             return
 
         if self.is_preparing:
@@ -728,13 +743,24 @@ class LessonAudioPlayer(ft.Container):
         if self.is_loading:
             return
 
-        # Start playback resolution task with zero delay
+        # Start cold playback resolution task with zero delay
         self._is_busy = True
         self.pending_play_request = True
         self.is_loading = True
         self._update_play_button_ui()
         if hasattr(self.target_page, "run_task"):
             self.target_page.run_task(self._resolve_and_play)
+
+    async def _do_instant_resume(self):
+        """Resumes playback immediately from paused state with zero network or seek latency."""
+        if not self.is_playing or self.is_disposed:
+            return
+        try:
+            await self.audio_service.resume()
+        except Exception as ex:
+            print(f"[AUDIO] Instant resume notice: {ex}, falling back to full play", flush=True)
+            if not self.is_disposed and self.is_playing:
+                await self.start_playback(self._current_loaded_uri)
 
     async def _resolve_and_play(self):
         """
@@ -907,6 +933,7 @@ class LessonAudioPlayer(ft.Container):
             print(f"[AUDIO] Starting playback from {self.position_seconds:.1f}s ({target_pos_ms}ms) -> URI: {uri}", flush=True)
             self.is_loading = False
             self.is_playing = True
+            self.is_paused = False
             self.pending_play_request = False
             self._update_play_button_ui()
             self._start_waveform_animation()
@@ -1008,6 +1035,7 @@ class LessonAudioPlayer(ft.Container):
     async def pause_playback(self):
         print(f"[AUDIO] Paused audio at {self.position_seconds:.1f}s", flush=True)
         self.is_playing = False
+        self.is_paused = True
         self.is_loading = False
         self._update_play_button_ui()
         self._stop_waveform_animation()
@@ -1020,6 +1048,7 @@ class LessonAudioPlayer(ft.Container):
     def dispose(self):
         self.is_disposed = True
         self.is_playing = False
+        self.is_paused = False
         self.is_loading = False
         self.is_preparing = False
         self._is_busy = False
@@ -1069,6 +1098,7 @@ class LessonAudioPlayer(ft.Container):
 
         # 1. Immediately terminate active playback and animation
         self.is_playing = False
+        self.is_paused = False
         self.is_loading = False
         self.is_service_loaded = False
         self.is_verified_ready = False
@@ -1150,12 +1180,14 @@ class LessonAudioPlayer(ft.Container):
 
         if state_val == "playing":
             self.is_playing = True
+            self.is_paused = False
             self.is_loading = False
             self._is_busy = False
             self._update_play_button_ui()
             self._start_waveform_animation()
         elif state_val in ("paused", "stopped"):
             self.is_playing = False
+            self.is_paused = (state_val == "paused")
             self.is_loading = False
             self._is_busy = False
             self._update_play_button_ui()
@@ -1166,6 +1198,7 @@ class LessonAudioPlayer(ft.Container):
     def _on_player_completed(self, e=None):
         logger.info(f"Audio playback completed for lesson {self.lesson_id}")
         self.is_playing = False
+        self.is_paused = False
         self.is_loading = False
         self._is_busy = False
         self.slider.value = 0
