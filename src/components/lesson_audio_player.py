@@ -458,21 +458,24 @@ class LessonAudioPlayer(ft.Container):
     def _safe_asset_url(self, local_path: str) -> str:
         """
         Returns the optimal audio playback source URI:
-        Always routes through local_media_server on 127.0.0.1.
-        This provides sub-millisecond local loopback playback,
-        guarantees RFC 7233 range-request seeking support,
-        and completely avoids Flutter audioplayers path encoding failures
-        across Windows (spaces in paths), Android, and Web.
+        On Android/iOS/Linux, returns direct local filesystem path so audioplayers uses native DeviceFileSource,
+        completely avoiding cleartext HTTP localhost (127.0.0.1) network policy blocks.
+        On Windows, routes through local_media_server on 127.0.0.1 for RFC 7233 range-request seeking.
         """
         if not local_path or not os.path.exists(local_path):
             return ""
 
-        try:
-            from src.local_media_server import asset_url
-            return asset_url(local_path)
-        except Exception as ex:
-            logger.error(f"Error resolving local_media_server URL for {local_path}: {ex}")
-            return Path(local_path).as_uri()
+        import platform as sys_platform
+        if sys_platform.system() == "Windows":
+            try:
+                from src.local_media_server import asset_url
+                return asset_url(local_path)
+            except Exception as ex:
+                logger.error(f"Error resolving local_media_server URL for {local_path}: {ex}")
+                return Path(local_path).as_uri()
+        else:
+            # Android/Linux/macOS/iOS: native local file path
+            return str(local_path).replace("\\", "/")
 
     def _on_slider_prevent_seek(self, e=None):
         """Prevents manual seeking while keeping the thumb indicator vibrant green."""
@@ -532,7 +535,7 @@ class LessonAudioPlayer(ft.Container):
         if local_path and os.path.exists(local_path) and os.path.getsize(local_path) > 500:
             uri = self._safe_asset_url(local_path)
             print(f"[AUDIO] Found local disk cache for lesson {self.lesson_id} [{self.current_lang.upper()}]: {uri}", flush=True)
-            self.is_verified_ready = True
+            self.is_verified_ready = self.duration_seconds > 0
             if self._current_loaded_uri != uri:
                 self._current_loaded_uri = uri
                 self.is_service_loaded = False
@@ -551,7 +554,7 @@ class LessonAudioPlayer(ft.Container):
         cdn_url = self._cached_audio_urls.get(self.current_lang)
         if cdn_url:
             print(f"[AUDIO] Detected CDN audio URL for lesson {self.lesson_id} [{self.current_lang.upper()}]: {cdn_url}", flush=True)
-            self.is_verified_ready = True
+            self.is_verified_ready = self.duration_seconds > 0
             if self._current_loaded_uri != cdn_url:
                 self._current_loaded_uri = cdn_url
                 self.is_service_loaded = False
@@ -715,10 +718,17 @@ class LessonAudioPlayer(ft.Container):
             self._show_snackbar("Audio is being prepared for this lesson. Check back in a moment!")
             return
 
+        # Definitively disallow play unless absolutely ready (audio loaded and total duration minutes known)
+        if not self.is_verified_ready or self.duration_seconds <= 0:
+            self._show_snackbar("Loading audio narration... Please wait a second.")
+            if hasattr(self.target_page, "run_task"):
+                self.target_page.run_task(self._refresh_duration)
+            return
+
         if self.is_loading:
             return
 
-        # Start playback resolution task under concurrency guard
+        # Start playback resolution task with zero delay
         self._is_busy = True
         self.pending_play_request = True
         self.is_loading = True
@@ -922,16 +932,28 @@ class LessonAudioPlayer(ft.Container):
                     # Yield slightly so the Flutter audio plugin attaches the source
                     await asyncio.sleep(0.1)
 
-                # In audioplayers_windows/Flutter, calling play(position=int) attempts concurrent
-                # seek+init in Windows Media Foundation which hangs indefinitely.
-                # Calling seek(pos_ms) followed by resume() starts playback immediately without hanging.
-                if pos_ms > 0:
-                    try:
-                        await self.audio_service.seek(pos_ms)
-                    except Exception as s_ex:
-                        print(f"[AUDIO] Seek notice: {s_ex}", flush=True)
-
-                await self.audio_service.resume()
+                import platform as sys_platform
+                is_windows = sys_platform.system() == "Windows"
+                if is_windows:
+                    # In audioplayers_windows/Flutter, calling play(position=int) attempts concurrent
+                    # seek+init in Windows Media Foundation which hangs indefinitely.
+                    # Calling seek(pos_ms) followed by resume() starts playback immediately without hanging.
+                    if pos_ms > 0:
+                        try:
+                            await self.audio_service.seek(pos_ms)
+                        except Exception as s_ex:
+                            print(f"[AUDIO] Seek notice: {s_ex}", flush=True)
+                    await self.audio_service.resume()
+                else:
+                    # On Android, iOS, macOS, Linux: Audio.play() transitions the player into PLAYING state.
+                    # Resume() on a stopped/newly assigned source is a silent no-op on Android audioplayers.
+                    if pos_ms > 0:
+                        try:
+                            await self.audio_service.play(position=pos_ms)
+                        except Exception:
+                            await self.audio_service.play()
+                    else:
+                        await self.audio_service.play()
 
             try:
                 # 6-second bounded execution
@@ -1204,33 +1226,40 @@ class LessonAudioPlayer(ft.Container):
             return 0.0
 
     async def _refresh_duration(self):
-        """Queries audio duration from the service if on_duration_change has not fired yet."""
-        await asyncio.sleep(0.5)
+        """Queries audio duration from the service with retries if on_duration_change has not fired yet."""
         if self.is_disposed or not hasattr(self, "audio_service"):
             return
-        try:
-            dur = await asyncio.wait_for(self.audio_service.get_duration(), timeout=2.5)
-            sec = self._extract_duration_seconds(dur)
-            if sec > 0:
-                self.duration_seconds = sec
-                self.slider.max = max(1.0, self.duration_seconds)
-                self.is_service_loaded = True
-                self.is_verified_ready = True
-                dur_str = self._format_time(self.duration_seconds)
-                pos_str = self._format_time(self.position_seconds)
-                self.time_label.value = f"{pos_str} / {dur_str}"
-                self._update_play_button_ui()
-                try:
-                    self.target_page.update()
-                except Exception:
-                    pass
 
-                if self.pending_play_request:
-                    self.pending_play_request = False
-                    if hasattr(self.target_page, "run_task"):
-                        self.target_page.run_task(self.start_playback)
-        except Exception as ex:
-            logger.debug(f"Refresh duration notice: {ex}")
+        for attempt in range(6):
+            if self.is_disposed:
+                return
+            await asyncio.sleep(0.3 * (attempt + 1))
+            if self.is_disposed or self.duration_seconds > 0:
+                return
+            try:
+                dur = await asyncio.wait_for(self.audio_service.get_duration(), timeout=2.0)
+                sec = self._extract_duration_seconds(dur)
+                if sec > 0:
+                    self.duration_seconds = sec
+                    self.slider.max = max(1.0, self.duration_seconds)
+                    self.is_service_loaded = True
+                    self.is_verified_ready = True
+                    dur_str = self._format_time(self.duration_seconds)
+                    pos_str = self._format_time(self.position_seconds)
+                    self.time_label.value = f"{pos_str} / {dur_str}"
+                    self._update_play_button_ui()
+                    try:
+                        self.target_page.update()
+                    except Exception:
+                        pass
+
+                    if self.pending_play_request:
+                        self.pending_play_request = False
+                        if hasattr(self.target_page, "run_task"):
+                            self.target_page.run_task(self.start_playback)
+                    return
+            except Exception as ex:
+                logger.debug(f"Refresh duration attempt #{attempt+1} notice: {ex}")
 
     def _on_player_duration_changed(self, e=None):
         try:
@@ -1349,6 +1378,8 @@ class LessonAudioPlayer(ft.Container):
                             self.audio_service.update()
                         except Exception:
                             pass
+                        if self.duration_seconds <= 0 and hasattr(self.target_page, "run_task"):
+                            self.target_page.run_task(self._refresh_duration)
         except Exception as ex:
             print(f"[AUDIO-CACHE] [NOTICE] Auto-caching notice (playback continues via CDN): {ex}", flush=True)
         finally:

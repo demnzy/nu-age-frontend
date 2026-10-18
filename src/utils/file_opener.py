@@ -66,6 +66,18 @@ def show_page_snackbar(page: ft.Page, snack: Any):
     page_key = id(page)
     state = _toast_registry.get(page_key)
 
+    page_width = getattr(page, "width", None)
+    if page_width is None:
+        page_width = getattr(getattr(page, "window", None), "width", 400) or 400
+    try:
+        page_width = float(page_width)
+    except Exception:
+        page_width = 400.0
+
+    max_toast_width = min(max(260.0, page_width - 32.0), 480.0)
+    is_multiline = len(message) > 35 or "\n" in message or page_width < 450
+    card_width = max_toast_width if is_multiline else None
+
     # If active toast already mounted on this page, update in-place smoothly
     if state and state.get("container") in getattr(page, "overlay", []):
         container = state["container"]
@@ -74,9 +86,23 @@ def show_page_snackbar(page: ft.Page, snack: Any):
         card = state["card"]
 
         txt_ctrl.value = message
+        txt_ctrl.max_lines = 5
+        txt_ctrl.no_wrap = False
         icon_ctrl.name = icon_name
         icon_ctrl.color = icon_color
         card.bgcolor = bg_color
+        card.width = card_width
+        card.border_radius = ft.BorderRadius.all(24)
+        card.content = ft.Row(
+            spacing=10,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            alignment=ft.MainAxisAlignment.CENTER if not is_multiline else ft.MainAxisAlignment.START,
+            tight=not is_multiline,
+            controls=[
+                icon_ctrl,
+                ft.Container(content=txt_ctrl, expand=True) if is_multiline else txt_ctrl,
+            ],
+        )
         container.opacity = 1.0
         container.visible = True
         state["dismiss_id"] = state.get("dismiss_id", 0) + 1
@@ -94,24 +120,30 @@ def show_page_snackbar(page: ft.Page, snack: Any):
             size=12.5,
             weight=ft.FontWeight.W_600,
             color=text_color,
-            max_lines=2,
+            max_lines=5,
+            no_wrap=False,
             overflow=ft.TextOverflow.ELLIPSIS,
         )
-        icon_ctrl = ft.Icon(icon_name, size=17, color=icon_color)
+        icon_ctrl = ft.Icon(icon_name, size=18, color=icon_color)
         card = ft.Container(
             padding=ft.Padding.symmetric(horizontal=16, vertical=10),
-            border_radius=ft.BorderRadius.all(12),
+            border_radius=ft.BorderRadius.all(24),
             bgcolor=bg_color,
+            width=card_width,
             shadow=ft.BoxShadow(
                 blur_radius=16,
                 color=ft.Colors.with_opacity(0.28, ft.Colors.BLACK),
                 offset=ft.Offset(0, 4),
             ),
             content=ft.Row(
-                tight=True,
-                spacing=9,
+                spacing=10,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                controls=[icon_ctrl, txt_ctrl],
+                alignment=ft.MainAxisAlignment.CENTER if not is_multiline else ft.MainAxisAlignment.START,
+                tight=not is_multiline,
+                controls=[
+                    icon_ctrl,
+                    ft.Container(content=txt_ctrl, expand=True) if is_multiline else txt_ctrl,
+                ],
             ),
         )
         container = ft.Container(

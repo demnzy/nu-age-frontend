@@ -675,43 +675,93 @@ def Signup_view(page: ft.Page):
             selected_persona = role_key
             refresh_view()
 
-        def make_role_pill(label: str, key: str, icon_name):
+        def make_role_pill(label: str, key: str, icon_name, is_mobile: bool = False):
             is_active = selected_persona == key
             return ft.Container(
                 content=ft.Row(
                     [
-                        ft.Icon(icon_name, size=13, color=ft.Colors.PRIMARY if is_active else ft.Colors.GREY_500),
+                        ft.Icon(icon_name, size=12 if is_mobile else 13, color=ft.Colors.PRIMARY if is_active else ft.Colors.GREY_500),
                         ft.Text(
                             label,
-                            size=11,
+                            size=10.5 if is_mobile else 11,
                             weight=ft.FontWeight.W_700 if is_active else ft.FontWeight.W_500,
                             color=ft.Colors.PRIMARY if is_active else ft.Colors.GREY_500,
                         ),
                     ],
                     tight=True,
-                    spacing=4,
+                    alignment=ft.MainAxisAlignment.CENTER,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    spacing=3 if is_mobile else 4,
                 ),
-                padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+                alignment=ft.Alignment.CENTER if is_mobile else None,
+                padding=ft.Padding.symmetric(horizontal=4 if is_mobile else 8, vertical=5 if is_mobile else 4),
                 border_radius=8,
                 bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY) if is_active else ft.Colors.TRANSPARENT,
                 on_click=lambda _: set_role(key),
             )
 
-        role_selector = ft.Container(
-            content=ft.Row(
+        if is_desktop:
+            role_selector = ft.Container(
+                content=ft.Row(
+                    [
+                        make_role_pill("Learner", "student", ft.Icons.SCHOOL_ROUNDED),
+                        make_role_pill("Instructor", "teacher", ft.Icons.PSYCHOLOGY_ALT_ROUNDED),
+                        make_role_pill("Admin", "admin", ft.Icons.CORPORATE_FARE_ROUNDED),
+                    ],
+                    spacing=2,
+                    tight=True,
+                ),
+                padding=ft.Padding.all(2),
+                border_radius=10,
+                bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.WHITE) if is_dark else ft.Colors.GREY_100,
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.12, ft.Colors.WHITE) if is_dark else ft.Colors.GREY_300),
+            )
+            header_control = ft.Row(
                 [
-                    make_role_pill("Learner", "student", ft.Icons.SCHOOL_ROUNDED),
-                    make_role_pill("Instructor", "teacher", ft.Icons.PSYCHOLOGY_ALT_ROUNDED),
-                    make_role_pill("Admin", "admin", ft.Icons.CORPORATE_FARE_ROUNDED),
+                    ft.Column(
+                        [
+                            ft.Text("Create Account", size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
+                            ft.Text("Sign up to activate your learning workspace", size=11.5, color=ft.Colors.GREY_400 if is_dark else ft.Colors.GREY_500),
+                        ],
+                        spacing=1,
+                        tight=True,
+                    ),
+                    role_selector,
                 ],
-                spacing=2,
-                tight=True,
-            ),
-            padding=ft.Padding.all(2),
-            border_radius=10,
-            bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.WHITE) if is_dark else ft.Colors.GREY_100,
-            border=ft.Border.all(1, ft.Colors.with_opacity(0.12, ft.Colors.WHITE) if is_dark else ft.Colors.GREY_300),
-        )
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            )
+        else:
+            # Mobile: Stack vertically so header and role tabs never bleed off screen
+            role_selector = ft.Container(
+                content=ft.Row(
+                    [
+                        ft.Container(content=make_role_pill("Learner", "student", ft.Icons.SCHOOL_ROUNDED, is_mobile=True), expand=True),
+                        ft.Container(content=make_role_pill("Instructor", "teacher", ft.Icons.PSYCHOLOGY_ALT_ROUNDED, is_mobile=True), expand=True),
+                        ft.Container(content=make_role_pill("Admin", "admin", ft.Icons.CORPORATE_FARE_ROUNDED, is_mobile=True), expand=True),
+                    ],
+                    spacing=2,
+                ),
+                padding=ft.Padding.all(2),
+                border_radius=10,
+                bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.WHITE) if is_dark else ft.Colors.GREY_100,
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.12, ft.Colors.WHITE) if is_dark else ft.Colors.GREY_300),
+            )
+            header_control = ft.Column(
+                [
+                    ft.Column(
+                        [
+                            ft.Text("Create Account", size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
+                            ft.Text("Sign up to activate your learning workspace", size=11.5, color=ft.Colors.GREY_400 if is_dark else ft.Colors.GREY_500),
+                        ],
+                        spacing=1,
+                        tight=True,
+                    ),
+                    role_selector,
+                ],
+                spacing=8,
+                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+            )
 
         role_info_banner = None
         if selected_persona == "teacher":
@@ -785,21 +835,7 @@ def Signup_view(page: ft.Page):
                 field_rows.append(ft.Row([organisation_id]))
 
         controls = [
-            ft.Row(
-                [
-                    ft.Column(
-                        [
-                            ft.Text("Create Account", size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
-                            ft.Text("Sign up to activate your learning workspace", size=11.5, color=ft.Colors.GREY_400 if is_dark else ft.Colors.GREY_500),
-                        ],
-                        spacing=1,
-                        tight=True,
-                    ),
-                    role_selector,
-                ],
-                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            ),
+            header_control,
             ft.Container(height=2),
         ]
 

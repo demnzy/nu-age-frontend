@@ -53,6 +53,14 @@ copyright = "Copyright (C) 2023-2026 by Nu Age"
 path = "."
 bundle_id = "com.mycompany.nuage"
 
+[tool.flet.deep_linking]
+scheme = "nuage"
+host = "auth-callback"
+
+[tool.flet.android.deep_linking]
+scheme = "nuage"
+host = "auth-callback"
+
 # Fix for the Android build failure:
 #   "generated bindings expect package:jni ^1.1.0, but 1.0.x was imported"
 # Flet 0.86.5's build template forces jni 1.0.0, but current Flutter plugins

@@ -1143,12 +1143,14 @@ async def main(page: ft.Page):
 
 
         def is_public_route(route):
-            r = (route or "").split("?")[0]
+            r = (route or "").split("?")[0].rstrip("/").lower()
             return (
-                r in ["/", "/login", "/signup", "/platform-admin", "/auth-callback", "nuage://auth-callback"]
+                r in ["", "/", "/login", "/signup", "/platform-admin", "/auth-callback", "nuage://auth-callback", "auth-callback"]
                 or r.startswith("/accept-invite/")
                 or r.startswith("/auth-callback")
                 or r.startswith("nuage://auth-callback")
+                or r.startswith("auth-callback")
+                or "access_token=" in str(route or "")
             )
 
         def is_offline_capable_route(route):
@@ -1703,13 +1705,21 @@ async def main(page: ft.Page):
         # — otherwise navigating to /login or /signup would just stack a
         # new view on top of whatever was already showing instead of
         # replacing it.
-        if clean_route in ("/auth-callback", "nuage://auth-callback") or (page.route and any(page.route.startswith(p) for p in ("/auth-callback", "nuage://auth-callback"))):
+        full_route_str = str(page.route or "")
+        clean_route_lower = (clean_route or "").lower().rstrip("/")
+        is_callback_route = (
+            clean_route_lower in ("/auth-callback", "nuage://auth-callback", "auth-callback")
+            or any(clean_route_lower.startswith(p) for p in ("/auth-callback", "nuage://auth-callback", "auth-callback"))
+            or ("access_token=" in full_route_str and any(k in full_route_str for k in ("auth-callback", "access_token")))
+        )
+        if is_callback_route:
             import urllib.parse
             from src.utils.session_utils import set_session_value
             query_str = ""
-            full_route_str = page.route or ""
             if "?" in full_route_str:
                 query_str = full_route_str.split("?", 1)[1]
+            elif "access_token=" in full_route_str:
+                query_str = full_route_str
             params = urllib.parse.parse_qs(query_str)
             access_token = params.get("access_token", [None])[0]
             refresh_token = params.get("refresh_token", [None])[0]
@@ -2032,12 +2042,14 @@ async def main(page: ft.Page):
         # Kept in sync with is_public_route() inside _route_change_inner —
         # duplicated here because that one is a nested closure scoped to
         # a single route_change() call, not reachable from this handler.
-        r = (route or "").split("?")[0]
+        r = (route or "").split("?")[0].rstrip("/").lower()
         return (
-            r in ["/", "/login", "/signup", "/platform-admin", "/auth-callback", "nuage://auth-callback"]
+            r in ["", "/", "/login", "/signup", "/platform-admin", "/auth-callback", "nuage://auth-callback", "auth-callback"]
             or r.startswith("/accept-invite/")
             or r.startswith("/auth-callback")
             or r.startswith("nuage://auth-callback")
+            or r.startswith("auth-callback")
+            or "access_token=" in str(route or "")
         )
 
     async def on_window_event(e: ft.WindowEvent):
