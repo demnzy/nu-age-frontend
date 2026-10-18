@@ -240,7 +240,7 @@ class StudyMarketplaceView:
         )
         return ft.Container(
             expand=True,
-            bgcolor="#F8FAFC",
+            bgcolor=ft.Colors.SURFACE,
             # One ListView for everything, so the content scrolls cleanly
             content=ft.ListView(
                 expand=True,
@@ -264,11 +264,11 @@ class StudyMarketplaceView:
         capsule_tabs = ft.Container(
             padding=ft.Padding.all(4),
             border_radius=ft.BorderRadius.all(12),
-            bgcolor="#F1F5F9",
-            border=ft.Border.all(1, "#E2E8F0"),
+            bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
+            border=ft.Border.all(1, ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE)),
             content=ft.Row(
                 tight=True,
-                scroll= ft.ScrollMode.HIDDEN,
+                scroll=ft.ScrollMode.HIDDEN,
                 spacing=4,
                 controls=[
                     # Browse Store Tab
@@ -277,7 +277,7 @@ class StudyMarketplaceView:
                         on_click=lambda _: self._switch_tab("browse"),
                         padding=ft.Padding.symmetric(horizontal=14, vertical=7),
                         border_radius=ft.BorderRadius.all(9),
-                        bgcolor="#FFFFFF" if is_browse else ft.Colors.TRANSPARENT,
+                        bgcolor=ft.Colors.SURFACE if is_browse else ft.Colors.TRANSPARENT,
                         shadow=ft.BoxShadow(
                             blur_radius=4,
                             spread_radius=0,
@@ -291,13 +291,13 @@ class StudyMarketplaceView:
                                 ft.Icon(
                                     ft.Icons.STOREFRONT_ROUNDED,
                                     size=15,
-                                    color="#059669" if is_browse else "#64748B",
+                                    color=ft.Colors.PRIMARY if is_browse else ft.Colors.ON_SURFACE_VARIANT,
                                 ),
                                 ft.Text(
                                     "Browse Store",
                                     size=12,
                                     weight=ft.FontWeight.W_800 if is_browse else ft.FontWeight.W_600,
-                                    color="#0F172A" if is_browse else "#64748B",
+                                    color=ft.Colors.ON_SURFACE if is_browse else ft.Colors.ON_SURFACE_VARIANT,
                                 ),
                             ],
                         ),
@@ -308,7 +308,7 @@ class StudyMarketplaceView:
                         on_click=lambda _: self._switch_tab("bundles"),
                         padding=ft.Padding.symmetric(horizontal=14, vertical=7),
                         border_radius=ft.BorderRadius.all(9),
-                        bgcolor="#FFFFFF" if is_bundles else ft.Colors.TRANSPARENT,
+                        bgcolor=ft.Colors.SURFACE if is_bundles else ft.Colors.TRANSPARENT,
                         shadow=ft.BoxShadow(
                             blur_radius=4,
                             spread_radius=0,
@@ -322,26 +322,26 @@ class StudyMarketplaceView:
                                 ft.Icon(
                                     ft.Icons.AUTO_AWESOME_MOTION_ROUNDED,
                                     size=15,
-                                    color="#6366F1" if is_bundles else "#64748B",
+                                    color=ft.Colors.SECONDARY if is_bundles else ft.Colors.ON_SURFACE_VARIANT,
                                 ),
                                 ft.Text(
                                     "Exam Combos",
                                     size=12,
                                     weight=ft.FontWeight.W_800 if is_bundles else ft.FontWeight.W_600,
-                                    color="#0F172A" if is_bundles else "#64748B",
+                                    color=ft.Colors.ON_SURFACE if is_bundles else ft.Colors.ON_SURFACE_VARIANT,
                                 ),
                                 *(
                                     [
                                         ft.Container(
                                             padding=ft.Padding.symmetric(horizontal=6, vertical=1.5),
                                             border_radius=ft.BorderRadius.all(10),
-                                            bgcolor="#EEF2FF" if is_bundles else "#E2E8F0",
-                                            border=ft.Border.all(1, "#C7D2FE" if is_bundles else "#CBD5E1"),
+                                            bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY) if is_bundles else ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
+                                            border=ft.Border.all(1, ft.Colors.with_opacity(0.25, ft.Colors.PRIMARY) if is_bundles else ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)),
                                             content=ft.Text(
                                                 str(bundles_count),
                                                 size=10,
                                                 weight=ft.FontWeight.W_800,
-                                                color="#4F46E5" if is_bundles else "#475569",
+                                                color=ft.Colors.PRIMARY if is_bundles else ft.Colors.ON_SURFACE_VARIANT,
                                             ),
                                         )
                                     ] if bundles_count > 0 else []
@@ -355,7 +355,7 @@ class StudyMarketplaceView:
                         on_click=lambda _: self._switch_tab("my_submissions"),
                         padding=ft.Padding.symmetric(horizontal=14, vertical=7),
                         border_radius=ft.BorderRadius.all(9),
-                        bgcolor="#FFFFFF" if is_subs else ft.Colors.TRANSPARENT,
+                        bgcolor=ft.Colors.SURFACE if is_subs else ft.Colors.TRANSPARENT,
                         shadow=ft.BoxShadow(
                             blur_radius=4,
                             spread_radius=0,
@@ -369,26 +369,26 @@ class StudyMarketplaceView:
                                 ft.Icon(
                                     ft.Icons.OUTBOX_ROUNDED,
                                     size=15,
-                                    color="#059669" if is_subs else "#64748B",
+                                    color=ft.Colors.PRIMARY if is_subs else ft.Colors.ON_SURFACE_VARIANT,
                                 ),
                                 ft.Text(
                                     "My Submissions",
                                     size=12,
                                     weight=ft.FontWeight.W_800 if is_subs else ft.FontWeight.W_600,
-                                    color="#0F172A" if is_subs else "#64748B",
+                                    color=ft.Colors.ON_SURFACE if is_subs else ft.Colors.ON_SURFACE_VARIANT,
                                 ),
                                 *(
                                     [
                                         ft.Container(
                                             padding=ft.Padding.symmetric(horizontal=6, vertical=1.5),
                                             border_radius=ft.BorderRadius.all(10),
-                                            bgcolor="#ECFDF5" if is_subs else "#E2E8F0",
-                                            border=ft.Border.all(1, "#A7F3D0" if is_subs else "#CBD5E1"),
+                                            bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY) if is_subs else ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
+                                            border=ft.Border.all(1, ft.Colors.with_opacity(0.25, ft.Colors.PRIMARY) if is_subs else ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)),
                                             content=ft.Text(
                                                 str(subs_count),
                                                 size=10,
                                                 weight=ft.FontWeight.W_800,
-                                                color="#059669" if is_subs else "#475569",
+                                                color=ft.Colors.PRIMARY if is_subs else ft.Colors.ON_SURFACE_VARIANT,
                                             ),
                                         )
                                     ] if subs_count > 0 else []
@@ -402,8 +402,8 @@ class StudyMarketplaceView:
 
         return ft.Container(
             padding=ft.Padding.symmetric(horizontal=16, vertical=8),
-            bgcolor="#FFFFFF",
-            border=ft.Border.only(bottom=ft.BorderSide(1, "#E2E8F0")),
+            bgcolor=ft.Colors.SURFACE,
+            border=ft.Border.only(bottom=ft.BorderSide(1, ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE))),
             content=ft.Row(
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,

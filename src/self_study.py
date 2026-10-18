@@ -3420,13 +3420,7 @@ async def self_study_view(page: ft.Page):
         def _show_readiness_emerald_snackbar():
             show_page_snackbar(
                 page,
-                ft.SnackBar(
-                    content=ft.Row([
-                        ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED, color=ft.Colors.WHITE, size=18),
-                        ft.Text(f"AI Study Engine Ready for '{display_title}'!", color=ft.Colors.WHITE, weight=ft.FontWeight.W_700),
-                    ], spacing=8, tight=True),
-                    bgcolor=ft.Colors.GREEN_800,
-                )
+                f"AI Study Engine Ready for '{display_title}'!",
             )
 
         def _update_cockpit_status_ui(status_data: dict):
@@ -4858,6 +4852,86 @@ async def self_study_view(page: ft.Page):
         )
 
         if state.get("is_offline"):
+            offline_lib_btn = ft.ElevatedButton(
+                content=ft.Row(
+                    spacing=5,
+                    tight=True,
+                    controls=[
+                        ft.Icon(ft.Icons.FOLDER_SPECIAL_ROUNDED, size=13, color=ft.Colors.WHITE),
+                        ft.Text("Offline Library", size=11.5, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE),
+                    ],
+                ),
+                bgcolor=ft.Colors.PRIMARY,
+                height=32,
+                style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), elevation=0),
+                on_click=lambda _: page.go("/offline"),
+            )
+
+            if is_mobile:
+                banner_inner = ft.Column(
+                    spacing=10,
+                    tight=True,
+                    controls=[
+                        ft.Row(
+                            spacing=8,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            controls=[
+                                ft.Container(
+                                    width=32,
+                                    height=32,
+                                    border_radius=ft.BorderRadius.all(8),
+                                    bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.AMBER),
+                                    alignment=ft.Alignment.CENTER,
+                                    content=ft.Icon(ft.Icons.CLOUD_OFF_ROUNDED, size=18, color=ft.Colors.AMBER_700),
+                                ),
+                                ft.Column(
+                                    spacing=2,
+                                    tight=True,
+                                    expand=True,
+                                    controls=[
+                                        ft.Text("Offline Vault Active", size=13.5, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
+                                        ft.Text("Flashcards, Quizzes & Exams work offline", size=11, color=ft.Colors.GREY_600),
+                                    ],
+                                ),
+                            ],
+                        ),
+                        ft.Row(
+                            alignment=ft.MainAxisAlignment.END,
+                            controls=[offline_lib_btn],
+                        ),
+                    ],
+                )
+            else:
+                banner_inner = ft.Row(
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[
+                        ft.Row(
+                            spacing=8,
+                            tight=True,
+                            controls=[
+                                ft.Container(
+                                    width=32,
+                                    height=32,
+                                    border_radius=ft.BorderRadius.all(8),
+                                    bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.AMBER),
+                                    alignment=ft.Alignment.CENTER,
+                                    content=ft.Icon(ft.Icons.CLOUD_OFF_ROUNDED, size=18, color=ft.Colors.AMBER_700),
+                                ),
+                                ft.Column(
+                                    spacing=2,
+                                    tight=True,
+                                    controls=[
+                                        ft.Text("Offline Vault Active", size=13.5, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
+                                        ft.Text("Flashcards, Quizzes & Exams work offline", size=11, color=ft.Colors.GREY_600),
+                                    ],
+                                ),
+                            ],
+                        ),
+                        offline_lib_btn,
+                    ],
+                )
+
             offline_hub_banner = ft.Container(
                 bgcolor=ft.Colors.SURFACE,
                 border_radius=ft.BorderRadius.all(18),
@@ -4868,54 +4942,7 @@ async def self_study_view(page: ft.Page):
                     color=ft.Colors.with_opacity(0.04, ft.Colors.BLACK),
                     offset=ft.Offset(0, 3),
                 ),
-                content=ft.Column(
-                    spacing=8,
-                    tight=True,
-                    controls=[
-                        ft.Row(
-                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                            controls=[
-                                ft.Row(
-                                    spacing=8,
-                                    tight=True,
-                                    controls=[
-                                        ft.Container(
-                                            width=32,
-                                            height=32,
-                                            border_radius=ft.BorderRadius.all(8),
-                                            bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.AMBER),
-                                            alignment=ft.Alignment.CENTER,
-                                            content=ft.Icon(ft.Icons.CLOUD_OFF_ROUNDED, size=18, color=ft.Colors.AMBER_700),
-                                        ),
-                                        ft.Column(
-                                            spacing=2,
-                                            tight=True,
-                                            controls=[
-                                                ft.Text("Offline Vault Active", size=13.5, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
-                                                ft.Text("Flashcards, Quizzes & Exams work offline", size=11, color=ft.Colors.GREY_600),
-                                            ],
-                                        ),
-                                    ],
-                                ),
-                                ft.ElevatedButton(
-                                    content=ft.Row(
-                                        spacing=5,
-                                        tight=True,
-                                        controls=[
-                                            ft.Icon(ft.Icons.FOLDER_SPECIAL_ROUNDED, size=13, color=ft.Colors.WHITE),
-                                            ft.Text("Offline Library", size=11.5, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE),
-                                        ],
-                                    ),
-                                    bgcolor=ft.Colors.PRIMARY,
-                                    height=32,
-                                    style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), elevation=0),
-                                    on_click=lambda _: page.go("/offline"),
-                                ),
-                            ],
-                        ),
-                    ],
-                ),
+                content=banner_inner,
             )
             top_box = offline_hub_banner
         else:

@@ -1106,36 +1106,18 @@ class CBTExamEngine:
                                 ft.Icon(ft.Icons.WARNING_AMBER_ROUNDED, size=16, color=ui.C_WARN),
                                 ft.Text(
                                     f"Attention: {unanswered_count} questions are left unanswered!",
-                                    size=11.5,
+                                    size=11,
                                     weight=ft.FontWeight.W_700,
                                     color=ui.C_WARN,
+                                    expand=True,
                                 ),
-                            ], spacing=6),
+                            ], spacing=6, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                         )
                     ] if unanswered_count > 0 else []
                 ),
-                ft.Row([
-                    ft.OutlinedButton(
-                        "Return to Test",
-                        style=ft.ButtonStyle(
-                            shape=ft.RoundedRectangleBorder(radius=10),
-                            side=ft.BorderSide(1, ui.hairline()),
-                            color=ft.Colors.ON_SURFACE,
-                        ),
-                        on_click=lambda _: self._close_dialog(dlg),
-                        expand=True,
-                    ),
-                    ft.FilledButton(
-                        "Confirm & Submit",
-                        style=ft.ButtonStyle(
-                            bgcolor=ft.Colors.PRIMARY,
-                            shape=ft.RoundedRectangleBorder(radius=10),
-                            color=ft.Colors.ON_PRIMARY,
-                        ),
-                        on_click=lambda _: self._confirm_and_submit_exam(dlg),
-                        expand=True,
-                    ),
-                ], spacing=10),
+                *(lambda: [
+                    self._build_audit_actions_row(dlg)
+                ])(),
             ], spacing=14, tight=True),
         )
 
@@ -1160,6 +1142,53 @@ class CBTExamEngine:
                 ft.Text(label, size=10, weight=ft.FontWeight.W_700, color=color),
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=2),
         )
+
+    def _build_audit_actions_row(self, dlg: ft.AlertDialog) -> ft.Row:
+        btn_return = ft.OutlinedButton(
+            content=ft.Text("Return to Test", size=11.5, weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE, no_wrap=True),
+            style=ft.ButtonStyle(
+                shape=ft.RoundedRectangleBorder(radius=10),
+                side=ft.BorderSide(1, ui.hairline()),
+                padding=ft.Padding.symmetric(horizontal=8, vertical=6),
+            ),
+            on_click=lambda _: self._close_dialog(dlg),
+            expand=True,
+        )
+
+        btn_confirm = ft.FilledButton(
+            content=ft.Text("Confirm & Submit", size=11.5, weight=ft.FontWeight.W_700, color=ft.Colors.ON_PRIMARY, no_wrap=True),
+            style=ft.ButtonStyle(
+                bgcolor=ft.Colors.PRIMARY,
+                shape=ft.RoundedRectangleBorder(radius=10),
+                padding=ft.Padding.symmetric(horizontal=8, vertical=6),
+            ),
+            expand=True,
+        )
+
+        def _on_confirm(e):
+            btn_return.disabled = True
+            btn_confirm.disabled = True
+            btn_confirm.content = ft.Row(
+                [
+                    ft.ProgressRing(width=14, height=14, stroke_width=2, color=ft.Colors.ON_PRIMARY),
+                    ft.Text("Submitting...", size=11.5, weight=ft.FontWeight.W_700, color=ft.Colors.ON_PRIMARY, no_wrap=True),
+                ],
+                alignment=ft.MainAxisAlignment.CENTER,
+                spacing=6,
+                tight=True,
+            )
+            self.page.update()
+
+            async def _async_submit():
+                import asyncio
+                await asyncio.sleep(0.08)
+                self._confirm_and_submit_exam(dlg)
+
+            self.page.run_task(_async_submit)
+
+        btn_confirm.on_click = _on_confirm
+
+        return ft.Row([btn_return, btn_confirm], spacing=10)
 
     def _confirm_and_submit_exam(self, dlg: ft.AlertDialog):
         """Atomically closes audit dialog and initiates exam submission."""

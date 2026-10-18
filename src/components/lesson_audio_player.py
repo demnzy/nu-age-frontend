@@ -959,28 +959,26 @@ class LessonAudioPlayer(ft.Container):
                     # Yield slightly so the Flutter audio plugin attaches the source
                     await asyncio.sleep(0.1)
 
-                import platform as sys_platform
-                is_windows = sys_platform.system() == "Windows"
-                if is_windows:
-                    # In audioplayers_windows/Flutter, calling play(position=int) attempts concurrent
-                    # seek+init in Windows Media Foundation which hangs indefinitely.
-                    # Calling seek(pos_ms) followed by resume() starts playback immediately without hanging.
-                    if pos_ms > 0:
-                        try:
-                            await self.audio_service.seek(pos_ms)
-                        except Exception as s_ex:
-                            print(f"[AUDIO] Seek notice: {s_ex}", flush=True)
+                # In audioplayers (especially on Android and Windows), calling play(position=0)
+                # triggers Dart `await player.seek(Duration.zero)`. When an audio source is freshly
+                # prepared at 0ms, Android MediaPlayer never fires `onSeekComplete` for seek(0),
+                # causing `await player.seek()` in the Flutter method channel to hang indefinitely.
+                # Calling seek() ONLY when pos_ms > 0 with a timeout guard, followed by resume(),
+                # transitions the prepared player directly into playing state with zero delay or hang.
+                if pos_ms > 0:
+                    try:
+                        await asyncio.wait_for(self.audio_service.seek(pos_ms), timeout=1.5)
+                    except Exception as s_ex:
+                        print(f"[AUDIO] Seek notice: {s_ex}", flush=True)
+
+                try:
                     await self.audio_service.resume()
-                else:
-                    # On Android, iOS, macOS, Linux: Audio.play() transitions the player into PLAYING state.
-                    # Resume() on a stopped/newly assigned source is a silent no-op on Android audioplayers.
-                    if pos_ms > 0:
-                        try:
-                            await self.audio_service.play(position=pos_ms)
-                        except Exception:
-                            await self.audio_service.play()
-                    else:
-                        await self.audio_service.play()
+                except Exception as r_ex:
+                    print(f"[AUDIO] Resume notice: {r_ex}, trying fallback play()", flush=True)
+                    try:
+                        await asyncio.wait_for(self.audio_service.play(), timeout=2.0)
+                    except Exception as p_ex:
+                        print(f"[AUDIO] Play fallback notice: {p_ex}", flush=True)
 
             try:
                 # 6-second bounded execution

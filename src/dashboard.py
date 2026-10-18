@@ -774,20 +774,6 @@ async def dashboard_view(page: ft.Page):
         border_clr = ft.Colors.with_opacity(0.12, ft.Colors.WHITE) if is_dark else ft.Colors.GREY_200
         is_mobile = bool(page.width and page.width < 768)
 
-        coins_pill = ft.Container(
-            padding=ft.Padding.symmetric(horizontal=10, vertical=5),
-            border_radius=ft.BorderRadius.all(10),
-            bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.AMBER),
-            content=ft.Row(
-                spacing=5,
-                tight=True,
-                controls=[
-                    ft.Icon(ft.Icons.MONETIZATION_ON_ROUNDED, size=15, color=ft.Colors.AMBER_800),
-                    ft.Text(f"{coins_count} Nu-Coins", size=11.5, weight=ft.FontWeight.W_800, color=ft.Colors.AMBER_900),
-                ],
-            ),
-        )
-
         streak_pill = ft.Container(
             padding=ft.Padding.symmetric(horizontal=10, vertical=5),
             border_radius=ft.BorderRadius.all(10),
@@ -861,7 +847,7 @@ async def dashboard_view(page: ft.Page):
                         ft.Row(
                             spacing=8,
                             tight=True,
-                            controls=[coins_pill, streak_pill],
+                            controls=[streak_pill],
                         ),
                     ],
                 ),

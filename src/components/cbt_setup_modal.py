@@ -201,9 +201,11 @@ def open_cbt_setup_modal(
         )
 
         active_topics_badge = ft.Text(
-            f"{len(selected_topics)} of {len(all_topic_names)} active",
-            size=11,
+            f"{len(selected_topics)}/{len(all_topic_names)} active",
+            size=10.5,
             color=ui.muted(0.7),
+            text_align=ft.TextAlign.RIGHT,
+            no_wrap=False,
         )
 
         def _update_telemetry():
@@ -216,7 +218,7 @@ def open_cbt_setup_modal(
                 count_display_text.content.color = ft.Colors.RED_400
                 start_btn.disabled = True
                 slider_ref.disabled = True
-                active_topics_badge.value = "0 topics active (0 pool)"
+                active_topics_badge.value = "0 active (0 pool)"
             else:
                 slider_ref.disabled = False
                 start_btn.disabled = False
@@ -236,7 +238,7 @@ def open_cbt_setup_modal(
                 pacing_detail_text.value = f"⏱ ~{round(mins*60/max(1, current_question_count[0]))}s/q • {board_name}"
                 count_display_text.content.value = f"{current_question_count[0]} of {max_avail} questions"
                 count_display_text.content.color = ft.Colors.PRIMARY
-                active_topics_badge.value = f"{len(selected_topics)} of {len(all_topic_names)} active ({max_avail} in pool)"
+                active_topics_badge.value = f"{len(selected_topics)}/{len(all_topic_names)} active ({max_avail} Qs)"
 
             # Re-highlight preset chips
             _build_preset_chips()
@@ -544,16 +546,21 @@ def open_cbt_setup_modal(
                     controls=[
                         ft.Row(
                             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
                             controls=[
                                 ft.Row(
                                     spacing=5,
                                     tight=True,
                                     controls=[
                                         ft.Icon(ft.Icons.CATEGORY_ROUNDED, size=14, color=ft.Colors.PRIMARY),
-                                        ft.Text("Select Topics / Categories", size=12, weight=ft.FontWeight.W_700, color=ft.Colors.ON_SURFACE),
+                                        ft.Text("Topics & Syllabus", size=12, weight=ft.FontWeight.W_700, color=ft.Colors.ON_SURFACE),
                                     ],
                                 ),
-                                active_topics_badge,
+                                ft.Container(
+                                    content=active_topics_badge,
+                                    expand=True,
+                                    alignment=ft.Alignment.CENTER_RIGHT,
+                                ),
                             ],
                         ),
                         *( [topic_search_field] if len(categories) > 6 else [] ),

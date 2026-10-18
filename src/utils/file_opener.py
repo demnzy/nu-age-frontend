@@ -27,20 +27,35 @@ def show_page_snackbar(page: ft.Page, snack: Any):
     bg_color = "#064E3B"
     text_color = ft.Colors.WHITE
 
+    def _extract_text_from_control(ctrl: Any) -> str:
+        if not ctrl:
+            return ""
+        if isinstance(ctrl, str):
+            return ctrl
+        if isinstance(ctrl, ft.Text):
+            return str(ctrl.value or "")
+        if hasattr(ctrl, "value") and isinstance(ctrl.value, str):
+            return ctrl.value
+        # If it's a Row, Column, or other parent control with .controls
+        if hasattr(ctrl, "controls") and isinstance(ctrl.controls, (list, tuple)):
+            parts = [_extract_text_from_control(c) for c in ctrl.controls]
+            return " ".join([p for p in parts if p])
+        # If it's a Container or has a single .content
+        if hasattr(ctrl, "content"):
+            return _extract_text_from_control(ctrl.content)
+        return ""
+
     if isinstance(snack, str):
         message = snack
     elif isinstance(snack, ft.SnackBar):
         bg_color = snack.bgcolor or "#064E3B"
-        if isinstance(snack.content, ft.Text):
-            message = str(snack.content.value or "")
-        elif isinstance(snack.content, str):
-            message = snack.content
-        else:
-            message = str(getattr(snack.content, "value", snack.content))
-    elif hasattr(snack, "value"):
+        extracted = _extract_text_from_control(snack.content)
+        message = extracted if extracted else str(getattr(snack.content, "value", ""))
+    elif hasattr(snack, "value") and isinstance(snack.value, str):
         message = str(snack.value)
     else:
-        message = str(snack)
+        extracted = _extract_text_from_control(snack)
+        message = extracted if extracted else ""
 
     message = (message or "").strip()
     if not message:

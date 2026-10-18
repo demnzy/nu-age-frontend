@@ -94,7 +94,7 @@ async def leaderboards_view(
         on_click=lambda _: _open_ledger_dialog(),
     )
 
-    tab_buttons_row = ft.Row(spacing=8, tight=True)
+    tab_buttons_row = ft.Row(spacing=8, tight=True, scroll=ft.ScrollMode.HIDDEN)
 
     def _open_ledger_dialog(e=None):
         ledger_dlg = [None]
@@ -252,6 +252,7 @@ async def leaderboards_view(
 
         cat_row = ft.Row(
             spacing=8,
+            scroll=ft.ScrollMode.HIDDEN,
             controls=[
                 ft.Container(
                     padding=ft.Padding.symmetric(horizontal=11, vertical=6),
@@ -451,6 +452,7 @@ async def leaderboards_view(
 
         filter_row = ft.Row(
             spacing=8,
+            scroll=ft.ScrollMode.HIDDEN,
             controls=[
                 ft.Container(
                     padding=ft.Padding.symmetric(horizontal=12, vertical=6),
