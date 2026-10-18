@@ -228,6 +228,9 @@ def build_study_partner_cockpit(
         p_uni = partner.get("university") or "Campus Peer"
         p_pic = partner.get("profile_picture_url")
 
+        p_username = partner.get("username")
+        p_display_name = f"{p_name} (@{p_username})" if p_username else p_name
+
         duo_streak = p_data.get("duo_streak", 0)
         daily_mins_target = p_data.get("daily_target_minutes", 45)
         user_mins = p_data.get("user_today_minutes", 0)
@@ -249,27 +252,78 @@ def build_study_partner_cockpit(
                 is_sel = (idx == selected_p_idx)
                 p_item_partner = p_item.get("partner") or {}
                 p_item_first = p_item_partner.get("first_name", f"Partner {idx+1}")
+                p_item_last = p_item_partner.get("last_name", "")
+                p_item_uname = p_item_partner.get("username")
+                p_item_pic = p_item_partner.get("profile_picture_url")
                 p_item_streak = p_item.get("duo_streak", 0)
+                p_item_label = f"@{p_item_uname}" if p_item_uname else p_item_first
+
+                avatar_widget = ft.CircleAvatar(
+                    foreground_image_src=p_item_pic if (p_item_pic and str(p_item_pic).startswith("http")) else None,
+                    content=ft.Text(
+                        (p_item_first or "?")[:1].upper(),
+                        size=9,
+                        weight=ft.FontWeight.W_800,
+                        color=ft.Colors.WHITE if is_sel else ft.Colors.PRIMARY,
+                    ) if not (p_item_pic and str(p_item_pic).startswith("http")) else None,
+                    radius=10,
+                    bgcolor=ft.Colors.with_opacity(0.35, ft.Colors.WHITE) if is_sel else ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY),
+                )
+
                 p_chips.append(
                     ft.Container(
-                        padding=ft.Padding.symmetric(horizontal=10, vertical=4),
+                        padding=ft.Padding.symmetric(horizontal=10, vertical=5),
                         border_radius=ft.BorderRadius.all(10),
                         bgcolor=ft.Colors.PRIMARY if is_sel else ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
+                        border=ft.Border.all(1.2, ft.Colors.PRIMARY if is_sel else ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)),
                         ink=not is_sel,
                         on_click=(lambda i=idx: lambda _: _on_switch_partner(i))() if not is_sel else None,
                         content=ft.Row(
-                            spacing=4,
+                            spacing=6,
                             tight=True,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
                             controls=[
-                                ft.Text(f"🔥 {p_item_first}", size=11, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE if is_sel else ft.Colors.ON_SURFACE),
-                                ft.Text(f"{p_item_streak}d", size=10.5, weight=ft.FontWeight.W_600, color=ft.Colors.WHITE70 if is_sel else ft.Colors.GREY_500),
+                                avatar_widget,
+                                ft.Text(
+                                    f"🔥 {p_item_label}",
+                                    size=11,
+                                    weight=ft.FontWeight.W_800 if is_sel else ft.FontWeight.W_600,
+                                    color=ft.Colors.WHITE if is_sel else ft.Colors.ON_SURFACE,
+                                    no_wrap=True,
+                                ),
+                                ft.Text(
+                                    f"{p_item_streak}d",
+                                    size=10.5,
+                                    weight=ft.FontWeight.W_700 if is_sel else ft.FontWeight.W_500,
+                                    color=ft.Colors.WHITE70 if is_sel else ft.Colors.GREY_500,
+                                    no_wrap=True,
+                                ),
                             ],
                         ),
                     )
                 )
             switcher_row = ft.Container(
-                content=ft.Row(spacing=6, scroll=ft.ScrollMode.AUTO, controls=p_chips),
-                padding=ft.Padding.only(bottom=2),
+                content=ft.Row(
+                    spacing=8,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[
+                        ft.Row(
+                            spacing=4,
+                            tight=True,
+                            controls=[
+                                ft.Icon(ft.Icons.PEOPLE_ALT_ROUNDED, size=13, color=ft.Colors.PRIMARY),
+                                ft.Text(f"Duos ({len(active_partnerships_list)}):", size=11, weight=ft.FontWeight.W_700, color=ft.Colors.GREY_600, no_wrap=True),
+                            ],
+                        ),
+                        ft.Row(
+                            spacing=6,
+                            scroll=ft.ScrollMode.HIDDEN,
+                            expand=True,
+                            controls=p_chips,
+                        ),
+                    ],
+                ),
+                padding=ft.Padding.only(bottom=4),
             )
 
         offline_badge = ft.Container(
@@ -677,6 +731,263 @@ def build_study_partner_cockpit(
                 ),
             )
 
+        is_desktop = (page.width or 800) >= 768
+
+        streak_threshold = p_data.get("streak_threshold_minutes", 10)
+        user_streak_qualified = p_data.get("user_streak_qualified", user_mins >= streak_threshold)
+        partner_streak_qualified = p_data.get("partner_streak_qualified", partner_mins >= streak_threshold)
+        duo_streak_locked_today = p_data.get("duo_streak_locked_today", False)
+
+        if duo_streak_locked_today or (user_streak_qualified and partner_streak_qualified):
+            streak_status_msg = "🔥 Duo Streak secured for today!"
+            streak_status_color = ft.Colors.GREEN_600
+            streak_status_icon = ft.Icons.CHECK_CIRCLE_ROUNDED
+        elif user_streak_qualified and not partner_streak_qualified:
+            streak_status_msg = f"You're qualified ({user_mins}m)! Waiting for {p_first} ({partner_mins}/{streak_threshold}m)"
+            streak_status_color = ft.Colors.AMBER_700
+            streak_status_icon = ft.Icons.HOURGLASS_TOP_ROUNDED
+        elif not user_streak_qualified and partner_streak_qualified:
+            rem = max(1, streak_threshold - user_mins)
+            streak_status_msg = f"⚡ {p_first} completed their part! Study {rem}m more to save your {duo_streak}d Duo Streak" if duo_streak > 0 else f"{p_first} is ready! Study {rem}m more to lock Duo Streak"
+            streak_status_color = ft.Colors.ORANGE_700
+            streak_status_icon = ft.Icons.ELECTRIC_BOLT_ROUNDED
+        elif duo_streak >= 1 and not user_streak_qualified and not partner_streak_qualified:
+            streak_status_msg = f"🔥 {duo_streak}d Duo Streak at risk! Both partners need {streak_threshold}m before midnight"
+            streak_status_color = ft.Colors.AMBER_800
+            streak_status_icon = ft.Icons.LOCAL_FIRE_DEPARTMENT_ROUNDED
+        else:
+            streak_status_msg = f"Both study {streak_threshold}m daily to grow Duo Streak (You: {user_mins}m, {p_first}: {partner_mins}m)"
+            streak_status_color = ft.Colors.GREY_500
+            streak_status_icon = ft.Icons.INFO_OUTLINE_ROUNDED
+
+        # Desktop pill buttons
+        duel_pill = ft.Container(
+            padding=ft.Padding.symmetric(horizontal=12, vertical=6),
+            border_radius=ft.BorderRadius.all(16),
+            bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.ORANGE),
+            ink=True,
+            on_click=(
+                (lambda _: show_page_snackbar(page, "You are currently offline. Connect to the internet to play CBT Duels!"))
+                if is_offline_state
+                else (lambda _: show_create_duel_dialog(
+                    page=page,
+                    token=token,
+                    partnership_id=p_id,
+                    partner=partner,
+                    available_materials=available_materials or [],
+                    on_duel_created=lambda: page.run_task(_load_partner_state),
+                ))
+            ),
+            content=ft.Row(
+                tight=True,
+                spacing=5,
+                controls=[
+                    ft.Icon(ft.Icons.FLASH_ON_ROUNDED, size=13, color=ft.Colors.ORANGE_700),
+                    ft.Text("15-Q Duel", size=11.5, weight=ft.FontWeight.W_700, color=ft.Colors.ORANGE_800),
+                ],
+            ),
+        )
+
+        nudge_pill = ft.Container(
+            padding=ft.Padding.symmetric(horizontal=12, vertical=6),
+            border_radius=ft.BorderRadius.all(16),
+            bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.PRIMARY) if can_nudge else ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
+            ink=can_nudge,
+            on_click=(lambda _: page.run_task(_handle_nudge)) if can_nudge else None,
+            content=nudge_btn_content,
+        )
+
+        share_pill = ft.Container(
+            padding=ft.Padding.symmetric(horizontal=12, vertical=6),
+            border_radius=ft.BorderRadius.all(16),
+            bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.PRIMARY),
+            ink=True,
+            on_click=lambda _: _open_share_pack_dialog(),
+            content=ft.Row(
+                tight=True,
+                spacing=5,
+                controls=[
+                    ft.Icon(ft.Icons.FOLDER_SHARED_ROUNDED, size=13, color=ft.Colors.PRIMARY),
+                    ft.Text("Share Pack", size=11.5, weight=ft.FontWeight.W_700, color=ft.Colors.PRIMARY),
+                ],
+            ),
+        )
+
+        objectives_pill = ft.Container(
+            padding=ft.Padding.symmetric(horizontal=10, vertical=6),
+            border_radius=ft.BorderRadius.all(16),
+            bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.AMBER),
+            ink=True,
+            on_click=lambda _: page.go("/leaderboards?tab=objectives"),
+            content=ft.Row(
+                tight=True,
+                spacing=4,
+                controls=[
+                    ft.Icon(ft.Icons.MONETIZATION_ON_ROUNDED, size=13, color=ft.Colors.AMBER_800),
+                    ft.Text("Objectives", size=11, weight=ft.FontWeight.W_700, color=ft.Colors.AMBER_900),
+                ],
+            ),
+        )
+
+        packs_pill = ft.Container(
+            padding=ft.Padding.symmetric(horizontal=10, vertical=6),
+            border_radius=ft.BorderRadius.all(16),
+            bgcolor=ft.Colors.with_opacity(0.05, ft.Colors.ON_SURFACE),
+            ink=True,
+            on_click=lambda _: show_objectives_and_leaderboard_dialog(page, token, p_id, partner, "shared_packs", on_coins_changed=lambda: page.run_task(_load_partner_state)),
+            content=ft.Row(
+                tight=True,
+                spacing=4,
+                controls=[
+                    ft.Icon(ft.Icons.FOLDER_SHARED_ROUNDED, size=13, color=ft.Colors.PRIMARY),
+                    ft.Text("Packs", size=11, weight=ft.FontWeight.W_700, color=ft.Colors.ON_SURFACE),
+                ],
+            ),
+        )
+
+        ranks_pill = ft.Container(
+            padding=ft.Padding.symmetric(horizontal=10, vertical=6),
+            border_radius=ft.BorderRadius.all(16),
+            bgcolor=ft.Colors.with_opacity(0.05, ft.Colors.ON_SURFACE),
+            ink=True,
+            on_click=lambda _: page.go("/leaderboards?tab=leaderboards"),
+            content=ft.Row(
+                tight=True,
+                spacing=4,
+                controls=[
+                    ft.Icon(ft.Icons.LEADERBOARD_ROUNDED, size=13, color=ft.Colors.PRIMARY),
+                    ft.Text("Ranks", size=11, weight=ft.FontWeight.W_700, color=ft.Colors.ON_SURFACE),
+                ],
+            ),
+        )
+
+        history_pill = ft.Container(
+            padding=ft.Padding.symmetric(horizontal=10, vertical=6),
+            border_radius=ft.BorderRadius.all(16),
+            bgcolor=ft.Colors.with_opacity(0.05, ft.Colors.ON_SURFACE),
+            ink=True,
+            on_click=lambda _: page.go("/leaderboards?tab=history"),
+            content=ft.Row(
+                tight=True,
+                spacing=4,
+                controls=[
+                    ft.Icon(ft.Icons.HISTORY_ROUNDED, size=13, color=ft.Colors.BLUE_700),
+                    ft.Text("History", size=11, weight=ft.FontWeight.W_700, color=ft.Colors.BLUE_800),
+                ],
+            ),
+        )
+
+        # ─── DESKTOP COCKPIT (Sleek 2-Row Horizontal Bar with Pill Buttons) ───
+        if is_desktop:
+            return ft.Container(
+                padding=ft.Padding.symmetric(horizontal=16, vertical=12),
+                border_radius=ft.BorderRadius.all(16),
+                bgcolor=ft.Colors.SURFACE,
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY)),
+                shadow=ft.BoxShadow(
+                    blur_radius=10,
+                    color=ft.Colors.with_opacity(0.04, ft.Colors.BLACK),
+                    offset=ft.Offset(0, 2),
+                ),
+                content=ft.Column(
+                    tight=True,
+                    spacing=8,
+                    controls=([switcher_row] if switcher_row else []) + [
+                        # Row 1: Partner Info + Streak Flame Pill + Core Partner Action Pills
+                        ft.Row(
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            wrap=True,
+                            run_spacing=8,
+                            controls=[
+                                # Left: Partner Info + Duo Streak Flame pill
+                                ft.Row(
+                                    spacing=8,
+                                    tight=True,
+                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                    controls=[
+                                        avatar,
+                                        ft.Text(p_display_name, size=13.5, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
+                                        ft.Container(
+                                            width=7,
+                                            height=7,
+                                            border_radius=4,
+                                            bgcolor=ft.Colors.GREEN if partner_done else ft.Colors.GREY_400,
+                                        ),
+                                        ft.Text(
+                                            "Studied today" if partner_done else "Not yet today",
+                                            size=11,
+                                            color=ft.Colors.GREY_500,
+                                        ),
+                                        ft.Container(
+                                            padding=ft.Padding.symmetric(horizontal=9, vertical=4),
+                                            border_radius=ft.BorderRadius.all(14),
+                                            gradient=ft.LinearGradient(
+                                                colors=[ft.Colors.AMBER_600, ft.Colors.ORANGE_600],
+                                                begin=ft.Alignment.TOP_LEFT,
+                                                end=ft.Alignment.BOTTOM_RIGHT,
+                                            ),
+                                            content=ft.Row(
+                                                spacing=4,
+                                                tight=True,
+                                                controls=[
+                                                    ft.Icon(ft.Icons.LOCAL_FIRE_DEPARTMENT_ROUNDED, size=13, color=ft.Colors.WHITE),
+                                                    ft.Text(f"{duo_streak}d Duo Streak", size=11, weight=ft.FontWeight.W_800, color=ft.Colors.WHITE, no_wrap=True),
+                                                ],
+                                            ),
+                                        ),
+                                    ],
+                                ),
+                                # Right: Core Action Pills
+                                ft.Row(
+                                    spacing=6,
+                                    tight=True,
+                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                    controls=([offline_badge] if is_offline_state else []) + [
+                                        duel_pill,
+                                        nudge_pill,
+                                        share_pill,
+                                    ],
+                                ),
+                            ],
+                        ),
+                        # Row 2: Streak Qualification Status + Secondary Navigation Pills
+                        ft.Row(
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            wrap=True,
+                            run_spacing=6,
+                            controls=[
+                                # Left: Streak qualification status feedback
+                                ft.Row(
+                                    spacing=5,
+                                    tight=True,
+                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                    controls=[
+                                        ft.Icon(streak_status_icon, size=13, color=streak_status_color),
+                                        ft.Text(streak_status_msg, size=11, weight=ft.FontWeight.W_600, color=streak_status_color),
+                                    ],
+                                ),
+                                # Right: Navigation pills
+                                ft.Row(
+                                    spacing=6,
+                                    tight=True,
+                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                    controls=[
+                                        objectives_pill,
+                                        packs_pill,
+                                        ranks_pill,
+                                        history_pill,
+                                    ],
+                                ),
+                            ],
+                        ),
+                        pending_banner,
+                    ],
+                ),
+            )
+
+        # ─── MOBILE COCKPIT (Rich Card Layout preserved as requested) ───
         return ft.Container(
             padding=ft.Padding.symmetric(horizontal=16, vertical=14),
             border_radius=ft.BorderRadius.all(18),
@@ -700,9 +1011,9 @@ def build_study_partner_cockpit(
                             ft.Column(
                                 spacing=1,
                                 tight=True,
-                                expand=True,   # takes the leftover width and lets the name ellipsize
+                                expand=True,
                                 controls=[
-                                    ft.Text(p_name, size=13, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE,
+                                    ft.Text(p_display_name, size=13, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE,
                                             max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                                     ft.Row(
                                         spacing=5,
@@ -746,9 +1057,7 @@ def build_study_partner_cockpit(
                             ),
                         ],
                     ),
-                    # Header row 2: action buttons. This Row sits directly in the card Column, so it has a
-                    # bounded width and `wrap=True` works. (No `scroll` here: scroll disables wrapping and
-                    # hides anything past the edge, which is what pushed "Share Pack" off-screen.)
+                    # Header row 2: action buttons
                     ft.Row(
                         spacing=8,
                         run_spacing=8,
@@ -802,13 +1111,27 @@ def build_study_partner_cockpit(
                                                     size=13,
                                                     color=ft.Colors.GREEN_600 if partner_done else ft.Colors.GREY_500,
                                                 ),
-                                                ft.Text(p_first, size=11, weight=ft.FontWeight.W_700, color=ft.Colors.ON_SURFACE),
+                                                ft.Text(f"{p_first} (@{p_username})" if p_username else p_first, size=11, weight=ft.FontWeight.W_700, color=ft.Colors.ON_SURFACE),
                                             ],
                                         ),
                                         ft.Text(f"{partner_mins} / {daily_mins_target} mins", size=11.5, weight=ft.FontWeight.W_600, color=ft.Colors.GREY_600),
                                     ],
                                 ),
                                 ft.ProgressBar(value=partner_frac, color=ft.Colors.TEAL_600, bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.TEAL), height=5),
+                            ],
+                        ),
+                    ),
+                    # Streak qualification status banner
+                    ft.Container(
+                        padding=ft.Padding.symmetric(horizontal=10, vertical=6),
+                        border_radius=ft.BorderRadius.all(8),
+                        bgcolor=ft.Colors.with_opacity(0.06, streak_status_color),
+                        content=ft.Row(
+                            spacing=6,
+                            tight=True,
+                            controls=[
+                                ft.Icon(streak_status_icon, size=13, color=streak_status_color),
+                                ft.Text(streak_status_msg, size=11, weight=ft.FontWeight.W_700, color=streak_status_color, expand=True),
                             ],
                         ),
                     ),
@@ -846,6 +1169,40 @@ def build_study_partner_cockpit(
                 ],
             ),
         )
+
+    # Responsive resize handling to dynamically adapt between desktop pill buttons and mobile card
+    last_is_desktop = [(page.width or 800) >= 768]
+
+    def _on_page_resize(e=None):
+        if getattr(card_container, "_page", None) is None:
+            return
+        try:
+            current_is_desktop = (page.width or 800) >= 768
+            if current_is_desktop != last_is_desktop[0]:
+                last_is_desktop[0] = current_is_desktop
+                if active_partnerships_list and selected_p_idx < len(active_partnerships_list):
+                    card_container.content = _build_active_card(active_partnerships_list[selected_p_idx])
+                    if getattr(card_container, "_page", None) is not None:
+                        card_container.update()
+        except Exception:
+            pass
+
+    prev_resize = getattr(page, "on_resize", None)
+    def _chained_resize(e):
+        if callable(prev_resize):
+            try:
+                prev_resize(e)
+            except Exception:
+                pass
+        try:
+            _on_page_resize(e)
+        except Exception:
+            pass
+
+    try:
+        page.on_resize = _chained_resize
+    except Exception:
+        pass
 
     # Launch initial async load
     page.run_task(_load_partner_state)

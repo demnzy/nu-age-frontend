@@ -39,11 +39,13 @@ def member_invite_view(page: ft.Page, token: str):
 
     # ── Asynchronous Lifecycle Engine ──────────────────────────────────────────
     session_key = f"invite_task_{token}"
-    if page.session.store.get(session_key):
+    from src.utils.session_utils import get_session_store, set_session_value
+    _s = get_session_store(page)
+    if hasattr(_s, "get") and _s.get(session_key):
         # Already processing or processed in this session
         pass
     else:
-        page.session.store.set(session_key, True)
+        set_session_value(page, session_key, True)
 
         async def process_invitation_lifecycle():
             await asyncio.sleep(0.5) # Brief animation buffer

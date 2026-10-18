@@ -29,7 +29,7 @@ def show_question_curator_dialog(
     initial_questions: List[Dict[str, Any]],
     pack_title: str,
     subject: str = "General",
-    exam_type: str = "JAMB UTME",
+    exam_type: str = "General CBT",
     exam_year: Optional[int] = None,
     initial_price_coins: int = 0,
     initial_theme_gradient: str = "emerald_teal",
@@ -37,6 +37,7 @@ def show_question_curator_dialog(
     initial_duration_minutes: int = 60,
     on_publish: Optional[Callable[[Dict[str, Any]], Any]] = None,
     token: Optional[str] = None,
+    save_button_label: str = "Publish Official CBT Pack",
 ):
     """
     Renders the Question Curator & CBT Editor modal.
@@ -135,7 +136,11 @@ def show_question_curator_dialog(
         value=initial_theme_gradient or "emerald_teal",
     )
     desc_field = ft.TextField(
-        value=initial_description or f"Official {exam_type} Past Questions practice pack with comprehensive step-by-step explanations.",
+        value=initial_description or (
+            f"Official {exam_type} Past Questions practice pack with comprehensive step-by-step explanations."
+            if exam_type and "GENERAL" not in str(exam_type).upper()
+            else "Comprehensive CBT practice pack with step-by-step explanations."
+        ),
         label="Exam Instructions / Overview",
         multiline=True,
         min_lines=2,
@@ -885,8 +890,8 @@ def show_question_curator_dialog(
             ft.TextButton("Cancel", on_click=_close_dlg),
             ft.FilledButton(
                 content=ft.Row([
-                    ft.Icon(ft.Icons.ROCKET_LAUNCH_ROUNDED, size=16, color=ft.Colors.ON_PRIMARY),
-                    ft.Text("Publish Official CBT Pack", size=13, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_PRIMARY),
+                    ft.Icon(ft.Icons.SAVE_ROUNDED if "save" in save_button_label.lower() else ft.Icons.ROCKET_LAUNCH_ROUNDED, size=16, color=ft.Colors.ON_PRIMARY),
+                    ft.Text(save_button_label, size=13, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_PRIMARY),
                 ], spacing=6, tight=True),
                 style=ft.ButtonStyle(
                     bgcolor=ft.Colors.PRIMARY,

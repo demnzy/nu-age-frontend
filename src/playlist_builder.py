@@ -39,7 +39,9 @@ def _get_palette(is_dark: bool) -> dict:
 
 async def playlist_builder_view(page: ft.Page, playlist_id: str):
     token = None
-    org_id = page.session.store.get("current_org_id")
+    from src.utils.session_utils import get_session_store
+    _s = get_session_store(page)
+    org_id = _s.get("current_org_id") if hasattr(_s, "get") else None
     is_dark = page.theme_mode == ft.ThemeMode.DARK
     p = _get_palette(is_dark)
 

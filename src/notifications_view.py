@@ -10,6 +10,7 @@ from src.components.notifications_drawer import NotificationManager, _format_rel
 from src.components.shimmer_skeletons import shimmer_box, grey_card, collect_shimmer_boxes
 from src.requests.Cohorts import get_learner_cohorts, start_cohort_exam
 from src.components.cohort_exam_runner import build_cohort_exam_view
+from src.utils.file_opener import show_page_snackbar
 
 
 def get_effective_cohort_status(cohort: dict) -> str:
@@ -205,7 +206,7 @@ async def notifications_view(page: ft.Page) -> ft.View:
         if tab == "exams":
             filtered = [n for n in items if n.get("category") in ("exams", "cohorts")]
         elif tab == "courses":
-            filtered = [n for n in items if n.get("category") == "courses"]
+            filtered = [n for n in items if n.get("category") in ("courses", "course_progress")]
         elif tab == "chat":
             filtered = [n for n in items if n.get("category") == "chat"]
         else:
@@ -358,8 +359,16 @@ async def notifications_view(page: ft.Page) -> ft.View:
 
                 if cat in ("exams", "cohorts"):
                     cat_color = ft.Colors.ORANGE_600
-                elif cat == "courses":
+                elif cat in ("courses", "course_progress"):
                     cat_color = ft.Colors.BLUE_600
+                elif cat == "objective_completed":
+                    cat_color = ft.Colors.AMBER_600
+                elif cat == "streak_warning":
+                    cat_color = ft.Colors.ORANGE_600
+                elif cat == "duo_nudge":
+                    cat_color = ft.Colors.CYAN_700
+                elif cat in ("reengagement", "daytime_nudge"):
+                    cat_color = ft.Colors.GREEN_600
                 elif cat == "chat":
                     cat_color = ft.Colors.GREEN_600
                 else:
@@ -374,6 +383,12 @@ async def notifications_view(page: ft.Page) -> ft.View:
                             from src.requests.notifications import mark_notification_read
                             page.run_task(mark_notification_read, state["token"], str(b_id))
                         update_unread_indicators()
+                        if notif.get("category") == "objective_completed":
+                            from src.components.objectives_and_leaderboard_modal import show_objectives_and_leaderboard_dialog
+                            show_objectives_and_leaderboard_dialog(page, state["token"], initial_tab="objectives")
+                            render_content()
+                            page.update()
+                            return
                         if notif.get("on_action"):
                             try:
                                 notif["on_action"]()
@@ -387,6 +402,94 @@ async def notifications_view(page: ft.Page) -> ft.View:
                         render_content()
                         page.update()
                     return _do
+
+                action_btn = None
+                if cat == "objective_completed":
+                    n_data = n.get("data") if isinstance(n.get("data"), dict) else {}
+                    is_claimed = bool(n.get("is_claimed", False) or n_data.get("is_claimed", False))
+                    claim_spinner = ft.ProgressRing(width=12, height=12, stroke_width=2, color=ft.Colors.WHITE, visible=False)
+                    claim_text = ft.Text("Claim Reward", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE)
+                    claim_icon = ft.Icon(ft.Icons.MONETIZATION_ON_ROUNDED, size=13, color=ft.Colors.WHITE)
+
+                    claim_btn = ft.ElevatedButton(
+                        content=ft.Row([claim_spinner, claim_icon, claim_text], tight=True, spacing=4),
+                        bgcolor=ft.Colors.AMBER_800,
+                        height=28,
+                        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=6), elevation=0),
+                    )
+
+                    async def _claim_obj_from_notif(e, target_n=n, btn=claim_btn, sp=claim_spinner, ic=claim_icon, tx=claim_text):
+                        if target_n.get("is_claimed") or getattr(target_n, "_is_claiming", False):
+                            return
+                        target_n["_is_claiming"] = True
+                        btn.disabled = True
+                        sp.visible = True
+                        ic.visible = False
+                        tx.value = "Claiming..."
+                        page.update()
+
+                        obj_data = target_n.get("data") if isinstance(target_n.get("data"), dict) else {}
+                        obj_code = obj_data.get("code") or target_n.get("objective_code")
+                        if not obj_code:
+                            target_n["_is_claiming"] = False
+                            from src.components.objectives_and_leaderboard_modal import show_objectives_and_leaderboard_dialog
+                            show_objectives_and_leaderboard_dialog(page, state["token"], initial_tab="objectives")
+                            return
+
+                        from src.requests.objectives import claim_objective_reward_api
+                        res = await claim_objective_reward_api(state["token"], obj_code)
+                        target_n["_is_claiming"] = False
+                        if res.get("status") == "success":
+                            coins_awarded = res.get("coins_awarded") or obj_data.get("reward") or obj_data.get("reward_coins", "")
+                            target_n["is_claimed"] = True
+                            orig_b = target_n.get("body", "")
+                            if "• Claimed" not in orig_b:
+                                target_n["body"] = f"{orig_b} • Claimed (+{coins_awarded} 🪙)"
+                            NotificationManager.mark_read(target_n["id"])
+                            try:
+                                page.run_task(NotificationManager.persist_to_cache, page)
+                            except Exception:
+                                pass
+                            show_page_snackbar(page, f"🎉 Claimed +{coins_awarded} Nu-Coins! Added to your wallet.")
+                            render_content()
+                            page.update()
+                        else:
+                            msg = res.get("message", "Already claimed or could not claim.")
+                            if "already" in msg.lower():
+                                target_n["is_claimed"] = True
+                                orig_b = target_n.get("body", "")
+                                if "• Claimed" not in orig_b:
+                                    target_n["body"] = f"{orig_b} • Claimed"
+                                NotificationManager.mark_read(target_n["id"])
+                                try:
+                                    page.run_task(NotificationManager.persist_to_cache, page)
+                                except Exception:
+                                    pass
+                                render_content()
+                                page.update()
+                            else:
+                                btn.disabled = False
+                                sp.visible = False
+                                ic.visible = True
+                                tx.value = "Claim Reward"
+                                page.update()
+                            show_page_snackbar(page, msg)
+
+                    claim_btn.on_click = lambda e, tn=n: page.run_task(_claim_obj_from_notif, e, tn)
+
+                    if is_claimed:
+                        action_btn = ft.Container(
+                            padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+                            border_radius=6,
+                            bgcolor=ft.Colors.with_opacity(0.14, ft.Colors.GREEN_600),
+                            border=ft.Border.all(1, ft.Colors.with_opacity(0.3, ft.Colors.GREEN_600)),
+                            content=ft.Row([
+                                ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED, size=12, color=ft.Colors.GREEN_600),
+                                ft.Text("Reward Claimed ✓", size=10.5, weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_600),
+                            ], tight=True, spacing=4),
+                        )
+                    else:
+                        action_btn = claim_btn
 
                 time_badge = ft.Container(
                     padding=ft.Padding.symmetric(horizontal=7, vertical=2.5),
@@ -417,13 +520,16 @@ async def notifications_view(page: ft.Page) -> ft.View:
                         bottom=ft.BorderSide(1, ft.Colors.with_opacity(0.18, cat_color) if is_unread else ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
                     ),
                     ink=True,
+                    scale=1.0,
+                    animate_scale=ft.Animation(180, ft.AnimationCurve.EASE_OUT),
+                    animate=ft.Animation(220, ft.AnimationCurve.EASE_OUT),
                     on_click=make_tap_handler(n),
                     content=ft.Row([
                         ft.Container(
                             padding=10,
                             border_radius=10,
                             bgcolor=ft.Colors.with_opacity(0.16 if is_unread else 0.08, cat_color),
-                            content=ft.Icon(n.get("icon", ft.Icons.NOTIFICATIONS_ROUNDED), size=20, color=cat_color),
+                            content=ft.Icon(n.get("icon", ft.Icons.MILITARY_TECH_ROUNDED if cat == "objective_completed" else ft.Icons.NOTIFICATIONS_ROUNDED), size=20, color=cat_color),
                         ),
                         ft.Column([
                             ft.Row([
@@ -434,9 +540,31 @@ async def notifications_view(page: ft.Page) -> ft.View:
                                 time_badge,
                             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                             ft.Text(n.get("body", ""), size=12, color=ft.Colors.ON_SURFACE if is_unread else ft.Colors.ON_SURFACE_VARIANT, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
+                            ft.Row([action_btn], alignment=ft.MainAxisAlignment.END) if action_btn else ft.Container(),
                         ], spacing=4, expand=True),
                     ], spacing=12, vertical_alignment=ft.CrossAxisAlignment.START),
                 )
+
+                def _make_hover_handler(target_tile):
+                    def _hover(e):
+                        if e.data == "true":
+                            target_tile.scale = 1.012
+                            target_tile.shadow = ft.BoxShadow(
+                                blur_radius=12,
+                                spread_radius=0,
+                                color=ft.Colors.with_opacity(0.12, ft.Colors.BLACK),
+                                offset=ft.Offset(0, 3),
+                            )
+                        else:
+                            target_tile.scale = 1.0
+                            target_tile.shadow = None
+                        try:
+                            target_tile.update()
+                        except Exception:
+                            pass
+                    return _hover
+
+                tile.on_hover = _make_hover_handler(tile)
                 tiles.append(tile)
 
         if not tiles:

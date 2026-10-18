@@ -63,7 +63,8 @@ async def check_is_first_login(page: ft.Page) -> bool:
             return False
     except Exception:
         pass
-    user_data = page.session.store.get("current_user") or {} if hasattr(page, "session") and hasattr(page.session, "store") else {}
+    from src.utils.session_utils import get_session_user
+    user_data = get_session_user(page)
     if user_data.get("has_seen_onboarding"):
         return False
     streak = user_data.get("streak", 0) or 0
@@ -197,7 +198,8 @@ async def dashboard_view(page: ft.Page):
     stat_finished = ft.Text("-", size=20, weight=ft.FontWeight.W_800, color=ft.Colors.SURFACE)
     stat_streak = ft.Text("-", size=20, weight=ft.FontWeight.W_800, color=ft.Colors.SURFACE)
 
-    user_init_data = page.session.store.get("current_user") or {}
+    from src.utils.session_utils import get_session_user
+    user_init_data = get_session_user(page)
     dash_p_pic = user_init_data.get("profile_picture_url")
     dash_fname = user_init_data.get("first_name", "")
     dash_lname = user_init_data.get("last_name", "")
@@ -920,7 +922,8 @@ async def dashboard_view(page: ft.Page):
     # ─────────────────────────────────────────────────────────────────────────
     async def fetch_dashboard_data():
         # ── user greeting & stats ─────────────────────────────────────────────
-        user_data  = page.session.store.get("current_user") or {}
+        from src.utils.session_utils import get_session_user
+        user_data  = get_session_user(page)
         first_name = user_data.get("first_name", "there")
         target_greeting = f"{get_random_greeting()} {first_name}!"
 
@@ -1087,9 +1090,10 @@ async def dashboard_view(page: ft.Page):
                 obj_res = await asyncio.wait_for(get_platform_objectives_api(token), timeout=2.5)
                 if obj_res and "coins_balance" in obj_res:
                     coins_bal = obj_res.get("coins_balance", coins_bal)
-                    if hasattr(page, "session") and hasattr(page.session, "store"):
-                        u_store = page.session.store.get("current_user") or {}
-                        u_store["coins_balance"] = coins_bal
+                    from src.utils.session_utils import get_session_user, set_session_value
+                    u_store = get_session_user(page)
+                    u_store["coins_balance"] = coins_bal
+                    set_session_value(page, "current_user", u_store)
         except Exception:
             pass
 

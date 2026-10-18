@@ -748,7 +748,7 @@ def get_offline_quiz_questions(material_ids: list | None = None, limit: int = 10
                 opts = []
             questions.append({
                 "id": r["id"],
-                "question": r["question_text"],
+                "question": re.sub(r'^\s*[\(\[]?\s*(?:exam[\s\-_]?level|tricky|straightforward|easy|medium|hard)\s*[\)\]]?[\s:\-–—]*', '', str(r["question_text"] or ""), flags=re.IGNORECASE).strip(),
                 "options": opts,
                 "answer": r["answer_index"],
                 "explanation": r["explanation"] or "",
@@ -764,7 +764,63 @@ def get_offline_quiz_questions(material_ids: list | None = None, limit: int = 10
         return []
 
 
-def get_offline_exam_questions(material_ids: list | None = None, limit: int = 50, page: ft.Page = None) -> dict:
+def get_offline_exam_categories(material_ids: list | None = None, page: ft.Page = None) -> dict:
+    """Returns available topics/categories, counts, and exam type from local SQLite."""
+    if page is not None and getattr(page, "web", False):
+        return {"total_questions": 0, "exam_type": None, "categories": []}
+    try:
+        db = get_local_db(page)
+        db.row_factory = sqlite3.Row
+
+        where_clause = "WHERE 1=1"
+        params = []
+        if material_ids:
+            clean_ids = [str(mid) for mid in material_ids if mid]
+            if clean_ids:
+                placeholders = ",".join("?" for _ in clean_ids)
+                where_clause += f" AND material_id IN ({placeholders})"
+                params.extend(clean_ids)
+
+        query = f"""
+            SELECT 
+                COALESCE(NULLIF(TRIM(topic), ''), 'General') as topic_name,
+                COUNT(id) as q_count,
+                MAX(exam_type) as ex_type
+            FROM downloaded_study_questions
+            {where_clause}
+            GROUP BY topic_name
+            ORDER BY q_count DESC
+        """
+        rows = db.execute(query, params).fetchall()
+        categories = []
+        total = 0
+        detected_exam_type = None
+
+        for r in rows:
+            name = r["topic_name"]
+            cnt = int(r["q_count"])
+            categories.append({"name": name, "count": cnt})
+            total += cnt
+            if not detected_exam_type and r["ex_type"]:
+                detected_exam_type = r["ex_type"]
+
+        return {
+            "total_questions": total,
+            "exam_type": detected_exam_type,
+            "categories": categories,
+        }
+    except Exception as e:
+        print(f"[LOCAL DB ERROR] get_offline_exam_categories failed: {e}")
+        return {"total_questions": 0, "exam_type": None, "categories": []}
+
+
+def get_offline_exam_questions(
+    material_ids: list | None = None,
+    limit: int = 50,
+    topics: list | None = None,
+    duration_seconds: int | None = None,
+    page: ft.Page = None
+) -> dict:
     """Returns questions and calculated duration for full exam simulator from local SQLite."""
     if page is not None and getattr(page, "web", False):
         return {"questions": [], "duration_seconds": 300}
@@ -782,6 +838,22 @@ def get_offline_exam_questions(material_ids: list | None = None, limit: int = 50
                 query += f" AND material_id IN ({placeholders})"
                 params.extend(clean_ids)
 
+        if topics and "all" not in [t.lower() for t in topics] and "all topics" not in [t.lower() for t in topics]:
+            clean_topics = [str(t).strip() for t in topics if str(t).strip()]
+            if clean_topics:
+                if "General" in clean_topics:
+                    other_topics = [t for t in clean_topics if t != "General"]
+                    if other_topics:
+                        placeholders = ",".join("?" for _ in other_topics)
+                        query += f" AND (topic IN ({placeholders}) OR topic IS NULL OR TRIM(topic) = '')"
+                        params.extend(other_topics)
+                    else:
+                        query += " AND (topic IS NULL OR TRIM(topic) = '')"
+                else:
+                    placeholders = ",".join("?" for _ in clean_topics)
+                    query += f" AND topic IN ({placeholders})"
+                    params.extend(clean_topics)
+
         query += f" ORDER BY RANDOM() LIMIT {int(limit)}"
         rows = db.execute(query, params).fetchall()
 
@@ -793,7 +865,7 @@ def get_offline_exam_questions(material_ids: list | None = None, limit: int = 50
                 opts = []
             questions.append({
                 "id": r["id"],
-                "question": r["question_text"],
+                "question": re.sub(r'^\s*[\(\[]?\s*(?:exam[\s\-_]?level|tricky|straightforward|easy|medium|hard)\s*[\)\]]?[\s:\-–—]*', '', str(r["question_text"] or ""), flags=re.IGNORECASE).strip(),
                 "options": opts,
                 "answer": r["answer_index"],
                 "explanation": r["explanation"] or "",
@@ -804,34 +876,38 @@ def get_offline_exam_questions(material_ids: list | None = None, limit: int = 50
                 "exam_year": r["exam_year"] if "exam_year" in r.keys() else None,
             })
 
-        # Smart exam standard duration computation
-        exam_std = None
-        for q in questions:
-            et = str(q.get("exam_type") or "").strip().upper()
-            if et:
-                exam_std = et
-                break
+        if duration_seconds and int(duration_seconds) > 0:
+            duration = int(duration_seconds)
+        else:
+            # Smart exam standard duration computation
+            exam_std = None
+            for q in questions:
+                et = str(q.get("exam_type") or "").strip().upper()
+                if et:
+                    exam_std = et
+                    break
 
-        if exam_std:
-            if "POST-UTME" in exam_std or "PUTME" in exam_std:
-                sec_per_q = 42
-            elif "JAMB" in exam_std or "UTME" in exam_std:
-                sec_per_q = 48
-            elif "WAEC" in exam_std or "WASSCE" in exam_std:
-                sec_per_q = 72
-            elif "NECO" in exam_std:
-                sec_per_q = 60
-            elif "SAT" in exam_std:
-                sec_per_q = 75
-            elif any(x in exam_std for x in ("NCLEX", "MCAT", "USMLE")):
-                sec_per_q = 84
+            if exam_std:
+                if "POST-UTME" in exam_std or "PUTME" in exam_std:
+                    sec_per_q = 42
+                elif "JAMB" in exam_std or "UTME" in exam_std:
+                    sec_per_q = 48
+                elif "WAEC" in exam_std or "WASSCE" in exam_std:
+                    sec_per_q = 72
+                elif "NECO" in exam_std:
+                    sec_per_q = 60
+                elif "SAT" in exam_std:
+                    sec_per_q = 75
+                elif any(x in exam_std for x in ("NCLEX", "MCAT", "USMLE")):
+                    sec_per_q = 84
+                else:
+                    sec_per_q = 60
             else:
                 sec_per_q = 60
-        else:
-            sec_per_q = 60
 
-        total_secs = len(questions) * sec_per_q
-        duration = max(300, round(total_secs / 60) * 60)
+            total_secs = len(questions) * sec_per_q
+            duration = max(300, round(total_secs / 60) * 60)
+
         return {"questions": questions, "duration_seconds": duration}
     except Exception as e:
         print(f"[LOCAL DB ERROR] get_offline_exam_questions failed: {e}")

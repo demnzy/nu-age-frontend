@@ -65,6 +65,8 @@ Check it out 👉 : nu-age.com.ng"""
             ft.Container(width=8),
         ],
         elevation=0,
+        elevation_on_scroll=0.0,
+        shadow_color=ft.Colors.TRANSPARENT,
         center_title=False,
     )
 
@@ -117,6 +119,48 @@ Check it out 👉 : nu-age.com.ng"""
             e.control.content = ft.Text("Error — tap to retry", color=ft.Colors.ON_PRIMARY, size=13)
             page.update()
 
+    # ── mobile sticky bottom dock ─────────────────────────────────────────────
+    is_mobile_screen = bool(page.width and page.width < 768)
+    mobile_cta_label = ft.Text("Enroll Now", size=13, weight=ft.FontWeight.W_800, color=ft.Colors.ON_PRIMARY)
+    mobile_cta_icon = ft.Icon(ft.Icons.ROCKET_LAUNCH_ROUNDED, size=15, color=ft.Colors.ON_PRIMARY)
+    mobile_cta_btn = ft.ElevatedButton(
+        content=ft.Row(
+            tight=True,
+            spacing=6,
+            controls=[mobile_cta_icon, mobile_cta_label],
+        ),
+        bgcolor=ft.Colors.PRIMARY,
+        height=40,
+        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10), elevation=0),
+        on_click=handle_enrol_click,
+    )
+    mobile_enroll_bar = ft.Container(
+        bgcolor=ft.Colors.SURFACE,
+        border=ft.Border(top=ft.BorderSide(1, ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE))),
+        padding=ft.Padding.symmetric(horizontal=16, vertical=10),
+        visible=is_mobile_screen,
+        shadow=ft.BoxShadow(
+            blur_radius=12,
+            color=ft.Colors.with_opacity(0.08, ft.Colors.BLACK),
+            offset=ft.Offset(0, -3),
+        ),
+        content=ft.Row(
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                ft.Column(
+                    spacing=1,
+                    tight=True,
+                    controls=[
+                        ft.Text("Full Course Access", size=10.5, color=ft.Colors.ON_SURFACE_VARIANT),
+                        ft.Text("Free Enrollment", size=13, weight=ft.FontWeight.W_800, color=ft.Colors.PRIMARY),
+                    ],
+                ),
+                mobile_cta_btn,
+            ],
+        ),
+    )
+
     # ─────────────────────────────────────────────────────────────────────────
     # DATA LOADER
     # ─────────────────────────────────────────────────────────────────────────
@@ -158,6 +202,10 @@ Check it out 👉 : nu-age.com.ng"""
 
             enrolled_ids = [str(c.get("id")) for c in (enrolled_list or [])]
             is_already_enrolled = str(cid) in enrolled_ids
+            if is_already_enrolled:
+                mobile_cta_label.value = "Continue"
+                mobile_cta_icon.name = ft.Icons.PLAY_ARROW_ROUNDED
+                mobile_cta_btn.on_click = lambda _: page.go(f"/courses/{cid}/view")
 
             # Eagerly load curriculum modules with their nested lessons
             modules = []
@@ -865,6 +913,7 @@ Check it out 👉 : nu-age.com.ng"""
         padding=0,
         bgcolor=ft.Colors.SURFACE,
         appbar=app_bar,
+        bottom_appbar=mobile_enroll_bar if is_mobile_screen else None,
         scroll=ft.ScrollMode.AUTO,
         controls=[content_socket],
     )

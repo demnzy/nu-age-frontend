@@ -428,10 +428,15 @@ def _course_assets_root() -> str:
         base = _platform_storage_dir
     else:
         base = os.environ.get("FLET_APP_STORAGE_DATA") or os.path.join(os.getcwd(), "app_data")
-    return os.path.join(base, "course_assets")
+    if str(base).startswith("/"):
+        return f"{str(base).rstrip('/')}/course_assets"
+    return os.path.normpath(os.path.join(base, "course_assets"))
 
 def _course_assets_dir(course_id: str) -> str:
-    return os.path.join(_course_assets_root(), course_id)
+    root = _course_assets_root()
+    if str(root).startswith("/"):
+        return f"{str(root).rstrip('/')}/{course_id}"
+    return os.path.normpath(os.path.join(root, course_id))
 
 
 def _is_hls_url(url: str) -> bool:

@@ -39,6 +39,7 @@ from src.components.bottom_appbar import PersistentBottomAppBar
 from src.notifications_view import notifications_view
 from src.platform_admin_view import platform_admin_view
 from src.store_view import store_view
+from src.theme.typography import apply_typography_system_wide, DEFAULT_PRESET_KEY
 import os
 
 
@@ -265,12 +266,18 @@ async def main(page: ft.Page):
     # 2. Attach it to the page event
     page.on_view_pop = view_pop
     page.fonts = {
-        "inter": "/fonts/Inter_28pt-Regular.ttf",  # Local path in /assets/
+        "inter": "/fonts/Inter_28pt-Regular.ttf",
         "roboto": "/fonts/Roboto_SemiCondensed-Regular.ttf",
         "montserrat": "/fonts/Montserrat-Regular.ttf",
+        "jakarta": "/fonts/PlusJakartaSans-Variable.ttf",
+        "outfit": "/fonts/Outfit-Variable.ttf",
+        "lora": "/fonts/Lora-Variable.ttf",
+        "spacegrotesk": "/fonts/SpaceGrotesk-Variable.ttf",
+        "firacode": "/fonts/FiraCode-Variable.ttf",
+        "poppins": "/fonts/Poppins-Regular.ttf",
     }
     LIGHT_THEME = ft.Theme(
-        font_family="montserrat",
+        font_family="inter",
         color_scheme=ft.ColorScheme(
             primary="#035800",
             secondary="#37BF14",       # Refactored modules use ft.Colors.PRIMARY
@@ -288,7 +295,7 @@ async def main(page: ft.Page):
         ),
     )
     DARK_THEME = ft.Theme(
-        font_family="montserrat",
+        font_family="inter",
         color_scheme=ft.ColorScheme(
             primary="#4CAF50",        # Lighter green — readable on dark bg
             secondary="#37BF14",      # Stays the same — pops on dark
@@ -385,6 +392,15 @@ async def main(page: ft.Page):
     saved_mode = await page.shared_preferences.get("dark_mode")
     is_dark_on_start = saved_mode == "true"
     await apply_theme(is_dark_on_start)
+
+    # ─────────────────────────────────────────────
+    # LOAD PERSISTED TYPOGRAPHY PRESET ON STARTUP
+    # ─────────────────────────────────────────────
+    try:
+        saved_font = await page.shared_preferences.get("typography_preset")
+        apply_typography_system_wide(page, saved_font or DEFAULT_PRESET_KEY, trigger_update=False)
+    except Exception as ex:
+        print(f"[Main] Error loading typography preset: {ex}")
 
     page.title = "Nu-age"
     page.window_width = 400
@@ -1127,7 +1143,13 @@ async def main(page: ft.Page):
 
 
         def is_public_route(route):
-            return route in ["/", "/login", "/signup", "/platform-admin"] or route.startswith("/accept-invite/")
+            r = (route or "").split("?")[0]
+            return (
+                r in ["/", "/login", "/signup", "/platform-admin", "/auth-callback", "nuage://auth-callback"]
+                or r.startswith("/accept-invite/")
+                or r.startswith("/auth-callback")
+                or r.startswith("nuage://auth-callback")
+            )
 
         def is_offline_capable_route(route):
             if getattr(page, "web", False):
@@ -1446,8 +1468,10 @@ async def main(page: ft.Page):
                 close_dialog()
 
         in_shell_route_flag = is_shell_route(page.route)
-        current_user = page.session.store.get("current_user") if hasattr(page, "session") and hasattr(page.session, "store") else None
-        cached_token = page.session.store.get("session_auth_token") if hasattr(page, "session") and hasattr(page.session, "store") else None
+        from src.utils.session_utils import get_session_user, get_session_store, set_session_value, clear_session_store
+        current_user = get_session_user(page) or None
+        _store = get_session_store(page)
+        cached_token = _store.get("session_auth_token") if hasattr(_store, "get") else None
         sp = ft.SharedPreferences()
         stored_token = await sp.get("auth_token")
 
@@ -1494,11 +1518,7 @@ async def main(page: ft.Page):
 
             if not token:
                 shimmer_task.cancel()
-                if hasattr(page, "session") and hasattr(page.session, "store"):
-                    try:
-                        page.session.store.clear()
-                    except Exception:
-                        pass
+                clear_session_store(page)
                 persistent_nav_bar.refresh()
                 # Pop the skeleton, but NEVER leave page.views empty here.
                 # If this is the very first route of the session (cold
@@ -1540,8 +1560,8 @@ async def main(page: ft.Page):
                 return
 
             if status == 200:
-                page.session.store.set("current_user", user_data)
-                page.session.store.set("session_auth_token", token)
+                set_session_value(page, "current_user", user_data)
+                set_session_value(page, "session_auth_token", token)
                 persistent_nav_bar.refresh()
             elif status in (401, 403):
                 # Access token expired/invalid — this is now the EXPECTED
@@ -1568,8 +1588,8 @@ async def main(page: ft.Page):
                         return
 
                     if status == 200:
-                        page.session.store.set("current_user", user_data)
-                        page.session.store.set("session_auth_token", new_token)
+                        set_session_value(page, "current_user", user_data)
+                        set_session_value(page, "session_auth_token", new_token)
                         persistent_nav_bar.refresh()
                         # Fall through to the normal view-render path below
                         # (do NOT return here) — this is now a success case.
@@ -1590,11 +1610,7 @@ async def main(page: ft.Page):
                             page.update()
                         await page.shared_preferences.remove("auth_token")
                         await page.shared_preferences.remove("refresh_token")
-                        if hasattr(page, "session") and hasattr(page.session, "store"):
-                            try:
-                                page.session.store.clear()
-                            except Exception:
-                                pass
+                        clear_session_store(page)
                         persistent_nav_bar.refresh()
                         await show_session_expired_dialog(
                             "Your session has ended. Please log in again to continue."
@@ -1624,11 +1640,7 @@ async def main(page: ft.Page):
                         page.update()
                     await page.shared_preferences.remove("auth_token")
                     await page.shared_preferences.remove("refresh_token")
-                    if hasattr(page, "session") and hasattr(page.session, "store"):
-                        try:
-                            page.session.store.clear()
-                        except Exception:
-                            pass
+                    clear_session_store(page)
                     persistent_nav_bar.refresh()
                     await show_session_expired_dialog(
                         "Your session has ended. Please log in again to continue."
@@ -1691,23 +1703,55 @@ async def main(page: ft.Page):
         # — otherwise navigating to /login or /signup would just stack a
         # new view on top of whatever was already showing instead of
         # replacing it.
-        if page.route == "/dashboard":
+        if clean_route in ("/auth-callback", "nuage://auth-callback") or (page.route and any(page.route.startswith(p) for p in ("/auth-callback", "nuage://auth-callback"))):
+            import urllib.parse
+            from src.utils.session_utils import set_session_value
+            query_str = ""
+            full_route_str = page.route or ""
+            if "?" in full_route_str:
+                query_str = full_route_str.split("?", 1)[1]
+            params = urllib.parse.parse_qs(query_str)
+            access_token = params.get("access_token", [None])[0]
+            refresh_token = params.get("refresh_token", [None])[0]
+            err = params.get("error", [None])[0]
+
+            if err:
+                show_error_dialog(f"Google Sign-In failed: {err}", title="Authentication Error")
+                page.go("/login")
+                return
+
+            if access_token:
+                try:
+                    session = AuthSession.for_page(page)
+                    await session.set_tokens(access_token, refresh_token or "")
+                    await page.shared_preferences.set("auth_token", access_token)
+                    if refresh_token:
+                        await page.shared_preferences.set("refresh_token", refresh_token)
+                    set_session_value(page, "session_auth_token", access_token)
+                    persistent_nav_bar.refresh()
+                    page.go("/dashboard")
+                    return
+                except Exception as ex:
+                    print(f"[AuthCallback] Failed to store auth tokens: {ex}")
+                    show_error_dialog("Failed to complete Google Sign-In. Please try again.", title="Sign In Error")
+                    page.go("/login")
+                    return
+            else:
+                page.go("/login")
+                return
+        elif page.route == "/dashboard":
             await load_view_and_report(dashboard_view(page), page.route, active_skeleton, active_shimmer_task)
         elif page.route in ("/", "/login"):
             token = await page.shared_preferences.get("auth_token")
             if not token:
-                if hasattr(page, "session") and hasattr(page.session, "store"):
-                    try:
-                        page.session.store.clear()
-                    except Exception:
-                        pass
+                clear_session_store(page)
                 persistent_nav_bar.refresh()
             page.views.clear()
             page.views.append(login_view(page))
         elif page.route == "/signup":
             page.views.clear()
             page.views.append(Signup_view(page))
-        elif page.route == "/profile":
+        elif clean_route == "/profile" or page.route == "/profile" or (page.route and page.route.startswith("/profile")):
             await load_view_and_report(profile_view(page), page.route, active_skeleton, active_shimmer_task)
         elif clean_route == "/courses" or page.route == "/courses":
             await load_view_and_report(courses_view(page), page.route, active_skeleton, active_shimmer_task)
@@ -1718,9 +1762,9 @@ async def main(page: ft.Page):
             await load_view_and_report(platform_admin_view(page), page.route, active_skeleton, active_shimmer_task)
         elif page.route == "/create-course":
             await load_view_and_report(create_courses_view(page, None), page.route, active_skeleton, active_shimmer_task)
-        elif page.route == "/edit-profile":
+        elif clean_route == "/edit-profile" or page.route == "/edit-profile":
             await load_view_and_report(edit_profile_view(page), page.route, active_skeleton, active_shimmer_task)
-        elif page.route == "/organisations":
+        elif clean_route == "/organisations" or page.route == "/organisations":
             await load_view_and_report(organisations_view(page), page.route, active_skeleton, active_shimmer_task)
         elif page.route == "/network" or (page.route and page.route.startswith("/network")):
             await load_view_and_report(network_view(page), page.route, active_skeleton, active_shimmer_task)
@@ -1738,7 +1782,7 @@ async def main(page: ft.Page):
                 chat_view(page, target_dm_user_id=target_dm, target_channel_id=target_ch),
                 page.route, active_skeleton, active_shimmer_task
             )
-        elif page.route == "/notifications":
+        elif clean_route == "/notifications" or page.route == "/notifications":
             await load_view_and_report(notifications_view(page), page.route, active_skeleton, active_shimmer_task)
         elif troute.match("/courses/:id/stats"):
             await load_view_and_report(course_stats_view(page, troute.id), page.route, active_skeleton, active_shimmer_task)
@@ -1757,13 +1801,18 @@ async def main(page: ft.Page):
             await load_view_and_report(leaderboards_view(page, initial_tab=tab, back_target=target_back), page.route, active_skeleton, active_shimmer_task)
         elif page.route == "/store" or (page.route and page.route.startswith("/store")):
             tab = "plans"
+            target_back = previous_route if (previous_route and previous_route != "/store") else "/dashboard"
             if page.route and "?" in page.route:
                 q = page.route.split("?", 1)[1]
                 if "tab=boosters" in q:
                     tab = "boosters"
                 elif "tab=org" in q:
                     tab = "org"
-            await load_view_and_report(store_view(page, initial_tab=tab), page.route, active_skeleton, active_shimmer_task)
+                if "back=" in q:
+                    for part in q.split("&"):
+                        if part.startswith("back="):
+                            target_back = part.split("=", 1)[1]
+            await load_view_and_report(store_view(page, initial_tab=tab, back_target=target_back), page.route, active_skeleton, active_shimmer_task)
         elif troute.match("/organisations/:org_id/playlists"):
             user_data = page.session.store.get("current_user") or {} if hasattr(page, "session") and hasattr(page.session, "store") else {}
             u_role = str(user_data.get("role", "")).upper()
@@ -1983,7 +2032,13 @@ async def main(page: ft.Page):
         # Kept in sync with is_public_route() inside _route_change_inner —
         # duplicated here because that one is a nested closure scoped to
         # a single route_change() call, not reachable from this handler.
-        return route in ["/", "/login", "/signup", "/platform-admin"] or (route or "").startswith("/accept-invite/")
+        r = (route or "").split("?")[0]
+        return (
+            r in ["/", "/login", "/signup", "/platform-admin", "/auth-callback", "nuage://auth-callback"]
+            or r.startswith("/accept-invite/")
+            or r.startswith("/auth-callback")
+            or r.startswith("nuage://auth-callback")
+        )
 
     async def on_window_event(e: ft.WindowEvent):
         if e.data in ("close", "hide", "minimize"):

@@ -9,7 +9,7 @@ Grounds doubts in the currently active lesson/module with:
 - Adaptive collapsible bottom dock on mobile with 1-tap minimize pill.
 - Session-wide chat history persistence across drawer toggles & navigation.
 - Dynamic real-time module/lesson context switching without reopening.
-- Strict Socratic assessment guardrails (anti-cheating hints and guidance).
+- Strict assessment guardrails (anti-cheating hints and guidance).
 - Assistant message action bar (Copy, Regenerate, Thumbs-up).
 - Uncropped input composer with inline rounded send button.
 """
@@ -24,6 +24,7 @@ from src.services.ai_tutor_session import (
     clear_course_history,
 )
 from src.utils.file_opener import show_page_snackbar, safe_set_clipboard
+from src.utils.typing_animator import stream_typing_animation
 
 
 async def _get_auth_token(page: ft.Page) -> Optional[str]:
@@ -58,6 +59,7 @@ class NeedHelpController:
     def __init__(self):
         self.update_module_context: Optional[Callable] = None
         self.toggle_minimized: Optional[Callable] = None
+        self.adapt_layout: Optional[Callable] = None
 
 
 AI_TUTOR_MOBILE_WIDTH = 400
@@ -90,27 +92,27 @@ def build_need_help_drawer(
         "is_assessment": is_assessment,
         "is_generating": False,
         "is_minimized": False,
+        "is_fullscreen": False,
     }
 
     def _get_lesson_content() -> str:
         ld = current_context["lesson_data"]
         return str(ld.get("content") or ld.get("description") or "")[:1400]
 
-    # Mobile breakpoint check
+    # Mobile breakpoint check (matches DESKTOP_BREAKPOINT = 1024)
     page_w = getattr(page, "width", None) or 1024
     page_h = getattr(page, "height", None) or 768
-    is_mobile = page_w < 768
+    is_mobile = page_w < 1024
 
     win_width = min(360, max(280, page_w - 24)) if is_mobile else AI_TUTOR_MOBILE_WIDTH
     win_height = max(240, min(int(page_h * 0.49), 420)) if is_mobile else 540
 
-    # Scrollable message list with auto-scroll
-    messages_col = ft.Column(
+    # Genuine scrollable ListView for smooth wheel/touch scrolling
+    messages_col = ft.ListView(
         spacing=8,
-        scroll=ft.ScrollMode.AUTO,
-        auto_scroll=True,
+        auto_scroll=False,
         expand=True,
-        horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+        padding=ft.Padding.symmetric(horizontal=10, vertical=4),
     )
 
     # Context subtitle header label (module · lesson with ellipsis truncation)
@@ -154,25 +156,31 @@ def build_need_help_drawer(
     def _get_max_user_bubble_width() -> float:
         w = getattr(page, "width", None) or 360
         if is_mobile:
-            return max(180, min(int(w * 0.80), int(w - 56)))
-        return 320
+            return max(180, min(int(w * 0.74), int(w - 64)))
+        return min(300, max(200, int((win_width or 400) * 0.76)))
 
     # Message bubble renderer matching reference image aesthetics
     def _bubble(text: str, is_user: bool, can_retry: bool = False, query_for_retry: str = "") -> ft.Control:
         if is_user:
-            is_long = len(text.strip()) > 28 or "\n" in text
-            user_bubble_width = _get_max_user_bubble_width() if is_long else None
+            user_text = text.strip()
+            max_w = _get_max_user_bubble_width()
+            if "\n" in user_text:
+                lines = user_text.splitlines()
+                char_len = max(len(l) for l in lines) if lines else len(user_text)
+            else:
+                char_len = len(user_text)
+            bubble_w = min(max_w, max(70, int(char_len * 8.2) + 30))
             return ft.Row(
                 alignment=ft.MainAxisAlignment.END,
                 controls=[
                     ft.Container(
                         padding=ft.Padding.symmetric(horizontal=12, vertical=8),
-                        border_radius=ft.BorderRadius.all(12),
+                        border_radius=ft.BorderRadius.all(14),
                         bgcolor=accent,
-                        width=user_bubble_width,
+                        width=bubble_w,
                         content=ft.Text(
-                            text,
-                            size=12.5,
+                            user_text,
+                            size=12,
                             color=ft.Colors.WHITE,
                             selectable=True,
                             no_wrap=False,
@@ -185,22 +193,13 @@ def build_need_help_drawer(
         assistant_card_bg = ft.Colors.SURFACE_CONTAINER_HIGHEST if is_dark else "#F8FAFC"
         assistant_border = ft.Border.all(1, ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE))
 
-        action_row = ft.Row(
-            spacing=4,
-            tight=True,
-            controls=[
-                ft.IconButton(
-                    icon=ft.Icons.CONTENT_COPY_ROUNDED,
-                    icon_size=14,
-                    icon_color=ft.Colors.GREY_500,
-                    tooltip="Copy explanation",
-                    style=ft.ButtonStyle(padding=ft.Padding.all(4)),
-                    on_click=lambda _: _copy_to_clipboard(text),
-                )
-            ],
+        md_control = ft.Markdown(
+            text,
+            selectable=True,
+            extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
         )
 
-        return ft.Column(
+        bubble_col = ft.Column(
             spacing=3,
             tight=True,
             horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
@@ -210,15 +209,27 @@ def build_need_help_drawer(
                     border_radius=ft.BorderRadius.all(12),
                     bgcolor=assistant_card_bg,
                     border=assistant_border,
-                    content=ft.Markdown(
-                        text,
-                        selectable=True,
-                        extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
-                    ),
+                    content=md_control,
                 ),
-                action_row,
+                ft.Row(
+                    spacing=4,
+                    tight=True,
+                    controls=[
+                        ft.IconButton(
+                            icon=ft.Icons.CONTENT_COPY_ROUNDED,
+                            icon_size=14,
+                            icon_color=ft.Colors.GREY_500,
+                            tooltip="Copy explanation",
+                            style=ft.ButtonStyle(padding=ft.Padding.all(4)),
+                            on_click=lambda _, t=text: _copy_to_clipboard(getattr(bubble_col, "_full_text", t) or md_control.value or t),
+                        )
+                    ],
+                ),
             ],
         )
+        bubble_col._md_control = md_control
+        bubble_col._full_text = text
+        return bubble_col
 
     def _render_context_switch_pill(label: str) -> ft.Container:
         return ft.Container(
@@ -298,7 +309,7 @@ def build_need_help_drawer(
                     f"Would you like me to explain the theoretical concept behind this question?"
                 )
             return (
-                f"🧠 **Socratic Concept Hint for {les_title}**:\n\n"
+                f"🧠 ** Concept Hint for {les_title}**:\n\n"
                 f"In this assessment, remember the guiding principle from **{mod_title}**: "
                 f"evaluate each step systematically and verify your constraints before choosing your final response.\n\n"
                 f"👉 *Hint*: Reflect on how edge cases or exceptions are handled in this topic."
@@ -391,16 +402,20 @@ def build_need_help_drawer(
         typing_indicator.visible = False
         current_context["is_generating"] = False
         send_btn.disabled = False
-        messages_col.controls.append(_bubble(reply, is_user=False, can_retry=True, query_for_retry=user_text))
+        # Build assistant bubble starting with cursor and smoothly stream typing
+        asst_bubble = _bubble("", is_user=False, can_retry=True, query_for_retry=user_text)
+        asst_bubble._full_text = reply
+        messages_col.controls.append(asst_bubble)
         page.update()
 
-        async def _scroll_down_reply():
-            await asyncio.sleep(0.05)
-            try:
-                await messages_col.scroll_to(offset=-1, duration=250)
-            except Exception:
-                pass
-        asyncio.create_task(_scroll_down_reply())
+        await stream_typing_animation(
+            target_control=asst_bubble._md_control,
+            full_text=reply,
+            page=page,
+            scroll_container=messages_col,
+            words_per_chunk=2,
+            chunk_interval_ms=25,
+        )
 
     def send_query(text: str):
         clean_text = text.strip()
@@ -548,41 +563,49 @@ def build_need_help_drawer(
         ink=True,
     )
 
+    def current_is_mobile() -> bool:
+        w = getattr(page, "width", None)
+        if w is None and hasattr(page, "window") and page.window:
+            w = getattr(page.window, "width", None)
+        return (w or 1024) < 1024
+
     def toggle_minimize(e=None):
         current_context["is_minimized"] = not current_context["is_minimized"]
-        if current_context["is_minimized"]:
-            main_window.visible = False
-            minimized_pill.visible = True
-            if is_mobile:
+        is_mob = current_is_mobile()
+        if is_mob:
+            if current_context["is_minimized"]:
+                container.content = minimized_pill
+                container.height = None
                 container.top = None
                 container.bottom = 10
                 container.left = 10
                 container.right = 10
-                container_col.expand = False
-                container_col.tight = True
-        else:
-            is_fs = current_context.get("is_fullscreen", False)
-            if is_mobile:
+                container.bgcolor = ft.Colors.TRANSPARENT
+                container.border = None
+                container.shadow = None
+            else:
+                is_fs = current_context.get("is_fullscreen", False)
+                container.content = main_window_col
+                container.bgcolor = card_bg
+                container.border_radius = ft.BorderRadius.all(16)
+                container.border = ft.Border.all(1.2, ft.Colors.with_opacity(0.18, accent))
+                container.shadow = ft.BoxShadow(
+                    blur_radius=28,
+                    color=ft.Colors.with_opacity(0.25, ft.Colors.BLACK),
+                    offset=ft.Offset(0, 8),
+                )
                 if is_fs:
                     container.top = 8
                     container.bottom = 8
                     container.left = 8
                     container.right = 8
-                    container_col.expand = True
-                    container_col.tight = False
-                    main_window.height = None
-                    main_window.expand = True
+                    container.height = None
                 else:
                     container.top = None
                     container.bottom = 10
                     container.left = 10
                     container.right = 10
-                    container_col.expand = False
-                    container_col.tight = True
-                    main_window.expand = False
-                    main_window.height = win_height
-            main_window.visible = True
-            minimized_pill.visible = False
+                    container.height = win_height
         page.update()
 
     minimized_pill.on_click = toggle_minimize
@@ -602,29 +625,19 @@ def build_need_help_drawer(
         fullscreen_btn.icon = ft.Icons.FULLSCREEN_EXIT_ROUNDED if is_fs else ft.Icons.FULLSCREEN_ROUNDED
         fullscreen_btn.tooltip = "Exit Full Screen" if is_fs else "Full Screen"
 
-        if is_mobile:
+        if current_is_mobile():
             if is_fs:
-                # Grow and fill the entire screen as an overlay within visible screen bounds
                 container.top = 8
                 container.bottom = 8
                 container.left = 8
                 container.right = 8
-                container_col.expand = True
-                container_col.tight = False
-                main_window.height = None
-                main_window.expand = True
-                main_window.border_radius = ft.BorderRadius.all(16)
+                container.height = None
             else:
-                # Easily minimise back to the normal half-screen size
                 container.top = None
                 container.bottom = 10
                 container.left = 10
                 container.right = 10
-                container_col.expand = False
-                container_col.tight = True
-                main_window.expand = False
-                main_window.height = win_height
-                main_window.border_radius = ft.BorderRadius.all(16)
+                container.height = win_height
         page.update()
 
     fullscreen_btn.on_click = toggle_fullscreen
@@ -633,16 +646,18 @@ def build_need_help_drawer(
         current_context["is_fullscreen"] = False
         fullscreen_btn.icon = ft.Icons.FULLSCREEN_ROUNDED
         fullscreen_btn.tooltip = "Full Screen"
-        if is_mobile:
+        if current_is_mobile():
             container.top = None
             container.bottom = 10
             container.left = 10
             container.right = 10
-            container_col.expand = False
-            container_col.tight = True
-            main_window.expand = False
-            main_window.height = win_height
-            main_window.border_radius = ft.BorderRadius.all(16)
+            container.height = win_height
+        else:
+            container.left = None
+            container.right = None
+            container.top = None
+            container.bottom = None
+            container.height = None
         if callable(on_close):
             try:
                 on_close(e)
@@ -661,7 +676,6 @@ def build_need_help_drawer(
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 expand=True,
                 controls=[
-                    # Green rounded sparkle icon box matching screenshot
                     ft.Container(
                         padding=ft.Padding.all(6),
                         border_radius=ft.BorderRadius.all(8),
@@ -714,139 +728,131 @@ def build_need_help_drawer(
         ],
     )
 
-    if not is_mobile:
-        # =========================================================
-        # DESKTOP: Sleek Raised Right-Hand Companion Sidebar / Dock
-        # =========================================================
-        container.width = AI_TUTOR_MOBILE_WIDTH
-        container.expand = False
-        container.bgcolor = card_bg
-        container.clip_behavior = ft.ClipBehavior.ANTI_ALIAS
-        container.border_radius = ft.BorderRadius.all(16)
-        container.border = ft.Border.all(
-            1, ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)
-        )
-        container.shadow = ft.BoxShadow(
-            blur_radius=20,
-            spread_radius=0,
-            color=ft.Colors.with_opacity(0.14, ft.Colors.BLACK),
-            offset=ft.Offset(0, 4),
-        )
-        container.animate = ft.Animation(duration=280, curve=ft.AnimationCurve.EASE_OUT_CUBIC)
-        container.animate_opacity = ft.Animation(duration=220, curve=ft.AnimationCurve.EASE_IN_OUT)
-        container.padding = 0
-        container.margin = ft.Padding.only(right=12, top=6, bottom=12)
-        container.left = None
-        container.right = None
-        container.top = None
-        container.bottom = None
-        container.alignment = None
-
-        container.content = ft.Column(
-            spacing=0,
-            expand=True,
-            controls=[
-                # Top header with lesson context matching screenshot
-                ft.Container(
-                    padding=ft.Padding.symmetric(horizontal=14, vertical=12),
-                    border=ft.Border.only(
-                        bottom=ft.BorderSide(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE))
-                    ),
-                    content=header_content,
+    main_window_col = ft.Column(
+        spacing=0,
+        expand=True,
+        controls=[
+            # Top header with lesson context matching screenshot
+            ft.Container(
+                padding=ft.Padding.symmetric(horizontal=14, vertical=12),
+                border=ft.Border.only(
+                    bottom=ft.BorderSide(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE))
                 ),
-                # Quick prompt chips
-                ft.Container(
-                    padding=ft.Padding.symmetric(horizontal=12, vertical=10),
-                    content=chips_col,
-                ),
-                # Message list
-                ft.Container(
-                    expand=True,
-                    padding=ft.Padding.symmetric(horizontal=10, vertical=4),
-                    content=messages_col,
-                ),
-                # Typing indicator
-                ft.Container(
-                    padding=ft.Padding.symmetric(horizontal=12, vertical=2),
-                    content=typing_indicator,
-                ),
-                # Input composer footer
-                ft.Container(
-                    padding=ft.Padding.symmetric(horizontal=12, vertical=10),
-                    border=ft.Border.only(
-                        top=ft.BorderSide(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE))
-                    ),
-                    content=ft.Row(
-                        spacing=8,
-                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                        controls=[
-                            input_field,
-                            send_btn,
-                        ],
-                    ),
-                ),
-            ],
-        )
-
-    else:
-        # =========================================================
-        # MOBILE: Non-intrusive Collapsible Bottom Sheet / Dock
-        # =========================================================
-        main_window = ft.Container(
-            height=win_height,
-            bgcolor=card_bg,
-            border_radius=ft.BorderRadius.all(16),
-            border=ft.Border.all(1.2, ft.Colors.with_opacity(0.18, accent)),
-            padding=ft.Padding.all(12),
-            shadow=ft.BoxShadow(
-                blur_radius=28,
-                color=ft.Colors.with_opacity(0.25, ft.Colors.BLACK),
-                offset=ft.Offset(0, 8),
+                content=header_content,
             ),
-            animate=ft.Animation(duration=280, curve=ft.AnimationCurve.EASE_OUT_CUBIC),
-            content=ft.Column(
-                spacing=6,
+            # Quick prompt chips
+            ft.Container(
+                padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+                content=chips_col,
+            ),
+            # Scrollable Message list
+            ft.Container(
                 expand=True,
-                controls=[
-                    header_content,
-                    ft.Divider(height=1, color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
-                    chips_col,
-                    ft.Container(
-                        expand=True,
-                        content=messages_col,
-                    ),
-                    typing_indicator,
-                    ft.Row(
-                        spacing=8,
-                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                        controls=[
-                            input_field,
-                            send_btn,
-                        ],
-                    ),
-                ],
+                padding=0,
+                content=messages_col,
             ),
-        )
+            # Typing indicator
+            ft.Container(
+                padding=ft.Padding.symmetric(horizontal=12, vertical=2),
+                content=typing_indicator,
+            ),
+            # Input composer footer
+            ft.Container(
+                padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+                border=ft.Border.only(
+                    top=ft.BorderSide(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE))
+                ),
+                content=ft.Row(
+                    spacing=8,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[
+                        input_field,
+                        send_btn,
+                    ],
+                ),
+            ),
+        ],
+    )
 
-        container_col = ft.Column(
-            tight=True,
-            horizontal_alignment=ft.CrossAxisAlignment.END,
-            controls=[
-                minimized_pill,
-                main_window,
-            ],
-        )
+    def adapt_layout(is_desktop: bool, page_w: int, page_h: int):
+        nonlocal is_mobile, win_height
+        is_mobile = not is_desktop
+        win_height = max(240, min(int(page_h * 0.49), 420)) if is_mobile else 540
+        fullscreen_btn.visible = is_mobile
 
-        container.left = 10
-        container.right = 10
-        container.bottom = 10
-        container.top = None
-        container.width = None
-        container.expand = False
-        container.alignment = None
-        container.shadow = None
-        container.border = None
-        container.animate_position = ft.Animation(duration=280, curve=ft.AnimationCurve.EASE_OUT_CUBIC)
-        container.content = container_col
+        if is_desktop:
+            container.left = None
+            container.right = None
+            container.top = None
+            container.bottom = None
+            container.width = AI_TUTOR_MOBILE_WIDTH
+            container.height = None
+            container.expand = False
+            container.margin = ft.Padding.only(right=12, top=6, bottom=12)
+            container.bgcolor = card_bg
+            container.clip_behavior = ft.ClipBehavior.ANTI_ALIAS
+            container.border_radius = ft.BorderRadius.all(16)
+            container.border = ft.Border.all(
+                1, ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)
+            )
+            container.shadow = ft.BoxShadow(
+                blur_radius=20,
+                spread_radius=0,
+                color=ft.Colors.with_opacity(0.14, ft.Colors.BLACK),
+                offset=ft.Offset(0, 4),
+            )
+            container.content = main_window_col
+        else:
+            container.margin = None
+            container.width = None
+            container.expand = False
+            is_fs = current_context.get("is_fullscreen", False)
+            is_min = current_context.get("is_minimized", False)
+            if is_min:
+                container.content = minimized_pill
+                container.height = None
+                container.left = 10
+                container.right = 10
+                container.bottom = 10
+                container.top = None
+                container.bgcolor = ft.Colors.TRANSPARENT
+                container.border = None
+                container.shadow = None
+            elif is_fs:
+                container.content = main_window_col
+                container.left = 8
+                container.right = 8
+                container.top = 8
+                container.bottom = 8
+                container.height = None
+                container.bgcolor = card_bg
+                container.border_radius = ft.BorderRadius.all(16)
+                container.border = ft.Border.all(1.2, ft.Colors.with_opacity(0.18, accent))
+                container.shadow = ft.BoxShadow(
+                    blur_radius=28,
+                    color=ft.Colors.with_opacity(0.25, ft.Colors.BLACK),
+                    offset=ft.Offset(0, 8),
+                )
+            else:
+                container.content = main_window_col
+                container.left = 10
+                container.right = 10
+                container.bottom = 10
+                container.top = None
+                container.height = win_height
+                container.bgcolor = card_bg
+                container.border_radius = ft.BorderRadius.all(16)
+                container.border = ft.Border.all(1.2, ft.Colors.with_opacity(0.18, accent))
+                container.shadow = ft.BoxShadow(
+                    blur_radius=28,
+                    color=ft.Colors.with_opacity(0.25, ft.Colors.BLACK),
+                    offset=ft.Offset(0, 8),
+                )
+
+    if controller is not None:
+        controller.adapt_layout = adapt_layout
+
+    # Initial layout setup based on current screen width
+    adapt_layout(is_desktop=not is_mobile, page_w=page_w, page_h=page_h)
 
     return container

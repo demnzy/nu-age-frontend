@@ -222,3 +222,53 @@ async def logout_all_devices_request(token: str):
                 return resp.status_code, {"detail": "Unexpected response"}
     except httpx.RequestError as e:
         return 503, {"detail": f"Connection failed: {e}"}
+
+
+async def get_google_auth_start_url(
+    platform: str = "web",
+    persona: str = "student",
+    port: int | None = None,
+    origin: str | None = None,
+):
+    """Fetches the Google OAuth authorization URL from the backend server."""
+    limits = httpx.Timeout(connect=4.0, read=10.0, write=10.0, pool=4.0)
+    params = {"platform": platform, "persona": persona}
+    if port:
+        params["port"] = port
+    if origin:
+        params["origin"] = origin
+
+    try:
+        async with httpx.AsyncClient(timeout=limits, verify=ssl_context, auth=None) as client:
+            resp = await client.get(
+                f"{api_url}/users/auth/google/start",
+                params=params,
+            )
+            try:
+                return resp.status_code, resp.json()
+            except Exception:
+                return resp.status_code, {"detail": "Unexpected response from server"}
+    except httpx.ReadTimeout:
+        return 504, {"detail": "Server took too long to respond. Please try again."}
+    except httpx.RequestError as e:
+        return 503, {"detail": "Could not connect to authentication server. Please check your internet."}
+
+
+
+async def exchange_google_token_request(token_payload: dict):
+    """Directly exchanges an ID token or access token with the backend."""
+    limits = httpx.Timeout(connect=4.0, read=12.0, write=12.0, pool=4.0)
+    try:
+        async with httpx.AsyncClient(timeout=limits, verify=ssl_context, auth=None) as client:
+            resp = await client.post(
+                f"{api_url}/users/auth/google",
+                json=token_payload,
+            )
+            try:
+                return resp.status_code, resp.json()
+            except Exception:
+                return resp.status_code, {"detail": "Unexpected response from server"}
+    except httpx.ReadTimeout:
+        return 504, {"detail": "Server took too long to respond. Please try again."}
+    except httpx.RequestError as e:
+        return 503, {"detail": "Could not connect to authentication server. Please check your internet."}

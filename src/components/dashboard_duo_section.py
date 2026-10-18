@@ -337,6 +337,11 @@ def build_dashboard_duo_section(
                     d_streak = item.get("duo_streak", 0)
                     is_my_duo = item.get("is_my_duo", False)
 
+                    p_a_uni = p_a.get("university") or p_b.get("university")
+                    raw_target = str(item.get("target_exam") or "").strip()
+                    clean_target = raw_target if (raw_target and not any(term in raw_target.upper() for term in ["JAMB", "UTME", "GENERAL"])) else None
+                    sub_label = p_a_uni or (f"{clean_target} Focus" if clean_target else "Campus Duos")
+
                     row_content = ft.Row(
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -351,7 +356,7 @@ def build_dashboard_duo_section(
                                         tight=True,
                                         controls=[
                                             ft.Text(f"{name_a} & {name_b}", size=12, weight=ft.FontWeight.W_700, color=ft.Colors.PRIMARY if is_my_duo else ft.Colors.ON_SURFACE),
-                                            ft.Text(item.get("target_exam") or "Campus Duos", size=10, color=ft.Colors.GREY_500),
+                                            ft.Text(sub_label, size=10, color=ft.Colors.GREY_500),
                                         ],
                                     ),
                                 ],

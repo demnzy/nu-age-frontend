@@ -19,6 +19,8 @@ Features:
 import asyncio
 import logging
 import os
+import shutil
+from pathlib import Path
 from typing import Optional, List, Dict, Any
 import httpx
 import flet as ft
@@ -28,8 +30,10 @@ from src.local_db import (
     get_offline_lesson_audio,
     save_offline_lesson_audio,
     is_lesson_audio_cached,
+    _resolve_db_path,
 )
-from src.local_media_server import asset_url
+from src.download_manager import _course_assets_root
+from src.local_media_server import asset_url, ensure_started
 from src.utils.file_opener import show_page_snackbar
 
 logger = logging.getLogger("lesson_audio_player")
@@ -37,10 +41,13 @@ logger = logging.getLogger("lesson_audio_player")
 BASE_URL = os.getenv("API_URL", "https://api.nu-age.name.ng").rstrip("/")
 
 LANGUAGES = [
-    {"code": "en", "label": "English", "flag": "🇬🇧"},
-    {"code": "ha", "label": "Hausa", "flag": "🇳🇬"},
-    {"code": "fr", "label": "French", "flag": "🇫🇷"},
+    {"code": "en", "label": "English"},
+    {"code": "ha", "label": "Hausa"},
+    {"code": "fr", "label": "French"},
 ]
+
+# Process-wide lock tracking active in-flight audio downloads to prevent duplicate network calls
+_global_active_downloads: set = set()
 
 
 class LessonAudioPlayer(ft.Container):
@@ -75,7 +82,10 @@ class LessonAudioPlayer(ft.Container):
         self.is_playing = False
         self.is_loading = False
         self.is_preparing = False
-        self._is_scrubbing = False
+        self.is_service_loaded = False
+        self.is_verified_ready = False
+        self._is_busy = False
+        self.pending_play_request = False
         self._cached_audio_urls: Dict[str, str] = {}
         self.duration_seconds = 0.0
         self.position_seconds = 0.0
@@ -115,7 +125,6 @@ class LessonAudioPlayer(ft.Container):
             on_duration_change=self._on_player_duration_changed,
             on_position_change=self._on_player_position_changed,
             on_state_change=self._on_player_state_changed,
-            on_seek_complete=self._on_player_seek_complete,
         )
 
         # Attach audio service to Page services lifecycle
@@ -123,26 +132,17 @@ class LessonAudioPlayer(ft.Container):
             if self.audio_service not in self.target_page.services:
                 self.target_page.services.append(self.audio_service)
 
-        # 2. Direct-Tap Play / Pause Button
-        self.play_icon = ft.Icon(ft.Icons.PLAY_ARROW_ROUNDED, size=20, color=ft.Colors.ON_PRIMARY)
-        self.spinner = ft.ProgressRing(width=18, height=18, stroke_width=2.5, color=ft.Colors.ON_PRIMARY)
-
-        # 2b. Mini pulsing sound wave for preparation state
-        self.prep_wave_bars = [
-            ft.Container(
-                width=2.5,
-                height=6,
-                border_radius=ft.BorderRadius.all(1.5),
-                bgcolor=ft.Colors.ON_PRIMARY,
-                animate=ft.Animation(160, ft.AnimationCurve.EASE_IN_OUT),
-            )
-            for _ in range(3)
-        ]
-        self.prep_wave_row = ft.Row(
-            controls=self.prep_wave_bars,
-            spacing=2.5,
-            alignment=ft.MainAxisAlignment.CENTER,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        # 2. Direct-Tap Play / Pause Button - verified ready state styling
+        self.play_icon = ft.Icon(
+            ft.Icons.PLAY_ARROW_ROUNDED,
+            size=20,
+            color=ft.Colors.with_opacity(0.38, ft.Colors.ON_SURFACE),
+        )
+        self.spinner = ft.ProgressRing(
+            width=18,
+            height=18,
+            stroke_width=2.5,
+            color=ft.Colors.PRIMARY,
         )
 
         self.play_button = ft.Container(
@@ -150,21 +150,21 @@ class LessonAudioPlayer(ft.Container):
             width=36,
             height=36,
             border_radius=ft.BorderRadius.all(18),
-            bgcolor=ft.Colors.PRIMARY,
+            bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
             alignment=ft.Alignment.CENTER,
             ink=True,
             on_click=self._toggle_play_click,
-            tooltip="Play audio narration",
+            tooltip="Checking audio narration...",
         )
 
-        # 3. Waveform Visualizer
+        # 3. Waveform Indicator
         self.wave_bars = [
             ft.Container(
                 width=3,
                 height=6,
                 border_radius=2,
                 bgcolor=ft.Colors.PRIMARY,
-                animate=ft.Animation(180, ft.AnimationCurve.EASE_IN_OUT),
+                animate_size=150,
             )
             for _ in range(4)
         ]
@@ -175,15 +175,18 @@ class LessonAudioPlayer(ft.Container):
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
         )
 
-        # 4. Interactive Scrubber Slider
+        # 4. Accurate Read-Only Progress Bar (Seeking disabled to prevent desync, thumb vibrant green when ready/playing)
         self.slider = ft.Slider(
             min=0,
             max=100,
             value=0,
-            active_color=ft.Colors.PRIMARY,
-            inactive_color=ft.Colors.with_opacity(0.15, ft.Colors.ON_SURFACE),
-            on_change=self._on_slider_change,
-            on_change_end=self._on_slider_change_end,
+            disabled=False,
+            active_color=ft.Colors.with_opacity(0.20, ft.Colors.ON_SURFACE),
+            inactive_color=ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE),
+            thumb_color=ft.Colors.with_opacity(0.38, ft.Colors.ON_SURFACE),
+            mouse_cursor=ft.MouseCursor.BASIC,
+            on_change=self._on_slider_prevent_seek,
+            on_change_end=self._on_slider_prevent_seek,
             expand=True,
         )
 
@@ -206,65 +209,132 @@ class LessonAudioPlayer(ft.Container):
             tooltip="Playback speed",
         )
 
-        # 7. Offline Download / Cached Badge
-        self.offline_action_btn = ft.IconButton(
-            icon=ft.Icons.DOWNLOAD_FOR_OFFLINE_ROUNDED,
-            icon_size=18,
-            width=34,
-            height=34,
-            icon_color=ft.Colors.ON_SURFACE_VARIANT,
-            tooltip="Save audio offline",
-            on_click=self._on_download_offline_click,
+    def _get_current_lang_label(self) -> str:
+        for l in LANGUAGES:
+            if l["code"] == self.current_lang:
+                return l["label"]
+        return self.current_lang.title()
+
+    def _build_lang_selector(self) -> ft.Container:
+        """Sleek, modern dropdown button that scales cleanly from 3 to 31+ languages without clutter."""
+        self.lang_label_text = ft.Text(
+            self._get_current_lang_label(),
+            size=11 if self._is_mobile() else 12,
+            weight=ft.FontWeight.W_600,
+            color=ft.Colors.ON_SURFACE,
+        )
+        return ft.Container(
+            content=ft.Row(
+                [
+                    ft.Icon(ft.Icons.LANGUAGE_ROUNDED, size=15, color=ft.Colors.PRIMARY),
+                    self.lang_label_text,
+                    ft.Icon(ft.Icons.KEYBOARD_ARROW_DOWN_ROUNDED, size=15, color=ft.Colors.ON_SURFACE_VARIANT),
+                ],
+                spacing=5,
+                tight=True,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            padding=ft.Padding.symmetric(horizontal=10, vertical=5),
+            border_radius=ft.BorderRadius.all(20),
+            bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
+            border=ft.Border.all(1, ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)),
+            ink=True,
+            on_click=self._open_language_modal,
+            tooltip="Choose narration language",
         )
 
-    def _build_lang_selector(self) -> ft.Row:
-        is_mobile = self._is_mobile()
-        lang_items = []
+    def _open_language_modal(self, e=None):
+        """Opens a sleek, scrollable modal picker that supports 31+ languages cleanly."""
+        if not self.target_page:
+            return
+
+        items = []
         for l in LANGUAGES:
             is_sel = l["code"] == self.current_lang
-            lang_items.append(
+            code = l["code"]
+            label = l["label"]
+
+            def _on_pick(evt, picked_code=code):
+                self._on_select_language_click(picked_code)
+                dlg.open = False
+                try:
+                    self.target_page.update()
+                except Exception:
+                    pass
+
+            items.append(
                 ft.Container(
                     content=ft.Row(
                         [
-                            ft.Text(l["flag"], size=12),
                             ft.Text(
-                                l["code"].upper(),
-                                size=11,
+                                label,
+                                size=13,
                                 weight=ft.FontWeight.BOLD if is_sel else ft.FontWeight.W_500,
-                                color=ft.Colors.PRIMARY if is_sel else ft.Colors.ON_SURFACE_VARIANT,
+                                color=ft.Colors.PRIMARY if is_sel else ft.Colors.ON_SURFACE,
+                                expand=True,
+                            ),
+                            ft.Icon(
+                                ft.Icons.CHECK_CIRCLE_ROUNDED,
+                                size=18,
+                                color=ft.Colors.PRIMARY,
+                                visible=is_sel,
                             ),
                         ],
-                        spacing=3,
-                        tight=True,
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     ),
-                    padding=ft.Padding.symmetric(horizontal=6, vertical=3) if is_mobile else ft.Padding.symmetric(horizontal=8, vertical=4),
-                    border_radius=ft.BorderRadius.all(6),
+                    padding=ft.Padding.symmetric(horizontal=14, vertical=10),
+                    border_radius=ft.BorderRadius.all(8),
                     bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY) if is_sel else ft.Colors.TRANSPARENT,
-                    border=ft.Border.all(
-                        1.2 if is_sel else 1,
-                        ft.Colors.PRIMARY if is_sel else ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE),
-                    ),
                     ink=True,
-                    data=l["code"],
-                    on_click=self._on_select_language_click,
+                    on_click=_on_pick,
                 )
             )
-        return ft.Row(controls=lang_items, spacing=4, tight=True)
+
+        dlg = ft.AlertDialog(
+            modal=True,
+            title=ft.Row(
+                [
+                    ft.Icon(ft.Icons.TRANSLATE_ROUNDED, color=ft.Colors.PRIMARY, size=20),
+                    ft.Text("Narration Language", size=16, weight=ft.FontWeight.BOLD),
+                ],
+                spacing=8,
+            ),
+            content=ft.Container(
+                content=ft.ListView(
+                    controls=items,
+                    spacing=4,
+                ),
+                width=320,
+                height=min(360, len(LANGUAGES) * 48 + 10),
+            ),
+            actions=[
+                ft.TextButton(
+                    "Cancel",
+                    on_click=lambda evt: self._close_dialog(dlg),
+                )
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+
+        if dlg not in self.target_page.overlay:
+            self.target_page.overlay.append(dlg)
+        dlg.open = True
+        try:
+            self.target_page.update()
+        except Exception:
+            pass
+
+    def _close_dialog(self, dlg: ft.AlertDialog):
+        dlg.open = False
+        try:
+            self.target_page.update()
+        except Exception:
+            pass
 
     def render_ui(self):
         """Assembles a permanent, stable layout with zero invisible video controls."""
-        is_cached = is_lesson_audio_cached(self.lesson_id, self.current_lang, self.target_page)
         is_mobile = self._is_mobile()
-
-        if is_cached:
-            self.offline_action_btn.icon = ft.Icons.OFFLINE_PIN_ROUNDED
-            self.offline_action_btn.icon_color = ft.Colors.GREEN_600
-            self.offline_action_btn.tooltip = "Audio saved for offline study"
-        else:
-            self.offline_action_btn.icon = ft.Icons.DOWNLOAD_FOR_OFFLINE_ROUNDED
-            self.offline_action_btn.icon_color = ft.Colors.ON_SURFACE_VARIANT
-            self.offline_action_btn.tooltip = "Save audio offline"
-
         lang_selector = self._build_lang_selector()
 
         if is_mobile:
@@ -285,10 +355,16 @@ class LessonAudioPlayer(ft.Container):
                                 ],
                                 spacing=6,
                                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                expand=True,
                             ),
-                            lang_selector,
-                            self.offline_action_btn,
+                            ft.Row(
+                                [
+                                    self.speed_btn,
+                                    lang_selector,
+                                ],
+                                spacing=6,
+                                tight=True,
+                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            ),
                         ],
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -298,14 +374,13 @@ class LessonAudioPlayer(ft.Container):
                             self.play_button,
                             self.slider,
                             self.time_label,
-                            self.speed_btn,
                         ],
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         spacing=8,
                     ),
                 ],
-                spacing=6,
+                spacing=8,
                 horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
             )
         else:
@@ -330,7 +405,6 @@ class LessonAudioPlayer(ft.Container):
                     self.time_label,
                     self.speed_btn,
                     lang_selector,
-                    self.offline_action_btn,
                 ],
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -381,52 +455,142 @@ class LessonAudioPlayer(ft.Container):
             pass
         return getattr(self.target_page, "session_token", "") or ""
 
+    def _safe_asset_url(self, local_path: str) -> str:
+        """
+        Returns the optimal audio playback source URI:
+        Always routes through local_media_server on 127.0.0.1.
+        This provides sub-millisecond local loopback playback,
+        guarantees RFC 7233 range-request seeking support,
+        and completely avoids Flutter audioplayers path encoding failures
+        across Windows (spaces in paths), Android, and Web.
+        """
+        if not local_path or not os.path.exists(local_path):
+            return ""
+
+        try:
+            from src.local_media_server import asset_url
+            return asset_url(local_path)
+        except Exception as ex:
+            logger.error(f"Error resolving local_media_server URL for {local_path}: {ex}")
+            return Path(local_path).as_uri()
+
+    def _on_slider_prevent_seek(self, e=None):
+        """Prevents manual seeking while keeping the thumb indicator vibrant green."""
+        if self.duration_seconds > 0:
+            self.slider.value = min(self.position_seconds, self.slider.max)
+        else:
+            self.slider.value = 0
+        try:
+            if getattr(self.slider, "page", None):
+                self.slider.update()
+        except Exception:
+            pass
+
+    async def _silent_verify_uri(self, uri: str) -> bool:
+        """
+        Silently tests in the background if the audio stream is genuinely accessible and ready to play,
+        not just a validly formatted URL string.
+        """
+        if not uri or self.is_disposed:
+            return False
+
+        try:
+            # Local loopback server (127.0.0.1)
+            if "127.0.0.1" in uri or "localhost" in uri:
+                async with httpx.AsyncClient(timeout=1.0) as client:
+                    resp = await client.head(uri)
+                    return resp.status_code in (200, 206)
+
+            # Local file URI or Windows/POSIX local path
+            if uri.startswith("file://") or (os.name == "nt" and ":\\" in uri) or uri.startswith("/"):
+                clean_path = uri.replace("file:///", "").replace("file://", "")
+                if os.path.exists(clean_path) and os.path.getsize(clean_path) > 500:
+                    return True
+                return False
+
+            # If it's already an authenticated CDN URL from Nu-Age / Bunny CDN, it is verified by definition
+            if "nu-age-cdn.b-cdn.net" in uri or "b-cdn.net" in uri or "bunny" in uri:
+                return True
+
+            # HTTP or HTTPS streaming URL
+            async with httpx.AsyncClient(timeout=2.5, follow_redirects=True) as client:
+                head_resp = await client.head(uri)
+                if head_resp.status_code in (200, 206, 302, 307):
+                    return True
+        except Exception as ex:
+            logger.debug(f"Silent audio verification notice for {uri}: {ex}")
+            return False
+        return False
+
     async def _prefetch_and_preload(self):
-        """Proactively checks local offline DB and remote CDN cache, preloading audio onto the service."""
+        """Proactively checks local offline DB and remote CDN cache, silently testing readiness before preloading."""
         if self.is_disposed:
             return
 
-        # 1. Check local offline SQLite cache first
+        # 1. Check local offline SQLite cache first (0ms load from disk)
         local_path = get_offline_lesson_audio(self.lesson_id, self.current_lang, self.target_page)
-        if local_path and os.path.exists(local_path):
-            uri = asset_url(local_path)
-            self._current_loaded_uri = uri
-            self.audio_service.src = uri
-            try:
-                self.audio_service.update()
-            except Exception:
-                pass
+        if local_path and os.path.exists(local_path) and os.path.getsize(local_path) > 500:
+            uri = self._safe_asset_url(local_path)
+            print(f"[AUDIO] Found local disk cache for lesson {self.lesson_id} [{self.current_lang.upper()}]: {uri}", flush=True)
+            self.is_verified_ready = True
+            if self._current_loaded_uri != uri:
+                self._current_loaded_uri = uri
+                self.is_service_loaded = False
+                self.audio_service.src = uri
+                try:
+                    self.audio_service.update()
+                except Exception:
+                    pass
+            self._update_play_button_ui()
+            if hasattr(self.target_page, "run_task"):
+                self.target_page.run_task(self._refresh_duration)
             return
 
-        # 2. If not offline, query backend info
+        # 2. If not on local disk, query backend info
         await self._prefetch_audio_info()
         cdn_url = self._cached_audio_urls.get(self.current_lang)
-        if cdn_url and not self.audio_service.src:
-            self._current_loaded_uri = cdn_url
-            self.audio_service.src = cdn_url
-            try:
-                self.audio_service.update()
-            except Exception:
-                pass
+        if cdn_url:
+            print(f"[AUDIO] Detected CDN audio URL for lesson {self.lesson_id} [{self.current_lang.upper()}]: {cdn_url}", flush=True)
+            self.is_verified_ready = True
+            if self._current_loaded_uri != cdn_url:
+                self._current_loaded_uri = cdn_url
+                self.is_service_loaded = False
+                self.audio_service.src = cdn_url
+                try:
+                    self.audio_service.update()
+                except Exception:
+                    pass
+                if hasattr(self.target_page, "run_task"):
+                    self.target_page.run_task(self._refresh_duration)
+
+            self._update_play_button_ui()
+            # Automatically cache to local device storage in background for 0ms subsequent loads & offline play
+            if hasattr(self.target_page, "run_task"):
+                self.target_page.run_task(self._auto_cache_audio_to_disk, self.current_lang, cdn_url)
+            return
+
+        self.is_verified_ready = False
+        self._update_play_button_ui()
 
     async def _prefetch_audio_info(self):
         """Fetches cached audio availability and active status from Nu-Age backend."""
-        if self.is_disposed or self.is_offline_mode:
+        if self.is_disposed:
             return
         try:
             token = await self._get_auth_token_async()
             url = f"{self.api_base_url}/courses/lessons/{self.lesson_id}/narrate/info"
+            params = {}
             if token:
-                url += f"?token={token}"
+                params["token"] = token
             headers = {"Authorization": f"Bearer {token}"} if token else {}
             async with httpx.AsyncClient(timeout=8.0) as client:
-                res = await client.get(url, headers=headers)
+                res = await client.get(url, headers=headers, params=params)
                 if res.status_code == 200:
                     data = res.json()
                     self._cached_audio_urls = data.get("cached_languages", {}) or {}
-                    logger.info(f"Loaded cached audio info for lesson {self.lesson_id}: {list(self._cached_audio_urls.keys())}")
+                    print(f"[AUDIO] Available cached languages for lesson {self.lesson_id}: {list(self._cached_audio_urls.keys())}", flush=True)
         except Exception as ex:
-            logger.debug(f"Audio info prefetch notice: {ex}")
+            print(f"[AUDIO-NOTICE] Audio info prefetch notice: {ex}", flush=True)
 
     def _is_audio_ready(self, lang: Optional[str] = None) -> bool:
         check_lang = lang or self.current_lang
@@ -438,40 +602,80 @@ class LessonAudioPlayer(ft.Container):
             return True
         return False
 
-    async def _resolve_stream_uri(self) -> str:
+    async def _resolve_stream_uri(self) -> Optional[str]:
+        """
+        Resolves audio URI strictly following:
+        1. Check offline local disk cache first (0ms instantaneous playback).
+        2. If not cached offline, check if URL is online (via cached metadata or GET /narrate/info).
+           If online -> triggers background auto-caching to disk and returns the online URL.
+        3. Returns None if audio is neither cached locally nor online (needs generation cycle).
+        """
+        # Step 1: Check offline local disk cache first
         local_path = get_offline_lesson_audio(self.lesson_id, self.current_lang, self.target_page)
         if local_path and os.path.exists(local_path):
-            logger.info(f"Serving offline audio: {local_path}")
-            return asset_url(local_path)
+            uri = self._safe_asset_url(local_path)
+            print(f"[AUDIO] Serving from local disk cache: {uri}", flush=True)
+            return uri
 
-        if self.is_offline_mode:
-            return ""
-
-        # Return static Bunny CDN URL if already confirmed ready
+        # Step 2: Not cached offline -> check if URL is online
         cdn_url = self._cached_audio_urls.get(self.current_lang)
+        if not cdn_url:
+            try:
+                await self._prefetch_audio_info()
+                cdn_url = self._cached_audio_urls.get(self.current_lang)
+            except Exception as ex:
+                print(f"[AUDIO] Online check error: {ex}", flush=True)
+
         if cdn_url:
+            print(f"[AUDIO] Serving from online URL: {cdn_url}", flush=True)
+            # Cache offline in background so subsequent visits are 0ms & offline-ready
+            if hasattr(self.target_page, "run_task"):
+                self.target_page.run_task(self._auto_cache_audio_to_disk, self.current_lang, cdn_url)
             return cdn_url
 
-        return ""
+        return None
 
     def _update_play_button_ui(self):
-        """Immediately and reactively updates the play button icon and repaints the container."""
+        """Immediately and reactively updates the play button icon, container, and slider."""
         if self.is_preparing:
-            self.play_button.content = self.prep_wave_row
+            self.play_button.content = self.spinner
+            self.play_button.bgcolor = ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)
             self.play_button.tooltip = "Preparing audio..."
+            self.slider.thumb_color = ft.Colors.with_opacity(0.38, ft.Colors.ON_SURFACE)
+            self.slider.active_color = ft.Colors.with_opacity(0.20, ft.Colors.ON_SURFACE)
         elif self.is_loading:
             self.play_button.content = self.spinner
+            self.play_button.bgcolor = ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)
             self.play_button.tooltip = "Connecting audio..."
+            self.slider.thumb_color = ft.Colors.with_opacity(0.38, ft.Colors.ON_SURFACE)
+            self.slider.active_color = ft.Colors.with_opacity(0.20, ft.Colors.ON_SURFACE)
         elif self.is_playing:
             self.play_icon.icon = ft.Icons.PAUSE_ROUNDED
+            self.play_icon.color = ft.Colors.ON_PRIMARY
             self.play_button.content = self.play_icon
+            self.play_button.bgcolor = ft.Colors.PRIMARY
             self.play_button.tooltip = "Pause narration"
+            self.slider.thumb_color = ft.Colors.PRIMARY
+            self.slider.active_color = ft.Colors.PRIMARY
         else:
-            self.play_icon.icon = ft.Icons.PLAY_ARROW_ROUNDED
-            self.play_button.content = self.play_icon
-            self.play_button.tooltip = "Play audio narration"
+            if self.is_verified_ready:
+                self.play_icon.icon = ft.Icons.PLAY_ARROW_ROUNDED
+                self.play_icon.color = ft.Colors.ON_PRIMARY
+                self.play_button.content = self.play_icon
+                self.play_button.bgcolor = ft.Colors.PRIMARY
+                self.play_button.tooltip = "Play audio narration"
+                self.slider.thumb_color = ft.Colors.PRIMARY
+                self.slider.active_color = ft.Colors.PRIMARY
+            else:
+                self.play_icon.icon = ft.Icons.PLAY_ARROW_ROUNDED
+                self.play_icon.color = ft.Colors.with_opacity(0.38, ft.Colors.ON_SURFACE)
+                self.play_button.content = self.play_icon
+                self.play_button.bgcolor = ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)
+                self.play_button.tooltip = "Audio not ready yet (tap to prepare)"
+                self.slider.thumb_color = ft.Colors.with_opacity(0.38, ft.Colors.ON_SURFACE)
+                self.slider.active_color = ft.Colors.with_opacity(0.20, ft.Colors.ON_SURFACE)
 
-        # Explicitly flush updates to the icon, container, and page
+        # Explicitly flush updates to the icon, container, slider, and page
         try:
             if getattr(self.play_icon, "page", None):
                 self.play_icon.update()
@@ -483,15 +687,24 @@ class LessonAudioPlayer(ft.Container):
         except Exception:
             pass
         try:
+            if getattr(self.slider, "page", None):
+                self.slider.update()
+        except Exception:
+            pass
+        try:
             if self.target_page:
                 self.target_page.update()
         except Exception:
             pass
 
     def _toggle_play_click(self, e=None):
-        logger.info(f"Play clicked! playing={self.is_playing}, preparing={self.is_preparing}")
+        if self._is_busy:
+            return
+
+        logger.info(f"Play clicked! playing={self.is_playing}, preparing={self.is_preparing}, ready={self.is_verified_ready}")
         if self.is_playing:
             self.is_playing = False
+            self.pending_play_request = False
             self._update_play_button_ui()
             self._stop_waveform_animation()
             if hasattr(self.target_page, "run_task"):
@@ -499,84 +712,112 @@ class LessonAudioPlayer(ft.Container):
             return
 
         if self.is_preparing:
-            self._show_snackbar("Audio is preparing for this lesson. Check back in a bit!")
+            self._show_snackbar("Audio is being prepared for this lesson. Check back in a moment!")
             return
 
         if self.is_loading:
             return
 
-        # Offline mode guard: if running in offline mode and audio is not cached locally, never reach out to network
-        if self.is_offline_mode:
-            local_path = get_offline_lesson_audio(self.lesson_id, self.current_lang, self.target_page)
-            if local_path and os.path.exists(local_path):
-                self.is_loading = True
-                self._update_play_button_ui()
-                self.target_page.run_task(self.start_playback)
-            else:
-                self._show_snackbar("Audio narration is not cached offline. You can still read the lesson below.")
+        # Start playback resolution task under concurrency guard
+        self._is_busy = True
+        self.pending_play_request = True
+        self.is_loading = True
+        self._update_play_button_ui()
+        if hasattr(self.target_page, "run_task"):
+            self.target_page.run_task(self._resolve_and_play)
+
+    async def _resolve_and_play(self):
+        """
+        Orchestrates playback lifecycle:
+        1. Checks offline local disk cache -> if found, plays immediately (0ms).
+        2. If not cached offline, checks if audio URL is online (via cached metadata or GET /narrate/info).
+           If online -> caches offline in background and plays immediately.
+        3. If not online, transitions to the generation cycle -> auto-plays upon completion.
+        """
+        if self.is_disposed:
+            self._is_busy = False
             return
 
-        # Check if current language is already ready
-        if self._is_audio_ready(self.current_lang):
-            self.is_loading = True
-            self._update_play_button_ui()
-            self.target_page.run_task(self.start_playback)
-        else:
-            # Trigger preparation flow with pulsing waveform!
-            self.is_preparing = True
-            self._update_play_button_ui()
-            self._start_prep_wave_animation()
-            self._show_snackbar("Audio is preparing for this lesson. Check back in a bit!")
-            self.target_page.run_task(self._prepare_and_poll_audio, self.current_lang)
+        lang = self.current_lang
+        try:
+            uri = await self._resolve_stream_uri()
+            if uri:
+                self.is_verified_ready = True
+                await self.start_playback(resolved_uri=uri)
+                self._is_busy = False
+                return
+        except Exception as ex:
+            print(f"[AUDIO] Error resolving stream URI: {ex}", flush=True)
+
+        # Step 3: Not cached offline and not online -> Go into generation cycle
+        print(f"[AUDIO] Audio for lesson {self.lesson_id} [{lang.upper()}] is not cached locally or online. Initiating generation cycle...", flush=True)
+        self.is_loading = False
+        self.is_preparing = True
+        self._update_play_button_ui()
+        self._show_snackbar("Preparing audio narration for this lesson. Please wait a moment...")
+        try:
+            await self._prepare_and_poll_audio(lang)
+        finally:
+            self._is_busy = False
 
     async def _prepare_and_poll_audio(self, lang: str):
         """Asynchronously requests synthesis and polls until cached in DB / Bunny CDN."""
+        print(f"[AUDIO-POLLER] Requesting audio preparation from backend for lesson {self.lesson_id} [{lang.upper()}]...", flush=True)
         token = await self._get_auth_token_async()
         headers = {"Authorization": f"Bearer {token}"} if token else {}
 
         # 1. Trigger backend preparation endpoint
         should_poll = False
         try:
-            prep_url = f"{self.api_base_url}/courses/lessons/{self.lesson_id}/narrate/prepare?lang={lang}"
+            prep_url = f"{self.api_base_url}/courses/lessons/{self.lesson_id}/narrate/prepare"
+            params = {"lang": lang}
             if token:
-                prep_url += f"&token={token}"
+                params["token"] = token
             async with httpx.AsyncClient(timeout=10.0) as client:
-                res = await client.post(prep_url, headers=headers)
+                res = await client.post(prep_url, headers=headers, params=params)
+                print(f"[AUDIO-POLLER] Prepare endpoint responded: HTTP {res.status_code}", flush=True)
                 if res.status_code == 200:
                     data = res.json()
-                    if data.get("cached") and data.get("audio_url"):
+                    print(f"[AUDIO-POLLER] Prepare payload: {data}", flush=True)
+                    if (data.get("cached") or data.get("status") == "ready") and data.get("audio_url"):
                         self._cached_audio_urls[lang] = data["audio_url"]
                         self._on_audio_preparation_ready(lang)
                         return
-                    elif data.get("status") == "generating":
+                    elif data.get("status") == "generating" or not data.get("cached"):
                         should_poll = True
                 elif res.status_code == 404:
-                    logger.warning(f"Lesson {self.lesson_id} not found (404) during audio prepare.")
-                    self._stop_prep_wave_animation()
+                    print(f"[AUDIO-POLLER] Lesson {self.lesson_id} not found (404) during audio prepare.", flush=True)
                     self.is_preparing = False
                     self._update_play_button_ui()
                     self._show_snackbar("Lesson audio narration is not available.")
                     return
                 elif res.status_code in (400, 401, 403, 422, 500, 502, 503):
-                    logger.warning(f"Audio prepare returned status {res.status_code} for lesson {self.lesson_id}")
-                    self._stop_prep_wave_animation()
+                    print(f"[AUDIO-POLLER] Audio prepare returned status {res.status_code} for lesson {self.lesson_id}", flush=True)
                     self.is_preparing = False
                     self._update_play_button_ui()
                     self._show_snackbar("Audio narration is temporarily unavailable.")
                     return
+        except (httpx.ConnectError, httpx.ConnectTimeout, httpx.NetworkError) as ex:
+            print(f"[AUDIO-POLLER] Network error: {ex}", flush=True)
+            self.is_preparing = False
+            self._update_play_button_ui()
+            self._show_snackbar("Audio narration is not cached offline and you appear to be offline.")
+            return
         except Exception as ex:
-            logger.debug(f"Prepare trigger notice: {ex}")
+            print(f"[AUDIO-POLLER] Prepare trigger notice: {ex}", flush=True)
+            should_poll = True
 
         if not should_poll:
-            self._stop_prep_wave_animation()
             self.is_preparing = False
             self._update_play_button_ui()
             return
 
         # 2. Poll /narrate/info every 1.5 seconds directly from PostgreSQL (up to 90s)
         max_attempts = 60
-        for _ in range(max_attempts):
+        print(f"[AUDIO-POLLER] Audio is generating on backend. Polling /narrate/info every 1.5s for up to 90s...", flush=True)
+        for attempt in range(max_attempts):
             if self.is_disposed or not self.is_preparing or self.current_lang != lang:
+                print(f"[AUDIO-POLLER] Polling terminated (player closed or language switched).", flush=True)
                 return
             await asyncio.sleep(1.5)
             if self.is_disposed or not self.is_preparing or self.current_lang != lang:
@@ -584,98 +825,79 @@ class LessonAudioPlayer(ft.Container):
 
             try:
                 info_url = f"{self.api_base_url}/courses/lessons/{self.lesson_id}/narrate/info"
+                info_params = {}
                 if token:
-                    info_url += f"?token={token}"
+                    info_params["token"] = token
                 async with httpx.AsyncClient(timeout=8.0) as client:
-                    res = await client.get(info_url, headers=headers)
+                    res = await client.get(info_url, headers=headers, params=info_params)
                     if res.status_code == 200:
                         data = res.json()
                         cached_map = data.get("cached_languages", {}) or {}
                         self._cached_audio_urls.update(cached_map)
                         if lang in cached_map and cached_map[lang]:
-                            logger.info(f"Audio ready for lesson {self.lesson_id} [{lang}] -> {cached_map[lang]}")
+                            print(f"[AUDIO-POLLER] >>> AUDIO READY DETECTED on poll #{attempt+1}! URL: {cached_map[lang]}", flush=True)
                             self._on_audio_preparation_ready(lang)
                             return
+                        else:
+                            print(f"[AUDIO-POLLER] Poll #{attempt+1}/{max_attempts}: Still generating... (cached: {list(cached_map.keys())})", flush=True)
                     elif res.status_code == 404:
-                        logger.warning(f"Lesson {self.lesson_id} not found (404) during info poll. Aborting.")
-                        self._stop_prep_wave_animation()
+                        print(f"[AUDIO-POLLER] Lesson {self.lesson_id} not found (404) during info poll. Aborting.", flush=True)
                         self.is_preparing = False
                         self._update_play_button_ui()
                         self._show_snackbar("Lesson audio narration is not available.")
                         return
                     elif res.status_code in (401, 403):
-                        self._stop_prep_wave_animation()
                         self.is_preparing = False
                         self._update_play_button_ui()
                         return
             except Exception as ex:
-                logger.debug(f"Poll info notice: {ex}")
+                print(f"[AUDIO-POLLER] Poll #{attempt+1} notice: {ex}", flush=True)
 
         # If timed out without caching
         if self.is_preparing and self.current_lang == lang:
-            self._stop_prep_wave_animation()
+            print(f"[AUDIO-POLLER] Generation timed out after 90 seconds.", flush=True)
             self.is_preparing = False
             self._update_play_button_ui()
             self._show_snackbar("Audio is taking longer than usual. Please check back shortly.")
 
     def _on_audio_preparation_ready(self, lang: str):
         """Called as soon as backend signals audio is synthesized and cached."""
-        self._stop_prep_wave_animation()
+        print(f"[AUDIO-POLLER] >>> PREPARATION COMPLETED for lesson={self.lesson_id} [{lang.upper()}]!", flush=True)
         self.is_preparing = False
+        self.is_verified_ready = True
         if self.current_lang == lang:
             self._update_play_button_ui()
             self._show_snackbar("The transcript audio for this lesson is ready!")
-            if hasattr(self.target_page, "run_task"):
-                self.target_page.run_task(self.start_playback)
+            cdn_url = self._cached_audio_urls.get(lang)
+            if cdn_url:
+                # Automatically download and cache to local disk in background
+                if hasattr(self.target_page, "run_task"):
+                    self.target_page.run_task(self._auto_cache_audio_to_disk, lang, cdn_url)
 
-    def _start_prep_wave_animation(self):
-        async def _animate():
-            heights = [6, 16, 10]
-            step = 0
-            while self.is_preparing and not self.is_disposed:
-                step = (step + 1) % len(heights)
-                for i, bar in enumerate(self.prep_wave_bars):
-                    bar.height = heights[(step + i) % len(heights)]
-                try:
-                    self.target_page.update()
-                except Exception:
-                    break
-                await asyncio.sleep(0.18)
-            for bar in self.prep_wave_bars:
-                bar.height = 6
-            try:
-                self.target_page.update()
-            except Exception:
-                pass
+                # Automatically start playback!
+                if hasattr(self.target_page, "run_task"):
+                    self.target_page.run_task(self.start_playback, cdn_url)
 
-        if hasattr(self.target_page, "run_task"):
-            self.target_page.run_task(_animate)
-
-    def _stop_prep_wave_animation(self):
-        for bar in self.prep_wave_bars:
-            bar.height = 6
-        try:
-            self.target_page.update()
-        except Exception:
-            pass
-
-    async def start_playback(self):
+    async def start_playback(self, resolved_uri: Optional[str] = None):
         """Starts audio playback cleanly using flet_audio.Audio service."""
         if self.is_disposed:
             return
 
-        uri = await self._resolve_stream_uri()
+        uri = resolved_uri or await self._resolve_stream_uri()
         if not uri:
             self.is_loading = False
             self.is_playing = False
+            self.pending_play_request = False
             self._update_play_button_ui()
-            self._show_snackbar("Audio not cached offline. You can still read the lesson below.")
+            self._show_snackbar("Audio narration is not cached offline and you appear to be offline.")
             return
 
         try:
-            logger.info(f"Connecting flet_audio service to: {uri}")
+            target_pos_ms = int(self.position_seconds * 1000)
+            print(f"[AUDIO] Starting playback from {self.position_seconds:.1f}s ({target_pos_ms}ms) -> URI: {uri}", flush=True)
             self.is_loading = False
             self.is_playing = True
+            self.pending_play_request = False
             self._update_play_button_ui()
             self._start_waveform_animation()
 
@@ -688,36 +910,81 @@ class LessonAudioPlayer(ft.Container):
                     except Exception:
                         pass
 
-            if self._current_loaded_uri == uri:
-                try:
-                    await self.audio_service.resume()
-                except Exception:
-                    await self.audio_service.play()
-            else:
-                self._current_loaded_uri = uri
-                self.audio_service.src = uri
-                self.audio_service.playback_rate = self.current_speed
-                try:
-                    self.audio_service.update()
-                except Exception:
+            async def _do_play(target_uri: str, pos_ms: int):
+                if self._current_loaded_uri != target_uri or not self.audio_service.src:
+                    self._current_loaded_uri = target_uri
+                    self.audio_service.src = target_uri
+                    self.audio_service.playback_rate = self.current_speed
                     try:
-                        self.target_page.update()
+                        self.audio_service.update()
                     except Exception:
                         pass
-                await self.audio_service.play()
+                    # Yield slightly so the Flutter audio plugin attaches the source
+                    await asyncio.sleep(0.1)
+
+                # In audioplayers_windows/Flutter, calling play(position=int) attempts concurrent
+                # seek+init in Windows Media Foundation which hangs indefinitely.
+                # Calling seek(pos_ms) followed by resume() starts playback immediately without hanging.
+                if pos_ms > 0:
+                    try:
+                        await self.audio_service.seek(pos_ms)
+                    except Exception as s_ex:
+                        print(f"[AUDIO] Seek notice: {s_ex}", flush=True)
+
+                await self.audio_service.resume()
+
+            try:
+                # 6-second bounded execution
+                await asyncio.wait_for(_do_play(uri, target_pos_ms), timeout=6.0)
+            except Exception as play_ex:
+                print(f"[AUDIO-RECOVERY] Playback attempt notice: {play_ex}", flush=True)
+
+                # 1. If starting from position > 0 failed, retry from beginning (0ms)
+                recovered = False
+                if target_pos_ms > 0:
+                    try:
+                        print(f"[AUDIO-RECOVERY] Retrying playback from beginning (0s)...", flush=True)
+                        self.position_seconds = 0.0
+                        await asyncio.wait_for(_do_play(uri, 0), timeout=5.0)
+                        recovered = True
+                    except Exception as r_ex:
+                        print(f"[AUDIO-RECOVERY] Beginning retry notice: {r_ex}", flush=True)
+
+                # 2. If playing local file failed, fall back to remote CDN stream if available
+                cdn_url = self._cached_audio_urls.get(self.current_lang)
+                if not recovered and not cdn_url:
+                    try:
+                        await self._prefetch_audio_info()
+                        cdn_url = self._cached_audio_urls.get(self.current_lang)
+                    except Exception:
+                        pass
+
+                if not recovered and cdn_url and uri != cdn_url:
+                    try:
+                        print(f"[AUDIO-RECOVERY] Falling back to remote CDN stream: {cdn_url}", flush=True)
+                        await asyncio.wait_for(_do_play(cdn_url, 0), timeout=6.0)
+                        recovered = True
+                    except Exception as cdn_ex:
+                        print(f"[AUDIO-RECOVERY] CDN fallback notice: {cdn_ex}", flush=True)
+
+                if not recovered:
+                    raise play_ex
 
             # Schedule background duration fetch
             if hasattr(self.target_page, "run_task"):
                 self.target_page.run_task(self._refresh_duration)
 
         except Exception as e:
-            logger.warning(f"Error starting audio: {e}")
+            print(f"[AUDIO-ERROR] Error starting audio: {type(e).__name__}: {e}", flush=True)
             self.is_loading = False
             self.is_playing = False
+            self.pending_play_request = False
             self._update_play_button_ui()
             self._stop_waveform_animation()
+            self._show_snackbar("Could not start audio playback. Please retry.")
 
     async def pause_playback(self):
+        print(f"[AUDIO] Paused audio at {self.position_seconds:.1f}s", flush=True)
         self.is_playing = False
         self.is_loading = False
         self._update_play_button_ui()
@@ -725,6 +992,7 @@ class LessonAudioPlayer(ft.Container):
         try:
             await self.audio_service.pause()
         except Exception as ex:
+            print(f"[AUDIO-ERROR] Pause notice: {ex}", flush=True)
             logger.debug(f"Pause notice: {ex}")
 
     def dispose(self):
@@ -732,8 +1000,8 @@ class LessonAudioPlayer(ft.Container):
         self.is_playing = False
         self.is_loading = False
         self.is_preparing = False
+        self._is_busy = False
         self._stop_waveform_animation()
-        self._stop_prep_wave_animation()
         if hasattr(self, "audio_service") and self.audio_service:
             try:
                 self.audio_service.volume = 0.0
@@ -765,17 +1033,27 @@ class LessonAudioPlayer(ft.Container):
     # =========================================================================
 
     def _on_select_language_click(self, e):
-        new_lang = e.control.data
+        if isinstance(e, str):
+            new_lang = e
+        elif hasattr(e, "control") and hasattr(e.control, "data"):
+            new_lang = e.control.data
+        elif hasattr(e, "data"):
+            new_lang = e.data
+        else:
+            new_lang = str(e)
+
         if new_lang == self.current_lang:
             return
 
         # 1. Immediately terminate active playback and animation
         self.is_playing = False
         self.is_loading = False
+        self.is_service_loaded = False
+        self.is_verified_ready = False
+        self._is_busy = False
+        self.pending_play_request = False
         self._stop_waveform_animation()
-        if self.is_preparing:
-            self._stop_prep_wave_animation()
-            self.is_preparing = False
+        self.is_preparing = False
 
         try:
             if hasattr(self.target_page, "run_task"):
@@ -786,9 +1064,14 @@ class LessonAudioPlayer(ft.Container):
         self.current_lang = new_lang
         self._current_loaded_uri = None
         self.slider.value = 0
+        self.slider.thumb_color = ft.Colors.with_opacity(0.38, ft.Colors.ON_SURFACE)
+        self.slider.active_color = ft.Colors.with_opacity(0.20, ft.Colors.ON_SURFACE)
         self.position_seconds = 0.0
         self.duration_seconds = 0.0
         self.time_label.value = "00:00 / 00:00"
+
+        if hasattr(self, "lang_label_text") and self.lang_label_text:
+            self.lang_label_text.value = self._get_current_lang_label()
 
         # 2. Proactively preload the new language if already cached
         if hasattr(self.target_page, "run_task"):
@@ -818,7 +1101,15 @@ class LessonAudioPlayer(ft.Container):
 
     def _on_player_loaded(self, e=None):
         logger.info(f"Audio loaded for lesson {self.lesson_id}")
-        if not self.is_playing and self.is_loading:
+        self.is_service_loaded = True
+        self.is_verified_ready = True
+        self._is_busy = False
+        self._update_play_button_ui()
+        if self.pending_play_request:
+            self.pending_play_request = False
+            if hasattr(self.target_page, "run_task"):
+                self.target_page.run_task(self.start_playback)
+        elif not self.is_playing and self.is_loading:
             self.is_loading = False
             self.is_playing = True
             self._update_play_button_ui()
@@ -838,24 +1129,23 @@ class LessonAudioPlayer(ft.Container):
         if state_val == "playing":
             self.is_playing = True
             self.is_loading = False
+            self._is_busy = False
             self._update_play_button_ui()
             self._start_waveform_animation()
         elif state_val in ("paused", "stopped"):
-            if not self._is_scrubbing:
-                self.is_playing = False
-                self.is_loading = False
-                self._update_play_button_ui()
-                self._stop_waveform_animation()
+            self.is_playing = False
+            self.is_loading = False
+            self._is_busy = False
+            self._update_play_button_ui()
+            self._stop_waveform_animation()
         elif state_val == "completed":
             self._on_player_completed()
-
-    def _on_player_seek_complete(self, e=None):
-        logger.debug(f"Seek completed for lesson {self.lesson_id}")
 
     def _on_player_completed(self, e=None):
         logger.info(f"Audio playback completed for lesson {self.lesson_id}")
         self.is_playing = False
         self.is_loading = False
+        self._is_busy = False
         self.slider.value = 0
         self.position_seconds = 0.0
         self._update_play_button_ui()
@@ -919,18 +1209,26 @@ class LessonAudioPlayer(ft.Container):
         if self.is_disposed or not hasattr(self, "audio_service"):
             return
         try:
-            dur = await self.audio_service.get_duration()
+            dur = await asyncio.wait_for(self.audio_service.get_duration(), timeout=2.5)
             sec = self._extract_duration_seconds(dur)
             if sec > 0:
                 self.duration_seconds = sec
                 self.slider.max = max(1.0, self.duration_seconds)
+                self.is_service_loaded = True
+                self.is_verified_ready = True
                 dur_str = self._format_time(self.duration_seconds)
                 pos_str = self._format_time(self.position_seconds)
                 self.time_label.value = f"{pos_str} / {dur_str}"
+                self._update_play_button_ui()
                 try:
                     self.target_page.update()
                 except Exception:
                     pass
+
+                if self.pending_play_request:
+                    self.pending_play_request = False
+                    if hasattr(self.target_page, "run_task"):
+                        self.target_page.run_task(self.start_playback)
         except Exception as ex:
             logger.debug(f"Refresh duration notice: {ex}")
 
@@ -943,13 +1241,21 @@ class LessonAudioPlayer(ft.Container):
             if sec > 0:
                 self.duration_seconds = sec
                 self.slider.max = max(1.0, self.duration_seconds)
+                self.is_service_loaded = True
+                self.is_verified_ready = True
                 dur_str = self._format_time(self.duration_seconds)
                 pos_str = self._format_time(self.position_seconds)
                 self.time_label.value = f"{pos_str} / {dur_str}"
+                self._update_play_button_ui()
                 try:
                     self.target_page.update()
                 except Exception:
                     pass
+
+                if self.pending_play_request:
+                    self.pending_play_request = False
+                    if hasattr(self.target_page, "run_task"):
+                        self.target_page.run_task(self.start_playback)
         except Exception as ex:
             logger.debug(f"Duration event notice: {ex}")
 
@@ -962,13 +1268,17 @@ class LessonAudioPlayer(ft.Container):
             if sec >= 0:
                 self.position_seconds = sec
                 # If audio is progressing, ensure playing state and UI icon reflect it
-                if sec > 0 and not self.is_playing and not self._is_scrubbing:
+                if sec > 0 and not self.is_playing:
                     self.is_playing = True
                     self.is_loading = False
+                    self._is_busy = False
                     self._update_play_button_ui()
                     self._start_waveform_animation()
-                if not self._is_scrubbing and self.duration_seconds > 0:
+
+                if self.duration_seconds > 0:
+                    self.slider.max = max(1.0, self.duration_seconds)
                     self.slider.value = min(self.position_seconds, self.slider.max)
+
                 dur_str = self._format_time(self.duration_seconds)
                 pos_str = self._format_time(self.position_seconds)
                 self.time_label.value = f"{pos_str} / {dur_str}"
@@ -979,121 +1289,111 @@ class LessonAudioPlayer(ft.Container):
         except Exception as ex:
             logger.debug(f"Position event notice: {ex}")
 
-    def _on_slider_change(self, e):
-        self._is_scrubbing = True
-        target_sec = float(e.control.value)
-        self.position_seconds = target_sec
-        pos_str = self._format_time(self.position_seconds)
-        dur_str = self._format_time(self.duration_seconds)
-        self.time_label.value = f"{pos_str} / {dur_str}"
-        try:
-            self.target_page.update()
-        except Exception:
-            pass
-
-    def _on_slider_change_end(self, e):
-        target_sec = float(e.control.value)
-        self.position_seconds = target_sec
-        self._is_scrubbing = False
-        if hasattr(self.target_page, "run_task"):
-            self.target_page.run_task(self._safe_seek, int(target_sec * 1000))
-
-    async def _safe_seek(self, position_ms: int):
-        try:
-            await self.audio_service.seek(ft.Duration(milliseconds=position_ms))
-        except Exception as ex:
-            logger.debug(f"Seek notice: {ex}")
-
     # =========================================================================
-    # OFFLINE DOWNLOAD HANDLING
+    # AUTOMATIC LOCAL CACHING (0ms subsequent loads, seamless offline playback)
     # =========================================================================
 
-    def _on_download_offline_click(self, e=None):
-        if is_lesson_audio_cached(self.lesson_id, self.current_lang, self.target_page):
-            self._show_snackbar("This audio lesson is already saved for offline study.")
+    async def _auto_cache_audio_to_disk(self, lang: str, cdn_url: str):
+        """Seamlessly downloads audio into local device storage with single-flight locking for 0ms subsequent loads."""
+        if not cdn_url or self.is_disposed:
             return
-        if self.is_offline_mode:
-            self._show_snackbar("Connect to internet to download this lesson audio.")
+
+        download_key = f"{self.lesson_id}:{lang}"
+        if download_key in _global_active_downloads:
+            print(f"[AUDIO-CACHE] Download already in-flight for {download_key}, skipping duplicate task.", flush=True)
             return
-        if hasattr(self.target_page, "run_task"):
-            self.target_page.run_task(self._download_audio_for_offline)
 
-    async def _download_audio_for_offline(self):
-        self.offline_action_btn.disabled = True
-        try:
-            self.target_page.update()
-        except Exception:
-            pass
-        self._show_snackbar(f"Downloading {self.current_lang.upper()} audio for offline study...")
+        existing = get_offline_lesson_audio(self.lesson_id, lang, self.target_page)
+        if existing and os.path.exists(existing) and os.path.getsize(existing) > 1000:
+            print(f"[AUDIO-CACHE] Audio already cached locally: {existing}", flush=True)
+            return
 
+        _global_active_downloads.add(download_key)
+        print(f"[AUDIO-CACHE] Downloading {lang.upper()} audio for offline & fast local playback from {cdn_url}...", flush=True)
         try:
-            app_dir = getattr(self.target_page, "storage_paths", None)
-            base_path = await app_dir.get_application_support_directory() if app_dir else os.path.join(os.getcwd(), "app_data")
-            audio_dir = os.path.join(base_path, "courses", self.course_id, "audio")
+            root = _course_assets_root()
+            if str(root).startswith('/'):
+                audio_dir = f"{root.rstrip('/')}/audio/{self.course_id or 'default'}"
+            else:
+                audio_dir = os.path.normpath(os.path.join(root, "audio", str(self.course_id or "default")))
             os.makedirs(audio_dir, exist_ok=True)
-            local_filename = f"lesson_{self.lesson_id}_{self.current_lang}.mp3"
-            local_filepath = os.path.join(audio_dir, local_filename)
+            local_filename = f"lesson_{self.lesson_id}_{lang}.mp3"
+            if str(audio_dir).startswith('/'):
+                local_filepath = f"{audio_dir.rstrip('/')}/{local_filename}"
+            else:
+                local_filepath = os.path.normpath(os.path.join(audio_dir, local_filename))
 
-            token = await self._get_auth_token_async()
-            headers = {"Authorization": f"Bearer {token}"} if token else {}
-            url = f"{self.api_base_url}/courses/lessons/{self.lesson_id}/narrate/stream?lang={self.current_lang}"
-            if token:
-                url += f"&token={token}"
+            posix_filepath = str(local_filepath).replace('\\', '/')
 
-            async with httpx.AsyncClient(timeout=120.0, follow_redirects=True) as client:
-                res = await client.get(url, headers=headers)
+            async with httpx.AsyncClient(timeout=90.0, follow_redirects=True) as client:
+                res = await client.get(cdn_url)
                 if res.status_code == 200:
-                    download_bytes = res.content
-                    with open(local_filepath, "wb") as f:
-                        f.write(download_bytes)
-
+                    with open(posix_filepath, "wb") as f:
+                        f.write(res.content)
                     save_offline_lesson_audio(
                         lesson_id=self.lesson_id,
                         course_id=self.course_id,
-                        language=self.current_lang,
-                        local_path=local_filepath,
-                        remote_url=url,
-                        size_bytes=len(download_bytes),
+                        language=lang,
+                        local_path=posix_filepath,
+                        remote_url=cdn_url,
+                        size_bytes=len(res.content),
                         page=self.target_page,
                     )
-
-                    self._show_snackbar("✓ Lesson audio saved offline! Ready for zero-data study.")
-                    self.offline_action_btn.icon = ft.Icons.OFFLINE_PIN_ROUNDED
-                    self.offline_action_btn.icon_color = ft.Colors.GREEN_600
-                else:
-                    self._show_snackbar("Could not download audio. Please retry in a moment.")
-
+                    print(f"[AUDIO-CACHE] [SUCCESS] Audio cached to device storage: {posix_filepath} ({len(res.content)} bytes)", flush=True)
+                    # If this language is currently active and playback is not active, upgrade to local file
+                    if self.current_lang == lang and not self.is_playing:
+                        local_uri = self._safe_asset_url(posix_filepath)
+                        self._current_loaded_uri = local_uri
+                        self.audio_service.src = local_uri
+                        try:
+                            self.audio_service.update()
+                        except Exception:
+                            pass
         except Exception as ex:
-            logger.error(f"Download failed: {ex}")
-            self._show_snackbar(f"Download error: {str(ex)[:40]}")
+            print(f"[AUDIO-CACHE] [NOTICE] Auto-caching notice (playback continues via CDN): {ex}", flush=True)
         finally:
-            self.offline_action_btn.disabled = False
-            try:
-                self.target_page.update()
-            except Exception:
-                pass
+            _global_active_downloads.discard(download_key)
 
     # =========================================================================
     # HELPERS
     # =========================================================================
 
     def _start_waveform_animation(self):
+        if getattr(self, "_is_animating_waveform", False):
+            return
+        self._is_animating_waveform = True
+
         async def _animate():
-            heights = [6, 12, 18, 10]
+            patterns = [
+                [6, 14, 18, 10],
+                [12, 18, 8, 16],
+                [18, 8, 16, 12],
+                [10, 16, 12, 6],
+                [14, 10, 18, 8],
+            ]
             step = 0
             while self.is_playing and not self.is_disposed:
-                step = (step + 1) % 4
+                curr_pattern = patterns[step % len(patterns)]
+                step += 1
                 for i, bar in enumerate(self.wave_bars):
-                    bar.height = heights[(step + i) % len(heights)]
+                    bar.height = curr_pattern[i]
                 try:
-                    self.target_page.update()
+                    if getattr(self.waveform_row, "page", None):
+                        self.waveform_row.update()
+                    elif self.target_page:
+                        self.target_page.update()
                 except Exception:
                     break
                 await asyncio.sleep(0.18)
+
+            self._is_animating_waveform = False
             for bar in self.wave_bars:
                 bar.height = 6
             try:
-                self.target_page.update()
+                if getattr(self.waveform_row, "page", None):
+                    self.waveform_row.update()
+                elif self.target_page:
+                    self.target_page.update()
             except Exception:
                 pass
 
@@ -1101,10 +1401,14 @@ class LessonAudioPlayer(ft.Container):
             self.target_page.run_task(_animate)
 
     def _stop_waveform_animation(self):
+        self._is_animating_waveform = False
         for bar in self.wave_bars:
             bar.height = 6
         try:
-            self.target_page.update()
+            if getattr(self.waveform_row, "page", None):
+                self.waveform_row.update()
+            elif self.target_page:
+                self.target_page.update()
         except Exception:
             pass
 

@@ -70,4 +70,10 @@
 ## Chat & Mention Scoping Invariants
 - **Strict Channel Scoping for @ Mentions**: Autocomplete suggestion lists and mention parsers for group/course channels MUST strictly inspect `active_channel_members`. NEVER fall back to global platform caches (like `all_users_cache`), which leaks non-member identities and permits tagging users outside the group.
 
+## Testing & Database Integrity Invariants
+- **Zero Database Mocking or Synthetic Accounts Invariant**:
+  - NEVER execute verification scripts, tests, or diagnostic tools that create mock users, fake accounts, or dummy records in the live backend database or local user databases.
+  - All automated frontend verification must use in-memory mocked pages, mocked sessions (`src.utils.session_utils`), and `unittest.mock` fixtures.
+
+
 

@@ -43,7 +43,8 @@ async def organisations_view(page: ft.Page):
     app_bar = get_bottom_appbar(page)
     token = None
 
-    user_data = page.session.store.get("current_user") or {}
+    from src.utils.session_utils import get_session_user, set_session_value
+    user_data = get_session_user(page)
     role = user_data.get("role", "STUDENT").upper()
 
     # ── content socket ────────────────────────────────────────────────────────
@@ -83,13 +84,7 @@ async def organisations_view(page: ft.Page):
             )
 
         # Set current_org_id so that playlists and other views can use it
-        if hasattr(page, "session") and hasattr(page.session, "store"):
-            if hasattr(page.session.store, "set"):
-                page.session.store.set("current_org_id", org_id)
-            elif isinstance(page.session.store, dict):
-                page.session.store["current_org_id"] = org_id
-        elif hasattr(page, "session") and hasattr(page.session, "set"):
-            page.session.set("current_org_id", org_id)
+        set_session_value(page, "current_org_id", org_id)
 
         plan_data = org_data.get("plan") or {}
         plan_name = plan_data.get("name", "Free Plan") if isinstance(plan_data, dict) else "Free Plan"

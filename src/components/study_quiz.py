@@ -12,6 +12,7 @@ Key UX changes vs. the previous implementation:
 """
 
 import time
+import re
 
 import flet as ft
 
@@ -201,7 +202,14 @@ def build_quiz(
         state["q_started"] = time.time()
 
         counter.value = f"Question {state['index'] + 1} of {total}"
-        question_markdown.value = str(q.get("question") or "—")
+        raw_q_text = str(q.get("question") or "—")
+        clean_q = re.sub(
+            r'^\s*[\(\[]?\s*(?:exam[\s\-_]?level|tricky|straightforward|easy|medium|hard)\s*[\)\]]?[\s:\-–—]*',
+            '',
+            raw_q_text,
+            flags=re.IGNORECASE
+        ).strip()
+        question_markdown.value = clean_q or "—"
         progress.set_current(state["index"])
 
         # Render diagram if present

@@ -94,8 +94,8 @@ async def get_platform_objectives_api(token: str) -> dict:
                 }
             resp.raise_for_status()
             data = resp.json()
-            # If backend returned no objectives list, fallback to defaults
-            if not data.get("objectives"):
+            # If backend response did not include objectives field, fallback to defaults
+            if "objectives" not in data or data.get("objectives") is None:
                 data["objectives"] = DEFAULT_PRELIM_OBJECTIVES
             if "coins_balance" in data:
                 _LAST_KNOWN_COINS = data["coins_balance"]

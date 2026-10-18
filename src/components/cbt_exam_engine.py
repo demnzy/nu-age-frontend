@@ -68,9 +68,15 @@ def _extract_image_url(q: Dict[str, Any]) -> Optional[str]:
 
 
 def _clean_question_text(q: Dict[str, Any]) -> str:
-    """Removes embedded markdown image tags from question text to prevent double-rendering."""
+    """Removes embedded markdown image tags and difficulty tag prefixes from question text to prevent double-rendering."""
     txt = str(q.get("question_text") or q.get("question") or "")
     clean = re.sub(r'!\[.*?\]\((https?://[^\s\)]+|/[^\s\)]+)\)', '', txt).strip()
+    clean = re.sub(
+        r'^\s*[\(\[]?\s*(?:exam[\s\-_]?level|tricky|straightforward|easy|medium|hard)\s*[\)\]]?[\s:\-–—]*',
+        '',
+        clean,
+        flags=re.IGNORECASE
+    ).strip()
     return clean or "*(No question text provided)*"
 
 
@@ -136,7 +142,7 @@ class CBTExamEngine:
         questions: List[Dict[str, Any]],
         duration_seconds: Optional[int] = None,
         exam_title: str = "CBT Past Questions Examination",
-        exam_type: str = "JAMB UTME",
+        exam_type: str = "General CBT",
         exam_year: Optional[int] = None,
         candidate_name: str = "Student Candidate",
         material_id: Optional[str] = None,
@@ -1471,6 +1477,35 @@ class CBTExamEngine:
                 )
             )
 
+        else:
+            # General / Academic Simulation summary score block
+            score_block = ft.Column([
+                ft.Row([
+                    ft.Text(f"{score}", size=36, weight=ft.FontWeight.W_900, color=ft.Colors.PRIMARY),
+                    ft.Text(f"/ {self.total}", size=18, weight=ft.FontWeight.W_800, color=ui.muted()),
+                ], spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER, tight=True),
+                ft.Text(f"{percentage:.1f}% Raw Accuracy", size=11, weight=ft.FontWeight.W_700, color=ui.muted()),
+            ], spacing=1, tight=True)
+
+            tier_badge = ft.Container(
+                padding=ft.Padding.symmetric(horizontal=12, vertical=6),
+                border_radius=ft.BorderRadius.all(10),
+                bgcolor=ui.tint(ft.Colors.PRIMARY, 0.12),
+                border=ft.Border.all(1, ft.Colors.PRIMARY),
+                content=ft.Column([
+                    ft.Text("Exam Completed", size=12, weight=ft.FontWeight.W_800, color=ft.Colors.PRIMARY),
+                    ft.Text(f"{score} of {self.total} correct", size=10, color=ft.Colors.ON_SURFACE),
+                ], spacing=2, tight=True),
+            )
+
+            card_content.append(
+                ft.Row(
+                    [score_block, tier_badge],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                )
+            )
+
         # Subject breakdown rows
         if subject_results and len(subject_results) > 1:
             card_content.append(ft.Divider(height=1, color=ui.hairline(0.12)))
@@ -2073,7 +2108,14 @@ class CBTExamEngine:
                 content=ft.Column([
                     ft.Row([
                         ft.Icon(ft.Icons.GRID_VIEW_ROUNDED, size=18, color=ft.Colors.PRIMARY),
-                        ft.Text("JAMB UTME Subject Performance Breakdown", size=14, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
+                        ft.Text(
+                            "JAMB UTME Subject Breakdown" if is_jamb
+                            else ("WAEC / WASSCE Subject Breakdown" if is_waec
+                            else "Subject Performance Breakdown"),
+                            size=14,
+                            weight=ft.FontWeight.W_800,
+                            color=ft.Colors.ON_SURFACE,
+                        ),
                     ], spacing=8),
                     ft.Column(rows, spacing=6),
                 ], spacing=12),
@@ -2309,7 +2351,7 @@ def build_cbt_exam_view(
     questions: List[Dict[str, Any]],
     duration_seconds: Optional[int] = None,
     exam_title: str = "CBT Past Questions Examination",
-    exam_type: str = "JAMB UTME",
+    exam_type: str = "General CBT",
     exam_year: Optional[int] = None,
     candidate_name: str = "Student Candidate",
     material_id: Optional[str] = None,

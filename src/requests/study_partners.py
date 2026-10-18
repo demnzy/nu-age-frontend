@@ -174,13 +174,19 @@ async def log_partnership_activity(
 ) -> dict:
     url = f"{api_url}/study/partnerships/{partnership_id}/log-activity"
     headers = {"Authorization": f"Bearer {token}"}
+    params = {
+        "minutes_spent": minutes_studied,
+        "questions_completed": questions_solved,
+    }
     payload = {
         "minutes_studied": minutes_studied,
-        "questions_solved": questions_solved
+        "questions_solved": questions_solved,
+        "minutes_spent": minutes_studied,
+        "questions_completed": questions_solved,
     }
     try:
         async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
-            resp = await client.post(url, headers=headers, json=payload)
+            resp = await client.post(url, headers=headers, params=params, json=payload)
             resp.raise_for_status()
             return resp.json()
     except Exception as e:

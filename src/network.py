@@ -1154,8 +1154,8 @@ async def network_view(page: ft.Page):
             sent_data = []
 
         active_res = active_res or {"has_partnership": False}
-        has_partnership = bool(active_res.get("has_partnership"))
-        partnership = active_res.get("partnership", {})
+        active_partnerships_list = active_res.get("partnerships") or ([active_res.get("partnership")] if active_res.get("partnership") else [])
+        has_partnership = bool(active_partnerships_list)
         recs = list(recs_data or [])
         incoming = list(incoming_data or [])
         sent = list(sent_data or [])
@@ -1170,18 +1170,21 @@ async def network_view(page: ft.Page):
             else:
                 study_subtab["index"] = 1
 
+        selected_partner_idx = {"index": 0}
+
         def _render_partner_view():
             current_idx = study_subtab["index"]
 
             # ── Subtab Pill Header ───────────────────────────────────────────
             invites_count = len(incoming) + len(sent)
+            duo_tab_title = f"🤝 My Duos ({len(active_partnerships_list)})" if len(active_partnerships_list) > 1 else "🤝 My Duo"
             subtab_row = ft.Container(
                 margin=ft.Margin.only(bottom=14),
                 content=ft.Row(
                     spacing=8,
                     scroll=ft.ScrollMode.HIDDEN,
                     controls=[
-                        _subtab_pill("🤝 My Duo", 0, count=0),
+                        _subtab_pill(duo_tab_title, 0, count=0),
                         _subtab_pill("🎯 Recommended", 1, count=0),
                         _subtab_pill("📬 Invitations", 2, count=invites_count, is_alert=bool(incoming)),
                     ],
@@ -1192,11 +1195,117 @@ async def network_view(page: ft.Page):
 
             # ── SUBTAB 0: MY DUO (ACTIVE PARTNERSHIP COCKPIT) ─────────────────
             if current_idx == 0:
-                if has_partnership:
+                if has_partnership and active_partnerships_list:
+                    # Switcher tray if the user has multiple study duos
+                    if len(active_partnerships_list) > 1:
+                        def _switch_partner_selection(target_idx: int):
+                            selected_partner_idx["index"] = target_idx
+                            _render_partner_view()
+                            page.update()
+
+                        p_chips = []
+                        for idx, p_item in enumerate(active_partnerships_list):
+                            is_sel = (idx == selected_partner_idx["index"])
+                            p_item_partner = p_item.get("partner") or {}
+                            p_item_first = p_item_partner.get("first_name", f"Partner {idx+1}")
+                            p_item_last = p_item_partner.get("last_name", "")
+                            p_item_uname = p_item_partner.get("username")
+                            p_item_streak = p_item.get("duo_streak", 0)
+                            p_item_label = f"@{p_item_uname}" if p_item_uname else f"{p_item_first} {p_item_last}".strip()
+
+                            p_chips.append(
+                                ft.Container(
+                                    padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+                                    border_radius=ft.BorderRadius.all(12),
+                                    bgcolor=ft.Colors.PRIMARY if is_sel else ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
+                                    border=ft.Border.all(1.2, ft.Colors.PRIMARY if is_sel else ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)),
+                                    ink=not is_sel,
+                                    on_click=(lambda i=idx: lambda _: _switch_partner_selection(i))() if not is_sel else None,
+                                    content=ft.Row(
+                                        spacing=8,
+                                        tight=True,
+                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                        controls=[
+                                            _avatar(p_item_partner, radius=13),
+                                            ft.Column(
+                                                spacing=1,
+                                                tight=True,
+                                                controls=[
+                                                    ft.Text(
+                                                        p_item_label,
+                                                        size=12,
+                                                        weight=ft.FontWeight.W_800 if is_sel else ft.FontWeight.W_600,
+                                                        color=ft.Colors.WHITE if is_sel else ft.Colors.ON_SURFACE,
+                                                        no_wrap=True,
+                                                    ),
+                                                    ft.Row(
+                                                        spacing=3,
+                                                        tight=True,
+                                                        controls=[
+                                                            ft.Icon(
+                                                                ft.Icons.LOCAL_FIRE_DEPARTMENT_ROUNDED,
+                                                                size=11,
+                                                                color=ft.Colors.AMBER_300 if is_sel else ft.Colors.AMBER_600,
+                                                            ),
+                                                            ft.Text(
+                                                                f"{p_item_streak}d streak",
+                                                                size=10,
+                                                                weight=ft.FontWeight.W_700 if is_sel else ft.FontWeight.W_500,
+                                                                color=ft.Colors.WHITE70 if is_sel else ft.Colors.GREY_600,
+                                                                no_wrap=True,
+                                                            ),
+                                                        ],
+                                                    ),
+                                                ],
+                                            ),
+                                        ],
+                                    ),
+                                )
+                            )
+
+                        body_controls.append(
+                            ft.Container(
+                                margin=ft.Margin.only(bottom=10),
+                                content=ft.Column(
+                                    spacing=6,
+                                    tight=True,
+                                    controls=[
+                                        ft.Row(
+                                            spacing=6,
+                                            tight=True,
+                                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                            controls=[
+                                                ft.Icon(ft.Icons.PEOPLE_ALT_ROUNDED, size=14, color=ft.Colors.PRIMARY),
+                                                ft.Text(
+                                                    f"Active Study Partners ({len(active_partnerships_list)})",
+                                                    size=12,
+                                                    weight=ft.FontWeight.W_800,
+                                                    color=ft.Colors.ON_SURFACE,
+                                                ),
+                                                ft.Text("• Tap to view partner details", size=11, color=ft.Colors.GREY_500),
+                                            ],
+                                        ),
+                                        ft.Row(
+                                            spacing=8,
+                                            scroll=ft.ScrollMode.HIDDEN,
+                                            controls=p_chips,
+                                        ),
+                                    ],
+                                ),
+                            )
+                        )
+
+                    cur_p_idx = selected_partner_idx["index"]
+                    if cur_p_idx >= len(active_partnerships_list):
+                        cur_p_idx = 0
+                        selected_partner_idx["index"] = 0
+                    partnership = active_partnerships_list[cur_p_idx]
+
                     partner = partnership.get("partner") or {}
                     p_id = partnership.get("id")
                     p_first = partner.get("first_name", "Partner")
                     p_last = partner.get("last_name", "")
+                    p_username = partner.get("username")
                     p_name = f"{p_first} {p_last}".strip()
                     p_uni = partner.get("university") or "Campus Peer"
                     duo_streak = partnership.get("duo_streak", 0)
@@ -1268,7 +1377,8 @@ async def network_view(page: ft.Page):
                         dlg.open = False
                         page.update()
                         await delete_partnership(token, p_id)
-                        show_page_snackbar(page, "Study partnership concluded.")
+                        show_page_snackbar(page, f"Study partnership with {p_first} concluded.")
+                        selected_partner_idx["index"] = 0
                         await switch_tab(3)
 
                     active_card = ft.Container(
@@ -1308,6 +1418,11 @@ async def network_view(page: ft.Page):
                                                                 bgcolor=ft.Colors.GREEN if partner_done else ft.Colors.GREY_400,
                                                             ),
                                                         ], spacing=5, tight=True),
+                                                        *(
+                                                            [ft.Text(f"@{p_username} • {p_uni}", size=11, color=ft.Colors.GREY_500, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS)]
+                                                            if p_username else
+                                                            [ft.Text(p_uni, size=11, color=ft.Colors.GREY_500, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS)]
+                                                        ),
                                                     ],
                                                 ),
                                             ],
@@ -1364,7 +1479,7 @@ async def network_view(page: ft.Page):
                                                 controls=[
                                                     ft.Row([
                                                         ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED if partner_done else ft.Icons.RADIO_BUTTON_UNCHECKED_ROUNDED, size=14, color=ft.Colors.GREEN_600 if partner_done else ft.Colors.GREY_500),
-                                                        ft.Text(p_first, size=11.5, weight=ft.FontWeight.W_700),
+                                                        ft.Text(f"{p_first} (@{p_username})" if p_username else p_first, size=11.5, weight=ft.FontWeight.W_700),
                                                     ], spacing=5, tight=True),
                                                     ft.Text(f"{partner_today_mins} / {daily_target_mins} mins", size=11, weight=ft.FontWeight.W_600, color=ft.Colors.GREY_600),
                                                 ],
@@ -2014,6 +2129,21 @@ async def network_view(page: ft.Page):
         color=ft.Colors.GREY_400,
     )
 
+    from src.utils.session_utils import get_session_user, set_session_value
+    from src.requests.auth import get_current_user_request
+
+    curr_u = get_session_user(page)
+    p_pic = curr_u.get("profile_picture_url") if curr_u else None
+    has_pic = bool(p_pic and isinstance(p_pic, str) and p_pic.startswith("http"))
+    f_init = (curr_u.get("first_name", "")[:1] + curr_u.get("last_name", "")[:1]).upper() if curr_u else "NU"
+
+    top_avatar_ctrl = ft.CircleAvatar(
+        radius=14,
+        bgcolor=ft.Colors.PRIMARY_CONTAINER,
+        foreground_image_src=p_pic if has_pic else None,
+        content=None if has_pic else ft.Text(f_init, size=10, weight=ft.FontWeight.W_800, color=ft.Colors.PRIMARY),
+    )
+
     top_nav_row = ft.Row(
         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
         vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -2032,11 +2162,7 @@ async def network_view(page: ft.Page):
                 ink=True,
                 on_click=lambda _: page.go("/profile"),
                 tooltip="Your Profile",
-                content=ft.CircleAvatar(
-                    radius=14,
-                    bgcolor=ft.Colors.PRIMARY_CONTAINER,
-                    content=ft.Icon(ft.Icons.PERSON_ROUNDED, size=16, color=ft.Colors.PRIMARY),
-                ),
+                content=top_avatar_ctrl,
             ),
         ],
     )
@@ -2092,6 +2218,28 @@ async def network_view(page: ft.Page):
             if _is_mounted(seg_row):
                 break
             await asyncio.sleep(0.01)
+
+        # Refresh avatar if needed from current user profile
+        if token and not has_pic:
+            try:
+                status, u_data = await get_current_user_request(token)
+                if status == 200 and isinstance(u_data, dict):
+                    fresh_pic = u_data.get("profile_picture_url")
+                    fresh_fname = u_data.get("first_name", "")
+                    fresh_lname = u_data.get("last_name", "")
+                    fresh_inits = ((fresh_fname[:1] if fresh_fname else "") + (fresh_lname[:1] if fresh_lname else "")).upper() or "NU"
+                    if fresh_pic and isinstance(fresh_pic, str) and fresh_pic.startswith("http"):
+                        top_avatar_ctrl.foreground_image_src = fresh_pic
+                        top_avatar_ctrl.content = None
+                    else:
+                        top_avatar_ctrl.foreground_image_src = None
+                        top_avatar_ctrl.content = ft.Text(fresh_inits, size=10, weight=ft.FontWeight.W_800, color=ft.Colors.PRIMARY)
+                    set_session_value(page, "current_user", u_data)
+                    if _is_mounted(top_avatar_ctrl):
+                        top_avatar_ctrl.update()
+            except Exception:
+                pass
+
         initial_tab = 0
         if page.route and ("partners" in page.route or "study_partners" in page.route):
             initial_tab = 3

@@ -2506,6 +2506,145 @@ def build_notifications_skeleton(page: ft.Page | None = None) -> ft.Control:
     )
 
 
+def build_leaderboards_skeleton(page: ft.Page | None = None) -> ft.Control:
+    """High-fidelity 1-to-1 accurate skeleton for the Campus Leaderboards & Objectives view."""
+    # Top header bar: Title + subtitle on left, Nu-Coins badge on right
+    header_row = ft.Row(
+        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        controls=[
+            ft.Column([
+                shimmer_box(radius=4, height=18, width=170, darker=True),
+                shimmer_box(radius=4, height=11, width=130),
+            ], spacing=3, tight=True),
+            # Nu-Coins pill badge
+            shimmer_box(radius=12, height=28, width=78, darker=True),
+        ],
+    )
+
+    # Segmented Tab Row: Objectives, Leaderboards, Duel History
+    tabs_row = ft.Row(
+        spacing=8,
+        controls=[
+            shimmer_box(radius=10, height=32, width=105),
+            shimmer_box(radius=10, height=32, width=115, darker=True),
+            shimmer_box(radius=10, height=32, width=110),
+        ],
+    )
+
+    # Sub-filter pills (Duo Streaks, Today's Focus, Solo Streaks)
+    sub_filters_row = ft.Row(
+        spacing=8,
+        controls=[
+            shimmer_box(radius=10, height=26, width=95, darker=True),
+            shimmer_box(radius=10, height=26, width=105),
+            shimmer_box(radius=10, height=26, width=95),
+        ],
+    )
+
+    # Pinned "Your Standing" Banner
+    standing_banner = grey_card(
+        padding=ft.Padding.symmetric(horizontal=14, vertical=10),
+        radius=12,
+        content=ft.Row(
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                ft.Row([
+                    shimmer_box(radius=999, width=24, height=24, darker=True),
+                    ft.Column([
+                        shimmer_box(radius=4, height=13, width=160),
+                        shimmer_box(radius=4, height=10, width=110),
+                    ], spacing=3, tight=True),
+                ], spacing=10, tight=True),
+                shimmer_box(radius=6, height=20, width=38, darker=True),
+            ],
+        ),
+    )
+
+    # Top-3 Visual Podium
+    podium_row = ft.Row(
+        alignment=ft.MainAxisAlignment.CENTER,
+        vertical_alignment=ft.CrossAxisAlignment.END,
+        spacing=8,
+        controls=[
+            # Silver #2
+            grey_card(
+                padding=ft.Padding.symmetric(horizontal=8, vertical=10),
+                radius=14,
+                content=ft.Column([
+                    shimmer_box(radius=999, width=28, height=28, darker=True),
+                    shimmer_box(radius=4, height=11, width=70),
+                    shimmer_box(radius=4, height=9, width=50),
+                    shimmer_box(radius=6, height=16, width=60),
+                ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, alignment=ft.MainAxisAlignment.CENTER, spacing=4),
+            ),
+            # Gold #1 (taller, centered)
+            grey_card(
+                padding=ft.Padding.symmetric(horizontal=8, vertical=14),
+                radius=14,
+                content=ft.Column([
+                    shimmer_box(radius=999, width=34, height=34, darker=True),
+                    shimmer_box(radius=4, height=12, width=85),
+                    shimmer_box(radius=4, height=9, width=60),
+                    shimmer_box(radius=6, height=18, width=70, darker=True),
+                ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, alignment=ft.MainAxisAlignment.CENTER, spacing=5),
+            ),
+            # Bronze #3
+            grey_card(
+                padding=ft.Padding.symmetric(horizontal=8, vertical=10),
+                radius=14,
+                content=ft.Column([
+                    shimmer_box(radius=999, width=28, height=28, darker=True),
+                    shimmer_box(radius=4, height=11, width=70),
+                    shimmer_box(radius=4, height=9, width=50),
+                    shimmer_box(radius=6, height=16, width=60),
+                ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, alignment=ft.MainAxisAlignment.CENTER, spacing=4),
+            ),
+        ],
+    )
+
+    # Campus Rankings List Cards
+    def ranking_item():
+        return grey_card(
+            padding=ft.Padding.symmetric(horizontal=14, vertical=10),
+            radius=12,
+            content=ft.Row(
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[
+                    ft.Row([
+                        shimmer_box(radius=4, height=14, width=18),
+                        ft.Column([
+                            shimmer_box(radius=4, height=13, width=130),
+                            shimmer_box(radius=4, height=10, width=80),
+                        ], spacing=3, tight=True),
+                    ], spacing=10, tight=True),
+                    shimmer_box(radius=6, height=16, width=65, darker=True),
+                ],
+            ),
+        )
+
+    return ft.ListView(
+        expand=True,
+        padding=ft.Padding.symmetric(horizontal=16, vertical=12),
+        spacing=10,
+        controls=[
+            header_row,
+            tabs_row,
+            ft.Container(height=4),
+            sub_filters_row,
+            standing_banner,
+            podium_row,
+            shimmer_box(radius=4, height=12, width=100),
+            ranking_item(),
+            ranking_item(),
+            ranking_item(),
+            ft.Container(height=20),
+        ],
+    )
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # ROUTE RESOLVER & SKELETON VIEW FACTORY
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2538,6 +2677,8 @@ def build_skeleton_view(route: str, page: ft.Page | None = None) -> ft.View:
         body = build_self_study_skeleton(page)
     elif clean_route == "/offline":
         body = build_offline_skeleton(page)
+    elif clean_route == "/leaderboards":
+        body = build_leaderboards_skeleton(page)
 
     # 2. Parametrized route matches (most specific first)
     elif troute.match("/courses/:id/stats"):

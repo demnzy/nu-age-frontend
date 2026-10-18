@@ -136,35 +136,23 @@ class NavPillItem:
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
         )
 
-        h_pad = 8 if is_desktop else 5
-        v_pad = 6 if is_desktop else 5
+        h_pad = 10 if is_desktop else 7
+        v_pad = 7 if is_desktop else 6
 
         self.container = ft.Container(
             content=self.row,
             border_radius=20,
             padding=ft.Padding.symmetric(horizontal=h_pad, vertical=v_pad),
+            alignment=ft.Alignment.CENTER,
             animate=ft.Animation(260, ft.AnimationCurve.EASE_OUT_CUBIC),
             animate_size=ft.Animation(260, ft.AnimationCurve.EASE_OUT_CUBIC),
-            ink=True,
             tooltip=f"{label} ({route})",
             on_click=self._handle_click,
-            on_hover=self._handle_hover,
         )
 
-    def _handle_click(self, e):
+    def _handle_click(self, e=None):
         if self.on_navigate:
             self.on_navigate(self.route)
-
-    def _handle_hover(self, e):
-        if not self.is_active:
-            theme = _get_nav_theme(self.page)
-            is_hovered = (e.data == "true")
-            self.icon_ctrl.color = theme["inactive_hover"] if is_hovered else theme["inactive_color"]
-            self.container.bgcolor = theme["hover_bg"] if is_hovered else ft.Colors.TRANSPARENT
-            try:
-                self.container.update()
-            except Exception:
-                pass
 
     def update_badge(self, count: int):
         self._unread_count = count
@@ -177,7 +165,7 @@ class NavPillItem:
         self.label_ctrl.visible = active
         self.icon_ctrl.size = 20 if is_desktop else 19
         self.label_ctrl.size = 12 if is_desktop else 11
-        self.row.spacing = 4 if is_desktop else 3
+        self.row.spacing = 5 if is_desktop else 4
 
         self.icon_ctrl.color = theme["active_color"] if active else theme["inactive_color"]
         self.label_ctrl.color = theme["active_color"]
@@ -185,11 +173,11 @@ class NavPillItem:
         self.container.border = theme["active_pill_border"] if active else None
 
         if active:
-            h_pad = 12 if is_desktop else 8
-            v_pad = 6 if is_desktop else 5
+            h_pad = 14 if is_desktop else 10
+            v_pad = 7 if is_desktop else 6
         else:
-            h_pad = 8 if is_desktop else 5
-            v_pad = 6 if is_desktop else 5
+            h_pad = 10 if is_desktop else 7
+            v_pad = 7 if is_desktop else 6
 
         self.container.padding = ft.Padding.symmetric(horizontal=h_pad, vertical=v_pad)
 
@@ -218,7 +206,7 @@ class PersistentBottomAppBar:
         self._capsule = ft.Container(
             content=self._nav_row,
             height=58 if is_desktop else 52,
-            width=(560 if len(self.items) >= 6 else 490) if is_desktop else None,
+            width=(570 if len(self.items) >= 6 else 500) if is_desktop else None,
             bgcolor=theme["capsule_bg"],
             border=theme["capsule_border"],
             border_radius=29 if is_desktop else 26,
@@ -232,7 +220,7 @@ class PersistentBottomAppBar:
             bgcolor=ft.Colors.TRANSPARENT,
             elevation=0,
             height=76 if is_desktop else 68,
-            padding=ft.Padding.only(left=16, right=16, bottom=12) if is_desktop else ft.Padding.only(left=8, right=8, bottom=8),
+            padding=ft.Padding.only(left=14, right=14, bottom=12) if is_desktop else ft.Padding.only(left=8, right=8, bottom=8),
             content=ft.Container(
                 alignment=ft.Alignment.CENTER,
                 content=self._capsule,
@@ -241,15 +229,19 @@ class PersistentBottomAppBar:
 
         # Wire responsive resize handler safely without clobbering existing handlers
         try:
-            existing_on_resize = getattr(self.page, "on_resize", None)
-            def _chained_resize(e):
-                if callable(existing_on_resize):
-                    try:
-                        existing_on_resize(e)
-                    except Exception:
-                        pass
-                self.responsive_update()
-            self.page.on_resize = _chained_resize
+            if not getattr(self.page, "_bottom_nav_resize_wired", False):
+                self.page._bottom_nav_resize_wired = True
+                existing_on_resize = getattr(self.page, "on_resize", None)
+                def _chained_resize(e):
+                    if callable(existing_on_resize):
+                        try:
+                            existing_on_resize(e)
+                        except Exception:
+                            pass
+                    nav = getattr(self.page, "persistent_nav_bar", self)
+                    if nav:
+                        nav.responsive_update()
+                self.page.on_resize = _chained_resize
         except Exception:
             pass
 
@@ -288,11 +280,29 @@ class PersistentBottomAppBar:
             pass
 
     def _on_item_navigate(self, route: str):
+        import asyncio
         self.set_active_route(route)
-        self.page.go(route)
+        if getattr(self.page, "route", None) == route:
+            # Re-evaluating route if already on it allows users to refresh a stuck or blank view
+            on_rc = getattr(self.page, "on_route_change", None)
+            if callable(on_rc):
+                try:
+                    ev = ft.RouteChangeEvent("route_change", self.page, route)
+                except Exception:
+                    ev = None
+                try:
+                    if asyncio.iscoroutinefunction(on_rc):
+                        self.page.run_task(on_rc, ev)
+                    else:
+                        on_rc(ev)
+                except Exception as ex:
+                    print(f"[bottom_appbar] error invoking on_route_change: {ex!r}")
+        else:
+            self.page.go(route)
 
     def refresh(self):
-        user_data = (self.page.session.store.get("current_user") or {}) if hasattr(self.page, "session") and hasattr(self.page.session, "store") else {}
+        from src.utils.session_utils import get_session_user
+        user_data = get_session_user(self.page)
         role = str(user_data.get("role", "STUDENT")).upper()
         self.items.clear()
 
@@ -415,5 +425,8 @@ class PersistentBottomAppBar:
 
 
 def get_bottom_appbar(page: ft.Page) -> ft.BottomAppBar:
-    """Backward-compatible helper that constructs a BottomAppBar instance."""
+    """Backward-compatible helper that retrieves or constructs a BottomAppBar instance."""
+    nav = getattr(page, "persistent_nav_bar", None)
+    if nav is not None and hasattr(nav, "bar"):
+        return nav.bar
     return PersistentBottomAppBar(page).bar

@@ -250,23 +250,26 @@ def show_objectives_and_leaderboard_dialog(
             ),
         )
 
-        def _make_claim(c_code, btn):
+        def _make_claim(c_code, btn, r_coins):
             async def _on_claim(e=None):
                 if btn.disabled:
                     return
                 btn.disabled = True
+                btn.content = ft.ProgressRing(width=14, height=14, stroke_width=2, color=ft.Colors.WHITE)
                 btn.update()
                 try:
                     res = _as_dict(await claim_objective_reward_api(token, c_code))
                 except Exception as ex:
                     res = {"message": f"Couldn't claim: {ex}"}
                 if res.get("status") == "success":
+                    earned = res.get("reward_coins") or res.get("coin_reward") or r_coins
                     if on_coins_changed:
                         on_coins_changed()
                     await _load_objectives_tab()
-                    _notify(f"Reward claimed! +{res.get('reward_coins')} Nu-Coins! 🎉", error=False)
+                    _notify(f"Reward claimed! +{earned} Nu-Coins! 🎉", error=False)
                 else:
                     btn.disabled = False
+                    btn.content = ft.Text(f"Claim +{r_coins} 🪙", size=11.5, weight=ft.FontWeight.W_700, no_wrap=True)
                     btn.update()
                     _notify(res.get("message") or "Error claiming reward.")
             return _on_claim
@@ -279,17 +282,18 @@ def show_objectives_and_leaderboard_dialog(
                 code = item.get("code")
                 title = item.get("title") or "Objective"
                 desc = item.get("description") or ""
-                reward = item.get("reward_coins", 0)
+                reward = item.get("coin_reward") or item.get("reward_coins", 20)
                 curr = item.get("current_value", 0)
                 tgt = max(1, item.get("target_value", 1))
-                can_claim = item.get("can_claim", False)
                 is_completed = item.get("is_completed", False)
+                is_claimed = item.get("is_claimed", False)
+                can_claim = item.get("can_claim") if "can_claim" in item else (is_completed and not is_claimed)
                 progress_val = min(1.0, curr / tgt)
 
                 if can_claim:
                     claim_btn = ft.ElevatedButton(
                         content=ft.Text(f"Claim +{reward} 🪙", size=11.5, weight=ft.FontWeight.W_700, no_wrap=True),
-                        bgcolor=ft.Colors.PRIMARY,
+                        bgcolor=ft.Colors.AMBER_800,
                         color=ft.Colors.WHITE,
                         height=btn_h,
                         style=ft.ButtonStyle(
@@ -298,9 +302,9 @@ def show_objectives_and_leaderboard_dialog(
                             padding=ft.Padding.symmetric(horizontal=14),
                         ),
                     )
-                    claim_btn.on_click = _make_claim(code, claim_btn)
+                    claim_btn.on_click = _make_claim(code, claim_btn, reward)
                     trailing_widget = claim_btn
-                elif is_completed:
+                elif is_claimed or is_completed:
                     trailing_widget = ft.Container(
                         padding=ft.Padding.symmetric(horizontal=8, vertical=4),
                         border_radius=ft.BorderRadius.all(8),
@@ -310,7 +314,7 @@ def show_objectives_and_leaderboard_dialog(
                             tight=True,
                             controls=[
                                 ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED, size=13, color=ft.Colors.GREEN_700),
-                                ft.Text("Claimed", size=10.5, weight=ft.FontWeight.W_700, color=ft.Colors.GREEN_800, no_wrap=True),
+                                ft.Text("Claimed" if is_claimed else "Done", size=10.5, weight=ft.FontWeight.W_700, color=ft.Colors.GREEN_800, no_wrap=True),
                             ],
                         ),
                     )
@@ -690,9 +694,13 @@ def show_objectives_and_leaderboard_dialog(
                     p_b = item.get("partner_b") or {}
                     duo_name = f"{p_a.get('first_name', 'Learner')} & {p_b.get('first_name', 'Partner')}"
                     metric_str = f"🔥 {item.get('duo_streak', 0)} Days Duo Streak"
+                elif filter_type == "today":
+                    u_name = f"{item.get('first_name', '')} {item.get('last_name', '')}".strip() or item.get("username", "Learner")
+                    metric_str = f"⏱ {item.get('study_minutes', 0)} Mins Today • ⚡ {item.get('streak', 0)}d Streak"
+                    duo_name = u_name
                 else:
                     u_name = f"{item.get('first_name', '')} {item.get('last_name', '')}".strip() or item.get("username", "Learner")
-                    metric_str = f"🔥 {item.get('streak', 0)}d • 🪙 {item.get('coins_balance', 0)} coins"
+                    metric_str = f"🔥 {item.get('streak', 0)}d Streak • 🪙 {item.get('coins_balance', 0)} coins"
                     duo_name = u_name
 
                 name_row_controls = [

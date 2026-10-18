@@ -54,6 +54,7 @@ class StudyMarketplaceView:
         on_pack_downloaded: Callable[[str], None],
         on_navigate_back: Callable[[], None],
         on_open_coins_modal: Optional[Callable[[], None]] = None,
+        on_open_cockpit: Optional[Callable[[str], None]] = None,
         is_admin: bool = False,
     ):
         self.page = page
@@ -62,6 +63,7 @@ class StudyMarketplaceView:
         self.on_pack_downloaded = on_pack_downloaded
         self.on_navigate_back = on_navigate_back
         self.on_open_coins_modal = on_open_coins_modal
+        self.on_open_cockpit = on_open_cockpit
         self.is_admin = is_admin
 
         # State
@@ -789,7 +791,7 @@ class StudyMarketplaceView:
                     ],
                 ),
                 ft.Text(
-                    "JAMB UTME & WAEC Revision Bundles",
+                    "Comprehensive Exam & Revision Bundles",
                     size=18 if narrow else 22,
                     weight=ft.FontWeight.W_800,
                     color=ft.Colors.WHITE,
@@ -946,7 +948,7 @@ class StudyMarketplaceView:
 
         bundle_id = str(bundle.get("id"))
         title = bundle.get("title", "Exam Combo Bundle")
-        category = bundle.get("category", "JAMB UTME")
+        category = bundle.get("category", "General")
         price = bundle.get("price_coins", 0)
         orig_price = bundle.get("original_price_coins", price)
         discount = bundle.get("discount_percentage", 0)
@@ -1821,11 +1823,27 @@ class StudyMarketplaceView:
         creator = pack.get("creator", {})
         creator_name = creator.get("name", "Nu-Age Official" if is_official else "Peer Creator")
 
-        # If already owned, navigate or notify user directly
+        # If already owned, navigate or open cockpit directly
         if is_owned:
-            show_page_snackbar(self.page, f"'{title}' is already in your vault!")
-            if self.on_pack_downloaded:
-                self.on_pack_downloaded(pack.get("imported_material_id") or pack_id)
+            target_mid = pack.get("imported_material_id")
+            if not target_mid:
+                # Look up from user's vault materials by matching title or source_pack_id
+                target_mid = next(
+                    (str(m.get("id")) for m in self.user_vault_materials
+                     if str(m.get("source_pack_id")) == pack_id
+                     or str(m.get("id")) == pack_id
+                     or m.get("title", "").strip().lower() == raw_title.strip().lower()
+                     or m.get("title", "").strip().lower() == title.strip().lower()),
+                    None
+                )
+            if not target_mid:
+                target_mid = pack_id
+
+            show_page_snackbar(self.page, f"Opening '{title}'…")
+            if self.on_open_cockpit:
+                self.on_open_cockpit(target_mid)
+            elif self.on_pack_downloaded:
+                self.on_pack_downloaded(target_mid)
             return
 
         has_enough_coins = (self.user_coins >= price_coins) if price_coins > 0 else True

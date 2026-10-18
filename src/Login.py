@@ -12,6 +12,7 @@ from src.components.bottom_appbar import NotificationManager
 from src.utils.db_manager import log_daily_activity
 import asyncio
 from src.local_db import has_any_downloaded_courses
+from src.components.google_auth_button import build_google_auth_button
 
 
 def is_dark_mode(page: ft.Page) -> bool:
@@ -181,11 +182,8 @@ def login_view(page: ft.Page):
                 Submit.disabled = False
                 if l_status == 200:
                     token = l_data.get("access_token")
-                    if hasattr(page, "session") and hasattr(page.session, "store"):
-                        try:
-                            page.session.store.clear()
-                        except Exception:
-                            pass
+                    from src.utils.session_utils import clear_session_store
+                    clear_session_store(page)
                     try:
                         NotificationManager.clear_all()
                     except Exception:
@@ -345,11 +343,8 @@ def login_view(page: ft.Page):
             Submit.content = ft.Text("Sign In", size=14, weight=ft.FontWeight.W_600)
             if status == 200:
                 token = data.get("access_token")
-                if hasattr(page, "session") and hasattr(page.session, "store"):
-                    try:
-                        page.session.store.clear()
-                    except Exception:
-                        pass
+                from src.utils.session_utils import clear_session_store
+                clear_session_store(page)
                 try:
                     NotificationManager.clear_all()
                 except Exception:
@@ -449,11 +444,10 @@ def login_view(page: ft.Page):
 
     # ── fields ────────────────────────────────────────────────────
     prefill_val = getattr(page, "_prefill_login_identifier", None)
-    if not prefill_val and hasattr(page, "session") and hasattr(page.session, "store"):
-        try:
-            prefill_val = page.session.store.get("prefill_login_identifier")
-        except Exception:
-            prefill_val = None
+    if not prefill_val:
+        from src.utils.session_utils import get_session_store
+        _s = get_session_store(page)
+        prefill_val = _s.get("prefill_login_identifier") if hasattr(_s, "get") else None
 
     if hasattr(page, "_prefill_login_identifier"):
         try:
@@ -1229,27 +1223,18 @@ def login_view(page: ft.Page):
     # ── Right Form Panel ──────────────────────────────────────────
     form_content = ft.Column(
         controls=[
-            # Top Branding
-            ft.Row(
-                [
-                    ft.Image(src="icon.png", width=24, height=24, fit=ft.BoxFit.CONTAIN),
-                    ft.Text("Nu Age", size=18, weight=ft.FontWeight.W_800, color=ft.Colors.PRIMARY),
-                ],
-                spacing=7,
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            ),
             ft.Text(
-                "Login",
+                "Sign In",
                 size=22,
                 weight=ft.FontWeight.BOLD,
                 color=ft.Colors.ON_SURFACE,
             ),
             ft.Text(
-                "Enter your credentials to login to your account",
+                "Enter your credentials to access your account",
                 size=12,
                 color=ft.Colors.GREY_400 if is_dark else ft.Colors.GREY_500,
             ),
-            ft.Container(height=15),
+            ft.Container(height=4),
 
             # Form Fields
             ft.Row([email]),
@@ -1269,6 +1254,19 @@ def login_view(page: ft.Page):
 
             # Submit Button
             ft.Row(controls=[Submit]),
+
+            # Google Sign In Divider & Button
+            ft.Row(
+                [
+                    ft.Container(expand=True, height=1, bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.WHITE) if is_dark else ft.Colors.GREY_300),
+                    ft.Text("OR", size=11, weight=ft.FontWeight.W_600, color=ft.Colors.GREY_500),
+                    ft.Container(expand=True, height=1, bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.WHITE) if is_dark else ft.Colors.GREY_300),
+                ],
+                alignment=ft.MainAxisAlignment.CENTER,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                spacing=12,
+            ),
+            ft.Row(controls=[build_google_auth_button(page, text="Continue with Google")]),
 
             # Offline Downloads Quick Access Button
             ft.Row(controls=[offline_courses_btn], visible=not is_web),
@@ -1294,17 +1292,8 @@ def login_view(page: ft.Page):
                 spacing=0,
                 wrap=True,
             ),
-
-            # Footer
-            ft.Container(height=2),
-            ft.Text(
-                "© 2026 Nu Age Learning · All rights reserved",
-                size=10,
-                color=ft.Colors.GREY_500 if is_dark else ft.Colors.GREY_400,
-                text_align=ft.TextAlign.CENTER,
-            ),
         ],
-        spacing=5,
+        spacing=4,
         tight=True,
         horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
     )

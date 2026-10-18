@@ -23,6 +23,14 @@ from src.requests.platform_admin import (
     broadcast_bulk_push,
     get_broadcast_history,
     get_platform_health,
+    queue_all_lesson_audio,
+    get_audio_queue_status,
+    cancel_audio_queue,
+    get_admin_objectives,
+    create_admin_objective,
+    update_admin_objective,
+    delete_admin_objective,
+    test_trigger_admin_objective,
 )
 from src.requests.marketplace import (
     fetch_admin_pending_submissions,
@@ -35,6 +43,7 @@ from src.requests.marketplace import (
     parse_past_questions_ai,
     parse_past_questions_file_ai,
     create_official_curated_pack,
+    fetch_admin_pack_full,
     fetch_admin_all_bundles,
     create_study_bundle_admin,
     update_study_bundle_admin,
@@ -44,6 +53,14 @@ from src.requests.marketplace import (
 from src.components.study_pack_card import CATEGORY_PRESETS, StudyPackCard
 from src.components.question_curator_modal import show_question_curator_dialog
 from src.components.bundle_builder_modal import show_bundle_builder_dialog
+from src.requests.payments import (
+    get_admin_store_products,
+    create_admin_store_product,
+    update_admin_store_product,
+    delete_admin_store_product,
+    get_admin_org_plans,
+    save_admin_org_plan,
+)
 from src.utils.file_opener import show_page_snackbar
 from src.components import study_ui as ui
 
@@ -117,6 +134,9 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
         "sort_by": "created_desc",
         "cached_users": [],
         "cached_analytics": None,   # None = initial loading (show skeletons)
+        "store_products": [],
+        "is_loading_store": False,
+        "store_filter_cat": "all",
         "is_loading_analytics": False,
         "is_loading_users": False,
         "analytics_error": None,
@@ -138,6 +158,20 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
         "cached_bundles": [],
         "is_loading_bundles": False,
         "bundles_error": None,
+
+        # Audio Studio Batch Queue State
+        "audio_queue_status": None,
+        "is_loading_audio_queue": False,
+        "is_triggering_audio_queue": False,
+        "audio_queue_error": None,
+        "audio_queue_selected_langs": {"en": True, "ha": True, "fr": True},
+        "audio_queue_force": False,
+
+        # Objectives & Milestones Studio State
+        "objectives": [],
+        "is_loading_objectives": False,
+        "objectives_error": None,
+        "objectives_stats": {"total": 0, "active": 0, "coins_distributed": 0},
     }
 
     # Check if page already has an elevated token in session
@@ -607,12 +641,22 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
             page.run_task(_fetch_broadcast_history)
         elif tab_name == "study_packs":
             page.run_task(_fetch_study_packs)
+        elif tab_name == "store_studio":
+            page.run_task(_fetch_store_products)
+        elif tab_name == "audio_studio":
+            page.run_task(_fetch_audio_queue_status)
+            page.run_task(_audio_queue_auto_poller)
+        elif tab_name == "objectives":
+            page.run_task(_fetch_objectives)
 
     def _build_nav_bar() -> ft.Control:
         nav_buttons = [
             ("overview", "Overview", ft.Icons.DASHBOARD_ROUNDED, None),
             ("users", "User Directory", ft.Icons.PEOPLE_ROUNDED, admin_state["total_users"] if admin_state["total_users"] > 0 else None),
+            ("store_studio", "Store Studio", ft.Icons.STORE_ROUNDED, len(admin_state["store_products"]) if admin_state["store_products"] else None),
             ("study_packs", "Study Packs", ft.Icons.STOREFRONT_ROUNDED, admin_state["pending_packs_count"] if admin_state["pending_packs_count"] > 0 else None),
+            ("objectives", "Objectives", ft.Icons.MILITARY_TECH_ROUNDED, len(admin_state["objectives"]) if admin_state.get("objectives") else None),
+            ("audio_studio", "Audio Studio", ft.Icons.GRAPHIC_EQ_ROUNDED, None),
             ("broadcast", "Push Broadcasts", ft.Icons.NOTIFICATIONS_ACTIVE_ROUNDED, None),
             ("export", "Export Center", ft.Icons.DOWNLOAD_ROUNDED, None),
         ]
@@ -2595,7 +2639,7 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
                 initial_questions=[],
                 pack_title="New Official CBT Pack",
                 subject="General",
-                exam_type="JAMB UTME",
+                exam_type="General CBT",
                 exam_year=2025,
                 initial_price_coins=0,
                 initial_theme_gradient="emerald_teal",
@@ -2610,7 +2654,7 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
             is_mobile = screen_w < 640
 
             subject_field = ft.TextField(label="Subject", value="Physics", dense=True, expand=True)
-            exam_field = ft.TextField(label="Exam Board", value="JAMB UTME", dense=True, width=140)
+            exam_field = ft.TextField(label="Exam Board", value="General CBT", dense=True, width=140)
             year_field = ft.TextField(label="Exam Year", value="2024", dense=True, width=100)
 
             raw_text_field = ft.TextField(
@@ -2766,7 +2810,7 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
                 page.update()
 
             sample_btn = ft.TextButton(
-                "Load Sample JAMB Paper",
+                "Load Sample Exam Paper",
                 icon=ft.Icons.DESCRIPTION_OUTLINED,
                 on_click=lambda _: _load_sample_paper(),
             )
@@ -3004,7 +3048,7 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
                 year_str = (year_field.value or "").strip()
                 year_val = int(year_str) if year_str.isdigit() else 2024
                 parsed_subj = (subject_field.value or "").strip() or "General"
-                parsed_exam = (exam_field.value or "").strip() or "JAMB UTME"
+                parsed_exam = (exam_field.value or "").strip() or "General CBT"
 
                 # If text is present, parse text. If raw text empty but file uploaded, parse file.
                 if txt:
@@ -3046,7 +3090,7 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
                     initial_questions=parsed_questions,
                     pack_title=suggested_title,
                     subject=(subject_field.value or "").strip() or "General",
-                    exam_type=(exam_field.value or "").strip() or "JAMB UTME",
+                    exam_type=(exam_field.value or "").strip() or "General CBT",
                     exam_year=year_val,
                     initial_price_coins=0,
                     initial_theme_gradient="emerald_teal",
@@ -3214,7 +3258,7 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
                     token=admin_state["token"],
                     title=bundle_payload["title"],
                     description=bundle_payload.get("description", ""),
-                    category=bundle_payload.get("category", "JAMB UTME"),
+                    category=bundle_payload.get("category", "General"),
                     pack_ids=bundle_payload.get("pack_ids", []),
                     price_coins=bundle_payload.get("price_coins", 0),
                     discount_percentage=bundle_payload.get("discount_percentage", 0),
@@ -3283,7 +3327,7 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
                         ),
                     ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                     ft.Text(b.get("title", "Untitled Bundle"), size=15, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
-                    ft.Text(f"{b.get('category', 'JAMB UTME')} • {b.get('packs_count', 0)} Packs Included", size=11.5, color=ft.Colors.WHITE70),
+                    ft.Text(f"{b.get('category', 'General')} • {b.get('packs_count', 0)} Packs Included", size=11.5, color=ft.Colors.WHITE70),
                 ], spacing=6),
             )
 
@@ -3700,6 +3744,49 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
             ),
         )
 
+    async def _open_existing_pack_curator(pack: Dict[str, Any]):
+        pack_id = str(pack.get("id"))
+        show_page_snackbar(page, f"Loading questions for '{pack.get('title')}'…")
+        full_res = await fetch_admin_pack_full(admin_state["token"], pack_id)
+        if "error" in full_res and not full_res.get("questions"):
+            show_page_snackbar(page, f"Failed to load pack questions: {full_res.get('error')}")
+            return
+
+        async def _on_save_pack_curator_changes(updated_data: dict):
+            show_page_snackbar(page, "Saving updated CBT questions & details…")
+            up_res = await update_admin_pack(
+                token=admin_state["token"],
+                pack_id=pack_id,
+                title=updated_data.get("title"),
+                description=updated_data.get("description"),
+                category=updated_data.get("category"),
+                price_coins=updated_data.get("price_coins"),
+                theme_gradient=updated_data.get("theme_gradient"),
+                duration_minutes=updated_data.get("duration_minutes"),
+                questions=updated_data.get("questions"),
+            )
+            if up_res.get("success"):
+                show_page_snackbar(page, "🎉 CBT Pack questions updated successfully!")
+                await _fetch_study_packs()
+            else:
+                show_page_snackbar(page, f"Failed to update pack: {up_res.get('error', 'Unknown')}")
+
+        show_question_curator_dialog(
+            page=page,
+            initial_questions=full_res.get("questions", []),
+            pack_title=full_res.get("title") or pack.get("title", ""),
+            subject=full_res.get("category") or pack.get("category", "General"),
+            exam_type=full_res.get("exam_type", "General CBT"),
+            exam_year=full_res.get("exam_year"),
+            initial_price_coins=full_res.get("price_coins", 0),
+            initial_theme_gradient=full_res.get("theme_gradient", "emerald_teal"),
+            initial_description=full_res.get("description", ""),
+            initial_duration_minutes=full_res.get("duration_minutes", 60),
+            on_publish=lambda p_data: asyncio.create_task(_on_save_pack_curator_changes(p_data)),
+            token=admin_state["token"],
+            save_button_label="Save & Update CBT Pack",
+        )
+
     def _build_admin_catalog_card(pack: Dict[str, Any]) -> ft.Container:
         pack_id = str(pack.get("id"))
         status = pack.get("status", "approved")
@@ -3824,6 +3911,16 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
                                         width=32,
                                         height=32,
                                         on_click=lambda e: page.run_task(_toggle_visibility, e),
+                                    ),
+                                    ft.IconButton(
+                                        icon=ft.Icons.AUTO_AWESOME_ROUNDED,
+                                        icon_color=palette["purple"],
+                                        bgcolor=palette["surface"],
+                                        tooltip="Curate & Edit CBT Questions",
+                                        icon_size=16,
+                                        width=32,
+                                        height=32,
+                                        on_click=lambda _, p=pack: page.run_task(_open_existing_pack_curator, p),
                                     ),
                                     ft.IconButton(
                                         icon=ft.Icons.EDIT_ROUNDED,
@@ -4228,6 +4325,26 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
                         ft.Container(expand=1, content=price_dropdown),
                     ], spacing=10),
                     official_row,
+                    # Curate CBT Questions direct action button
+                    *(
+                        [
+                            ft.Container(
+                                padding=ft.Padding.only(top=4),
+                                content=ft.FilledButton(
+                                    content=ft.Row([
+                                        ft.Icon(ft.Icons.AUTO_AWESOME_ROUNDED, size=16, color=ft.Colors.WHITE),
+                                        ft.Text("Launch Question Curator & CBT Editor Studio", size=12.5, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+                                    ], spacing=8, alignment=ft.MainAxisAlignment.CENTER),
+                                    style=ft.ButtonStyle(
+                                        bgcolor=palette["purple"],
+                                        shape=ft.RoundedRectangleBorder(radius=10),
+                                        padding=ft.Padding.symmetric(horizontal=16, vertical=12),
+                                    ),
+                                    on_click=lambda _: (_close_dlg(), page.run_task(_open_existing_pack_curator, pack)),
+                                ),
+                            )
+                        ] if not is_pending else []
+                    ),
                     # Additional fields if pending
                     *(
                         [
@@ -4246,6 +4363,2269 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
         page.update()
 
     # ─────────────────────────────────────────────────────────────────────────
+    # STORE CATALOG STUDIO
+    # ─────────────────────────────────────────────────────────────────────────
+
+    async def _fetch_store_products():
+        admin_state["is_loading_store"] = True
+        _render_tab_content()
+        page.update()
+        try:
+            token = admin_state.get("token") or ""
+            prods = await get_admin_store_products(token)
+            admin_state["store_products"] = prods or []
+            # Also fetch PostgreSQL org plans
+            org_plans = await get_admin_org_plans(token)
+            admin_state["admin_org_plans"] = org_plans or []
+        except Exception as ex:
+            print(f"[STORE_STUDIO] Error fetching products: {ex}")
+            show_page_snackbar(page, f"Failed to load store products: {ex}")
+        finally:
+            admin_state["is_loading_store"] = False
+            nav_container.content = _build_nav_bar()
+            _render_tab_content()
+            page.update()
+
+    def _show_store_product_dialog(prod=None):
+        initial_cat = prod.get("category", "booster") if prod else "booster"
+        selected_cat = [initial_cat]
+        slug_manually_edited = [bool(prod)]
+
+        # --- Base Fields ---
+        name_input = ft.TextField(
+            label="Product Name",
+            hint_text="e.g. Institution Growth Plan, Midterm Booster",
+            value=prod.get("name", "") if prod else "",
+            border_color=palette["border"],
+            text_style=ft.TextStyle(color=palette["text"]),
+            expand=True,
+        )
+        id_input = ft.TextField(
+            label="Product ID / Slug (Unique identifier)",
+            hint_text="e.g. org_growth_annual, booster_pack",
+            value=prod.get("id", "") if prod else "",
+            disabled=bool(prod),
+            border_color=palette["border"],
+            text_style=ft.TextStyle(color=palette["text"]),
+            expand=True,
+        )
+
+        def _on_slug_change(e):
+            slug_manually_edited[0] = True
+        id_input.on_change = _on_slug_change
+
+        def _on_name_change(e):
+            if not prod and not slug_manually_edited[0]:
+                import re
+                raw = re.sub(r'[^a-zA-Z0-9\s_-]', '', name_input.value or '').strip().lower()
+                id_input.value = re.sub(r'[\s-]+', '_', raw)
+                try:
+                    id_input.update()
+                except Exception:
+                    page.update()
+        name_input.on_change = _on_name_change
+
+        price_input = ft.TextField(
+            label="Price (₦ NGN)",
+            hint_text="e.g. 50000",
+            value=str(int(prod.get("price", 1000))) if prod else "1000",
+            border_color=palette["border"],
+            text_style=ft.TextStyle(color=palette["text"]),
+            expand=True,
+        )
+        badge_input = ft.TextField(
+            label="Badge Tag (Optional)",
+            hint_text="e.g. MOST POPULAR, INSTITUTION CHOICE, BEST VALUE",
+            value=prod.get("badge") or "" if prod else "",
+            border_color=palette["border"],
+            text_style=ft.TextStyle(color=palette["text"]),
+            expand=True,
+        )
+        VALID_INTERVAL_OPTIONS = [
+            ("one-time", "One-Time (No renewal)"),
+            ("month", "Monthly (Renews 30d)"),
+            ("quarter", "Quarterly (Renews 90d)"),
+            ("year", "Yearly (Renews 365d)"),
+        ]
+
+        init_interval = prod.get("interval", "one-time") if prod else ("month" if initial_cat in ("plan", "org_plan") else "one-time")
+        if init_interval not in [o[0] for o in VALID_INTERVAL_OPTIONS]:
+            init_interval = "month" if initial_cat in ("plan", "org_plan") else "one-time"
+
+        interval_dd = ft.Dropdown(
+            label="Billing Cycle",
+            value=init_interval,
+            options=[ft.dropdown.Option(k, v) for k, v in VALID_INTERVAL_OPTIONS],
+            border_color=palette["border"],
+            bgcolor=palette["surface"],
+            text_size=12,
+            disabled=(initial_cat in ("booster", "coins", "org_seats")),
+            expand=True,
+        )
+        desc_input = ft.TextField(
+            label="Short Description",
+            hint_text="Engaging one or two sentence marketing summary shown to buyers.",
+            multiline=True,
+            min_lines=2,
+            max_lines=3,
+            value=prod.get("description") or "" if prod else "",
+            border_color=palette["border"],
+            text_style=ft.TextStyle(color=palette["text"]),
+        )
+        order_input = ft.TextField(
+            label="Catalog Display Order (Lower appears first)",
+            value=str(prod.get("display_order", 10)) if prod else "10",
+            border_color=palette["border"],
+            text_style=ft.TextStyle(color=palette["text"]),
+            expand=True,
+        )
+        features_input = ft.TextField(
+            label="Marketing Feature Bullet Points (1 per line)",
+            hint_text="e.g.\nAI Course Drafting Engine\nCohort CBT & Timed Exams\nUp to 50 Student Seats",
+            multiline=True,
+            min_lines=3,
+            max_lines=5,
+            value="\n".join(prod.get("features", [])) if prod else "",
+            border_color=palette["border"],
+            text_style=ft.TextStyle(color=palette["text"]),
+        )
+        active_switch = ft.Switch(
+            label="Active in Learner Storefront",
+            value=prod.get("is_active", True) if prod else True,
+            active_color=palette["accent"],
+        )
+
+        # --- Study Booster & Nu-Coins Fields ---
+        mats_input = ft.TextField(
+            label="+ Bonus Material Slots",
+            value=str(prod.get("bonus_materials", 0)) if prod else "0",
+            border_color=palette["border"],
+            text_style=ft.TextStyle(color=palette["text"]),
+            expand=True,
+        )
+        gens_input = ft.TextField(
+            label="+ Bonus AI Generations",
+            value=str(prod.get("bonus_generations", 0)) if prod else "0",
+            border_color=palette["border"],
+            text_style=ft.TextStyle(color=palette["text"]),
+            expand=True,
+        )
+        coins_input = ft.TextField(
+            label="+ Bonus Nu-Coins",
+            value=str(prod.get("bonus_coins", 0)) if prod else "0",
+            border_color=palette["border"],
+            text_style=ft.TextStyle(color=palette["text"]),
+            expand=True,
+        )
+
+        # --- Org Plan & Org Seats Fields ---
+        max_members_input = ft.TextField(
+            label="Max Student / Member Seats",
+            value=str(prod.get("org_seats", 50)) if prod else "50",
+            border_color=palette["border"],
+            text_style=ft.TextStyle(color=palette["text"]),
+            expand=True,
+        )
+        max_courses_input = ft.TextField(
+            label="Max Hosted Courses",
+            value="20",
+            border_color=palette["border"],
+            text_style=ft.TextStyle(color=palette["text"]),
+            expand=True,
+        )
+        seat_count_input = ft.TextField(
+            label="Additional Seats in Pack",
+            value=str(prod.get("org_seats", 10)) if prod else "10",
+            border_color=palette["border"],
+            text_style=ft.TextStyle(color=palette["text"]),
+            expand=True,
+        )
+
+        # Feature Toggles for Org Plans
+        prod_feats = [f.lower() for f in prod.get("features", [])] if prod else []
+        has_ai_init = any("ai course" in f or "ai drafting" in f for f in prod_feats) if prod else True
+        has_cbt_init = any("cbt" in f or "exam" in f for f in prod_feats) if prod else True
+        has_analytics_init = any("analytic" in f or "gradebook" in f for f in prod_feats) if prod else True
+        has_branding_init = any("brand" in f or "certificate" in f for f in prod_feats) if prod else False
+
+        ai_drafting_switch = ft.Switch(
+            label="AI Course Drafting (Gemini Engine)",
+            value=has_ai_init,
+            active_color=palette["accent"],
+        )
+        cbt_switch = ft.Switch(
+            label="Cohort CBT & Timed Exam Engine",
+            value=has_cbt_init,
+            active_color=palette["accent"],
+        )
+        analytics_switch = ft.Switch(
+            label="Cohort Gradebook & Performance Analytics",
+            value=has_analytics_init,
+            active_color=palette["accent"],
+        )
+        branding_switch = ft.Switch(
+            label="Custom Institution Branding & Certificates",
+            value=has_branding_init,
+            active_color=palette["accent"],
+        )
+
+        # DB Plans list dropdown
+        db_plans = admin_state.get("admin_org_plans", [])
+        db_options = [ft.dropdown.Option("new", "✨ Create New Plan in PostgreSQL")]
+        matched_db_id = prod.get("plan_id") if prod else None
+        for dp in db_plans:
+            dp_id = str(dp.get("id"))
+            dp_title = f"{dp.get('name', 'Plan')} (₦{int(dp.get('price', 0)):,} · {dp.get('max_members', 50)} seats · {dp.get('max_courses', 20)} courses)"
+            db_options.append(ft.dropdown.Option(dp_id, dp_title))
+            if prod and (prod.get("name") == dp.get("name") or prod.get("plan_id") == dp_id):
+                matched_db_id = dp_id
+
+        def _on_db_plan_selected(e):
+            sel_id = getattr(getattr(e, "control", None), "value", None) or db_plan_dropdown.value or getattr(e, "data", None)
+            if sel_id and sel_id != "new":
+                for dp in db_plans:
+                    if str(dp.get("id")) == sel_id:
+                        name_input.value = dp.get("name", "")
+                        price_input.value = str(int(dp.get("price", 0)))
+                        max_members_input.value = str(dp.get("max_members", 50))
+                        max_courses_input.value = str(dp.get("max_courses", 20))
+                        if dp.get("description"):
+                            desc_input.value = dp.get("description")
+                        dp_feats = dp.get("features", [])
+                        if dp_feats:
+                            features_input.value = "\n".join(dp_feats)
+                            dp_feats_lower = [f.lower() for f in dp_feats]
+                            ai_drafting_switch.value = any("ai course" in f or "ai drafting" in f for f in dp_feats_lower)
+                            cbt_switch.value = any("cbt" in f or "exam" in f for f in dp_feats_lower)
+                            analytics_switch.value = any("analytic" in f or "gradebook" in f for f in dp_feats_lower)
+                            branding_switch.value = any("brand" in f or "certif" in f for f in dp_feats_lower)
+                        try:
+                            edit_dlg.update()
+                        except Exception:
+                            page.update()
+                        break
+
+        db_plan_dropdown = ft.Dropdown(
+            label="Synchronize with PostgreSQL Organisation Plan",
+            options=db_options,
+            value=matched_db_id if matched_db_id else "new",
+            border_color=palette["border"],
+            expand=True,
+            on_select=_on_db_plan_selected,
+        )
+
+        # Quick Perk helper
+        def _append_perk(text: str):
+            curr = [l.strip() for l in (features_input.value or "").split("\n") if l.strip()]
+            if text not in curr:
+                curr.append(text)
+                features_input.value = "\n".join(curr)
+                try:
+                    features_input.update()
+                except Exception:
+                    page.update()
+
+        category_cards_container = ft.Container()
+
+        def _build_category_content():
+            cat = selected_cat[0]
+            if cat == "org_plan":
+                return ft.Container(
+                    bgcolor=palette["surface_variant"],
+                    border=ft.Border.all(1, palette["border"]),
+                    border_radius=12,
+                    padding=ft.Padding.all(14),
+                    content=ft.Column(
+                        spacing=12,
+                        controls=[
+                            ft.Row([
+                                ft.Icon(ft.Icons.BUSINESS_ROUNDED, size=18, color=palette["accent"]),
+                                ft.Text("Organisation Plan Quotas & Authoritative Perks", size=13, weight=ft.FontWeight.BOLD, color=palette["text"]),
+                            ], spacing=8),
+                            ft.Row([db_plan_dropdown]),
+                            ft.Row([max_members_input, max_courses_input], spacing=10),
+                            ft.Divider(height=1, color=palette["border"]),
+                            ft.Text("Authoritative Institutional Perks:", size=11.5, weight=ft.FontWeight.BOLD, color=palette["text_muted"]),
+                            ft.Container(
+                                padding=ft.Padding.all(10),
+                                bgcolor=ft.Colors.with_opacity(0.06, palette["accent"]),
+                                border_radius=8,
+                                border=ft.Border.all(1, ft.Colors.with_opacity(0.18, palette["accent"])),
+                                content=ft.Column(
+                                    spacing=4,
+                                    controls=[
+                                        ai_drafting_switch,
+                                        ft.Text(
+                                            "Allows educators to automatically generate modular courses with AI. Preexisting orgs are grandfathered; new orgs require this perk on their plan.",
+                                            size=10.5,
+                                            color=palette["text_muted"],
+                                        ),
+                                    ],
+                                ),
+                            ),
+                            ft.Row([
+                                ft.Container(expand=1, content=cbt_switch),
+                                ft.Container(expand=1, content=analytics_switch),
+                            ], spacing=10),
+                            ft.Row([branding_switch]),
+                        ],
+                    ),
+                )
+            elif cat == "org_seats":
+                return ft.Container(
+                    bgcolor=palette["surface_variant"],
+                    border=ft.Border.all(1, palette["border"]),
+                    border_radius=12,
+                    padding=ft.Padding.all(14),
+                    content=ft.Column(
+                        spacing=10,
+                        controls=[
+                            ft.Row([
+                                ft.Icon(ft.Icons.GROUPS_ROUNDED, size=18, color=palette["accent"]),
+                                ft.Text("Organisation Seat Booster Pack", size=13, weight=ft.FontWeight.BOLD, color=palette["text"]),
+                            ], spacing=8),
+                            ft.Row([seat_count_input]),
+                            ft.Text(
+                                "Organisations purchase seat booster packs to expand their cohort capacity without changing plan tiers.",
+                                size=11,
+                                color=palette["text_muted"],
+                            ),
+                        ],
+                    ),
+                )
+            else:
+                return ft.Container(
+                    bgcolor=palette["surface_variant"],
+                    border=ft.Border.all(1, palette["border"]),
+                    border_radius=12,
+                    padding=ft.Padding.all(14),
+                    content=ft.Column(
+                        spacing=10,
+                        controls=[
+                            ft.Row([
+                                ft.Icon(ft.Icons.TOKEN_ROUNDED, size=18, color=palette["accent"]),
+                                ft.Text("Learner Balance & Quota Credits", size=13, weight=ft.FontWeight.BOLD, color=palette["text"]),
+                            ], spacing=8),
+                            ft.Row([mats_input, gens_input, coins_input], spacing=10),
+                            ft.Text(
+                                "Credits are added on top of the student's existing account balances upon verified payment.",
+                                size=11,
+                                color=palette["text_muted"],
+                            ),
+                        ],
+                    ),
+                )
+
+        category_cards_container.content = _build_category_content()
+
+        # Category Pill Selector
+        cat_meta = [
+            ("plan", "Scholar Plan", ft.Icons.SCHOOL_ROUNDED),
+            ("booster", "Study Booster", ft.Icons.ROCKET_LAUNCH_ROUNDED),
+            ("coins", "Nu-Coins Pack", ft.Icons.TOLL_ROUNDED),
+            ("org_plan", "Org Plan", ft.Icons.BUSINESS_ROUNDED),
+            ("org_seats", "Org Seats", ft.Icons.GROUPS_ROUNDED),
+        ]
+
+        cat_selector_row = ft.Row(scroll=ft.ScrollMode.AUTO, spacing=8)
+
+        def _refresh_cat_pills():
+            pills = []
+            for c_key, c_name, c_icon in cat_meta:
+                is_sel = selected_cat[0] == c_key
+                pills.append(
+                    ft.Container(
+                        padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+                        border_radius=8,
+                        bgcolor=palette["accent"] if is_sel else palette["surface_variant"],
+                        border=ft.Border.all(1, palette["accent"] if is_sel else palette["border"]),
+                        ink=True,
+                        on_click=lambda _, k=c_key: _select_cat(k),
+                        content=ft.Row([
+                            ft.Icon(c_icon, size=15, color=ft.Colors.BLACK if is_sel else palette["text"]),
+                            ft.Text(c_name, size=11.5, weight=ft.FontWeight.BOLD if is_sel else ft.FontWeight.W_500, color=ft.Colors.BLACK if is_sel else palette["text"]),
+                        ], spacing=6, tight=True),
+                    )
+                )
+            cat_selector_row.controls = pills
+
+        def _select_cat(cat_key):
+            selected_cat[0] = cat_key
+            if cat_key in ("booster", "coins", "org_seats"):
+                interval_dd.value = "one-time"
+                interval_dd.disabled = True
+            elif cat_key in ("plan", "org_plan"):
+                interval_dd.disabled = False
+                if not interval_dd.value or interval_dd.value == "one-time":
+                    interval_dd.value = "month"
+            _refresh_cat_pills()
+            category_cards_container.content = _build_category_content()
+            try:
+                edit_dlg.update()
+            except Exception:
+                page.update()
+
+        _refresh_cat_pills()
+
+        # Quick Perk Suggestion Chips
+        quick_chips = [
+            "AI Course Drafting Engine",
+            "Cohort CBT Exams & Timed Quizzes",
+            "Cohort Gradebook & Performance Analytics",
+            "Custom Verified Certificates",
+            "+10 Additional Material Slots",
+            "+25 AI Generations",
+            "+50 AI Generations",
+            "Credits Never Expire",
+            "Priority Server Processing",
+            "24/7 Dedicated Support",
+        ]
+        quick_chips_row = ft.Row(
+            scroll=ft.ScrollMode.AUTO,
+            spacing=6,
+            controls=[
+                ft.Container(
+                    padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+                    border_radius=6,
+                    bgcolor=palette["surface_variant"],
+                    border=ft.Border.all(1, palette["border"]),
+                    ink=True,
+                    on_click=lambda _, q=chip_text: _append_perk(q),
+                    content=ft.Row([
+                        ft.Icon(ft.Icons.ADD_ROUNDED, size=11, color=palette["accent"]),
+                        ft.Text(chip_text, size=10, color=palette["text"]),
+                    ], spacing=4, tight=True),
+                )
+                for chip_text in quick_chips
+            ],
+        )
+
+        async def _save_product(e=None):
+            name_val = (name_input.value or "").strip()
+            if not name_val:
+                show_page_snackbar(page, "Product name is required.")
+                return
+            try:
+                price_val = float(price_input.value.strip() or 0)
+            except ValueError:
+                show_page_snackbar(page, "Invalid price format.")
+                return
+
+            cat_val = selected_cat[0]
+            raw_feats = [f.strip() for f in (features_input.value or "").split("\n") if f.strip()]
+
+            # Synchronize authoritative org toggles into features list
+            if cat_val == "org_plan":
+                ai_perk = "AI Course Drafting Engine"
+                if ai_drafting_switch.value:
+                    if not any("ai course" in f.lower() or "ai drafting" in f.lower() for f in raw_feats):
+                        raw_feats.insert(0, ai_perk)
+                else:
+                    raw_feats = [f for f in raw_feats if "ai course" not in f.lower() and "ai drafting" not in f.lower()]
+
+                cbt_perk = "Cohort CBT Exams & Timed Quizzes"
+                if cbt_switch.value:
+                    if not any("cbt" in f.lower() for f in raw_feats):
+                        raw_feats.append(cbt_perk)
+                else:
+                    raw_feats = [f for f in raw_feats if "cbt" not in f.lower()]
+
+                analytics_perk = "Cohort Gradebook & Performance Analytics"
+                if analytics_switch.value:
+                    if not any("analytic" in f.lower() or "gradebook" in f.lower() for f in raw_feats):
+                        raw_feats.append(analytics_perk)
+                else:
+                    raw_feats = [f for f in raw_feats if "analytic" not in f.lower() and "gradebook" not in f.lower()]
+
+                branding_perk = "Custom Verified Certificates"
+                if branding_switch.value:
+                    if not any("certificate" in f.lower() or "brand" in f.lower() for f in raw_feats):
+                        raw_feats.append(branding_perk)
+                else:
+                    raw_feats = [f for f in raw_feats if "certificate" not in f.lower() and "brand" not in f.lower()]
+
+            token = admin_state.get("token") or ""
+            plan_db_id = None
+
+            # If Org Plan, save or sync with PostgreSQL 'plans' table
+            if cat_val == "org_plan":
+                try:
+                    mems = int((max_members_input.value or "50").strip() or 50)
+                    courses = int((max_courses_input.value or "20").strip() or 20)
+                except ValueError:
+                    mems = 50
+                    courses = 20
+
+                sel_db_plan = db_plan_dropdown.value
+                db_payload = {
+                    "id": sel_db_plan if (sel_db_plan and sel_db_plan != "new") else (prod.get("plan_id") if prod else None),
+                    "name": name_val,
+                    "description": (desc_input.value or "").strip() or None,
+                    "price": price_val,
+                    "max_members": mems,
+                    "max_courses": courses,
+                    "features": raw_feats,
+                }
+                db_res = await save_admin_org_plan(token, db_payload)
+                if "error" in db_res:
+                    show_page_snackbar(page, f"Warning: Failed to save DB plan: {db_res['error']}")
+                elif db_res.get("id"):
+                    plan_db_id = str(db_res["id"])
+
+            payload = {
+                "id": (id_input.value or "").strip() or None,
+                "name": name_val,
+                "category": cat_val,
+                "price": price_val,
+                "badge": (badge_input.value or "").strip() or None,
+                "description": (desc_input.value or "").strip() or None,
+                "interval": (interval_dd.value or "one-time").strip(),
+                "bonus_materials": int((mats_input.value or "").strip() or 0) if cat_val != "org_plan" else 0,
+                "bonus_generations": int((gens_input.value or "").strip() or 0) if cat_val != "org_plan" else 0,
+                "bonus_coins": int((coins_input.value or "").strip() or 0) if cat_val != "org_plan" else 0,
+                "org_seats": (
+                    int((max_members_input.value or "50").strip() or 50)
+                    if cat_val == "org_plan"
+                    else (int((seat_count_input.value or "10").strip() or 10) if cat_val == "org_seats" else 0)
+                ),
+                "display_order": int((order_input.value or "").strip() or 0),
+                "features": raw_feats,
+                "is_active": active_switch.value,
+                "plan_id": plan_db_id or (prod.get("plan_id") if prod else None),
+            }
+
+            if prod:
+                res = await update_admin_store_product(token, prod["id"], payload)
+            else:
+                res = await create_admin_store_product(token, payload)
+
+            if "error" in res:
+                show_page_snackbar(page, f"Error: {res['error']}")
+                return
+
+            edit_dlg.open = False
+            page.update()
+            show_page_snackbar(page, f"Store product '{name_val}' saved successfully!")
+            await _fetch_store_products()
+
+        dialog_width = min(740, max(360, int((page.width or 800) * 0.92)))
+
+        edit_dlg = ft.AlertDialog(
+            shape=ft.RoundedRectangleBorder(radius=16),
+            bgcolor=palette["surface"],
+            title=ft.Row(
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                controls=[
+                    ft.Row([
+                        ft.Icon(ft.Icons.STOREFRONT_ROUNDED, color=palette["accent"], size=22),
+                        ft.Text("Edit Store Product" if prod else "Create Store Product", size=16, weight=ft.FontWeight.BOLD, color=palette["text"]),
+                    ], spacing=8, tight=True),
+                    ft.IconButton(ft.Icons.CLOSE_ROUNDED, icon_color=palette["text_muted"], on_click=lambda _: (setattr(edit_dlg, "open", False), page.update())),
+                ],
+            ),
+            content=ft.Container(
+                width=dialog_width,
+                content=ft.Column(
+                    tight=True,
+                    spacing=14,
+                    scroll=ft.ScrollMode.AUTO,
+                    controls=[
+                        # 1. Category Bar
+                        ft.Column(
+                            spacing=6,
+                            tight=True,
+                            controls=[
+                                ft.Text("Product Category:", size=11.5, weight=ft.FontWeight.BOLD, color=palette["text_muted"]),
+                                cat_selector_row,
+                            ],
+                        ),
+                        # 2. Basic Info Card
+                        ft.Container(
+                            bgcolor=palette["surface_variant"],
+                            border=ft.Border.all(1, palette["border"]),
+                            border_radius=12,
+                            padding=ft.Padding.all(14),
+                            content=ft.Column(
+                                spacing=12,
+                                controls=[
+                                    ft.Row([name_input, id_input], spacing=10),
+                                    ft.Row([price_input, interval_dd, badge_input], spacing=10),
+                                ],
+                            ),
+                        ),
+                        # 3. Dynamic Category Configuration Card
+                        category_cards_container,
+                        # 4. Catalog Display & Marketing Card
+                        ft.Container(
+                            bgcolor=palette["surface_variant"],
+                            border=ft.Border.all(1, palette["border"]),
+                            border_radius=12,
+                            padding=ft.Padding.all(14),
+                            content=ft.Column(
+                                spacing=12,
+                                controls=[
+                                    desc_input,
+                                    ft.Row([order_input, ft.Container(content=active_switch, padding=ft.Padding.only(top=8))], spacing=10),
+                                    features_input,
+                                    ft.Column(
+                                        spacing=4,
+                                        tight=True,
+                                        controls=[
+                                            ft.Text("Quick Add Perks:", size=11, color=palette["text_muted"]),
+                                            quick_chips_row,
+                                        ],
+                                    ),
+                                ],
+                            ),
+                        ),
+                    ],
+                ),
+            ),
+            actions=[
+                ft.TextButton("Cancel", style=ft.ButtonStyle(color=palette["text_muted"]), on_click=lambda _: (setattr(edit_dlg, "open", False), page.update())),
+                ft.FilledButton(
+                    "Save Product",
+                    icon=ft.Icons.SAVE_ROUNDED,
+                    style=ft.ButtonStyle(bgcolor=palette["accent_glow"], color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8)),
+                    on_click=lambda _: page.run_task(_save_product),
+                ),
+            ],
+        )
+        page.overlay.append(edit_dlg)
+        edit_dlg.open = True
+        page.update()
+
+    def _build_store_studio_tab() -> ft.Control:
+        prods = admin_state.get("store_products") or []
+        is_loading = admin_state.get("is_loading_store", False)
+        current_cat_filter = admin_state.get("store_filter_cat", "all")
+
+        # Category Filter Bar with Horizontal Scrolling
+        categories = [
+            ("all", "All Products"),
+            ("plan", "Scholar Plans"),
+            ("booster", "Study Boosters"),
+            ("coins", "Nu-Coins Packs"),
+            ("org_plan", "Org Plans"),
+            ("org_seats", "Org Seats"),
+        ]
+        cat_chips = []
+        for c_id, c_label in categories:
+            is_active = current_cat_filter == c_id
+            cat_chips.append(
+                ft.Container(
+                    padding=ft.Padding.symmetric(horizontal=12, vertical=6),
+                    border_radius=8,
+                    bgcolor=palette["accent"] if is_active else palette["surface_variant"],
+                    border=ft.Border.all(1, palette["accent"] if is_active else palette["border"]),
+                    ink=True,
+                    on_click=lambda _, cid=c_id: (admin_state.update({"store_filter_cat": cid}), _render_tab_content(), page.update()),
+                    content=ft.Text(
+                        c_label,
+                        size=11.5,
+                        weight=ft.FontWeight.BOLD if is_active else ft.FontWeight.W_500,
+                        color=ft.Colors.BLACK if is_active else palette["text_muted"],
+                    ),
+                )
+            )
+
+        header = ft.Container(
+            bgcolor=palette["surface"],
+            border=ft.Border.all(1, palette["border"]),
+            border_radius=14,
+            padding=ft.Padding.all(18),
+            content=ft.Row(
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                wrap=True,
+                spacing=12,
+                controls=[
+                    ft.Column(
+                        spacing=4,
+                        tight=True,
+                        controls=[
+                            ft.Row(
+                                spacing=8,
+                                tight=True,
+                                controls=[
+                                    ft.Icon(ft.Icons.STORE_ROUNDED, size=20, color=palette["accent"]),
+                                    ft.Text("Store Catalog Studio", size=18, weight=ft.FontWeight.BOLD, color=palette["text"]),
+                                ],
+                            ),
+                            ft.Text(
+                                "Live catalog of learner subscriptions, study boosters, Nu-Coins, and organisation plans.",
+                                size=12,
+                                color=palette["text_muted"],
+                            ),
+                        ],
+                    ),
+                    ft.Row(
+                        spacing=10,
+                        tight=True,
+                        controls=[
+                            ft.IconButton(
+                                icon=ft.Icons.REFRESH_ROUNDED,
+                                icon_color=palette["accent"],
+                                tooltip="Refresh Products & Plans",
+                                on_click=lambda _: page.run_task(_fetch_store_products),
+                            ),
+                            ft.FilledButton(
+                                "Create Product",
+                                icon=ft.Icons.ADD_ROUNDED,
+                                style=ft.ButtonStyle(
+                                    bgcolor=palette["accent_glow"],
+                                    color=ft.Colors.WHITE,
+                                    shape=ft.RoundedRectangleBorder(radius=8),
+                                ),
+                                on_click=lambda _: _show_store_product_dialog(None),
+                            ),
+                        ],
+                    ),
+                ],
+            ),
+        )
+
+        filtered_prods = prods
+        if current_cat_filter != "all":
+            filtered_prods = [p for p in prods if p.get("category") == current_cat_filter]
+
+        if is_loading:
+            body = ft.Container(
+                alignment=ft.Alignment.CENTER,
+                padding=ft.Padding.all(60),
+                content=ft.Column(
+                    tight=True,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    spacing=12,
+                    controls=[
+                        ft.ProgressRing(width=32, height=32, stroke_width=3, color=palette["accent"]),
+                        ft.Text("Loading store catalog from database…", size=13, color=palette["text_muted"]),
+                    ],
+                ),
+            )
+        elif not filtered_prods:
+            body = ft.Container(
+                alignment=ft.Alignment.CENTER,
+                padding=ft.Padding.all(60),
+                bgcolor=palette["surface"],
+                border=ft.Border.all(1, palette["border"]),
+                border_radius=14,
+                content=ft.Column(
+                    tight=True,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    spacing=12,
+                    controls=[
+                        ft.Icon(ft.Icons.SHOPPING_BAG_OUTLINED, size=48, color=palette["text_muted"]),
+                        ft.Text("No Products in this Category", size=15, weight=ft.FontWeight.BOLD, color=palette["text"]),
+                        ft.Text("Click '+ Create Product' above to add items to the store.", size=12, color=palette["text_muted"]),
+                    ],
+                ),
+            )
+        else:
+            cards = []
+            for p in filtered_prods:
+                p_id = p.get("id")
+                raw_cat = p.get("category") or ""
+                p_cat = raw_cat.replace("_", " ").upper()
+                p_badge = p.get("badge")
+                p_active = p.get("is_active", True)
+                p_price = float(p.get("price") or 0)
+
+                async def _toggle_active(prod_item=p):
+                    token = admin_state.get("token") or ""
+                    new_val = not prod_item.get("is_active", True)
+                    await update_admin_store_product(token, prod_item["id"], {"name": prod_item["name"], "category": prod_item["category"], "price": prod_item["price"], "is_active": new_val})
+                    await _fetch_store_products()
+
+                async def _confirm_delete(prod_item=p):
+                    del_dlg = ft.AlertDialog(
+                        title=ft.Text("Delete Product?"),
+                        content=ft.Text(f"Are you sure you want to delete '{prod_item['name']}' from the store catalog?"),
+                        actions=[
+                            ft.TextButton("Cancel", on_click=lambda _: (setattr(del_dlg, "open", False), page.update())),
+                            ft.FilledButton(
+                                "Delete",
+                                style=ft.ButtonStyle(bgcolor=palette["danger"]),
+                                on_click=lambda _: page.run_task(_execute_delete, prod_item["id"], del_dlg),
+                            ),
+                        ],
+                    )
+                    page.overlay.append(del_dlg)
+                    del_dlg.open = True
+                    page.update()
+
+                async def _execute_delete(pid, dlg):
+                    dlg.open = False
+                    page.update()
+                    token = admin_state.get("token") or ""
+                    await delete_admin_store_product(token, pid)
+                    show_page_snackbar(page, f"Product deleted successfully.")
+                    await _fetch_store_products()
+
+                perks = []
+                if p.get("bonus_generations"):
+                    perks.append(f"+{p['bonus_generations']} AI Gens")
+                if p.get("bonus_materials"):
+                    perks.append(f"+{p['bonus_materials']} Materials")
+                if p.get("bonus_coins"):
+                    perks.append(f"+{p['bonus_coins']} Nu-Coins")
+                if p.get("org_seats"):
+                    perks.append(f"+{p['org_seats']} Org Seats")
+
+                # Detect AI Drafting perk in features
+                p_features = p.get("features", [])
+                has_ai_draft = any("ai course" in f.lower() or "ai drafting" in f.lower() for f in p_features)
+                if has_ai_draft:
+                    perks.append("🤖 AI Drafting")
+                if any("cbt" in f.lower() for f in p_features):
+                    perks.append("📝 CBT Engine")
+
+                card = ft.Container(
+                    bgcolor=palette["surface"],
+                    border=ft.Border.all(1, palette["accent"] if p_badge else palette["border"]),
+                    border_radius=12,
+                    padding=ft.Padding.all(16),
+                    content=ft.Column(
+                        spacing=10,
+                        controls=[
+                            ft.Row(
+                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                controls=[
+                                    ft.Row(
+                                        spacing=6,
+                                        tight=True,
+                                        controls=[
+                                            ft.Container(
+                                                padding=ft.Padding.symmetric(horizontal=8, vertical=2),
+                                                border_radius=4,
+                                                bgcolor=palette["surface_variant"],
+                                                content=ft.Text(p_cat, size=9.5, weight=ft.FontWeight.BOLD, color=palette["accent"]),
+                                            ),
+                                            *(
+                                                [
+                                                    ft.Container(
+                                                        padding=ft.Padding.symmetric(horizontal=8, vertical=2),
+                                                        border_radius=4,
+                                                        bgcolor=ft.Colors.with_opacity(0.12, palette["accent_glow"]),
+                                                        content=ft.Text(p_badge, size=9.5, weight=ft.FontWeight.BOLD, color=palette["accent_glow"]),
+                                                    )
+                                                ] if p_badge else []
+                                            ),
+                                        ],
+                                    ),
+                                    ft.Row(
+                                        spacing=6,
+                                        tight=True,
+                                        controls=[
+                                            ft.Container(
+                                                padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+                                                border_radius=4,
+                                                bgcolor=palette["success_bg"] if p_active else palette["danger_bg"],
+                                                content=ft.Text("LIVE" if p_active else "INACTIVE", size=9, weight=ft.FontWeight.BOLD, color=palette["success"] if p_active else palette["danger"]),
+                                            ),
+                                            ft.Switch(
+                                                value=p_active,
+                                                active_color=palette["accent"],
+                                                on_change=lambda _, p_item=p: page.run_task(_toggle_active, p_item),
+                                            ),
+                                        ],
+                                    ),
+                                ],
+                            ),
+                            ft.Row(
+                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                controls=[
+                                    ft.Column(
+                                        spacing=2,
+                                        tight=True,
+                                        controls=[
+                                            ft.Text(p.get("name", "Product"), size=15, weight=ft.FontWeight.BOLD, color=palette["text"]),
+                                            ft.Text(f"ID: {p_id}", size=11, color=palette["text_muted"], font_family="monospace"),
+                                        ],
+                                    ),
+                                    ft.Text(f"₦{p_price:,.2f}", size=17, weight=ft.FontWeight.W_900, color=palette["accent"]),
+                                ],
+                            ),
+                            ft.Text(p.get("description") or "", size=11.5, color=palette["text_muted"]),
+                            *(
+                                [
+                                    ft.Row(
+                                        scroll=ft.ScrollMode.AUTO,
+                                        spacing=6,
+                                        controls=[
+                                            ft.Container(
+                                                padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+                                                border_radius=6,
+                                                bgcolor=palette["surface_variant"],
+                                                content=ft.Text(pk, size=10.5, weight=ft.FontWeight.BOLD, color=palette["text"]),
+                                            )
+                                            for pk in perks
+                                        ],
+                                    )
+                                ] if perks else []
+                            ),
+                            ft.Divider(height=1, color=palette["border"]),
+                            ft.Row(
+                                alignment=ft.MainAxisAlignment.END,
+                                spacing=8,
+                                controls=[
+                                    ft.TextButton(
+                                        content=ft.Row([ft.Icon(ft.Icons.DELETE_OUTLINE_ROUNDED, size=14, color=palette["danger"]), ft.Text("Delete", size=11.5, color=palette["danger"])], spacing=4),
+                                        on_click=lambda _, p_item=p: page.run_task(_confirm_delete, p_item),
+                                    ),
+                                    ft.FilledButton(
+                                        content=ft.Row([ft.Icon(ft.Icons.EDIT_ROUNDED, size=14, color=ft.Colors.WHITE), ft.Text("Edit Product", size=11.5, color=ft.Colors.WHITE)], spacing=4),
+                                        style=ft.ButtonStyle(bgcolor=palette["accent_glow"], shape=ft.RoundedRectangleBorder(radius=6)),
+                                        on_click=lambda _, p_item=p: _show_store_product_dialog(p_item),
+                                    ),
+                                ],
+                            ),
+                        ],
+                    ),
+                )
+                cards.append(card)
+
+            body = ft.Column(spacing=12, controls=cards)
+
+        return ft.Container(
+            expand=True,
+            content=ft.Column(
+                expand=True,
+                scroll=ft.ScrollMode.AUTO,
+                spacing=16,
+                controls=[
+                    header,
+                    ft.Row(scroll=ft.ScrollMode.AUTO, spacing=8, controls=cat_chips),
+                    body,
+                    ft.Container(height=40),
+                ],
+            ),
+        )
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # H2. TAB: AUDIO NARRATION STUDIO & BATCH QUEUE
+    # ─────────────────────────────────────────────────────────────────────────
+
+    async def _fetch_audio_queue_status():
+        tok = admin_state.get("token")
+        if not tok:
+            return
+        admin_state["is_loading_audio_queue"] = True
+        code, data = await get_audio_queue_status(tok)
+        admin_state["is_loading_audio_queue"] = False
+        if code == 200:
+            admin_state["audio_queue_status"] = data
+            admin_state["audio_queue_error"] = None
+        else:
+            admin_state["audio_queue_error"] = data.get("detail", "Failed to fetch audio queue metrics.")
+        if admin_state["active_tab"] == "audio_studio":
+            _render_tab_content()
+            try:
+                page.update()
+            except Exception:
+                pass
+
+    async def _audio_queue_auto_poller():
+        """Smooth background poller that refreshes metrics while active queue runs."""
+        while admin_state.get("active_tab") == "audio_studio" and admin_state.get("authenticated"):
+            await _fetch_audio_queue_status()
+            q_status = (admin_state.get("audio_queue_status") or {}).get("status", "idle")
+            if q_status != "running":
+                break
+            await asyncio.sleep(2.0)
+
+    async def _on_trigger_batch_audio_queue(e=None):
+        tok = admin_state.get("token")
+        if not tok:
+            show_page_snackbar(page, "Authentication token missing.")
+            return
+
+        selected_langs = [
+            code for code, is_sel in admin_state["audio_queue_selected_langs"].items() if is_sel
+        ]
+        if not selected_langs:
+            show_page_snackbar(page, "Please select at least one language to generate.")
+            return
+
+        admin_state["is_triggering_audio_queue"] = True
+        if admin_state["active_tab"] == "audio_studio":
+            _render_tab_content()
+            page.update()
+
+        code, resp = await queue_all_lesson_audio(
+            token=tok,
+            languages=selected_langs,
+            force_regenerate=admin_state["audio_queue_force"],
+        )
+        admin_state["is_triggering_audio_queue"] = False
+
+        if code == 200:
+            msg = resp.get("message") or "Audio batch queue triggered successfully!"
+            show_page_snackbar(page, msg)
+            admin_state["audio_queue_status"] = resp
+            page.run_task(_audio_queue_auto_poller)
+        elif code == 409:
+            show_page_snackbar(page, "An audio generation queue is already running.")
+            page.run_task(_audio_queue_auto_poller)
+        else:
+            err = resp.get("detail") or "Failed to initiate batch audio queue."
+            show_page_snackbar(page, f"Error: {err}")
+
+        if admin_state["active_tab"] == "audio_studio":
+            _render_tab_content()
+            page.update()
+
+    async def _on_cancel_audio_queue(e=None):
+        tok = admin_state.get("token")
+        if not tok:
+            return
+        code, resp = await cancel_audio_queue(tok)
+        msg = resp.get("message") or "Cancellation signal sent."
+        show_page_snackbar(page, msg)
+        await _fetch_audio_queue_status()
+
+    def _build_audio_studio_tab() -> ft.Control:
+        status_data = admin_state.get("audio_queue_status") or {}
+        cov = status_data.get("coverage") or {}
+        status_str = status_data.get("status", "idle").upper()
+
+        # Header
+        header = ft.Container(
+            bgcolor=palette["card_bg"],
+            border=ft.Border.all(1, palette["border"]),
+            border_radius=14,
+            padding=20,
+            content=ft.Row(
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[
+                    ft.Row(
+                        spacing=12,
+                        controls=[
+                            ft.Container(
+                                content=ft.Icon(ft.Icons.GRAPHIC_EQ_ROUNDED, size=24, color=palette["accent"]),
+                                bgcolor=ft.Colors.with_opacity(0.14, palette["accent"]),
+                                padding=10,
+                                border_radius=12,
+                            ),
+                            ft.Column(
+                                spacing=2,
+                                controls=[
+                                    ft.Text("Lesson Audio Narration Studio", size=18, weight=ft.FontWeight.BOLD, color=palette["text"]),
+                                    ft.Text("Batch synthesize lesson voiceovers with real-time progress and automatic skipping of existing DB rows.", size=12, color=palette["text_muted"]),
+                                ],
+                            ),
+                        ],
+                    ),
+                    ft.FilledButton(
+                        content=ft.Row([
+                            ft.Icon(ft.Icons.REFRESH_ROUNDED, size=14, color=palette["text"]),
+                            ft.Text("Refresh Metrics", size=12, color=palette["text"]),
+                        ], spacing=6, tight=True),
+                        style=ft.ButtonStyle(bgcolor=palette["surface_variant"], shape=ft.RoundedRectangleBorder(radius=8)),
+                        on_click=lambda _: page.run_task(_fetch_audio_queue_status),
+                    ),
+                ],
+            ),
+        )
+
+        # Language Coverage Cards
+        tot_lessons = cov.get("total_narratable_lessons", 0)
+        en_c = cov.get("en", 0)
+        ha_c = cov.get("ha", 0)
+        fr_c = cov.get("fr", 0)
+        en_pct = cov.get("en_pct", 0.0)
+        ha_pct = cov.get("ha_pct", 0.0)
+        fr_pct = cov.get("fr_pct", 0.0)
+
+        def _cov_card(lang_name: str, count: int, pct: float, color: str, col_span: int = 3):
+            return ft.Container(
+                col={"xs": 12, "sm": 6, "md": col_span},
+                bgcolor=palette["card_bg"],
+                border=ft.Border.all(1, palette["border"]),
+                border_radius=14,
+                padding=18,
+                content=ft.Column(
+                    spacing=8,
+                    controls=[
+                        ft.Row(
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                            controls=[
+                                ft.Text(lang_name, size=13, weight=ft.FontWeight.BOLD, color=palette["text"]),
+                                ft.Container(
+                                    content=ft.Text(f"{pct}%", size=11, weight=ft.FontWeight.BOLD, color=color),
+                                    bgcolor=ft.Colors.with_opacity(0.14, color),
+                                    padding=ft.Padding.symmetric(horizontal=7, vertical=3),
+                                    border_radius=6,
+                                ),
+                            ],
+                        ),
+                        ft.Row(
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                            vertical_alignment=ft.CrossAxisAlignment.END,
+                            controls=[
+                                ft.Text(f"{count:,}", size=24, weight=ft.FontWeight.BOLD, color=palette["text"]),
+                                ft.Text(f"of {tot_lessons:,} lessons", size=11, color=palette["text_muted"]),
+                            ],
+                        ),
+                        ft.ProgressBar(
+                            value=min(1.0, max(0.0, pct / 100.0)),
+                            color=color,
+                            bgcolor=palette["surface_variant"],
+                            border_radius=ft.BorderRadius.all(3),
+                        ),
+                    ],
+                ),
+            )
+
+        coverage_row = ft.ResponsiveRow(
+            spacing=12, run_spacing=12,
+            controls=[
+                ft.Container(
+                    col={"xs": 12, "sm": 6, "md": 3},
+                    bgcolor=palette["card_bg"],
+                    border=ft.Border.all(1, palette["border"]),
+                    border_radius=14,
+                    padding=18,
+                    content=ft.Column(
+                        spacing=8,
+                        controls=[
+                            ft.Row(
+                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                controls=[
+                                    ft.Text("Narratable Content", size=13, weight=ft.FontWeight.BOLD, color=palette["text"]),
+                                    ft.Icon(ft.Icons.MENU_BOOK_ROUNDED, size=18, color=palette["info"]),
+                                ],
+                            ),
+                            ft.Text(f"{tot_lessons:,}", size=24, weight=ft.FontWeight.BOLD, color=palette["text"]),
+                            ft.Text("Eligible lessons (text, notes, steps)", size=11, color=palette["text_muted"]),
+                        ],
+                    ),
+                ),
+                _cov_card("English Narration", en_c, en_pct, palette["success"]),
+                _cov_card("Hausa Narration", ha_c, ha_pct, palette["accent"]),
+                _cov_card("French Narration", fr_c, fr_pct, palette["purple"]),
+            ],
+        )
+
+        # Trigger & Live Control Grid
+        # Left Panel: Trigger Form
+        def _on_lang_checkbox(code: str, val: bool):
+            admin_state["audio_queue_selected_langs"][code] = val
+
+        def _on_force_checkbox(val: bool):
+            admin_state["audio_queue_force"] = val
+
+        lang_checks = ft.Row(
+            spacing=12,
+            controls=[
+                ft.Checkbox(
+                    label="English (EN)",
+                    value=admin_state["audio_queue_selected_langs"].get("en", True),
+                    on_change=lambda e: _on_lang_checkbox("en", e.control.value),
+                    fill_color=palette["accent"],
+                ),
+                ft.Checkbox(
+                    label="Hausa (HA)",
+                    value=admin_state["audio_queue_selected_langs"].get("ha", True),
+                    on_change=lambda e: _on_lang_checkbox("ha", e.control.value),
+                    fill_color=palette["accent"],
+                ),
+                ft.Checkbox(
+                    label="French (FR)",
+                    value=admin_state["audio_queue_selected_langs"].get("fr", True),
+                    on_change=lambda e: _on_lang_checkbox("fr", e.control.value),
+                    fill_color=palette["accent"],
+                ),
+            ],
+        )
+
+        force_check = ft.Checkbox(
+            label="Force re-generation (Overwrite existing DB cache)",
+            value=admin_state.get("audio_queue_force", False),
+            on_change=lambda e: _on_force_checkbox(e.control.value),
+            fill_color=palette["danger"],
+        )
+
+        trigger_btn = ft.FilledButton(
+            content=ft.Row(
+                [
+                    ft.ProgressRing(width=16, height=16, stroke_width=2, color=ft.Colors.WHITE)
+                    if admin_state["is_triggering_audio_queue"]
+                    else ft.Icon(ft.Icons.PLAY_ARROW_ROUNDED, size=18, color=ft.Colors.WHITE),
+                    ft.Text(
+                        "Starting Queue..." if admin_state["is_triggering_audio_queue"] else "Queue Audio Generation for All Lessons",
+                        size=13,
+                        weight=ft.FontWeight.BOLD,
+                        color=ft.Colors.WHITE,
+                    ),
+                ],
+                alignment=ft.MainAxisAlignment.CENTER,
+                spacing=8,
+                tight=True,
+            ),
+            style=ft.ButtonStyle(
+                bgcolor=ft.Colors.PRIMARY,
+                shape=ft.RoundedRectangleBorder(radius=10),
+                padding=ft.Padding.symmetric(vertical=14, horizontal=20),
+            ),
+            disabled=admin_state["is_triggering_audio_queue"] or status_str == "RUNNING",
+            on_click=_on_trigger_batch_audio_queue,
+        )
+
+        trigger_card = ft.Container(
+            col={"xs": 12, "md": 5},
+            bgcolor=palette["card_bg"],
+            border=ft.Border.all(1, palette["border"]),
+            border_radius=14,
+            padding=20,
+            content=ft.Column(
+                spacing=14,
+                controls=[
+                    ft.Row([
+                        ft.Icon(ft.Icons.PLAY_CIRCLE_FILLED_ROUNDED, size=18, color=palette["accent"]),
+                        ft.Text("Queue Audio Generation", size=15, weight=ft.FontWeight.BOLD, color=palette["text"]),
+                    ], spacing=8),
+                    ft.Text(
+                        "Runs bulk speech synthesis. Any lesson + language combination that already has a cache row in PostgreSQL is automatically skipped.",
+                        size=12,
+                        color=palette["text_muted"],
+                    ),
+                    ft.Divider(height=1, color=palette["border"]),
+                    ft.Text("Target Languages:", size=12, weight=ft.FontWeight.W_600, color=palette["text"]),
+                    lang_checks,
+                    force_check,
+                    ft.Container(height=6),
+                    trigger_btn,
+                ],
+            ),
+        )
+
+        # Right Panel: Real-Time Queue Monitor
+        total_tasks = status_data.get("total_tasks", 0)
+        skipped_count = status_data.get("skipped_existing", 0)
+        queued_count = status_data.get("queued_tasks", 0)
+        completed_count = status_data.get("completed_tasks", 0)
+        failed_count = status_data.get("failed_tasks", 0)
+        active_task = status_data.get("active_task")
+        recent_logs = status_data.get("recent_logs", [])
+
+        processed = skipped_count + completed_count + failed_count
+        progress_val = min(1.0, max(0.0, processed / max(1, total_tasks))) if total_tasks > 0 else 0.0
+
+        status_badge_color = {
+            "RUNNING": palette["accent"],
+            "COMPLETED": palette["success"],
+            "CANCELLED": palette["danger"],
+            "IDLE": palette["text_muted"],
+        }.get(status_str, palette["text_muted"])
+
+        status_badge = ft.Container(
+            content=ft.Text(status_str, size=10, weight=ft.FontWeight.BOLD, color=status_badge_color),
+            bgcolor=ft.Colors.with_opacity(0.14, status_badge_color),
+            padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+            border_radius=6,
+            border=ft.Border.all(1, ft.Colors.with_opacity(0.3, status_badge_color)),
+        )
+
+        def _metric_box(label: str, val: int, col: str):
+            return ft.Container(
+                bgcolor=palette["surface_variant"],
+                border_radius=8,
+                padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+                content=ft.Column(
+                    spacing=2,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[
+                        ft.Text(f"{val:,}", size=16, weight=ft.FontWeight.BOLD, color=col),
+                        ft.Text(label, size=10, color=palette["text_muted"]),
+                    ],
+                ),
+            )
+
+        active_ticker = ft.Container(
+            bgcolor=palette["surface_variant"],
+            border_radius=8,
+            padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+            content=ft.Row(
+                spacing=8,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[
+                    ft.ProgressRing(width=14, height=14, stroke_width=2, color=palette["accent"])
+                    if status_str == "RUNNING"
+                    else ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED, size=16, color=palette["success"]),
+                    ft.Text(
+                        f"Synthesizing [{active_task.get('language', '').upper()}]: '{active_task.get('title', 'Lesson')}'"
+                        if active_task and status_str == "RUNNING"
+                        else ("Queue worker is active..." if status_str == "RUNNING" else "Audio synthesis engine is idle."),
+                        size=12,
+                        weight=ft.FontWeight.W_500,
+                        color=palette["text"],
+                        expand=True,
+                    ),
+                ],
+            ),
+        )
+
+        cancel_btn = ft.OutlinedButton(
+            content=ft.Row([
+                ft.Icon(ft.Icons.STOP_ROUNDED, size=14, color=palette["danger"]),
+                ft.Text("Cancel Queue", size=12, color=palette["danger"]),
+            ], spacing=6, tight=True),
+            style=ft.ButtonStyle(
+                side=ft.BorderSide(1, palette["danger"]),
+                shape=ft.RoundedRectangleBorder(radius=8),
+            ),
+            disabled=status_str != "RUNNING",
+            on_click=_on_cancel_audio_queue,
+        )
+
+        monitor_card = ft.Container(
+            col={"xs": 12, "md": 7},
+            bgcolor=palette["card_bg"],
+            border=ft.Border.all(1, palette["border"]),
+            border_radius=14,
+            padding=20,
+            content=ft.Column(
+                spacing=14,
+                controls=[
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[
+                            ft.Row([
+                                ft.Icon(ft.Icons.SPEED_ROUNDED, size=18, color=palette["accent"]),
+                                ft.Text("Live Queue Monitor", size=15, weight=ft.FontWeight.BOLD, color=palette["text"]),
+                            ], spacing=8),
+                            status_badge,
+                        ],
+                    ),
+                    ft.Column(
+                        spacing=4,
+                        controls=[
+                            ft.Row(
+                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                controls=[
+                                    ft.Text(f"Progress: {round(progress_val * 100, 1)}%", size=11, color=palette["text_muted"], weight=ft.FontWeight.BOLD),
+                                    ft.Text(f"{processed:,} / {total_tasks:,} tasks processed", size=11, color=palette["text_muted"]),
+                                ],
+                            ),
+                            ft.ProgressBar(
+                                value=progress_val,
+                                color=palette["success"] if status_str == "COMPLETED" else palette["accent"],
+                                bgcolor=palette["surface_variant"],
+                                border_radius=ft.BorderRadius.all(3),
+                            ),
+                        ],
+                    ),
+                    ft.Row(
+                        scroll=ft.ScrollMode.AUTO,
+                        spacing=8,
+                        controls=[
+                            _metric_box("Total Tasks", total_tasks, palette["text"]),
+                            _metric_box("Skipped (Cached)", skipped_count, palette["success"]),
+                            _metric_box("Queued", queued_count, palette["info"]),
+                            _metric_box("Completed", completed_count, palette["success"]),
+                            _metric_box("Failed", failed_count, palette["danger"] if failed_count > 0 else palette["text_muted"]),
+                        ],
+                    ),
+                    active_ticker,
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.END,
+                        controls=[cancel_btn],
+                    ),
+                ],
+            ),
+        )
+
+        # Recent Activity Stream
+        log_items = []
+        if recent_logs:
+            for line in recent_logs:
+                is_err = "failed" in line.lower() or "error" in line.lower()
+                is_gen = "generated" in line.lower()
+                ic = ft.Icons.ERROR_OUTLINE_ROUNDED if is_err else (ft.Icons.CHECK_CIRCLE_OUTLINE_ROUNDED if is_gen else ft.Icons.INFO_OUTLINE_ROUNDED)
+                col = palette["danger"] if is_err else (palette["success"] if is_gen else palette["text_muted"])
+                log_items.append(
+                    ft.Row(
+                        spacing=8,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[
+                            ft.Icon(ic, size=14, color=col),
+                            ft.Text(line, size=11.5, color=palette["text"], expand=True),
+                        ],
+                    )
+                )
+        else:
+            log_items.append(
+                ft.Text("No recent batch activity recorded.", size=12, color=palette["text_muted"], italic=True)
+            )
+
+        activity_card = ft.Container(
+            bgcolor=palette["card_bg"],
+            border=ft.Border.all(1, palette["border"]),
+            border_radius=14,
+            padding=20,
+            content=ft.Column(
+                spacing=12,
+                controls=[
+                    ft.Row([
+                        ft.Icon(ft.Icons.RECEIPT_LONG_ROUNDED, size=18, color=palette["accent"]),
+                        ft.Text("Recent Synthesis Activity", size=14, weight=ft.FontWeight.BOLD, color=palette["text"]),
+                    ], spacing=8),
+                    ft.Divider(height=1, color=palette["border"]),
+                    ft.Container(
+                        height=160,
+                        content=ft.ListView(
+                            controls=log_items,
+                            spacing=8,
+                        ),
+                    ),
+                ],
+            ),
+        )
+
+        return ft.Container(
+            expand=True,
+            content=ft.Column(
+                expand=True,
+                scroll=ft.ScrollMode.AUTO,
+                spacing=16,
+                controls=[
+                    header,
+                    coverage_row,
+                    ft.ResponsiveRow(spacing=12, run_spacing=12, controls=[trigger_card, monitor_card]),
+                    activity_card,
+                    ft.Container(height=40),
+                ],
+            ),
+        )
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # OBJECTIVES & MILESTONES STUDIO
+    # ─────────────────────────────────────────────────────────────────────────
+
+    async def _fetch_objectives():
+        if not admin_state["token"]:
+            return
+        admin_state["is_loading_objectives"] = True
+        _render_tab_content()
+        page.update()
+
+        status, data = await get_admin_objectives(admin_state["token"])
+        if status == 200:
+            admin_state["objectives"] = data.get("objectives", [])
+            admin_state["objectives_stats"] = {
+                "total": data.get("total_objectives", 0),
+                "active": data.get("total_active", 0),
+                "coins_distributed": data.get("total_coins_distributed", 0),
+            }
+            admin_state["objectives_error"] = None
+        else:
+            admin_state["objectives_error"] = data.get("detail", "Failed to load platform objectives.")
+
+        admin_state["is_loading_objectives"] = False
+        nav_container.content = _build_nav_bar()
+        _render_tab_content()
+        page.update()
+
+    def _open_objective_modal(existing_obj: Optional[dict] = None):
+        is_edit = existing_obj is not None
+
+        CATEGORIES = [
+            ("courses", "Courses", ft.Icons.SCHOOL_ROUNDED),
+            ("streaks", "Streaks", ft.Icons.LOCAL_FIRE_DEPARTMENT_ROUNDED),
+            ("self_study", "Self-Study", ft.Icons.PSYCHOLOGY_ROUNDED),
+            ("duels", "Duels", ft.Icons.SPORTS_ESPORTS_ROUNDED),
+            ("sharing", "Community", ft.Icons.SHARE_ROUNDED),
+            ("general", "General", ft.Icons.MILITARY_TECH_ROUNDED),
+        ]
+
+        METRIC_TAXONOMY = [
+            ("courses", "finish_course", "Finish Course / Certification", "courses", "Course Conqueror", "Complete all modules and achieve final course certification."),
+            ("courses", "finish_module", "Finish Curriculum Module", "modules", "Module Achiever", "Complete and pass an individual curriculum module."),
+            ("streaks", "login_streak", "Daily Login Streak", "days", "Unstoppable Learner", "Maintain a consecutive daily study streak."),
+            ("self_study", "practice_questions", "Practice Questions Answered", "questions", "Quiz Master", "Answer practice questions across any subjects in the self study hub."),
+            ("self_study", "study_time", "Focused Study Time (Minutes)", "minutes", "Study Marathon", "Log focused study sessions in the study hub."),
+            ("duels", "win_duel", "Academic Duels Won", "duels", "Arena Champion", "Win head-to-head academic duels against study partners."),
+            ("sharing", "share_pack", "Study Packs Shared", "packs", "Knowledge Beacon", "Publish and share your custom study packs with the learning community."),
+            ("general", "general", "General Platform Milestone", "count", "Community Achiever", "General learning platform milestone."),
+        ]
+
+        obj_data = existing_obj or {}
+        init_cat = obj_data.get("category", "courses") if is_edit else "courses"
+        if not any(c[0] == init_cat for c in CATEGORIES):
+            init_cat = "courses"
+
+        init_metric = (obj_data.get("metric_event") or obj_data.get("code")) if is_edit else "finish_course"
+        valid_initial_metrics = [m[1] for m in METRIC_TAXONOMY if m[0] == init_cat]
+        if init_metric not in valid_initial_metrics:
+            init_metric = valid_initial_metrics[0]
+
+        selected_state = {
+            "cat": init_cat,
+            "metric": init_metric,
+        }
+
+        active_meta = next((m for m in METRIC_TAXONOMY if m[1] == init_metric), METRIC_TAXONOMY[0])
+        init_unit = obj_data.get("target_unit") if is_edit else active_meta[3]
+
+        code_ctrl = ft.TextField(
+            label="Objective Code",
+            value=obj_data.get("code", "") if is_edit else "finish_course_1",
+            read_only=is_edit,
+            hint_text="e.g. login_streak_7d",
+            border_radius=8,
+            border_color=palette["border"],
+            bgcolor=palette["surface"],
+            text_size=12,
+        )
+        title_ctrl = ft.TextField(
+            label="Title",
+            value=obj_data.get("title", "") if is_edit else "Course Conqueror",
+            hint_text="e.g. Course Conqueror",
+            border_radius=8,
+            border_color=palette["border"],
+            bgcolor=palette["surface"],
+            text_size=12,
+        )
+        desc_ctrl = ft.TextField(
+            label="Description",
+            value=obj_data.get("description", "") if is_edit else "Complete all modules and achieve final course certification.",
+            hint_text="e.g. Complete all modules and achieve final course certification.",
+            multiline=True,
+            min_lines=2,
+            border_radius=8,
+            border_color=palette["border"],
+            bgcolor=palette["surface"],
+            text_size=12,
+        )
+
+        target_unit_ctrl = ft.TextField(
+            label="Target Unit (Locked to Metric)",
+            value=init_unit,
+            read_only=True,
+            border_radius=8,
+            border_color=palette["border"],
+            bgcolor=palette["surface"],
+            text_size=12,
+        )
+        target_val_ctrl = ft.TextField(
+            label="Target Value",
+            value=str(obj_data.get("target_value", 1)) if is_edit else "1",
+            keyboard_type=ft.KeyboardType.NUMBER,
+            border_radius=8,
+            border_color=palette["border"],
+            bgcolor=palette["surface"],
+            text_size=12,
+        )
+        reward_ctrl = ft.TextField(
+            label="Nu-Coin Reward",
+            value=str(obj_data.get("coin_reward", 50)) if is_edit else "50",
+            keyboard_type=ft.KeyboardType.NUMBER,
+            border_radius=8,
+            border_color=palette["border"],
+            bgcolor=palette["surface"],
+            text_size=12,
+        )
+        is_active_ctrl = ft.Switch(
+            label="Active Milestone",
+            value=obj_data.get("is_active", True) if is_edit else True,
+            active_color=palette["primary"],
+        )
+
+        user_customized_code = False
+        def _on_code_change(e):
+            nonlocal user_customized_code
+            user_customized_code = True
+
+        code_ctrl.on_change = _on_code_change
+
+        dlg: Optional[ft.AlertDialog] = None
+
+        def _get_unit_abbrev(unit: str) -> str:
+            return "d" if unit == "days" else ("m" if unit == "minutes" else ("q" if unit == "questions" else ""))
+
+        ALL_DEFAULT_TITLES = {m[4] for m in METRIC_TAXONOMY}
+        ALL_DEFAULT_DESCS = {m[5] for m in METRIC_TAXONOMY}
+
+        cat_chip_widgets: Dict[str, ft.Container] = {}
+        metric_chip_widgets: Dict[str, ft.Container] = {}
+
+        def _sync_ui():
+            cur_cat = selected_state["cat"]
+            cur_metric = selected_state["metric"]
+
+            # 1. Update Category Chips
+            for cat_k, chip in cat_chip_widgets.items():
+                is_active = (cat_k == cur_cat)
+                chip.bgcolor = ft.Colors.with_opacity(0.18, palette["primary"]) if is_active else palette["surface"]
+                chip.border = ft.Border.all(1.5 if is_active else 1.0, palette["primary"] if is_active else palette["border"])
+                chip.content.controls[0].color = palette["primary"] if is_active else palette["text_muted"]
+                chip.content.controls[1].color = palette["text"] if is_active else palette["text_muted"]
+                chip.content.controls[1].weight = ft.FontWeight.BOLD if is_active else ft.FontWeight.NORMAL
+
+            # 2. Update Metric Chips
+            active_metric_tuple = None
+            for m_tuple in METRIC_TAXONOMY:
+                m_cat, m_code, m_label, m_unit, m_title, m_desc = m_tuple
+                chip = metric_chip_widgets[m_code]
+                is_visible = (m_cat == cur_cat)
+                is_selected = (m_code == cur_metric)
+                chip.visible = is_visible
+                if is_selected:
+                    active_metric_tuple = m_tuple
+
+                chip.bgcolor = ft.Colors.with_opacity(0.18, palette["accent"]) if is_selected else palette["surface"]
+                chip.border = ft.Border.all(1.5 if is_selected else 1.0, palette["accent"] if is_selected else palette["border"])
+                chip.content.controls[0].name = ft.Icons.RADIO_BUTTON_CHECKED_ROUNDED if is_selected else ft.Icons.RADIO_BUTTON_UNCHECKED_ROUNDED
+                chip.content.controls[0].color = palette["accent"] if is_selected else palette["text_muted"]
+                chip.content.controls[1].color = palette["text"] if is_selected else palette["text_muted"]
+                chip.content.controls[1].weight = ft.FontWeight.BOLD if is_selected else ft.FontWeight.NORMAL
+
+            # 3. Synchronize Unit and Recommended Metadata
+            if active_metric_tuple:
+                _, _, _, m_unit, m_title, m_desc = active_metric_tuple
+                target_unit_ctrl.value = m_unit
+                if not is_edit:
+                    t_val = target_val_ctrl.value.strip() or "1"
+                    u_abbrev = _get_unit_abbrev(m_unit)
+                    if not user_customized_code:
+                        code_ctrl.value = f"{cur_metric}_{t_val}{u_abbrev}".rstrip("_")
+                    if not title_ctrl.value.strip() or title_ctrl.value in ALL_DEFAULT_TITLES:
+                        title_ctrl.value = m_title
+                    if not desc_ctrl.value.strip() or desc_ctrl.value in ALL_DEFAULT_DESCS:
+                        desc_ctrl.value = m_desc
+
+            if dlg is not None:
+                try:
+                    dlg.update()
+                except Exception:
+                    page.update()
+
+        def _select_category(cat_k: str):
+            selected_state["cat"] = cat_k
+            valid_metrics = [m[1] for m in METRIC_TAXONOMY if m[0] == cat_k]
+            if selected_state["metric"] not in valid_metrics:
+                selected_state["metric"] = valid_metrics[0]
+            _sync_ui()
+
+        def _select_metric(m_code: str):
+            selected_state["metric"] = m_code
+            _sync_ui()
+
+        def _on_target_val_change(e=None):
+            if not is_edit and not user_customized_code:
+                cur_metric = selected_state["metric"]
+                active_metric_tuple = next((m for m in METRIC_TAXONOMY if m[1] == cur_metric), METRIC_TAXONOMY[0])
+                m_unit = active_metric_tuple[3]
+                t_val = target_val_ctrl.value.strip() or "1"
+                u_abbrev = _get_unit_abbrev(m_unit)
+                code_ctrl.value = f"{cur_metric}_{t_val}{u_abbrev}".rstrip("_")
+                if dlg is not None:
+                    try:
+                        dlg.update()
+                    except Exception:
+                        page.update()
+
+        target_val_ctrl.on_change = _on_target_val_change
+
+        # Build Interactive Category Chips
+        for cat_k, cat_label, cat_icon in CATEGORIES:
+            cat_chip_widgets[cat_k] = ft.Container(
+                content=ft.Row([
+                    ft.Icon(cat_icon, size=15),
+                    ft.Text(cat_label, size=11),
+                ], tight=True, spacing=6, alignment=ft.MainAxisAlignment.CENTER),
+                padding=ft.Padding.symmetric(horizontal=10, vertical=7),
+                border_radius=8,
+                animate=ft.Animation(150, ft.AnimationCurve.EASE_OUT),
+                on_click=lambda e, k=cat_k: _select_category(k),
+            )
+
+        # Build Interactive Metric Event Chips
+        for m_tuple in METRIC_TAXONOMY:
+            m_cat, m_code, m_label, m_unit, _, _ = m_tuple
+            metric_chip_widgets[m_code] = ft.Container(
+                content=ft.Row([
+                    ft.Icon(ft.Icons.RADIO_BUTTON_UNCHECKED_ROUNDED, size=14),
+                    ft.Text(m_label, size=11),
+                    ft.Container(
+                        content=ft.Text(f"unit: {m_unit}", size=10, weight=ft.FontWeight.W_500, color=palette["accent"]),
+                        bgcolor=ft.Colors.with_opacity(0.12, palette["accent"]),
+                        padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+                        border_radius=4,
+                    ),
+                ], tight=True, spacing=8),
+                padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+                border_radius=8,
+                animate=ft.Animation(150, ft.AnimationCurve.EASE_OUT),
+                on_click=lambda e, code=m_code: _select_metric(code),
+            )
+
+        # Initial UI synchronization
+        _sync_ui()
+
+        modal_error = ft.Text("", size=11, color=palette["danger"], visible=False)
+        modal_spinner = ft.ProgressRing(width=16, height=16, stroke_width=2, color=palette["accent"], visible=False)
+
+        async def _submit_form(e=None):
+            clean_code = code_ctrl.value.strip().lower()
+            clean_title = title_ctrl.value.strip()
+            clean_desc = desc_ctrl.value.strip()
+            if not clean_code or not clean_title:
+                modal_error.value = "Code and Title are required."
+                modal_error.visible = True
+                dlg.update()
+                return
+
+            try:
+                t_val = int(target_val_ctrl.value.strip())
+                r_val = int(reward_ctrl.value.strip())
+            except ValueError:
+                modal_error.value = "Target Value and Reward must be valid integers."
+                modal_error.visible = True
+                dlg.update()
+                return
+
+            modal_spinner.visible = True
+            modal_error.visible = False
+            submit_btn.disabled = True
+            dlg.update()
+
+            payload = {
+                "code": clean_code,
+                "title": clean_title,
+                "description": clean_desc,
+                "category": selected_state["cat"],
+                "metric_event": selected_state["metric"],
+                "target_value": t_val,
+                "target_unit": target_unit_ctrl.value or "count",
+                "coin_reward": r_val,
+                "icon": "EMOJI_TROPHY",
+                "is_active": is_active_ctrl.value,
+            }
+
+            if is_edit:
+                code_or_id = existing_obj.get("id") or existing_obj["code"]
+                st, res = await update_admin_objective(admin_state["token"], code_or_id, payload)
+            else:
+                st, res = await create_admin_objective(admin_state["token"], payload)
+
+            if st in (200, 201):
+                dlg.open = False
+                page.update()
+                show_page_snackbar(page, f"Objective '{clean_title}' saved successfully.")
+                await _fetch_objectives()
+            else:
+                modal_spinner.visible = False
+                submit_btn.disabled = False
+                modal_error.value = res.get("detail", "Error saving objective.")
+                modal_error.visible = True
+                dlg.update()
+
+        submit_btn = ft.ElevatedButton(
+            content=ft.Row([modal_spinner, ft.Text("Save Objective" if is_edit else "Create Objective", size=12, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE)], tight=True, spacing=6),
+            bgcolor=palette["accent"],
+            height=38,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), elevation=0),
+            on_click=lambda e: page.run_task(_submit_form, e),
+        )
+
+        dlg = ft.AlertDialog(
+            modal=True,
+            shape=ft.RoundedRectangleBorder(radius=16),
+            bgcolor=palette["card_bg"],
+            title=ft.Row(
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                controls=[
+                    ft.Row([
+                        ft.Icon(ft.Icons.MILITARY_TECH_ROUNDED, color=palette["accent"], size=20),
+                        ft.Text("Edit Objective" if is_edit else "New Platform Objective", size=15, weight=ft.FontWeight.BOLD, color=palette["text"]),
+                    ], tight=True, spacing=8),
+                    ft.IconButton(icon=ft.Icons.CLOSE_ROUNDED, icon_size=18, on_click=lambda _: (setattr(dlg, "open", False), page.update())),
+                ],
+            ),
+            content=ft.Container(
+                width=500,
+                height=530,
+                content=ft.Column(
+                    scroll=ft.ScrollMode.AUTO,
+                    tight=True,
+                    spacing=12,
+                    controls=[
+                        # Section 1: Category Chips
+                        ft.Column([
+                            ft.Text("Category", size=11, weight=ft.FontWeight.BOLD, color=palette["text_muted"]),
+                            ft.Row(
+                                wrap=True,
+                                spacing=6,
+                                run_spacing=6,
+                                controls=list(cat_chip_widgets.values()),
+                            ),
+                        ], spacing=6),
+
+                        # Section 2: Metric Event Chips
+                        ft.Column([
+                            ft.Text("Metric Trigger Event (Predefined Backend Tracking)", size=11, weight=ft.FontWeight.BOLD, color=palette["text_muted"]),
+                            ft.Column(
+                                spacing=6,
+                                controls=list(metric_chip_widgets.values()),
+                            ),
+                        ], spacing=6),
+
+                        # Section 3: Target Value, Unit & Reward
+                        ft.Row([
+                            ft.Container(target_val_ctrl, expand=2),
+                            ft.Container(target_unit_ctrl, expand=2),
+                            ft.Container(reward_ctrl, expand=2),
+                        ], spacing=10),
+
+                        # Section 4: Title & Description
+                        title_ctrl,
+                        desc_ctrl,
+
+                        # Section 5: Unique Code & Active Switch
+                        code_ctrl,
+                        is_active_ctrl,
+                        modal_error,
+                    ],
+                ),
+            ),
+            actions=[
+                ft.TextButton("Cancel", on_click=lambda _: (setattr(dlg, "open", False), page.update())),
+                submit_btn,
+            ],
+        )
+        page.overlay.append(dlg)
+        dlg.open = True
+        page.update()
+
+    def _prompt_delete_objective(obj: dict):
+        obj_id = obj.get("id") or obj["code"]
+        title = obj.get("title", "Objective")
+
+        delete_dlg: Optional[ft.AlertDialog] = None
+
+        async def _do_delete(permanent: bool):
+            if delete_dlg is not None:
+                delete_dlg.open = False
+                page.update()
+            st, res = await delete_admin_objective(admin_state["token"], obj_id, permanent=permanent)
+            if st == 200:
+                show_page_snackbar(page, res.get("message", "Objective updated."))
+                await _fetch_objectives()
+            else:
+                show_page_snackbar(page, f"Error: {res.get('detail', 'Could not delete')}")
+
+        delete_dlg = ft.AlertDialog(
+            modal=True,
+            shape=ft.RoundedRectangleBorder(radius=14),
+            bgcolor=palette["card_bg"],
+            title=ft.Row([
+                ft.Icon(ft.Icons.WARNING_AMBER_ROUNDED, color=palette["danger"], size=22),
+                ft.Text("Delete / Archive Objective", size=15, weight=ft.FontWeight.BOLD, color=palette["text"]),
+            ], tight=True, spacing=8),
+            content=ft.Container(
+                width=420,
+                content=ft.Column(
+                    tight=True,
+                    spacing=10,
+                    controls=[
+                        ft.Text(f"How do you want to handle '{title}' (`{obj.get('code')}`)?", size=13, weight=ft.FontWeight.W_600, color=palette["text"]),
+                        ft.Text(
+                            "• Deactivate: Disables the objective for learners while preserving historical progress and completion records.\n\n"
+                            "• Permanently Delete: Completely deletes the objective from the database and removes all learner progress records.",
+                            size=11.5,
+                            color=palette["text_muted"],
+                        ),
+                    ],
+                ),
+            ),
+            actions=[
+                ft.TextButton("Cancel", on_click=lambda _: (setattr(delete_dlg, "open", False), page.update())),
+                ft.OutlinedButton(
+                    "Deactivate Only",
+                    style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
+                    on_click=lambda _: page.run_task(_do_delete, False),
+                ),
+                ft.ElevatedButton(
+                    "Permanently Delete",
+                    bgcolor=palette["danger"],
+                    color=ft.Colors.WHITE,
+                    style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), elevation=0),
+                    on_click=lambda _: page.run_task(_do_delete, True),
+                ),
+            ],
+        )
+        page.overlay.append(delete_dlg)
+        delete_dlg.open = True
+        page.update()
+
+    async def _handle_test_trigger_objective(obj: dict):
+        obj_id = obj.get("id") or obj["code"]
+        st, res = await test_trigger_admin_objective(admin_state["token"], obj_id)
+        if st == 200:
+            show_page_snackbar(page, f"🏆 Test Alert Sent! Check notifications to test claiming +{obj.get('coin_reward')} coins.")
+            try:
+                from src.services.notification_service import sync_learner_notifications
+                await sync_learner_notifications(page, force=True)
+            except Exception as ex:
+                print(f"[Admin] sync_learner_notifications error: {ex}")
+            await _fetch_objectives()
+        else:
+            show_page_snackbar(page, f"Error triggering test: {res.get('detail', 'Failed')}")
+
+    def _build_objectives_tab() -> ft.Control:
+        # Header Row
+        header = ft.Container(
+            bgcolor=palette["surface"],
+            border=ft.Border.all(1, palette["border"]),
+            border_radius=14,
+            padding=ft.Padding.symmetric(horizontal=18, vertical=14),
+            content=ft.Row(
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                wrap=True,
+                spacing=12,
+                controls=[
+                    ft.Row([
+                        ft.Container(
+                            content=ft.Icon(ft.Icons.MILITARY_TECH_ROUNDED, size=24, color=palette["accent"]),
+                            bgcolor=ft.Colors.with_opacity(0.14, palette["accent"]),
+                            padding=10,
+                            border_radius=12,
+                        ),
+                        ft.Column(
+                            spacing=2,
+                            tight=True,
+                            controls=[
+                                ft.Text("Learning Platform Objectives Studio", size=16, weight=ft.FontWeight.BOLD, color=palette["text"]),
+                                ft.Text("Configure gamified learning milestones, progress quotas, and Nu-Coin rewards across the platform.", size=11, color=palette["text_muted"]),
+                            ],
+                        ),
+                    ], spacing=12, tight=True),
+                    ft.Row(
+                        spacing=8,
+                        tight=True,
+                        controls=[
+                            ft.OutlinedButton(
+                                content=ft.Row([ft.Icon(ft.Icons.REFRESH_ROUNDED, size=15), ft.Text("Refresh", size=12)], tight=True, spacing=4),
+                                style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
+                                on_click=lambda _: page.run_task(_fetch_objectives),
+                            ),
+                            ft.ElevatedButton(
+                                content=ft.Row([ft.Icon(ft.Icons.ADD_ROUNDED, size=16, color=ft.Colors.WHITE), ft.Text("Create Objective", size=12, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE)], tight=True, spacing=6),
+                                bgcolor=palette["accent"],
+                                height=38,
+                                style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), elevation=0),
+                                on_click=lambda _: _open_objective_modal(None),
+                            ),
+                        ],
+                    ),
+                ],
+            ),
+        )
+
+        stats = admin_state.get("objectives_stats", {})
+        kpis = ft.ResponsiveRow(
+            spacing=12,
+            run_spacing=12,
+            controls=[
+                ft.Container(
+                    col={"xs": 12, "sm": 6, "md": 4},
+                    bgcolor=palette["card_bg"],
+                    border=ft.Border.all(1, palette["border"]),
+                    border_radius=12,
+                    padding=16,
+                    content=ft.Column(
+                        spacing=6,
+                        controls=[
+                            ft.Row(alignment=ft.MainAxisAlignment.SPACE_BETWEEN, controls=[
+                                ft.Text("Configured Objectives", size=12, color=palette["text_muted"], weight=ft.FontWeight.W_600),
+                                ft.Icon(ft.Icons.FORMAT_LIST_BULLETED_ROUNDED, size=16, color=palette["accent"]),
+                            ]),
+                            ft.Text(f"{stats.get('total', len(admin_state['objectives'])):,}", size=22, weight=ft.FontWeight.BOLD, color=palette["text"]),
+                            ft.Text(f"{stats.get('active', 0)} currently active for learners", size=10.5, color=palette["success"]),
+                        ],
+                    ),
+                ),
+                ft.Container(
+                    col={"xs": 12, "sm": 6, "md": 4},
+                    bgcolor=palette["card_bg"],
+                    border=ft.Border.all(1, palette["border"]),
+                    border_radius=12,
+                    padding=16,
+                    content=ft.Column(
+                        spacing=6,
+                        controls=[
+                            ft.Row(alignment=ft.MainAxisAlignment.SPACE_BETWEEN, controls=[
+                                ft.Text("Total Nu-Coins Distributed", size=12, color=palette["text_muted"], weight=ft.FontWeight.W_600),
+                                ft.Icon(ft.Icons.MONETIZATION_ON_ROUNDED, size=16, color=palette["warning"]),
+                            ]),
+                            ft.Text(f"{stats.get('coins_distributed', 0):,} Coins", size=22, weight=ft.FontWeight.BOLD, color=palette["warning"]),
+                            ft.Text("Awarded via claimed learning milestones", size=10.5, color=palette["text_muted"]),
+                        ],
+                    ),
+                ),
+                ft.Container(
+                    col={"xs": 12, "sm": 6, "md": 4},
+                    bgcolor=palette["card_bg"],
+                    border=ft.Border.all(1, palette["border"]),
+                    border_radius=12,
+                    padding=16,
+                    content=ft.Column(
+                        spacing=6,
+                        controls=[
+                            ft.Row(alignment=ft.MainAxisAlignment.SPACE_BETWEEN, controls=[
+                                ft.Text("Reward Claim Mode", size=12, color=palette["text_muted"], weight=ft.FontWeight.W_600),
+                                ft.Icon(ft.Icons.NOTIFICATIONS_ACTIVE_ROUNDED, size=16, color=palette["info"]),
+                            ]),
+                            ft.Text("Push & In-App Alerts", size=22, weight=ft.FontWeight.BOLD, color=palette["text"]),
+                            ft.Text("1-Tap claiming directly from notification", size=10.5, color=palette["info"]),
+                        ],
+                    ),
+                ),
+            ],
+        )
+
+        if admin_state["is_loading_objectives"]:
+            body_content = ft.Container(
+                alignment=ft.Alignment.CENTER,
+                padding=40,
+                content=ft.Column(
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    spacing=12,
+                    controls=[
+                        ft.ProgressRing(color=palette["accent"], width=32, height=32, stroke_width=3),
+                        ft.Text("Loading platform objectives...", size=12, color=palette["text_muted"]),
+                    ],
+                ),
+            )
+        elif admin_state["objectives_error"]:
+            body_content = ft.Container(
+                bgcolor=palette["card_bg"],
+                border=ft.Border.all(1, palette["border"]),
+                border_radius=14,
+                padding=24,
+                content=ft.Column(
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    spacing=10,
+                    controls=[
+                        ft.Icon(ft.Icons.ERROR_OUTLINE_ROUNDED, size=32, color=palette["danger"]),
+                        ft.Text("Failed to load objectives", size=14, weight=ft.FontWeight.BOLD, color=palette["text"]),
+                        ft.Text(admin_state["objectives_error"], size=11, color=palette["text_muted"]),
+                        ft.ElevatedButton("Retry", on_click=lambda _: page.run_task(_fetch_objectives)),
+                    ],
+                ),
+            )
+        elif not admin_state["objectives"]:
+            body_content = ft.Container(
+                bgcolor=palette["card_bg"],
+                border=ft.Border.all(1, palette["border"]),
+                border_radius=14,
+                padding=36,
+                alignment=ft.Alignment.CENTER,
+                content=ft.Column(
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    spacing=10,
+                    controls=[
+                        ft.Icon(ft.Icons.MILITARY_TECH_ROUNDED, size=36, color=palette["text_muted"]),
+                        ft.Text("No objectives configured yet", size=14, weight=ft.FontWeight.BOLD, color=palette["text"]),
+                        ft.Text("Create your first platform objective to motivate students with dynamic coin rewards.", size=11, color=palette["text_muted"]),
+                        ft.Container(height=8),
+                        ft.ElevatedButton(
+                            "Create First Objective",
+                            bgcolor=palette["accent"],
+                            color=ft.Colors.WHITE,
+                            on_click=lambda _: _open_objective_modal(None),
+                        ),
+                    ],
+                ),
+            )
+        else:
+            current_filter = admin_state.get("objectives_filter", "all")
+
+            def _change_filter(f_val):
+                admin_state["objectives_filter"] = f_val
+                _render_tab_content()
+                page.update()
+
+            all_objs = admin_state["objectives"]
+            active_objs = [o for o in all_objs if o.get("is_active", True)]
+            inactive_objs = [o for o in all_objs if not o.get("is_active", True)]
+
+            if current_filter == "active":
+                displayed_objs = active_objs
+            elif current_filter == "inactive":
+                displayed_objs = inactive_objs
+            else:
+                displayed_objs = all_objs
+
+            filter_bar = ft.Row(
+                spacing=8,
+                tight=True,
+                controls=[
+                    ft.Container(
+                        content=ft.Text(f"All ({len(all_objs)})", size=11, weight=ft.FontWeight.W_600 if current_filter == "all" else ft.FontWeight.NORMAL, color=palette["text"] if current_filter == "all" else palette["text_muted"]),
+                        bgcolor=ft.Colors.with_opacity(0.18, palette["accent"]) if current_filter == "all" else palette["surface"],
+                        border=ft.Border.all(1, palette["accent"] if current_filter == "all" else palette["border"]),
+                        border_radius=8,
+                        padding=ft.Padding.symmetric(horizontal=12, vertical=6),
+                        on_click=lambda _: _change_filter("all"),
+                    ),
+                    ft.Container(
+                        content=ft.Text(f"Active ({len(active_objs)})", size=11, weight=ft.FontWeight.W_600 if current_filter == "active" else ft.FontWeight.NORMAL, color=palette["success"] if current_filter == "active" else palette["text_muted"]),
+                        bgcolor=ft.Colors.with_opacity(0.18, palette["success"]) if current_filter == "active" else palette["surface"],
+                        border=ft.Border.all(1, palette["success"] if current_filter == "active" else palette["border"]),
+                        border_radius=8,
+                        padding=ft.Padding.symmetric(horizontal=12, vertical=6),
+                        on_click=lambda _: _change_filter("active"),
+                    ),
+                    ft.Container(
+                        content=ft.Text(f"Archived ({len(inactive_objs)})", size=11, weight=ft.FontWeight.W_600 if current_filter == "inactive" else ft.FontWeight.NORMAL, color=palette["danger"] if current_filter == "inactive" else palette["text_muted"]),
+                        bgcolor=ft.Colors.with_opacity(0.18, palette["danger"]) if current_filter == "inactive" else palette["surface"],
+                        border=ft.Border.all(1, palette["danger"] if current_filter == "inactive" else palette["border"]),
+                        border_radius=8,
+                        padding=ft.Padding.symmetric(horizontal=12, vertical=6),
+                        on_click=lambda _: _change_filter("inactive"),
+                    ),
+                ],
+            )
+
+            cards = []
+            for obj in displayed_objs:
+                is_active = obj.get("is_active", True)
+                category = obj.get("category", "general")
+                target_str = f"{obj.get('target_value', 1)} {obj.get('target_unit', 'count')}"
+                c_count = obj.get("completions_count", 0)
+                cl_count = obj.get("claimed_count", 0)
+                coins_awarded = obj.get("total_coins_awarded", 0)
+
+                card = ft.Container(
+                    col={"xs": 12, "sm": 6, "md": 6, "lg": 4},
+                    bgcolor=palette["card_bg"],
+                    border=ft.Border.all(1, palette["accent"] if is_active else palette["border"]),
+                    border_radius=14,
+                    padding=16,
+                    content=ft.Column(
+                        spacing=12,
+                        controls=[
+                            ft.Row(
+                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                controls=[
+                                    ft.Row([
+                                        ft.Container(
+                                            content=ft.Text(str(category).upper(), size=9, weight=ft.FontWeight.BOLD, color=palette["accent"]),
+                                            bgcolor=ft.Colors.with_opacity(0.12, palette["accent"]),
+                                            padding=ft.Padding.symmetric(horizontal=7, vertical=3),
+                                            border_radius=6,
+                                        ),
+                                        ft.Container(
+                                            content=ft.Text(f"`{obj.get('code')}`", size=10, font_family="monospace", color=palette["text_muted"]),
+                                            bgcolor=palette["surface"],
+                                            padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+                                            border_radius=4,
+                                        ),
+                                        ft.Container(
+                                            content=ft.Text(f"⚡ {obj.get('metric_event', 'general')}", size=9, weight=ft.FontWeight.W_600, color=palette["info"]),
+                                            bgcolor=ft.Colors.with_opacity(0.12, palette["info"]),
+                                            padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+                                            border_radius=4,
+                                        ),
+                                    ], spacing=6, tight=True),
+                                    ft.Container(
+                                        content=ft.Text("ACTIVE" if is_active else "INACTIVE", size=9, weight=ft.FontWeight.BOLD, color=palette["success"] if is_active else palette["text_muted"]),
+                                        bgcolor=ft.Colors.with_opacity(0.12, palette["success"] if is_active else palette["surface"]),
+                                        padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+                                        border_radius=4,
+                                    ),
+                                ],
+                            ),
+                            ft.Column(
+                                spacing=3,
+                                controls=[
+                                    ft.Text(obj.get("title", ""), size=14, weight=ft.FontWeight.BOLD, color=palette["text"]),
+                                    ft.Text(obj.get("description", ""), size=11, color=palette["text_muted"], max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
+                                ],
+                            ),
+                            ft.Row(
+                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                controls=[
+                                    ft.Container(
+                                        content=ft.Row([
+                                            ft.Icon(ft.Icons.TRACK_CHANGES_ROUNDED, size=13, color=palette["info"]),
+                                            ft.Text(f"Target: {target_str}", size=11, color=palette["text"]),
+                                        ], tight=True, spacing=4),
+                                    ),
+                                    ft.Container(
+                                        content=ft.Row([
+                                            ft.Icon(ft.Icons.MONETIZATION_ON_ROUNDED, size=14, color=palette["warning"]),
+                                            ft.Text(f"+{obj.get('coin_reward', 0)} Coins", size=11.5, weight=ft.FontWeight.BOLD, color=palette["warning"]),
+                                        ], tight=True, spacing=4),
+                                        bgcolor=ft.Colors.with_opacity(0.10, palette["warning"]),
+                                        padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+                                        border_radius=6,
+                                    ),
+                                ],
+                            ),
+                            ft.Divider(height=1, color=palette["border"]),
+                            ft.Row(
+                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                controls=[
+                                    ft.Text(f"{c_count} finished • {cl_count} claimed ({coins_awarded:,} 🪙)", size=10, color=palette["text_muted"]),
+                                    ft.Row(
+                                        spacing=4,
+                                        tight=True,
+                                        controls=[
+                                            ft.IconButton(
+                                                icon=ft.Icons.NOTIFICATIONS_ACTIVE_ROUNDED,
+                                                icon_size=15,
+                                                icon_color=palette["accent"],
+                                                tooltip="Test Completion Alert",
+                                                on_click=lambda _, o=obj: page.run_task(_handle_test_trigger_objective, o),
+                                            ),
+                                            ft.IconButton(
+                                                icon=ft.Icons.EDIT_ROUNDED,
+                                                icon_size=15,
+                                                icon_color=palette["info"],
+                                                tooltip="Edit Objective",
+                                                on_click=lambda _, o=obj: _open_objective_modal(o),
+                                            ),
+                                            ft.IconButton(
+                                                icon=ft.Icons.DELETE_ROUNDED,
+                                                icon_size=15,
+                                                icon_color=palette["danger"],
+                                                tooltip="Deactivate / Delete",
+                                                on_click=lambda _, o=obj: _prompt_delete_objective(o),
+                                            ),
+                                        ],
+                                    ),
+                                ],
+                            ),
+                        ],
+                    ),
+                )
+                cards.append(card)
+
+            cards_grid = ft.ResponsiveRow(spacing=12, run_spacing=12, controls=cards)
+            body_content = ft.Column(spacing=12, controls=[filter_bar, cards_grid])
+
+        return ft.Container(
+            expand=True,
+            content=ft.Column(
+                expand=True,
+                scroll=ft.ScrollMode.AUTO,
+                spacing=16,
+                controls=[
+                    header,
+                    kpis,
+                    body_content,
+                    ft.Container(height=40),
+                ],
+            ),
+        )
+
+    # ─────────────────────────────────────────────────────────────────────────
     # I. MASTER VIEW COMPOSER
     # ─────────────────────────────────────────────────────────────────────────
 
@@ -4254,8 +6634,14 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
             active_content_area.content = _build_overview_tab()
         elif admin_state["active_tab"] == "users":
             active_content_area.content = _build_users_tab()
+        elif admin_state["active_tab"] == "store_studio":
+            active_content_area.content = _build_store_studio_tab()
         elif admin_state["active_tab"] == "study_packs":
             active_content_area.content = _build_study_packs_tab()
+        elif admin_state["active_tab"] == "objectives":
+            active_content_area.content = _build_objectives_tab()
+        elif admin_state["active_tab"] == "audio_studio":
+            active_content_area.content = _build_audio_studio_tab()
         elif admin_state["active_tab"] == "broadcast":
             active_content_area.content = _build_broadcast_tab()
         elif admin_state["active_tab"] == "export":

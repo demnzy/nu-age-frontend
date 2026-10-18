@@ -6,6 +6,7 @@ from datetime import datetime
 from src.components.bottom_appbar import get_bottom_appbar, NotificationManager
 from src.requests.auth import logout_request, logout_all_devices_request
 from src.requests.enrollments import get_enrollments
+from src.theme.typography import build_typography_switcher_button
 
 
 def _is_platform_super_admin(username: str, email: str = "") -> bool:
@@ -70,11 +71,11 @@ async def profile_view(page: ft.Page):
                 pass
 
         # 2. Clear all transient in-memory session data
-        if hasattr(page, "session") and hasattr(page.session, "store"):
-            try:
-                page.session.store.clear()
-            except Exception:
-                pass
+        try:
+            from src.utils.session_utils import clear_session_store
+            clear_session_store(page)
+        except Exception:
+            pass
 
         try:
             from src.services.auth_session import AuthSession
@@ -230,7 +231,23 @@ async def profile_view(page: ft.Page):
             page.show_dialog(create_logout_all_dialog(current_dark))
             page.update()
 
-        user_data  = page.session.store.get("current_user") or {}
+        try:
+            from src.utils.session_utils import get_session_user, set_session_value
+            user_data = get_session_user(page)
+        except Exception:
+            user_data = {}
+
+        token = await page.shared_preferences.get("auth_token") if hasattr(page, "shared_preferences") and page.shared_preferences else ""
+        if (not user_data or not user_data.get("id")) and token:
+            try:
+                from src.requests.auth import get_current_user_request
+                status, u_info = await asyncio.wait_for(get_current_user_request(token), timeout=2.5)
+                if status == 200 and isinstance(u_info, dict):
+                    user_data = u_info
+                    set_session_value(page, "current_user", user_data)
+            except Exception:
+                pass
+
         first_name = user_data.get("first_name", "")
         last_name  = user_data.get("last_name", "")
         full_name  = f"{first_name} {last_name}".strip() or "Student"
@@ -257,17 +274,27 @@ async def profile_view(page: ft.Page):
 
         initials = "".join([n[0] for n in full_name.split()[:2]]).upper() if full_name else "NU"
 
-        # Fetch enrollments on initial load
-        if cached_enrollments is None:
-            token = await page.shared_preferences.get("auth_token")
+        # Fetch enrollments and subscription status on initial load
+        sub_info = {}
+        token = await page.shared_preferences.get("auth_token") if hasattr(page, "shared_preferences") and page.shared_preferences else ""
+        if cached_enrollments is None and token:
             try:
                 cached_enrollments = await asyncio.wait_for(get_enrollments(token, None), timeout=3.5)
                 if not isinstance(cached_enrollments, list):
                     cached_enrollments = []
             except Exception:
                 cached_enrollments = []
+
+        if token:
+            try:
+                from src.requests.subscription import get_subscription_status
+                sub_res = await asyncio.wait_for(get_subscription_status(token), timeout=2.0)
+                if isinstance(sub_res, dict) and "plan_id" in sub_res:
+                    sub_info = sub_res
+            except Exception:
+                pass
                 
-        enrolled_list = cached_enrollments
+        enrolled_list = cached_enrollments or []
         active_count = len(enrolled_list)
         finished_count = sum(1 for c in enrolled_list if (c.get("progress", 0) or 0) >= 100)
         velocity_pct = round((finished_count / active_count) * 100) if active_count > 0 else (100 if finished_count > 0 else 0)
@@ -517,6 +544,12 @@ async def profile_view(page: ft.Page):
             on_change=on_toggle_theme,
         )
 
+        font_switcher_btn = build_typography_switcher_button(
+            page,
+            on_preset_changed=lambda _: (apply_theme_palette(page.theme_mode == ft.ThemeMode.DARK), page.update()),
+            button_height=30,
+        )
+
         theme_card = ft.Container(
             bgcolor=palette["card_bg"],
             border_radius=18,
@@ -529,8 +562,9 @@ async def profile_view(page: ft.Page):
                     theme_title,
                     theme_subtitle,
                 ], spacing=2, expand=True),
+                font_switcher_btn,
                 theme_switch,
-            ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=14)
+            ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=10)
         )
 
         # ── 4. Quick LMS Action Shortcuts ─────────────────────────────────────
@@ -569,13 +603,74 @@ async def profile_view(page: ft.Page):
             })
             return box
 
+        # ── Nu-Age Store & Learning Plan Billing Card ─────────────────────────
+        plan_label = sub_info.get("label") or "Free Tier"
+        mat_remaining = sub_info.get("materials_remaining")
+        gen_remaining = sub_info.get("generations_remaining")
+        bonus_mats = sub_info.get("bonus_materials", 0)
+        
+        mat_str = f"{mat_remaining} uploads left" if mat_remaining is not None else "Unlimited uploads"
+        gen_str = f"{gen_remaining} AI decks left" if gen_remaining is not None else "Unlimited AI decks"
+        if bonus_mats:
+            mat_str += f" (+{bonus_mats} booster slots)"
+
+        store_title = ft.Text("Learning Plan & Study Quotas", size=13, weight=ft.FontWeight.BOLD, color=palette["text_primary"])
+        store_sub = ft.Text(f"{plan_label} • {mat_str} • {gen_str}", size=11, color=palette["text_muted"])
+
+        store_billing_card = ft.Container(
+            ink=True,
+            on_click=lambda _: page.go("/store?back=/profile"),
+            border_radius=18,
+            border=ft.Border.all(1.2, ft.Colors.with_opacity(0.3, ft.Colors.PRIMARY)),
+            bgcolor=palette["card_bg"],
+            padding=ft.Padding.all(16),
+            shadow=ft.BoxShadow(blur_radius=10, color=ft.Colors.with_opacity(0.04, ft.Colors.BLACK), offset=ft.Offset(0, 3)),
+            content=ft.Row([
+                ft.Container(
+                    width=42, height=42, border_radius=12,
+                    bgcolor=ft.Colors.with_opacity(0.14, ft.Colors.PRIMARY),
+                    alignment=ft.Alignment.CENTER,
+                    content=ft.Icon(ft.Icons.STOREFRONT_ROUNDED, color=ft.Colors.PRIMARY, size=22)
+                ),
+                ft.Column([
+                    ft.Row([
+                        store_title,
+                        ft.Container(
+                            content=ft.Text(plan_label.upper(), size=9, weight=ft.FontWeight.BOLD, color=ft.Colors.PRIMARY),
+                            bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY),
+                            padding=ft.Padding.symmetric(horizontal=7, vertical=2),
+                            border_radius=5,
+                        ),
+                    ], spacing=6, tight=True, wrap=True),
+                    store_sub
+                ], spacing=3, expand=True),
+                ft.ElevatedButton(
+                    content=ft.Row(
+                        tight=True,
+                        spacing=4,
+                        controls=[
+                            ft.Text("Store", size=11.5, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE),
+                            ft.Icon(ft.Icons.ARROW_FORWARD_ROUNDED, size=13, color=ft.Colors.WHITE),
+                        ],
+                    ),
+                    bgcolor=ft.Colors.PRIMARY,
+                    height=34,
+                    style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), elevation=0),
+                    on_click=lambda _: page.go("/store?back=/profile"),
+                )
+            ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=12)
+        )
+
         shortcuts_grid = ft.Column([
             ft.Row([
                 lms_quick_tile(ft.Icons.BOOK_ROUNDED, ft.Colors.INDIGO_400, "My Courses", "/courses"),
                 lms_quick_tile(ft.Icons.STYLE_ROUNDED, ft.Colors.PURPLE_400, "Study Hub", "/self-study")
             ], spacing=12),
             ft.Row([
+                lms_quick_tile(ft.Icons.STOREFRONT_ROUNDED, ft.Colors.AMBER_500, "Store & Plans", "/store?back=/profile"),
                 lms_quick_tile(ft.Icons.PEOPLE_ROUNDED, ft.Colors.TEAL_400, "My Network",  "/network"),
+            ], spacing=12),
+            ft.Row([
                 lms_quick_tile(ft.Icons.FORUM_ROUNDED, ft.Colors.LIGHT_BLUE_400, "Nu-Chat",  "/nu-chat")
             ], spacing=12)
         ], spacing=12)
@@ -731,6 +826,11 @@ async def profile_view(page: ft.Page):
             security_title.color = p["text_primary"]
             security_sub.color = p["text_muted"]
 
+            # 8. Update Store & Billing Card
+            store_billing_card.bgcolor = p["card_bg"]
+            store_title.color = p["text_primary"]
+            store_sub.color = p["text_muted"]
+
         # Super Admin Control Plane Access Card (Locked by default, verified via credentials)
         admin_title = ft.Text("Platform Super Admin Panel", size=13, weight=ft.FontWeight.BOLD, color=palette["text_primary"])
         admin_sub = ft.Text("User management, Excel export, bulk messaging & platform analytics.", size=11, color=palette["text_muted"])
@@ -807,6 +907,8 @@ async def profile_view(page: ft.Page):
             ft.Container(height=4),
             ft.Column([section_heading("Learning Momentum", ft.Icons.QUERY_STATS_ROUNDED), stats_layout], spacing=10),
             ft.Container(height=4),
+            ft.Column([section_heading("Learning Plan & Store", ft.Icons.STOREFRONT_ROUNDED), store_billing_card], spacing=10),
+            ft.Container(height=4),
             ft.Column([section_heading("Quick Hub Shortcuts", ft.Icons.GRID_VIEW_ROUNDED), shortcuts_grid], spacing=10),
             ft.Container(height=4),
             ft.Column([section_heading("Account & Academic Details", ft.Icons.BADGE_ROUNDED), account_card], spacing=10),
@@ -843,15 +945,43 @@ async def profile_view(page: ft.Page):
                 main_content
             ]
         )
-        page.update()
+        try:
+            content_socket.update()
+        except Exception:
+            try:
+                page.update()
+            except Exception:
+                pass
 
-    page.run_task(load_profile)
+    async def _safe_load_profile():
+        try:
+            await load_profile()
+        except Exception as ex:
+            print(f"[profile_view] Error executing load_profile: {ex!r}")
+            content_socket.content = ft.Container(
+                alignment=ft.Alignment.CENTER,
+                padding=24,
+                content=ft.Column([
+                    ft.Icon(ft.Icons.ERROR_OUTLINE_ROUNDED, color=ft.Colors.AMBER_400, size=48),
+                    ft.Text("Could not load profile", size=18, weight=ft.FontWeight.BOLD),
+                    ft.Text("Please check your connection and try again.", size=13, color=ft.Colors.GREY_500),
+                    ft.ElevatedButton("Retry", on_click=lambda _: page.go("/profile")),
+                ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=12)
+            )
+            try:
+                content_socket.update()
+            except Exception:
+                try:
+                    page.update()
+                except Exception:
+                    pass
+
+    page.run_task(_safe_load_profile)
 
     return ft.View(
         route="/profile",
         padding=0,
         bgcolor="#121212" if is_dark else ft.Colors.SURFACE,
-        bottom_appbar=get_bottom_appbar(page),
         controls=[
             ft.SafeArea(
                 expand=True,
