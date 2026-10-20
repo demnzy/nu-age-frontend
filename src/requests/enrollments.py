@@ -226,3 +226,19 @@ async def get_weekly_activity(token: str, course_id: str, params: dict | None = 
     except Exception as e:
         print(f"Unexpected Error: {e}")
         return {"error": "Connection failed"}
+
+async def unenrol_from_course(token: str, course_id: str):
+    """Learner leaves a course (DELETE /courses/{id}/unenroll). Returns (status_code, payload)."""
+    url = f"{api_url}/courses/{course_id}/unenroll"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
+            response = await client.delete(url, headers=headers)
+            try:
+                data = response.json()
+            except Exception:
+                data = {"detail": response.text}
+            return response.status_code, data
+    except Exception as e:
+        print(f"unenrol_from_course error: {e}")
+        return 503, {"detail": "Connection failed"}

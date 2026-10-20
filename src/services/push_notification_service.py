@@ -2,6 +2,11 @@
 Cross-Platform Push Notification Service for NU-Front.
 Integrates OneSignal (backed by Firebase Cloud Messaging on Android and APNs on iOS)
 with graceful fallback and zero-crash desktop/web protection.
+
+Push is only active in a real `flet build` app, where Python runs on the phone and
+the native OneSignal extension is compiled in. It is skipped on desktop, web, and
+under `flet run --android` (where Python runs on the dev machine and only the UI
+is on the device).
 """
 
 import os
@@ -122,13 +127,31 @@ def extract_notification_route_and_data(e: Any) -> tuple[str, dict]:
     return route, custom
 
 
-def is_push_supported(page: ft.Page) -> bool:
-    """Returns True ONLY on mobile platforms (Android/iOS) where native Flutter
+def _python_runs_on_device() -> bool:
+    """True only in a real `flet build` app, where Python runs on the phone itself.
 
-    push notification bridges are compiled and available."""
+    Under `flet run --android`, Python runs on the dev machine (win32/darwin/linux)
+    and only the UI is on the device, so native extensions like OneSignal don't exist.
+    """
+    if sys.platform in ("android", "ios"):  # Python 3.13+ mobile builds
+        return True
+    if os.environ.get("ANDROID_ROOT") or os.environ.get("ANDROID_DATA"):  # older Android Python
+        return True
+    if os.environ.get("FLET_PLATFORM", "").lower() in ("android", "ios"):  # set by flet build
+        return True
+    # Optional manual override for dev setups
+    if os.environ.get("FORCE_PUSH") == "1":
+        return True
+    return False
+
+
+def is_push_supported(page: ft.Page) -> bool:
+    """True only on mobile AND when running as a built app (not the flet run companion)."""
     if not page or not hasattr(page, "platform"):
         return False
-    return page.platform in (ft.PagePlatform.ANDROID, ft.PagePlatform.IOS)
+    if page.platform not in (ft.PagePlatform.ANDROID, ft.PagePlatform.IOS):
+        return False
+    return _python_runs_on_device()
 
 
 async def register_device_token_with_backend(
@@ -169,9 +192,10 @@ async def init_push_notifications(
     app_id: Optional[str] = None,
     on_navigate: Optional[Callable[[str], Any]] = None,
 ):
-    """Initializes OneSignal push notification service on Android/iOS.
+    """Initializes OneSignal push notification service in built Android/iOS apps.
 
-    On desktop or browser (Windows, macOS, Linux, Web), cleanly no-ops without error.
+    On desktop, browser, or the `flet run --android` companion app, cleanly no-ops
+    without error and never creates the OneSignal control.
     """
     global _onesignal_instance
 
@@ -180,9 +204,9 @@ async def init_push_notifications(
         return None
 
     if not is_push_supported(page):
-        # Gracefully handle desktop / web preview (flet run)
+        # Gracefully handle desktop / web preview / flet run companion
         platform_name = page.platform.value if hasattr(page, "platform") and page.platform else "desktop"
-        print(f"[PushService] Push notifications idle (unsupported platform: {platform_name}).")
+        print(f"[PushService] Push idle (platform: {platform_name}, python_on_device: {_python_runs_on_device()}).")
         return None
 
     page_id = id(page)
@@ -202,8 +226,9 @@ async def init_push_notifications(
             await asyncio.sleep(0.35)
 
             # 2. If dedicated on_navigate callback was provided (e.g. from main.py)
+            import inspect
             if on_navigate:
-                if asyncio.iscoroutinefunction(on_navigate):
+                if inspect.iscoroutinefunction(on_navigate):
                     await on_navigate(target_route)
                 else:
                     res = on_navigate(target_route)
@@ -217,7 +242,7 @@ async def init_push_notifications(
                 # If already on this route, trigger route_change so view refreshes
                 if hasattr(page, "on_route_change") and callable(page.on_route_change):
                     ev = ft.RouteChangeEvent(route=target_route) if hasattr(ft, "RouteChangeEvent") else None
-                    if asyncio.iscoroutinefunction(page.on_route_change):
+                    if inspect.iscoroutinefunction(page.on_route_change):
                         await page.on_route_change(ev)
                     else:
                         page.on_route_change(ev)
@@ -291,15 +316,14 @@ async def init_push_notifications(
                     content=ft.Row(
                         [
                             ft.Icon(ft.Icons.NOTIFICATIONS_ACTIVE_ROUNDED, color=ft.Colors.WHITE, size=20),
-                            ft.Expanded(
-                                ft.Column(
-                                    [
-                                        ft.Text(title, weight=ft.FontWeight.BOLD, size=13, color=ft.Colors.WHITE),
-                                        ft.Text(body, size=12, color=ft.Colors.WHITE70, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
-                                    ],
-                                    spacing=2,
-                                    tight=True,
-                                )
+                            ft.Column(
+                                [
+                                    ft.Text(title, weight=ft.FontWeight.BOLD, size=13, color=ft.Colors.WHITE),
+                                    ft.Text(body, size=12, color=ft.Colors.WHITE70, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                                ],
+                                spacing=2,
+                                tight=True,
+                                expand=True,
                             ),
                         ],
                         spacing=10,
@@ -333,7 +357,7 @@ async def init_push_notifications(
 
         # Request permission on Android 13+ / iOS
         try:
-            granted = await onesignal.notifications.request_permission()
+            granted = await asyncio.wait_for(onesignal.notifications.request_permission(), timeout=15)
             print(f"[PushService] Notification permission granted: {granted}")
         except Exception as perm_ex:
             print(f"[PushService] Notification permission request error: {perm_ex!r}")
@@ -347,7 +371,7 @@ async def init_push_notifications(
 
 async def bind_user_push_identity(
     page: ft.Page,
-    user_id: int | str,
+    user_id: Union[int, str],
     auth_token: Optional[str] = None,
 ):
     """Binds the logged-in user ID as the OneSignal external user ID and registers
@@ -403,4 +427,3 @@ async def setup_user_push_notifications(page: ft.Page, auth_token: str):
                 await bind_user_push_identity(page, user_id=user_id, auth_token=auth_token)
     except Exception as ex:
         print(f"[PushService] Error in setup_user_push_notifications: {ex!r}")
-

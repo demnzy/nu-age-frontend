@@ -8,6 +8,7 @@ Provides:
 
 from datetime import datetime, timezone
 import flet as ft
+from src.components.nu_coin_icon import nu_coin_icon
 
 # In-memory store for session notifications
 _NOTIFICATIONS_STORE = []
@@ -205,6 +206,8 @@ class NotificationManager:
                 "created_at": c_at_str,
                 "action_route": n.get("action_route"),
                 "backend_id": n.get("backend_id"),
+                "data": n.get("data"),
+                "is_claimed": bool(n.get("is_claimed", False)),
             })
         return out
 
@@ -226,10 +229,20 @@ class NotificationManager:
             cat = item.get("category", "general")
             if cat == "chat":
                 ic = ft.Icons.CHAT_BUBBLE_ROUNDED
+            elif cat == "objective_completed":
+                ic = ft.Icons.EMOJI_EVENTS_ROUNDED
             elif cat in ("exams", "cohorts"):
                 ic = ft.Icons.TIMER_ROUNDED
-            elif cat == "courses":
+            elif cat in ("courses", "course_progress"):
                 ic = ft.Icons.SCHOOL_ROUNDED
+            elif cat in ("discussion", "discussions"):
+                ic = ft.Icons.FORUM_ROUNDED
+            elif cat == "streak_warning":
+                ic = ft.Icons.LOCAL_FIRE_DEPARTMENT_ROUNDED
+            elif cat == "duo_nudge":
+                ic = ft.Icons.HANDSHAKE_ROUNDED
+            elif cat in ("reengagement", "daytime_nudge"):
+                ic = ft.Icons.AUTO_AWESOME_ROUNDED
             else:
                 ic = ft.Icons.NOTIFICATIONS_ROUNDED
 
@@ -262,6 +275,8 @@ class NotificationManager:
                 "on_action": _make_action(action_route) if action_route else None,
                 "action_route": action_route,
                 "backend_id": item.get("backend_id"),
+                "data": item.get("data"),
+                "is_claimed": bool(item.get("is_claimed", False)),
             })
 
         if hydrated:
@@ -363,7 +378,7 @@ def open_notifications_drawer(page: ft.Page):
         if tab == "exams":
             filtered = [n for n in items if n.get("category") in ("exams", "cohorts")]
         elif tab == "courses":
-            filtered = [n for n in items if n.get("category") in ("courses", "discussion", "discussions")]
+            filtered = [n for n in items if n.get("category") in ("courses", "course_progress", "discussion", "discussions")]
         elif tab == "chat":
             filtered = [n for n in items if n.get("category") == "chat"]
         else:
@@ -408,8 +423,16 @@ def open_notifications_drawer(page: ft.Page):
 
                 if cat in ("exams", "cohorts"):
                     cat_color = ft.Colors.ORANGE_600
-                elif cat in ("courses", "discussion", "discussions"):
+                elif cat in ("courses", "course_progress", "discussion", "discussions"):
                     cat_color = ft.Colors.DEEP_PURPLE_500 if cat in ("discussion", "discussions") else ft.Colors.BLUE_600
+                elif cat == "objective_completed":
+                    cat_color = ft.Colors.AMBER_600
+                elif cat == "streak_warning":
+                    cat_color = ft.Colors.ORANGE_600
+                elif cat == "duo_nudge":
+                    cat_color = ft.Colors.CYAN_700
+                elif cat in ("reengagement", "daytime_nudge"):
+                    cat_color = ft.Colors.GREEN_600
                 elif cat == "chat":
                     cat_color = ft.Colors.GREEN_600
                 else:
@@ -429,7 +452,16 @@ def open_notifications_drawer(page: ft.Page):
                                 except Exception:
                                     pass
                             page.run_task(_mark_b)
-                        if target_n.get("on_action"):
+                        if target_n.get("category") == "objective_completed":
+                            async def _open_obj_modal():
+                                try:
+                                    t = await page.shared_preferences.get("auth_token")
+                                    from src.components.objectives_and_leaderboard_modal import show_objectives_and_leaderboard_dialog
+                                    show_objectives_and_leaderboard_dialog(page, t, initial_tab="objectives")
+                                except Exception as ex:
+                                    print(f"[NOTIF_DRAWER] Failed to open objectives dialog: {ex}")
+                            page.run_task(_open_obj_modal)
+                        elif target_n.get("on_action"):
                             try:
                                 target_n["on_action"]()
                             except TypeError:
@@ -449,7 +481,89 @@ def open_notifications_drawer(page: ft.Page):
                     return _do
 
                 action_btn = None
-                if n.get("action_label"):
+                if cat == "objective_completed":
+                    n_data = n.get("data") if isinstance(n.get("data"), dict) else {}
+                    is_claimed = bool(n.get("is_claimed", False) or n_data.get("is_claimed", False))
+                    claim_spinner = ft.ProgressRing(width=12, height=12, stroke_width=2, color=ft.Colors.WHITE, visible=False)
+                    claim_text = ft.Text("Claim Reward", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE)
+                    claim_icon = nu_coin_icon(size=14)
+
+                    claim_btn = ft.ElevatedButton(
+                        content=ft.Row([claim_spinner, claim_icon, claim_text], tight=True, spacing=4),
+                        bgcolor=ft.Colors.AMBER_800,
+                        height=28,
+                        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=6), elevation=0),
+                    )
+
+                    async def _claim_obj_from_drawer(e, target_n=n, btn=claim_btn, sp=claim_spinner, ic=claim_icon, tx=claim_text):
+                        if target_n.get("is_claimed") or getattr(target_n, "_is_claiming", False):
+                            return
+                        target_n["_is_claiming"] = True
+                        btn.disabled = True
+                        sp.visible = True
+                        ic.visible = False
+                        tx.value = "Claiming..."
+                        page.update()
+
+                        obj_data = target_n.get("data") if isinstance(target_n.get("data"), dict) else {}
+                        obj_code = obj_data.get("code") or target_n.get("objective_code")
+                        t = await page.shared_preferences.get("auth_token")
+                        if not obj_code or not t:
+                            target_n["_is_claiming"] = False
+                            from src.components.objectives_and_leaderboard_modal import show_objectives_and_leaderboard_dialog
+                            show_objectives_and_leaderboard_dialog(page, t, initial_tab="objectives")
+                            return
+
+                        from src.requests.objectives import claim_objective_reward_api
+                        from src.utils.file_opener import show_page_snackbar
+                        res = await claim_objective_reward_api(t, obj_code)
+                        target_n["_is_claiming"] = False
+                        if res.get("status") == "success":
+                            coins_awarded = res.get("coins_awarded") or obj_data.get("reward") or obj_data.get("reward_coins", "")
+                            target_n["is_claimed"] = True
+                            orig_b = target_n.get("body", "")
+                            if "• Claimed" not in orig_b:
+                                target_n["body"] = f"{orig_b} • Claimed (+{coins_awarded} 🪙)"
+                            NotificationManager.mark_read(target_n["id"])
+                            await NotificationManager.persist_to_cache(page)
+                            show_page_snackbar(page, f"🎉 Claimed +{coins_awarded} Nu-Coins! Added to your wallet.")
+                            render_notifications()
+                            page.update()
+                        else:
+                            msg = res.get("message", "Already claimed or could not claim.")
+                            if "already" in msg.lower():
+                                target_n["is_claimed"] = True
+                                orig_b = target_n.get("body", "")
+                                if "• Claimed" not in orig_b:
+                                    target_n["body"] = f"{orig_b} • Claimed"
+                                NotificationManager.mark_read(target_n["id"])
+                                await NotificationManager.persist_to_cache(page)
+                                render_notifications()
+                                page.update()
+                            else:
+                                btn.disabled = False
+                                sp.visible = False
+                                ic.visible = True
+                                tx.value = "Claim Reward"
+                                page.update()
+                            show_page_snackbar(page, msg)
+
+                    claim_btn.on_click = lambda e, tn=n: page.run_task(_claim_obj_from_drawer, e, tn)
+
+                    if is_claimed:
+                        action_btn = ft.Container(
+                            padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+                            border_radius=6,
+                            bgcolor=ft.Colors.with_opacity(0.14, ft.Colors.GREEN_600),
+                            border=ft.Border.all(1, ft.Colors.with_opacity(0.3, ft.Colors.GREEN_600)),
+                            content=ft.Row([
+                                ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED, size=12, color=ft.Colors.GREEN_600),
+                                ft.Text("Reward Claimed ✓", size=10.5, weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_600),
+                            ], tight=True, spacing=4),
+                        )
+                    else:
+                        action_btn = claim_btn
+                elif n.get("action_label"):
                     action_btn = ft.TextButton(
                         n["action_label"],
                         style=ft.ButtonStyle(color=cat_color, padding=ft.Padding.symmetric(horizontal=8, vertical=4)),
@@ -475,6 +589,9 @@ def open_notifications_drawer(page: ft.Page):
                     bgcolor=ft.Colors.with_opacity(0.07, cat_color) if is_unread else ft.Colors.SURFACE,
                     border=ft.Border.all(1.2 if is_unread else 1, ft.Colors.with_opacity(0.24, cat_color) if is_unread else ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
                     ink=True,
+                    scale=1.0,
+                    animate_scale=ft.Animation(180, ft.AnimationCurve.EASE_OUT),
+                    animate=ft.Animation(220, ft.AnimationCurve.EASE_OUT),
                     on_click=make_click_handler(n),
                     content=ft.Row([
                         ft.Container(
@@ -496,6 +613,27 @@ def open_notifications_drawer(page: ft.Page):
                         ], spacing=3, expand=True),
                     ], spacing=12, vertical_alignment=ft.CrossAxisAlignment.START),
                 )
+
+                def _make_drawer_hover(target_tile):
+                    def _hover(e):
+                        if e.data == "true":
+                            target_tile.scale = 1.012
+                            target_tile.shadow = ft.BoxShadow(
+                                blur_radius=10,
+                                spread_radius=0,
+                                color=ft.Colors.with_opacity(0.10, ft.Colors.BLACK),
+                                offset=ft.Offset(0, 2),
+                            )
+                        else:
+                            target_tile.scale = 1.0
+                            target_tile.shadow = None
+                        try:
+                            target_tile.update()
+                        except Exception:
+                            pass
+                    return _hover
+
+                tile.on_hover = _make_drawer_hover(tile)
                 tiles.append(tile)
 
         if not tiles:

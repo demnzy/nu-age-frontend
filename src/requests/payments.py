@@ -99,7 +99,7 @@ DEFAULT_STORE_CATALOG = {
                 "40 AI Study Deck Generation bundles",
                 "10 Full Practice Exam simulations",
                 "Unlimited Spaced Repetition Flashcards",
-                "Socratic AI Chat Tutor",
+                "AI Chat Tutor",
             ],
             "is_current": True,
         },
@@ -118,7 +118,7 @@ DEFAULT_STORE_CATALOG = {
                 "100 AI Study Deck Generation bundles/month",
                 "40 Full Practice Exam simulations/month",
                 "Unlimited Quick Quiz & Spaced Repetition",
-                "Priority Socratic AI Tutor & LaTeX formatting",
+                "Priority AI Tutor & LaTeX formatting",
                 "Multi-photo whiteboard & slide OCR",
             ],
             "recommended": True,
@@ -187,6 +187,52 @@ DEFAULT_STORE_CATALOG = {
             ],
         },
     ],
+    "coins": [
+        {
+            "id": "coins_pouch",
+            "name": "Coin Pouch (150 Nu-Coins)",
+            "badge": "POPULAR",
+            "price": 500,
+            "coins": 150,
+            "bonus_coins": 150,
+            "description": "150 Nu-Coins for duels, streak shields & marketplace packs.",
+            "features": [
+                "150 Nu-Coins immediately credited",
+                "Unlock community study packs",
+                "Wager in 1v1 Quickfire Duels",
+                "Buy Streak Freeze shields",
+            ],
+        },
+        {
+            "id": "coins_sack",
+            "name": "Coin Sack (500 Nu-Coins)",
+            "badge": "BEST VALUE",
+            "price": 1500,
+            "coins": 500,
+            "bonus_coins": 500,
+            "description": "500 Nu-Coins with a 15% bonus margin.",
+            "features": [
+                "500 Nu-Coins credited",
+                "Unlock verified premium packs",
+                "Wager in multiplayer showdowns",
+                "Buy multiple streak shields",
+            ],
+        },
+        {
+            "id": "coins_chest",
+            "name": "Coin Chest (1500 Nu-Coins)",
+            "badge": "CHEST",
+            "price": 4000,
+            "coins": 1500,
+            "bonus_coins": 1500,
+            "description": "1,500 Nu-Coins for prolific learners and pack authors.",
+            "features": [
+                "1,500 Nu-Coins credited",
+                "Generous coin reserve",
+                "Sponsor challenges and study packs",
+            ],
+        },
+    ],
     "org_products": [
         {
             "id": "org_seat_single",
@@ -219,7 +265,7 @@ DEFAULT_STORE_CATALOG = {
 
 async def get_store_catalog() -> dict:
     """
-    Fetches the store catalog containing plans, top-up booster packs, and org products.
+    Fetches the store catalog containing plans, top-up booster packs, nu-coins, and org products.
     Falls back gracefully to DEFAULT_STORE_CATALOG if remote backend route is not yet deployed.
     """
     url = f"{api_url}/payments/store/catalog"
@@ -228,9 +274,159 @@ async def get_store_catalog() -> dict:
             resp = await client.get(url)
             if resp.status_code == 200:
                 data = resp.json()
-                if data and (data.get("plans") or data.get("packs")):
+                if data and (data.get("plans") or data.get("packs") or data.get("coins")):
                     return data
             return DEFAULT_STORE_CATALOG
     except Exception as ex:
         print(f"[STORE] Remote catalog unavailable ({ex}); using fallback catalog.")
         return DEFAULT_STORE_CATALOG
+
+
+async def get_payment_history(token: str) -> list:
+    """
+    Fetches past transactions, payment receipts, and fulfillment status for the authenticated user.
+    """
+    url = f"{api_url}/payments/history"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
+            resp = await client.get(url, headers=headers)
+            if resp.status_code == 200:
+                return resp.json()
+            return []
+    except Exception as ex:
+        print(f"[STORE] Error fetching payment history: {ex}")
+        return []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SUPER ADMIN STORE CATALOG STUDIO API CALLS
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def get_admin_store_products(token: str) -> list:
+    """
+    Fetches all store products (active and inactive) for Super Admin Studio.
+    """
+    url = f"{api_url}/payments/admin/products"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
+            resp = await client.get(url, headers=headers)
+            if resp.status_code == 200:
+                return resp.json()
+            return []
+    except Exception as ex:
+        print(f"[ADMIN_STORE] Failed to fetch products: {ex}")
+        return []
+
+
+async def create_admin_store_product(token: str, payload: dict) -> dict:
+    """
+    Creates a new product in the store database.
+    """
+    url = f"{api_url}/payments/admin/products"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
+            resp = await client.post(url, headers=headers, json=payload)
+            resp.raise_for_status()
+            return resp.json()
+    except httpx.HTTPStatusError as e:
+        try:
+            return {"error": e.response.json().get("detail", str(e))}
+        except Exception:
+            return {"error": f"Failed with status {e.response.status_code}"}
+    except Exception as ex:
+        return {"error": str(ex)}
+
+
+async def update_admin_store_product(token: str, product_id: str, payload: dict) -> dict:
+    """
+    Updates price, badges, perks, or active status of a store product.
+    """
+    url = f"{api_url}/payments/admin/products/{product_id}"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
+            resp = await client.put(url, headers=headers, json=payload)
+            resp.raise_for_status()
+            return resp.json()
+    except httpx.HTTPStatusError as e:
+        try:
+            return {"error": e.response.json().get("detail", str(e))}
+        except Exception:
+            return {"error": f"Failed with status {e.response.status_code}"}
+    except Exception as ex:
+        return {"error": str(ex)}
+
+
+async def delete_admin_store_product(token: str, product_id: str) -> dict:
+    """
+    Deletes a store product from the database.
+    """
+    url = f"{api_url}/payments/admin/products/{product_id}"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
+            resp = await client.delete(url, headers=headers)
+            resp.raise_for_status()
+            return resp.json()
+    except Exception as ex:
+        return {"error": str(ex)}
+
+
+async def get_admin_org_plans(token: str) -> list:
+    """
+    Fetches all organisation plans from PostgreSQL 'plans' table.
+    """
+    url = f"{api_url}/payments/admin/org-plans"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
+            resp = await client.get(url, headers=headers)
+            if resp.status_code == 200:
+                return resp.json()
+            return []
+    except Exception as ex:
+        print(f"[ADMIN_STORE] Failed to fetch org plans: {ex}")
+        return []
+
+
+async def save_admin_org_plan(token: str, payload: dict) -> dict:
+    """
+    Creates or updates an organisation plan in the PostgreSQL 'plans' table.
+    """
+    url = f"{api_url}/payments/admin/org-plans"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
+            resp = await client.post(url, headers=headers, json=payload)
+            resp.raise_for_status()
+            return resp.json()
+    except httpx.HTTPStatusError as e:
+        try:
+            return {"error": e.response.json().get("detail", str(e))}
+        except Exception:
+            return {"error": f"Failed with status {e.response.status_code}"}
+    except Exception as ex:
+        return {"error": str(ex)}
+
+
+async def exchange_coins_api(token: str, package_id: str) -> dict:
+    """
+    Explicitly exchanges user's Nu-Coins for bonus AI Generation credits.
+    """
+    url = f"{api_url}/payments/store/exchange-coins"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
+            resp = await client.post(url, headers=headers, json={"package_id": package_id})
+            if resp.status_code == 200:
+                return resp.json()
+            try:
+                detail = resp.json().get("detail", "Exchange failed.")
+            except Exception:
+                detail = resp.text or "Exchange failed."
+            return {"error": detail}
+    except Exception as ex:
+        return {"error": str(ex)}

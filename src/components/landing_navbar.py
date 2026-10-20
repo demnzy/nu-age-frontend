@@ -1,11 +1,22 @@
 import flet as ft
 
+def is_dark_mode(page: ft.Page) -> bool:
+    if getattr(page, "theme_mode", None) == ft.ThemeMode.DARK:
+        return True
+    if getattr(page, "theme_mode", None) == ft.ThemeMode.LIGHT:
+        return False
+    return getattr(page, "platform_brightness", None) == ft.Brightness.DARK
+
+
 def get_landing_appbar(page: ft.Page, active_page: str = "login"):
     """
     Sleek, standard app bar for pre-login views (Login, Signup).
     Features Nu-Age brand identity on the left, an explicit 'Offline Courses'
     downloads action, and a contextual auth switch button on the right.
     """
+    is_dark = is_dark_mode(page)
+    bg_color = "#18231E" if is_dark else ft.Colors.WHITE
+
     brand_logo = ft.Container(
         content=ft.Row(
             [
@@ -29,7 +40,6 @@ def get_landing_appbar(page: ft.Page, active_page: str = "login"):
         on_click=lambda e: page.go("/"),
         padding=ft.Padding.only(left=16),
     )
-
 
     if active_page == "signup":
         auth_btn = ft.ElevatedButton(
@@ -59,7 +69,8 @@ def get_landing_appbar(page: ft.Page, active_page: str = "login"):
             auth_btn,
             ft.Container(width=12),  # Right margin spacer
         ],
-        bgcolor=ft.Colors.SURFACE,
+        bgcolor=bg_color,
         toolbar_height=56,
         elevation=0,
-    )
+        elevation_on_scroll=0,
+    )

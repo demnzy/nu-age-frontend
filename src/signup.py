@@ -3,6 +3,7 @@ import flet as ft
 from src.requests.auth import signup_request, get_universities, verify_email_request, resend_verification_otp_request
 from src.components.landing_navbar import get_landing_appbar
 from src.requests.organisations import join_org
+from src.components.google_auth_button import build_google_auth_button
 import re
 import uuid
 
@@ -19,9 +20,9 @@ def Signup_view(page: ft.Page):
     is_processing = False
     is_dark = is_dark_mode(page)
 
-    # ── State Machine: "persona" | "form" | "otp" | "confirmation" ──
-    stage = "persona"
-    selected_persona = "student"  # "student" | "teacher" | "admin"
+    # ── State Machine: "form" | "otp" | "confirmation" ──
+    stage = "form"
+    selected_persona = "student"  # "student" | "admin"
     selected_focus_topics = set(["Software & Web"])
 
     # ── Shared Messages & Validation ──────────────────────────────
@@ -299,8 +300,13 @@ def Signup_view(page: ft.Page):
         page.update()
 
         try:
-            # Backend constraint: role="Student" is accepted for public registration.
-            # Instructor/Admin accounts are assigned or joined via invite codes.
+            role_map = {
+                "student": "Student",
+                "teacher": "Teacher",
+                "admin": "Admin",
+            }
+            role_val = role_map.get(selected_persona, "Student")
+
             payload = dict(
                 email=(email.value or "").strip(),
                 username=(username.value or "").strip(),
@@ -308,8 +314,8 @@ def Signup_view(page: ft.Page):
                 first_name=(first_name.value or "").strip(),
                 last_name=(last_name.value or "").strip(),
                 gender="Rather not say",
-                role="Student",
-                university=University.value if University.value else None,
+                role=role_val,
+                university=University.value if (selected_persona in ("student", "teacher") and University.value) else None,
             )
 
             org_val = (organisation_id.value or "").strip()
@@ -443,11 +449,8 @@ def Signup_view(page: ft.Page):
         identifier = (username.value or email.value or "").strip()
         if identifier:
             setattr(page, "_prefill_login_identifier", identifier)
-            if hasattr(page, "session") and hasattr(page.session, "store"):
-                try:
-                    page.session.store.set("prefill_login_identifier", identifier)
-                except Exception:
-                    pass
+            from src.utils.session_utils import set_session_value
+            set_session_value(page, "prefill_login_identifier", identifier)
             try:
                 await page.shared_preferences.set("prefill_login_identifier", identifier)
             except Exception:
@@ -642,6 +645,17 @@ def Signup_view(page: ft.Page):
             ),
             ft.Row(
                 [
+                    ft.Container(expand=True, height=1, bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.WHITE) if is_dark else ft.Colors.GREY_300),
+                    ft.Text("OR", size=11, weight=ft.FontWeight.W_600, color=ft.Colors.GREY_500),
+                    ft.Container(expand=True, height=1, bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.WHITE) if is_dark else ft.Colors.GREY_300),
+                ],
+                alignment=ft.MainAxisAlignment.CENTER,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                spacing=12,
+            ),
+            ft.Row(controls=[build_google_auth_button(page, text="Fast Sign up with Google", persona=selected_persona)]),
+            ft.Row(
+                [
                     ft.Text("Already have an account?", size=12, color=ft.Colors.GREY_400 if is_dark else ft.Colors.GREY_600),
                     ft.TextButton(
                         "Sign In",
@@ -656,70 +670,136 @@ def Signup_view(page: ft.Page):
 
     def build_form_stage(is_desktop: bool):
         """Stage 2: Minimal Branching Registration Form."""
-        role_label = "Student" if selected_persona == "student" else ("Instructor" if selected_persona == "teacher" else "Administrator")
-        role_icon = ft.Icons.SCHOOL_ROUNDED if selected_persona == "student" else (ft.Icons.PSYCHOLOGY_ALT_ROUNDED if selected_persona == "teacher" else ft.Icons.CORPORATE_FARE_ROUNDED)
-
-        def switch_persona(e):
-            nonlocal stage
-            stage = "persona"
+        def set_role(role_key: str):
+            nonlocal selected_persona
+            selected_persona = role_key
             refresh_view()
 
-        persona_badge = ft.Container(
-            content=ft.Row(
+        def make_role_pill(label: str, key: str, icon_name, is_mobile: bool = False):
+            is_active = selected_persona == key
+            return ft.Container(
+                content=ft.Row(
+                    [
+                        ft.Icon(icon_name, size=12 if is_mobile else 13, color=ft.Colors.PRIMARY if is_active else ft.Colors.GREY_500),
+                        ft.Text(
+                            label,
+                            size=10.5 if is_mobile else 11,
+                            weight=ft.FontWeight.W_700 if is_active else ft.FontWeight.W_500,
+                            color=ft.Colors.PRIMARY if is_active else ft.Colors.GREY_500,
+                        ),
+                    ],
+                    tight=True,
+                    alignment=ft.MainAxisAlignment.CENTER,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    spacing=3 if is_mobile else 4,
+                ),
+                alignment=ft.Alignment.CENTER if is_mobile else None,
+                padding=ft.Padding.symmetric(horizontal=4 if is_mobile else 8, vertical=5 if is_mobile else 4),
+                border_radius=8,
+                bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY) if is_active else ft.Colors.TRANSPARENT,
+                on_click=lambda _: set_role(key),
+            )
+
+        if is_desktop:
+            role_selector = ft.Container(
+                content=ft.Row(
+                    [
+                        make_role_pill("Learner", "student", ft.Icons.SCHOOL_ROUNDED),
+                        make_role_pill("Instructor", "teacher", ft.Icons.PSYCHOLOGY_ALT_ROUNDED),
+                        make_role_pill("Admin", "admin", ft.Icons.CORPORATE_FARE_ROUNDED),
+                    ],
+                    spacing=2,
+                    tight=True,
+                ),
+                padding=ft.Padding.all(2),
+                border_radius=10,
+                bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.WHITE) if is_dark else ft.Colors.GREY_100,
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.12, ft.Colors.WHITE) if is_dark else ft.Colors.GREY_300),
+            )
+            header_control = ft.Row(
                 [
-                    ft.Icon(role_icon, size=13, color=ft.Colors.PRIMARY),
-                    ft.Text(f"{role_label} Mode", size=11, weight=ft.FontWeight.W_700, color=ft.Colors.PRIMARY),
-                    ft.Container(width=4),
-                    ft.Text("Change", size=10.5, weight=ft.FontWeight.W_600, color=ft.Colors.GREY_500),
+                    ft.Column(
+                        [
+                            ft.Text("Create Account", size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
+                            ft.Text("Sign up to activate your learning workspace", size=11.5, color=ft.Colors.GREY_400 if is_dark else ft.Colors.GREY_500),
+                        ],
+                        spacing=1,
+                        tight=True,
+                    ),
+                    role_selector,
                 ],
-                tight=True,
-                spacing=4,
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            ),
-            padding=ft.Padding.symmetric(horizontal=10, vertical=4),
-            border_radius=16,
-            border=ft.Border.all(1, ft.Colors.with_opacity(0.3, ft.Colors.PRIMARY)),
-            bgcolor=ft.Colors.with_opacity(0.10, ft.Colors.PRIMARY),
-            on_click=switch_persona,
-        )
+            )
+        else:
+            # Mobile: Stack vertically so header and role tabs never bleed off screen
+            role_selector = ft.Container(
+                content=ft.Row(
+                    [
+                        ft.Container(content=make_role_pill("Learner", "student", ft.Icons.SCHOOL_ROUNDED, is_mobile=True), expand=True),
+                        ft.Container(content=make_role_pill("Instructor", "teacher", ft.Icons.PSYCHOLOGY_ALT_ROUNDED, is_mobile=True), expand=True),
+                        ft.Container(content=make_role_pill("Admin", "admin", ft.Icons.CORPORATE_FARE_ROUNDED, is_mobile=True), expand=True),
+                    ],
+                    spacing=2,
+                ),
+                padding=ft.Padding.all(2),
+                border_radius=10,
+                bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.WHITE) if is_dark else ft.Colors.GREY_100,
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.12, ft.Colors.WHITE) if is_dark else ft.Colors.GREY_300),
+            )
+            header_control = ft.Column(
+                [
+                    ft.Column(
+                        [
+                            ft.Text("Create Account", size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
+                            ft.Text("Sign up to activate your learning workspace", size=11.5, color=ft.Colors.GREY_400 if is_dark else ft.Colors.GREY_500),
+                        ],
+                        spacing=1,
+                        tight=True,
+                    ),
+                    role_selector,
+                ],
+                spacing=8,
+                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+            )
 
         role_info_banner = None
         if selected_persona == "teacher":
             role_info_banner = ft.Container(
                 content=ft.Row(
                     [
-                        ft.Icon(ft.Icons.INFO_OUTLINE_ROUNDED, size=16, color=ft.Colors.AMBER_700),
+                        ft.Icon(ft.Icons.AUTO_AWESOME_ROUNDED, size=14, color=ft.Colors.PRIMARY),
                         ft.Text(
-                            "Instructor accounts are provisioned via Institution invites. You can register your account now and link your invite code below.",
+                            "Instructor Account: You can create, publish, and manage visual courses and cohort exams.",
                             size=11,
-                            color=ft.Colors.AMBER_900 if not is_dark else ft.Colors.AMBER_200,
+                            color=ft.Colors.PRIMARY if is_dark else ft.Colors.GREEN_900,
                             expand=True,
                         ),
                     ],
-                    spacing=8,
+                    spacing=6,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
-                padding=ft.Padding.symmetric(horizontal=10, vertical=6),
+                padding=ft.Padding.symmetric(horizontal=10, vertical=5),
                 border_radius=8,
-                bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.AMBER_700),
-                border=ft.Border.all(1, ft.Colors.with_opacity(0.25, ft.Colors.AMBER_700)),
+                bgcolor=ft.Colors.with_opacity(0.10, ft.Colors.PRIMARY),
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.20, ft.Colors.PRIMARY)),
             )
         elif selected_persona == "admin":
             role_info_banner = ft.Container(
                 content=ft.Row(
                     [
-                        ft.Icon(ft.Icons.APARTMENT_ROUNDED, size=16, color=ft.Colors.BLUE_700),
+                        ft.Icon(ft.Icons.APARTMENT_ROUNDED, size=14, color=ft.Colors.BLUE_700),
                         ft.Text(
-                            "Institution Admins manage departments and invite student rosters. Enter your organization invite code if available.",
+                            "Institution Admins: Enter your organisation invite code below if available.",
                             size=11,
                             color=ft.Colors.BLUE_900 if not is_dark else ft.Colors.BLUE_200,
                             expand=True,
                         ),
                     ],
-                    spacing=8,
+                    spacing=6,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
-                padding=ft.Padding.symmetric(horizontal=10, vertical=6),
+                padding=ft.Padding.symmetric(horizontal=10, vertical=5),
                 border_radius=8,
                 bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.BLUE_700),
                 border=ft.Border.all(1, ft.Colors.with_opacity(0.25, ft.Colors.BLUE_700)),
@@ -755,28 +835,8 @@ def Signup_view(page: ft.Page):
                 field_rows.append(ft.Row([organisation_id]))
 
         controls = [
-            ft.Row(
-                [
-                    ft.Row(
-                        [
-                            ft.Image(src="icon.png", width=22, height=22, fit=ft.BoxFit.CONTAIN),
-                            ft.Text("Nu Age", size=17, weight=ft.FontWeight.W_800, color=ft.Colors.PRIMARY),
-                        ],
-                        spacing=6,
-                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                    ),
-                    persona_badge,
-                ],
-                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-            ),
-            ft.Column(
-                [
-                    ft.Text("Create Your Account", size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
-                    ft.Text("Enter your essential details to activate your workspace.", size=12, color=ft.Colors.GREY_400 if is_dark else ft.Colors.GREY_500),
-                ],
-                spacing=1,
-                tight=True,
-            ),
+            header_control,
+            ft.Container(height=2),
         ]
 
         if role_info_banner:
@@ -786,6 +846,19 @@ def Signup_view(page: ft.Page):
         controls.append(validation_error)
         controls.append(terms_row)
         controls.append(ft.Row(controls=[Submit]))
+        controls.append(
+            ft.Row(
+                [
+                    ft.Container(expand=True, height=1, bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.WHITE) if is_dark else ft.Colors.GREY_300),
+                    ft.Text("OR", size=11, weight=ft.FontWeight.W_600, color=ft.Colors.GREY_500),
+                    ft.Container(expand=True, height=1, bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.WHITE) if is_dark else ft.Colors.GREY_300),
+                ],
+                alignment=ft.MainAxisAlignment.CENTER,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                spacing=12,
+            )
+        )
+        controls.append(ft.Row(controls=[build_google_auth_button(page, text="Sign up with Google", persona=selected_persona)]))
         controls.append(
             ft.Row(
                 [
@@ -1094,8 +1167,8 @@ def Signup_view(page: ft.Page):
                 ft.Container(height=4),
                 ft.Image(
                     src="signup_hero.png",
-                    width=210,
-                    height=145,
+                    width=200,
+                    height=130,
                     fit=ft.BoxFit.CONTAIN,
                 ),
                 ft.Container(height=4),
@@ -1113,14 +1186,14 @@ def Signup_view(page: ft.Page):
     # ── Form Content Container ────────────────────────────────────
     form_content = ft.Column(
         controls=[],
-        spacing=5,
+        spacing=4,
         tight=True,
         horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
     )
 
     form_panel = ft.Container(
         width=690,
-        padding=ft.Padding.symmetric(horizontal=32, vertical=14),
+        padding=ft.Padding.symmetric(horizontal=28, vertical=12),
         alignment=ft.Alignment.CENTER,
         content=form_content,
     )

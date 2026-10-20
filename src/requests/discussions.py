@@ -237,6 +237,24 @@ async def toggle_reply_upvote_api(
     return None
 
 
+async def toggle_reply_endorse_api(
+    token: str,
+    reply_id: str,
+) -> Optional[Dict[str, Any]]:
+    """Instructor/Admin toggles the 'verified answer' endorsement on a reply."""
+    url = f"{api_url}/discussions/replies/{reply_id}/endorse"
+    headers = {"Authorization": f"Bearer {token}"}
+
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
+            resp = await client.patch(url, headers=headers)
+            if resp.status_code == 200:
+                return resp.json()
+    except Exception as e:
+        print(f"[Discussions API] Reply endorse notice: {e}")
+    return None
+
+
 async def toggle_resolve_discussion_api(
     token: str,
     discussion_id: str,

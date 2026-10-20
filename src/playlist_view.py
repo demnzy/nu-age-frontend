@@ -38,7 +38,7 @@ async def playlist_view(page: ft.Page, playlist_id: str, back_target: str = "/co
         title = playlist_data.get("name") or "Learning Path"
         num_courses = len(playlist_courses)
         message = (
-            f'Hey! Check out the curated learning path "{title}" ({num_courses} courses) on Nu-Age! 🚀\n\n'
+            f'Hey! Check out the curated learning path "{title}" ({num_courses} courses) on Nu Age! 🚀\n\n'
             f"It features step-by-step interactive modules, flashcards, quizzes, and smart AI tutoring!\n\n"
             f"Check it out 👉 : nu-age.com.ng"
         )
@@ -278,7 +278,7 @@ async def playlist_view(page: ft.Page, playlist_id: str, back_target: str = "/co
         name = playlist_data.get("name") or "Untitled Learning Path"
         description = playlist_data.get("description") or "Curated sequential curriculum designed for comprehensive skill mastery."
         image_url = playlist_data.get("image_url")
-        org_name = playlist_data.get("Organisation") or "Nu-Age Learning Hub"
+        org_name = playlist_data.get("Organisation") or "Nu Age Learning Hub"
         rating = round(float(playlist_data.get("rating") or 4.9), 1)
         is_public = playlist_data.get("is_public", True)
 

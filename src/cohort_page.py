@@ -131,7 +131,7 @@ async def cohort_page_view(
 
     async def open_whatsapp_share(cohort_name: str, org_name: str):
         message = (
-            f"🎓 Learning in '{cohort_name}' by {org_name} on Nu-Age! 🚀\n"
+            f"🎓 Learning in '{cohort_name}' by {org_name} on Nu Age! 🚀\n"
             f"Explore interactive courses, modules, and certified assessments.\n"
             f"Learn more at: https://nu-age.name.ng"
         )

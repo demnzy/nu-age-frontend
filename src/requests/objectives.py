@@ -75,7 +75,11 @@ DEFAULT_PRELIM_OBJECTIVES = [
 ]
 
 
+_LAST_KNOWN_COINS = 0
+
+
 async def get_platform_objectives_api(token: str) -> dict:
+    global _LAST_KNOWN_COINS
     url = f"{api_url}/objectives"
     headers = {"Authorization": f"Bearer {token}"}
     try:
@@ -85,19 +89,21 @@ async def get_platform_objectives_api(token: str) -> dict:
                 # Remote deployment pending or route not yet propagated on cloud host
                 return {
                     "status": "success",
-                    "coins_balance": 0,
+                    "coins_balance": _LAST_KNOWN_COINS,
                     "objectives": DEFAULT_PRELIM_OBJECTIVES,
                 }
             resp.raise_for_status()
             data = resp.json()
-            # If backend returned no objectives list, fallback to defaults
-            if not data.get("objectives"):
+            # If backend response did not include objectives field, fallback to defaults
+            if "objectives" not in data or data.get("objectives") is None:
                 data["objectives"] = DEFAULT_PRELIM_OBJECTIVES
+            if "coins_balance" in data:
+                _LAST_KNOWN_COINS = data["coins_balance"]
             return data
     except Exception as e:
         return {
             "status": "success",
-            "coins_balance": 0,
+            "coins_balance": _LAST_KNOWN_COINS,
             "objectives": DEFAULT_PRELIM_OBJECTIVES,
             "offline_mode": True,
         }

@@ -16,6 +16,7 @@ Follows the Prometric / Pearson VUE conventions real candidates expect:
 
 import asyncio
 import time
+import re
 
 import flet as ft
 
@@ -84,7 +85,6 @@ def build_exam(
         top=56,
         right=16 if not compact else None,
         left=16 if compact else None,
-        alignment=ft.Alignment.TOP_CENTER if compact else ft.Alignment.TOP_RIGHT,
     )
 
     def _render_calculator():
@@ -93,6 +93,7 @@ def build_exam(
             calculator_type=calc_state["type"],
             on_close=toggle_calc,
             on_toggle_mode=_toggle_calc_mode,
+            target_container=calc_overlay,
         )
 
     def _toggle_calc_mode(_=None):
@@ -357,7 +358,14 @@ def build_exam(
     def _render_question():
         q = questions[state["index"]] or {}
         counter.value = f"Q {state['index'] + 1}/{total}" if compact else f"Question {state['index'] + 1} of {total}"
-        question_markdown.value = str(q.get("question") or "—")
+        raw_q_text = str(q.get("question") or "—")
+        clean_q = re.sub(
+            r'^\s*[\(\[]?\s*(?:exam[\s\-_]?level|tricky|straightforward|easy|medium|hard)\s*[\)\]]?[\s:\-–—]*',
+            '',
+            raw_q_text,
+            flags=re.IGNORECASE
+        ).strip()
+        question_markdown.value = clean_q or "—"
 
         # Render diagram if present
         raw_img = q.get("image_url")

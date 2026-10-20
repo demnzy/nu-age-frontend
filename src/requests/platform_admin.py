@@ -309,3 +309,250 @@ async def get_platform_health(token: str) -> Tuple[int, Dict[str, Any]]:
     except Exception as ex:
         print(f"[platform_admin_api] get_platform_health failed: {ex}")
         return 503, {"detail": f"Connection error: {ex}"}
+
+
+async def queue_all_lesson_audio(
+    token: str,
+    languages: Optional[List[str]] = None,
+    course_id: Optional[str] = None,
+    force_regenerate: bool = False,
+) -> Tuple[int, Dict[str, Any]]:
+    """
+    Queues audio generation for all narratable lessons across requested languages.
+    Lessons already containing a row in the database cache are skipped.
+    """
+    url = f"{API_URL}/platform-admin/courses/audio/queue-all"
+    headers = {"Authorization": f"Bearer {token}"}
+    payload: Dict[str, Any] = {
+        "languages": languages or ["en", "ha", "fr"],
+        "force_regenerate": force_regenerate,
+    }
+    if course_id:
+        payload["course_id"] = course_id
+
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT, verify=ssl_context) as client:
+            res = await client.post(url, headers=headers, json=payload)
+            try:
+                data = res.json()
+            except Exception:
+                data = {"detail": res.text}
+            return res.status_code, data
+    except Exception as ex:
+        print(f"[platform_admin_api] queue_all_lesson_audio failed: {ex}")
+        return 503, {"detail": f"Connection error: {ex}"}
+
+
+async def get_audio_queue_status(
+    token: str,
+    course_id: Optional[str] = None,
+) -> Tuple[int, Dict[str, Any]]:
+    """
+    Fetches real-time audio batch queue metrics, progress, and language coverage.
+    """
+    url = f"{API_URL}/platform-admin/courses/audio/queue-status"
+    headers = {"Authorization": f"Bearer {token}"}
+    params: Dict[str, Any] = {}
+    if course_id:
+        params["course_id"] = course_id
+
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT, verify=ssl_context) as client:
+            res = await client.get(url, headers=headers, params=params)
+            try:
+                data = res.json()
+            except Exception:
+                data = {"detail": res.text}
+            return res.status_code, data
+    except Exception as ex:
+        print(f"[platform_admin_api] get_audio_queue_status failed: {ex}")
+        return 503, {"detail": f"Connection error: {ex}"}
+
+
+async def cancel_audio_queue(token: str) -> Tuple[int, Dict[str, Any]]:
+    """
+    Signals the audio queue worker to gracefully stop further synthesis.
+    """
+    url = f"{API_URL}/platform-admin/courses/audio/queue-cancel"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT, verify=ssl_context) as client:
+            res = await client.post(url, headers=headers)
+            try:
+                data = res.json()
+            except Exception:
+                data = {"detail": res.text}
+            return res.status_code, data
+    except Exception as ex:
+        print(f"[platform_admin_api] cancel_audio_queue failed: {ex}")
+        return 503, {"detail": f"Connection error: {ex}"}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PLATFORM OBJECTIVES & MILESTONES API
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def get_admin_objectives(token: str) -> Tuple[int, Dict[str, Any]]:
+    """
+    Fetches all platform objectives with live completion statistics.
+    """
+    url = f"{API_URL}/platform-admin/objectives"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT, verify=ssl_context) as client:
+            res = await client.get(url, headers=headers)
+            try:
+                data = res.json()
+            except Exception:
+                data = {"detail": res.text}
+            return res.status_code, data
+    except Exception as ex:
+        print(f"[platform_admin_api] get_admin_objectives failed: {ex}")
+        return 503, {"detail": f"Connection error: {ex}"}
+
+
+async def create_admin_objective(token: str, payload: dict) -> Tuple[int, Dict[str, Any]]:
+    """
+    Creates a new platform objective.
+    """
+    url = f"{API_URL}/platform-admin/objectives"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT, verify=ssl_context) as client:
+            res = await client.post(url, headers=headers, json=payload)
+            try:
+                data = res.json()
+            except Exception:
+                data = {"detail": res.text}
+            return res.status_code, data
+    except Exception as ex:
+        print(f"[platform_admin_api] create_admin_objective failed: {ex}")
+        return 503, {"detail": f"Connection error: {ex}"}
+
+
+async def update_admin_objective(token: str, objective_id: str, payload: dict) -> Tuple[int, Dict[str, Any]]:
+    """
+    Updates an existing platform objective.
+    """
+    url = f"{API_URL}/platform-admin/objectives/{objective_id}"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT, verify=ssl_context) as client:
+            res = await client.put(url, headers=headers, json=payload)
+            try:
+                data = res.json()
+            except Exception:
+                data = {"detail": res.text}
+            return res.status_code, data
+    except Exception as ex:
+        print(f"[platform_admin_api] update_admin_objective failed: {ex}")
+        return 503, {"detail": f"Connection error: {ex}"}
+
+
+async def delete_admin_objective(token: str, objective_id: str, permanent: bool = False) -> Tuple[int, Dict[str, Any]]:
+    """
+    Deactivates or permanently deletes a platform objective.
+    """
+    url = f"{API_URL}/platform-admin/objectives/{objective_id}?permanent={'true' if permanent else 'false'}"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT, verify=ssl_context) as client:
+            res = await client.delete(url, headers=headers)
+            try:
+                data = res.json()
+            except Exception:
+                data = {"detail": res.text}
+            return res.status_code, data
+    except Exception as ex:
+        print(f"[platform_admin_api] delete_admin_objective failed: {ex}")
+        return 503, {"detail": f"Connection error: {ex}"}
+
+
+async def test_trigger_admin_objective(token: str, objective_id: str) -> Tuple[int, Dict[str, Any]]:
+    """
+    Triggers a test completion notification to the caller's account.
+    """
+    url = f"{API_URL}/platform-admin/objectives/{objective_id}/test-trigger"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT, verify=ssl_context) as client:
+            res = await client.post(url, headers=headers)
+            try:
+                data = res.json()
+            except Exception:
+                data = {"detail": res.text}
+            return res.status_code, data
+    except Exception as ex:
+        print(f"[platform_admin_api] test_trigger_admin_objective failed: {ex}")
+        return 503, {"detail": f"Connection error: {ex}"}
+
+
+
+
+# -----------------------------------------------------------------------------
+# CATEGORIES CRUD, RE-ENGAGEMENT ENGINE & PUSH DIAGNOSTICS
+# -----------------------------------------------------------------------------
+
+async def _admin_call(method: str, path: str, token: str, *, params: dict = None, json_body: dict = None, timeout: float = 30.0) -> Tuple[int, Any]:
+    url = f"{API_URL}{path}"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(connect=5.0, read=timeout, write=15.0, pool=5.0), verify=ssl_context) as client:
+            res = await client.request(method, url, headers=headers, params=params, json=json_body)
+            if res.status_code == 204 or not res.content:
+                return res.status_code, {}
+            try:
+                return res.status_code, res.json()
+            except Exception:
+                return res.status_code, {"detail": res.text}
+    except Exception as ex:
+        print(f"[platform_admin_api] {method} {path} error: {ex}")
+        return 503, {"detail": f"Connection error: {ex}"}
+
+
+async def get_categories_admin(token: str, name: Optional[str] = None) -> Tuple[int, Any]:
+    return await _admin_call("GET", "/categories", token, params={"name": name} if name else None)
+
+
+async def create_category_admin(token: str, name: str, description: str) -> Tuple[int, Any]:
+    return await _admin_call("POST", "/categories/create", token, json_body={"name": name, "description": description})
+
+
+async def update_category_admin(token: str, category_id: str, name: Optional[str] = None, description: Optional[str] = None) -> Tuple[int, Any]:
+    body = {k: v for k, v in (("name", name), ("description", description)) if v is not None}
+    return await _admin_call("PATCH", "/categories/update", token, params={"id": category_id}, json_body=body)
+
+
+async def delete_category_admin(token: str, category_id: str) -> Tuple[int, Any]:
+    return await _admin_call("DELETE", "/categories/delete", token, params={"id": category_id})
+
+
+async def get_engine_preview_admin(token: str, preferred_tier: Optional[int] = None, category: Optional[str] = None) -> Tuple[int, Any]:
+    params = {}
+    if preferred_tier:
+        params["preferred_tier"] = preferred_tier
+    if category:
+        params["category"] = category
+    return await _admin_call("GET", "/notifications/engine/preview", token, params=params or None)
+
+
+async def run_engine_evaluations_admin(
+    token: str,
+    dry_run: bool = True,
+    force: bool = False,
+    user_id: Optional[str] = None,
+    preferred_tier: Optional[int] = None,
+    category: Optional[str] = None,
+) -> Tuple[int, Any]:
+    params: Dict[str, Any] = {"dry_run": str(bool(dry_run)).lower(), "force": str(bool(force)).lower()}
+    if user_id:
+        params["user_id"] = user_id
+    if preferred_tier:
+        params["preferred_tier"] = preferred_tier
+    if category:
+        params["category"] = category
+    return await _admin_call("POST", "/notifications/engine/run-evaluations", token, params=params, timeout=120.0)
+
+
+async def get_onesignal_diagnostics_admin(token: str) -> Tuple[int, Any]:
+    return await _admin_call("GET", "/platform-admin/onesignal/diagnostics", token, timeout=45.0)

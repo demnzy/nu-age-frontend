@@ -29,6 +29,13 @@ from src.components.need_help_drawer import (
     _get_auth_token,
     AI_TUTOR_MOBILE_WIDTH,
 )
+from src.components.lesson_audio_player import LessonAudioPlayer
+from src.theme.typography import (
+    get_heading_font,
+    get_subheading_font,
+    get_body_font,
+    get_mono_font,
+)
 
 def heal_markdown(text: str) -> str:
     """Auto-heals legacy markdown anomalies such as truncated Mermaid URLs."""
@@ -205,6 +212,7 @@ async def course_learner_view(
     active_player_tab = 0
     need_help_open = False
     need_help_controller = NeedHelpController()
+    current_audio_player = None
     drawer_socket = ft.Container(
         width=0,
         visible=False,
@@ -408,12 +416,23 @@ async def course_learner_view(
         overflow=ft.TextOverflow.ELLIPSIS,
     )
 
+    def _handle_back_navigation(e=None):
+        nonlocal current_audio_player
+        if current_audio_player is not None:
+            try:
+                current_audio_player.dispose()
+            except Exception:
+                pass
+            current_audio_player = None
+            page.active_lesson_audio_player = None
+        page.go(back_target)
+
     page_appbar = ft.AppBar(
         leading=ft.IconButton(
             ft.Icons.ARROW_BACK_ROUNDED,
             icon_color=ft.Colors.ON_SURFACE,
             tooltip="Back",
-            on_click=lambda _: page.go(back_target),
+            on_click=_handle_back_navigation,
         ),
         title=ft.Column(
             [
@@ -455,6 +474,17 @@ async def course_learner_view(
             sidebar_container.right = None
             sidebar_container.width = SIDEBAR_WIDTH
 
+            # CRITICAL: Always clean absolute positioning from drawer_socket for desktop Row
+            drawer_socket.left = None
+            drawer_socket.top = None
+            drawer_socket.bottom = None
+            drawer_socket.right = None
+            drawer_socket.margin = ft.Padding.only(right=12, top=6, bottom=12)
+            drawer_socket.height = None
+            if need_help_open:
+                drawer_socket.width = AI_TUTOR_MOBILE_WIDTH
+                drawer_socket.visible = True
+
             desktop_controls = []
             if sidebar_visible:
                 desktop_controls.append(sidebar_container)
@@ -484,12 +514,17 @@ async def course_learner_view(
                 desktop_controls,
                 spacing=0,
                 expand=True,
+                vertical_alignment=ft.CrossAxisAlignment.STRETCH,
             )
         else:
             current_width = getattr(page, "width", None)
             if current_width is None and hasattr(page, "window") and page.window:
                 current_width = getattr(page.window, "width", None)
             mobile_w = current_width or 360
+            current_height = getattr(page, "height", None)
+            if current_height is None and hasattr(page, "window") and page.window:
+                current_height = getattr(page.window, "height", None)
+            mobile_h = current_height or 700
             drawer_width = min(SIDEBAR_WIDTH, int(mobile_w * 0.85))
 
             sidebar_backdrop.visible = sidebar_visible
@@ -505,6 +540,8 @@ async def course_learner_view(
             drawer_socket.bottom = 10
             drawer_socket.top = None
             drawer_socket.width = None
+            drawer_socket.margin = None
+            drawer_socket.height = max(280, min(int(mobile_h * 0.49), 420))
             drawer_socket.visible = need_help_open
 
             body_host.expand = True
@@ -524,6 +561,11 @@ async def course_learner_view(
                 ],
                 expand=True,
             )
+
+        if need_help_open and need_help_controller and getattr(need_help_controller, "adapt_layout", None):
+            cur_w = getattr(page, "width", None) or 1024
+            cur_h = getattr(page, "height", None) or 768
+            need_help_controller.adapt_layout(desktop_mode, cur_w, cur_h)
 
     def on_course_page_resized(e=None):
         refresh_layout_shell()
@@ -635,7 +677,13 @@ async def course_learner_view(
                     ft.Row(
                         [
                             ft.Icon(ft.Icons.LIGHTBULB_OUTLINE_ROUNDED, size=18, color=ft.Colors.AMBER_400),
-                            ft.Text("Lesson Notes & Key Takeaways", weight=ft.FontWeight.BOLD, size=14, color=ft.Colors.ON_SURFACE),
+                            ft.Text(
+                                "Lesson Notes & Key Takeaways",
+                                font_family=get_subheading_font(page),
+                                weight=ft.FontWeight.BOLD,
+                                size=14,
+                                color=ft.Colors.ON_SURFACE,
+                            ),
                         ],
                         spacing=8,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -647,14 +695,15 @@ async def course_learner_view(
                         on_tap_link=handle_link_tap,
                         md_style_sheet=ft.MarkdownStyleSheet(
                             p_text_style=ft.TextStyle(
+                                font_family=get_body_font(page),
                                 size=14.5,
                                 weight=ft.FontWeight.W_400,
                                 color=ft.Colors.ON_SURFACE,
-                                height=1.5,
+                                height=1.55,
                             ),
                             code_text_style=ft.TextStyle(
                                 size=13.5,
-                                font_family="Roboto Mono, monospace",
+                                font_family=get_mono_font(page),
                                 color=ft.Colors.ON_SURFACE,
                                 bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
                             ),
@@ -748,7 +797,7 @@ async def course_learner_view(
                 extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
                 code_theme=ft.MarkdownCodeTheme.ATELIER_LAKESIDE_DARK,
                 code_style_sheet=ft.MarkdownStyleSheet(
-                    code_text_style=ft.TextStyle(font_family="Roboto Mono, monospace", size=14, color="#E2E8F0"),
+                    code_text_style=ft.TextStyle(font_family=get_mono_font(page), size=14, color="#E2E8F0"),
                     codeblock_decoration=ft.BoxDecoration(
                         bgcolor="#16191F",
                         border_radius=ft.BorderRadius.all(8),
@@ -759,29 +808,33 @@ async def course_learner_view(
                 md_style_sheet=ft.MarkdownStyleSheet(
                     text_alignment=ft.TextAlign.START,
                     p_text_style=ft.TextStyle(
+                        font_family=get_body_font(page),
                         size=15,
                         weight=ft.FontWeight.W_400,
                         color=ft.Colors.ON_SURFACE,
-                        height=1.6,
+                        height=1.65,
                     ),
                     h1_text_style=ft.TextStyle(
+                        font_family=get_heading_font(page),
                         size=22,
                         weight=ft.FontWeight.BOLD,
                         color=ft.Colors.ON_SURFACE,
                     ),
                     h2_text_style=ft.TextStyle(
+                        font_family=get_heading_font(page),
                         size=18,
                         weight=ft.FontWeight.BOLD,
                         color=ft.Colors.ON_SURFACE,
                     ),
                     h3_text_style=ft.TextStyle(
+                        font_family=get_subheading_font(page),
                         size=16,
                         weight=ft.FontWeight.W_600,
                         color=ft.Colors.ON_SURFACE,
                     ),
                     code_text_style=ft.TextStyle(
                         size=13.5,
-                        font_family="Roboto Mono, monospace",
+                        font_family=get_mono_font(page),
                         color=ft.Colors.ON_SURFACE,
                         bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
                     ),
@@ -791,6 +844,7 @@ async def course_learner_view(
                         border_radius=ft.BorderRadius.all(6),
                     ),
                     blockquote_text_style=ft.TextStyle(
+                        font_family=get_body_font(page),
                         size=14.5,
                         italic=True,
                         color=ft.Colors.ON_SURFACE,
@@ -2645,12 +2699,28 @@ async def course_learner_view(
                         page.update()
 
                     def close_dialog_and_go(e=None):
+                        nonlocal current_audio_player
+                        if current_audio_player:
+                            try:
+                                current_audio_player.dispose()
+                            except Exception:
+                                pass
+                            current_audio_player = None
+                            page.active_lesson_audio_player = None
                         page.pop_dialog()
                         page.go(back_target)
 
                     is_offline = back_target == "/offline"
 
                     def close_dialog_and_go_stats(e=None):
+                        nonlocal current_audio_player
+                        if current_audio_player:
+                            try:
+                                current_audio_player.dispose()
+                            except Exception:
+                                pass
+                            current_audio_player = None
+                            page.active_lesson_audio_player = None
                         page.pop_dialog()
                         page.go(f"/courses/{course_id}/stats")
 
@@ -2970,6 +3040,14 @@ async def course_learner_view(
     )
 
     def refresh_ui():
+        nonlocal current_audio_player
+        if current_audio_player is not None:
+            try:
+                current_audio_player.dispose()
+            except Exception:
+                pass
+            current_audio_player = None
+
         sidebar_column.controls.clear()
         refresh_progress_header()
 
@@ -3521,6 +3599,12 @@ async def course_learner_view(
                 drawer_socket.visible = True
                 drawer_socket.expand = False
                 if is_desktop:
+                    drawer_socket.left = None
+                    drawer_socket.top = None
+                    drawer_socket.bottom = None
+                    drawer_socket.right = None
+                    drawer_socket.margin = ft.Padding.only(right=12, top=6, bottom=12)
+                    drawer_socket.height = None
                     drawer_socket.width = 0
                     drawer_socket.opacity = 0.0
                     refresh_layout_shell()
@@ -3540,6 +3624,9 @@ async def course_learner_view(
                     drawer_socket.bottom = 10
                     drawer_socket.top = None
                     drawer_socket.width = None
+                    drawer_socket.margin = None
+                    cur_h = getattr(page, "height", None) or 700
+                    drawer_socket.height = max(280, min(int(cur_h * 0.49), 420))
                     drawer_socket.opacity = 1.0
                     refresh_layout_shell()
                     page.update()
@@ -3604,6 +3691,7 @@ async def course_learner_view(
                                 f"MODULE {current_module_idx + 1}: {active_mod['title']}".upper(),
                                 size=11,
                                 weight=ft.FontWeight.BOLD,
+                                font_family=get_subheading_font(page),
                                 color=UI_ACCENT,
                                 max_lines=1,
                                 overflow=ft.TextOverflow.ELLIPSIS,
@@ -3642,6 +3730,7 @@ async def course_learner_view(
                                 active_les["title"],
                                 size=22,
                                 weight=ft.FontWeight.W_800,
+                                font_family=get_heading_font(page),
                                 color=ft.Colors.ON_SURFACE,
                                 text_align=ft.TextAlign.LEFT,
                                 expand=True,
@@ -3666,13 +3755,56 @@ async def course_learner_view(
             ),
         )
 
+        # Determine if active lesson has narratable text
+        les_type = str(active_les.get("type", "")).lower()
+        has_text_content = bool(
+            active_les.get("content", {}).get("text")
+            or active_les.get("content", {}).get("notes")
+            or active_les.get("content", {}).get("steps")
+            or active_les.get("content", {}).get("scenario")
+            or active_les.get("content", {}).get("cards")
+        )
+        is_narratable = (les_type in ["text", "stepper", "scenario", "cards", "cloze"] or has_text_content) and les_type not in ["video", "document", "code_lab"]
+
+        audio_player_ctrl = None
+        if is_narratable:
+            old_player = getattr(page, "active_lesson_audio_player", None)
+            if old_player and hasattr(old_player, "dispose"):
+                try:
+                    old_player.dispose()
+                except Exception:
+                    pass
+                page.active_lesson_audio_player = None
+
+            current_audio_player = LessonAudioPlayer(
+                page=page,
+                lesson_id=str(active_les.get("id", "")),
+                course_id=str(course_id or ""),
+                lesson_title=active_les.get("title", ""),
+                lesson_type=les_type,
+            )
+            audio_player_ctrl = current_audio_player
+            page.active_lesson_audio_player = current_audio_player
+        else:
+            old_player = getattr(page, "active_lesson_audio_player", None)
+            if old_player and hasattr(old_player, "dispose"):
+                try:
+                    old_player.dispose()
+                except Exception:
+                    pass
+            page.active_lesson_audio_player = None
+
+        body_controls = [header_container]
+        if audio_player_ctrl:
+            body_controls.extend([ft.Container(height=10), audio_player_ctrl])
+        body_controls.extend([
+            ft.Container(height=14),
+            render_lesson_ui(active_les),
+            ft.Container(height=24),
+        ])
+
         lesson_body_scroll.content = ft.Column(
-            [
-                header_container,
-                ft.Container(height=14),
-                render_lesson_ui(active_les),
-                ft.Container(height=24),
-            ],
+            body_controls,
             scroll=ft.ScrollMode.AUTO,
             expand=True,
             spacing=0,

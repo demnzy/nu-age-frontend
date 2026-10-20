@@ -3,6 +3,8 @@ import asyncio
 from datetime import datetime
 from src.components.bottom_appbar import get_bottom_appbar
 from src.requests.auth import get_member_profile
+from src.components.badge_pill import build_glossy_badge_pill
+from src.utils.file_opener import safe_set_clipboard, show_page_snackbar
 
 async def member_profile_view(page: ft.Page, identifier: str):
     # ── Theme & Palette Determination ─────────────────────────────────────────
@@ -20,6 +22,7 @@ async def member_profile_view(page: ft.Page, identifier: str):
     # ── Initial Loading Socket ────────────────────────────────────────────────
     content_socket = ft.Container(
         expand=True,
+        clip_behavior=ft.ClipBehavior.HARD_EDGE,
         alignment=ft.Alignment.CENTER,
         content=ft.ProgressRing(color=ft.Colors.PRIMARY, stroke_width=3)
     )
@@ -171,6 +174,24 @@ async def member_profile_view(page: ft.Page, identifier: str):
                 )
             )
 
+        primary_badge = user_data.get("primary_badge")
+        name_badge_pill = (
+            build_glossy_badge_pill(primary_badge, is_mobile=False, max_width=140, max_chars=16)
+            if (primary_badge and isinstance(primary_badge, dict))
+            else None
+        )
+
+        name_row = ft.Row(
+            controls=[
+                ft.Text(full_name, size=22, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE, text_align=ft.TextAlign.CENTER),
+                *( [name_badge_pill] if name_badge_pill else [] )
+            ],
+            alignment=ft.MainAxisAlignment.CENTER,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=8,
+            tight=True,
+        )
+
         hero_banner = ft.Container(
             bgcolor=ft.Colors.PRIMARY,
             gradient=hero_gradient,
@@ -186,9 +207,9 @@ async def member_profile_view(page: ft.Page, identifier: str):
                         icon_size=20,
                         tooltip="Go back",
                         style=ft.ButtonStyle(
-                            bgcolor={"": ft.Colors.with_opacity(0.18, ft.Colors.WHITE)},
-                            shape=ft.CircleBorder()
-                        ),
+    bgcolor={ft.ControlState.DEFAULT: ft.Colors.with_opacity(0.18, ft.Colors.WHITE)},
+    shape=ft.CircleBorder()
+),
                         on_click=handle_back
                     ),
                     ft.Text("PEER PROFILE", size=11, weight=ft.FontWeight.W_800, color=ft.Colors.with_opacity(0.85, ft.Colors.WHITE)),
@@ -201,7 +222,7 @@ async def member_profile_view(page: ft.Page, identifier: str):
                 ft.Column([
                     avatar_stack,
                     ft.Container(height=6),
-                    ft.Text(full_name, size=22, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE, text_align=ft.TextAlign.CENTER),
+                    name_row,
                     ft.Text(f"@{username}" if username != "—" else email, size=12, color=ft.Colors.with_opacity(0.8, ft.Colors.WHITE)),
                     ft.Container(height=6),
                     ft.Row(meta_chips, alignment=ft.MainAxisAlignment.CENTER, wrap=True, spacing=8),
@@ -215,22 +236,23 @@ async def member_profile_view(page: ft.Page, identifier: str):
         async def share_profile(e):
             share_url = f"https://nu-age.name.ng/member/{identifier}"
             try:
-                await page.set_clipboard(share_url)
-                page.show_dialog(
+                await safe_set_clipboard(page, share_url)
+                show_page_snackbar(
+                    page,
                     ft.SnackBar(
                         content=ft.Text("Profile link copied to clipboard!"),
-                        bgcolor=ft.Colors.INDIGO_600,
+                        bgcolor=ft.Colors.PRIMARY,
                         duration=2500
                     )
                 )
             except Exception:
-                page.show_dialog(
+                show_page_snackbar(
+                    page,
                     ft.SnackBar(
                         content=ft.Text(f"Share link: {share_url}"),
                         duration=3000
                     )
                 )
-            page.update()
 
         action_bar = ft.Row([
             ft.FilledButton(
@@ -395,7 +417,6 @@ async def member_profile_view(page: ft.Page, identifier: str):
         )
 
         content_socket.content = ft.Column(
-            expand=True,
             scroll=ft.ScrollMode.AUTO,
             spacing=0,
             controls=[

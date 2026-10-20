@@ -85,8 +85,10 @@ async def sync_learner_notifications(page: ft.Page, force: bool = False):
         except Exception:
             pass
 
-        if not token and hasattr(page, "session") and hasattr(page.session, "store"):
-            token = page.session.store.get("auth_token")
+        if not token:
+            from src.utils.session_utils import get_session_store
+            _s = get_session_store(page)
+            token = _s.get("auth_token") if hasattr(_s, "get") else None
 
         if not token:
             NotificationManager.clear_all()
@@ -107,12 +109,20 @@ async def sync_learner_notifications(page: ft.Page, force: bool = False):
                     
                     if cat == "chat":
                         ic = ft.Icons.CHAT_BUBBLE_ROUNDED
+                    elif cat == "objective_completed":
+                        ic = ft.Icons.EMOJI_EVENTS_ROUNDED
                     elif cat in ("exams", "cohorts"):
                         ic = ft.Icons.TIMER_ROUNDED
-                    elif cat == "courses":
+                    elif cat in ("courses", "course_progress"):
                         ic = ft.Icons.SCHOOL_ROUNDED
                     elif cat in ("discussion", "discussions"):
                         ic = ft.Icons.FORUM_ROUNDED
+                    elif cat == "streak_warning":
+                        ic = ft.Icons.LOCAL_FIRE_DEPARTMENT_ROUNDED
+                    elif cat == "duo_nudge":
+                        ic = ft.Icons.HANDSHAKE_ROUNDED
+                    elif cat in ("reengagement", "daytime_nudge"):
+                        ic = ft.Icons.AUTO_AWESOME_ROUNDED
                     else:
                         ic = ft.Icons.NOTIFICATIONS_ROUNDED
                     
@@ -132,13 +142,30 @@ async def sync_learner_notifications(page: ft.Page, force: bool = False):
                                 page.go(rt)
                         return _act
 
+                    data_payload = item.get("data_payload") or item.get("data") or {}
+                    is_claimed = bool(item.get("is_claimed") or data_payload.get("is_claimed", False))
+
+                    # Duolingo-style action labels
+                    act_label = None
+                    if cat == "objective_completed":
+                        act_label = None if is_claimed else "Claim Reward"
+                    elif action_route:
+                        if cat in ("streak_warning", "daytime_nudge", "reengagement"):
+                            act_label = "Practice Now 🔥"
+                        elif cat == "duo_nudge":
+                            act_label = "View Partner 🤝"
+                        elif cat == "course_progress":
+                            act_label = "Continue Lesson 🎓"
+                        else:
+                            act_label = "Open"
+
                     NotificationManager.upsert(
                         notif_id=nid,
                         title=item.get("title", "Notification"),
                         body=item.get("body", ""),
                         category=cat,
                         icon=ic,
-                        action_label="Open" if action_route else None,
+                        action_label=act_label,
                         on_action=_make_action(action_route) if action_route else None,
                     )
                     # Sync metadata & read state
@@ -147,6 +174,11 @@ async def sync_learner_notifications(page: ft.Page, force: bool = False):
                             store_n["is_read"] = item.get("is_read", False)
                             store_n["backend_id"] = item.get("id")
                             store_n["action_route"] = action_route
+                            store_n["data"] = data_payload
+                            store_n["objective_code"] = data_payload.get("code")
+                            store_n["is_claimed"] = is_claimed
+                            if is_claimed and "• Claimed" not in store_n.get("body", ""):
+                                store_n["body"] = f"{store_n.get('body', '')} • Claimed"
                             if c_at:
                                 store_n["created_at"] = c_at
                             break

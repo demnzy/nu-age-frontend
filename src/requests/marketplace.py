@@ -217,7 +217,11 @@ async def update_admin_pack(
     price_coins: Optional[int] = None,
     cover_image_url: Optional[str] = None,
     is_official: Optional[bool] = None,
-    status: Optional[str] = None
+    status: Optional[str] = None,
+    theme_gradient: Optional[str] = None,
+    duration_minutes: Optional[int] = None,
+    questions: Optional[list] = None,
+    flashcards: Optional[list] = None
 ) -> Dict[str, Any]:
     url = f"{api_url}/study/marketplace/admin/packs/{pack_id}"
     headers = {"Authorization": f"Bearer {token}"}
@@ -229,6 +233,10 @@ async def update_admin_pack(
     if cover_image_url is not None: payload["cover_image_url"] = cover_image_url
     if is_official is not None: payload["is_official"] = is_official
     if status: payload["status"] = status
+    if theme_gradient: payload["theme_gradient"] = theme_gradient
+    if duration_minutes is not None: payload["duration_minutes"] = duration_minutes
+    if questions is not None: payload["questions"] = questions
+    if flashcards is not None: payload["flashcards"] = flashcards
 
     try:
         async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
@@ -237,6 +245,20 @@ async def update_admin_pack(
             return resp.json()
     except Exception as e:
         return {"error": str(e)}
+
+
+async def fetch_admin_pack_full(token: str, pack_id: str) -> Dict[str, Any]:
+    """Retrieves full pack data including all questions and flashcards for editing in Curator studio."""
+    url = f"{api_url}/study/marketplace/admin/packs/{pack_id}/full"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
+            resp = await client.get(url, headers=headers)
+            resp.raise_for_status()
+            return resp.json()
+    except Exception as e:
+        return {"error": str(e)}
+
 
 
 async def fetch_admin_all_packs(
@@ -293,7 +315,7 @@ async def parse_past_questions_ai(
     token: str,
     raw_text: str,
     subject: str = "General",
-    exam_type: str = "JAMB UTME",
+    exam_type: str = "General CBT",
     exam_year: Optional[int] = None
 ) -> Dict[str, Any]:
     url = f"{api_url}/study/marketplace/admin/ai/parse-past-questions"
@@ -319,7 +341,7 @@ async def parse_past_questions_file_ai(
     file_name: str,
     file_bytes: bytes,
     subject: str = "General",
-    exam_type: str = "JAMB UTME",
+    exam_type: str = "General CBT",
     exam_year: Optional[int] = None
 ) -> Dict[str, Any]:
     url = f"{api_url}/study/marketplace/admin/ai/parse-past-questions-file"

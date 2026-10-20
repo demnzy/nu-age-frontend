@@ -68,9 +68,15 @@ def _extract_image_url(q: Dict[str, Any]) -> Optional[str]:
 
 
 def _clean_question_text(q: Dict[str, Any]) -> str:
-    """Removes embedded markdown image tags from question text to prevent double-rendering."""
+    """Removes embedded markdown image tags and difficulty tag prefixes from question text to prevent double-rendering."""
     txt = str(q.get("question_text") or q.get("question") or "")
     clean = re.sub(r'!\[.*?\]\((https?://[^\s\)]+|/[^\s\)]+)\)', '', txt).strip()
+    clean = re.sub(
+        r'^\s*[\(\[]?\s*(?:exam[\s\-_]?level|tricky|straightforward|easy|medium|hard)\s*[\)\]]?[\s:\-–—]*',
+        '',
+        clean,
+        flags=re.IGNORECASE
+    ).strip()
     return clean or "*(No question text provided)*"
 
 
@@ -136,7 +142,7 @@ class CBTExamEngine:
         questions: List[Dict[str, Any]],
         duration_seconds: Optional[int] = None,
         exam_title: str = "CBT Past Questions Examination",
-        exam_type: str = "JAMB UTME",
+        exam_type: str = "General CBT",
         exam_year: Optional[int] = None,
         candidate_name: str = "Student Candidate",
         material_id: Optional[str] = None,
@@ -150,7 +156,7 @@ class CBTExamEngine:
         self.exam_title = exam_title
         self.exam_type = exam_type
         self.exam_year = exam_year
-        self.candidate_name = candidate_name or "Student Candidate"
+        self.candidate_name = candidate_name
         self.material_id = material_id
         self.bundle_id = bundle_id
         self.on_exit = on_exit
@@ -251,7 +257,7 @@ class CBTExamEngine:
             border_radius=ft.BorderRadius.all(6),
             bgcolor=ui.tint(ft.Colors.PRIMARY, 0.12),
             border=ft.Border.all(1, ui.tint(ft.Colors.PRIMARY, 0.30)),
-            content=ft.Text("", size=10.5, weight=ft.FontWeight.W_800, color=ft.Colors.PRIMARY),
+            content=ft.Text("", size=10.5, weight=ft.FontWeight.W_800, color=ft.Colors.PRIMARY, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
             visible=False,
         )
         self.q_topic_badge = ft.Container(
@@ -259,20 +265,21 @@ class CBTExamEngine:
             border_radius=ft.BorderRadius.all(6),
             bgcolor=ui.tint(ft.Colors.ON_SURFACE, 0.06),
             border=ft.Border.all(1, ui.hairline()),
-            content=ft.Text("", size=10, weight=ft.FontWeight.W_700, color=ui.muted()),
+            content=ft.Text("", size=10, weight=ft.FontWeight.W_700, color=ui.muted(), max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
             visible=False,
         )
 
+        flag_initial_label = "Flag" if self.is_mobile else "Flag for Review"
         self.flag_action_btn = ft.Container(
-            padding=ft.Padding.symmetric(horizontal=10, vertical=6),
+            padding=ft.Padding.symmetric(horizontal=8 if self.is_mobile else 10, vertical=5 if self.is_mobile else 6),
             border_radius=ft.BorderRadius.all(8),
             bgcolor=ui.tint(ft.Colors.ON_SURFACE, 0.06),
             border=ft.Border.all(1, ui.hairline()),
             ink=True,
             on_click=self._toggle_flag,
             content=ft.Row([
-                ft.Icon(ft.Icons.OUTLINED_FLAG_ROUNDED, size=15, color=ui.muted()),
-                ft.Text("Flag for Review", size=11, weight=ft.FontWeight.W_700, color=ui.muted()),
+                ft.Icon(ft.Icons.OUTLINED_FLAG_ROUNDED, size=14 if self.is_mobile else 15, color=ui.muted()),
+                ft.Text(flag_initial_label, size=11, weight=ft.FontWeight.W_700, color=ui.muted()),
             ], spacing=5, tight=True),
         )
 
@@ -355,7 +362,6 @@ class CBTExamEngine:
         self.is_mobile = screen_width < 768
 
         # ── 1. Top HUD Sticky Header (Clean Candidate Header) ──
-        exam_badge = f"{self.exam_type} {self.exam_year or ''}".strip()
         self.top_header = ft.Container(
             padding=ft.Padding.symmetric(horizontal=16, vertical=10),
             bgcolor=ft.Colors.SURFACE,
@@ -385,8 +391,7 @@ class CBTExamEngine:
                             content=ft.Icon(ft.Icons.SCHOOL_ROUNDED, color=ft.Colors.ON_PRIMARY, size=18),
                         ),
                         ft.Column([
-                            ft.Text(self.exam_title, size=13, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
-                            ft.Text(f"{exam_badge} • Candidate: {self.candidate_name}", size=10.5, color=ui.muted()),
+                            ft.Text(self.exam_title, size=13, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS)
                         ], spacing=1, tight=True, expand=True if self.is_mobile else False),
                     ], spacing=6, tight=True, expand=True if self.is_mobile else False),
                     ft.Row([
@@ -398,17 +403,56 @@ class CBTExamEngine:
         )
 
         # ── 2. Question Surface Card ──
-        q_header = ft.Row(
-            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            controls=[
-                ft.Row([
+        if self.is_mobile:
+            self.categories_row = ft.Row([
+                self.q_subject_badge,
+                self.q_topic_badge,
+            ], spacing=6, tight=True, wrap=True)
+
+            top_row = ft.Row(
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[
                     self.q_counter_badge,
-                    self.q_subject_badge,
-                    self.q_topic_badge,
-                ], spacing=6, tight=True, wrap=True),
-                self.flag_action_btn,
-            ],
+                    self.flag_action_btn,
+                ],
+            )
+
+            q_header = ft.Column([
+                top_row,
+                self.categories_row,
+            ], spacing=6, tight=True)
+        else:
+            q_header = ft.Row(
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[
+                    ft.Row([
+                        self.q_counter_badge,
+                        self.q_subject_badge,
+                        self.q_topic_badge,
+                    ], spacing=6, tight=True, wrap=True),
+                    self.flag_action_btn,
+                ],
+            )
+        self.q_header = q_header
+
+        self.question_body_column = ft.Column([
+            self.q_header,
+            ft.Container(height=4),
+            self.question_markdown,
+            self.diagram_container,
+            ft.Container(height=8),
+            self.options_column,
+        ], spacing=12, tight=True)
+
+        self.question_switcher = ft.AnimatedSwitcher(
+            content=self.question_body_column,
+            transition=ft.AnimatedSwitcherTransition.FADE,
+            duration=160,
+            reverse_duration=120,
+            switch_in_curve=ft.AnimationCurve.EASE_OUT,
+            switch_out_curve=ft.AnimationCurve.EASE_IN,
         )
 
         question_card = ft.Container(
@@ -416,14 +460,7 @@ class CBTExamEngine:
             border_radius=ft.BorderRadius.all(16),
             bgcolor=ft.Colors.SURFACE,
             border=ft.Border.all(1, ui.hairline()),
-            content=ft.Column([
-                q_header,
-                ft.Container(height=4),
-                self.question_markdown,
-                self.diagram_container,
-                ft.Container(height=8),
-                self.options_column,
-            ], spacing=12, tight=True),
+            content=self.question_switcher,
         )
 
         # Question Action Bar
@@ -584,13 +621,13 @@ class CBTExamEngine:
             s = q.get("subject") or q.get("material_title") or "General Syllabus"
             if s == subject_name:
                 self.active_index = idx
-                self._render_active_question()
+                self._render_active_question(animate_transition=True)
                 self._render_matrix_palette()
                 self._render_subject_tabs()
                 self.page.update()
                 break
 
-    def _render_active_question(self):
+    def _render_active_question(self, animate_transition: bool = False):
         """Renders the question at active_index with resilient illustration handling."""
         if not self.raw_questions or self.active_index >= self.total:
             return
@@ -621,6 +658,10 @@ class CBTExamEngine:
         self.flag_action_btn.content.controls[0].name = ft.Icons.FLAG_ROUNDED if is_flagged else ft.Icons.OUTLINED_FLAG_ROUNDED
         self.flag_action_btn.content.controls[0].color = ui.C_FLAG if is_flagged else ui.muted()
         self.flag_action_btn.content.controls[1].color = ui.C_FLAG if is_flagged else ui.muted()
+        if self.is_mobile:
+            self.flag_action_btn.content.controls[1].value = "Flagged" if is_flagged else "Flag"
+        else:
+            self.flag_action_btn.content.controls[1].value = "Flagged for Review" if is_flagged else "Flag for Review"
 
         # Clean Question Markdown text (strips duplicate markdown images)
         clean_text = _clean_question_text(q)
@@ -671,6 +712,17 @@ class CBTExamEngine:
             self.options_column.controls.append(
                 self._build_option_tile(i, str(opt_text), is_selected)
             )
+
+        if animate_transition and hasattr(self, "question_switcher"):
+            self.question_body_column = ft.Column([
+                self.q_header,
+                ft.Container(height=4),
+                self.question_markdown,
+                self.diagram_container,
+                ft.Container(height=8),
+                self.options_column,
+            ], spacing=12, tight=True)
+            self.question_switcher.content = self.question_body_column
 
         # Nav button states
         self.prev_btn.disabled = (self.active_index == 0)
@@ -746,6 +798,8 @@ class CBTExamEngine:
             border_radius=ft.BorderRadius.all(8),
             bgcolor=ft.Colors.PRIMARY if is_selected else ui.tint(ft.Colors.ON_SURFACE, 0.08),
             alignment=ft.Alignment.CENTER,
+            scale=1.04 if is_selected else 1.0,
+            animate_scale=ft.Animation(140, ft.AnimationCurve.EASE_OUT_BACK),
             content=ft.Text(
                 letter,
                 size=12.5,
@@ -769,6 +823,7 @@ class CBTExamEngine:
             bgcolor=bg,
             border=ft.Border.all(1.4 if is_selected else 1.0, border_col),
             ink=True,
+            animate=ft.Animation(160, ft.AnimationCurve.EASE_OUT),
             on_click=lambda _, i=idx: self._select_option(i),
             content=ft.Row([
                 letter_squircle,
@@ -870,7 +925,7 @@ class CBTExamEngine:
     def _goto_prev(self):
         if self.active_index > 0:
             self.active_index -= 1
-            self._render_active_question()
+            self._render_active_question(animate_transition=True)
             self._render_matrix_palette()
             self._render_subject_tabs()
             self.page.update()
@@ -878,7 +933,7 @@ class CBTExamEngine:
     def _goto_next(self):
         if self.active_index < self.total - 1:
             self.active_index += 1
-            self._render_active_question()
+            self._render_active_question(animate_transition=True)
             self._render_matrix_palette()
             self._render_subject_tabs()
             self.page.update()
@@ -888,7 +943,7 @@ class CBTExamEngine:
     def _goto_question(self, index: int):
         if 0 <= index < self.total:
             self.active_index = index
-            self._render_active_question()
+            self._render_active_question(animate_transition=True)
             self._render_matrix_palette()
             self._render_subject_tabs()
             self.page.update()
@@ -1004,6 +1059,7 @@ class CBTExamEngine:
             calculator_type=self.calc_mode,
             on_close=self._toggle_calculator,
             on_toggle_mode=self._toggle_calc_mode,
+            target_container=self.calc_overlay,
         )
 
     # ── TIMER LOOP ──
@@ -1100,36 +1156,18 @@ class CBTExamEngine:
                                 ft.Icon(ft.Icons.WARNING_AMBER_ROUNDED, size=16, color=ui.C_WARN),
                                 ft.Text(
                                     f"Attention: {unanswered_count} questions are left unanswered!",
-                                    size=11.5,
+                                    size=11,
                                     weight=ft.FontWeight.W_700,
                                     color=ui.C_WARN,
+                                    expand=True,
                                 ),
-                            ], spacing=6),
+                            ], spacing=6, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                         )
                     ] if unanswered_count > 0 else []
                 ),
-                ft.Row([
-                    ft.OutlinedButton(
-                        "Return to Test",
-                        style=ft.ButtonStyle(
-                            shape=ft.RoundedRectangleBorder(radius=10),
-                            side=ft.BorderSide(1, ui.hairline()),
-                            color=ft.Colors.ON_SURFACE,
-                        ),
-                        on_click=lambda _: self._close_dialog(dlg),
-                        expand=True,
-                    ),
-                    ft.FilledButton(
-                        "Confirm & Submit",
-                        style=ft.ButtonStyle(
-                            bgcolor=ft.Colors.PRIMARY,
-                            shape=ft.RoundedRectangleBorder(radius=10),
-                            color=ft.Colors.ON_PRIMARY,
-                        ),
-                        on_click=lambda _: self._confirm_and_submit_exam(dlg),
-                        expand=True,
-                    ),
-                ], spacing=10),
+                *(lambda: [
+                    self._build_audit_actions_row(dlg)
+                ])(),
             ], spacing=14, tight=True),
         )
 
@@ -1154,6 +1192,53 @@ class CBTExamEngine:
                 ft.Text(label, size=10, weight=ft.FontWeight.W_700, color=color),
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=2),
         )
+
+    def _build_audit_actions_row(self, dlg: ft.AlertDialog) -> ft.Row:
+        btn_return = ft.OutlinedButton(
+            content=ft.Text("Return to Test", size=11.5, weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE, no_wrap=True),
+            style=ft.ButtonStyle(
+                shape=ft.RoundedRectangleBorder(radius=10),
+                side=ft.BorderSide(1, ui.hairline()),
+                padding=ft.Padding.symmetric(horizontal=8, vertical=6),
+            ),
+            on_click=lambda _: self._close_dialog(dlg),
+            expand=True,
+        )
+
+        btn_confirm = ft.FilledButton(
+            content=ft.Text("Confirm & Submit", size=11.5, weight=ft.FontWeight.W_700, color=ft.Colors.ON_PRIMARY, no_wrap=True),
+            style=ft.ButtonStyle(
+                bgcolor=ft.Colors.PRIMARY,
+                shape=ft.RoundedRectangleBorder(radius=10),
+                padding=ft.Padding.symmetric(horizontal=8, vertical=6),
+            ),
+            expand=True,
+        )
+
+        def _on_confirm(e):
+            btn_return.disabled = True
+            btn_confirm.disabled = True
+            btn_confirm.content = ft.Row(
+                [
+                    ft.ProgressRing(width=14, height=14, stroke_width=2, color=ft.Colors.ON_PRIMARY),
+                    ft.Text("Submitting...", size=11.5, weight=ft.FontWeight.W_700, color=ft.Colors.ON_PRIMARY, no_wrap=True),
+                ],
+                alignment=ft.MainAxisAlignment.CENTER,
+                spacing=6,
+                tight=True,
+            )
+            self.page.update()
+
+            async def _async_submit():
+                import asyncio
+                await asyncio.sleep(0.08)
+                self._confirm_and_submit_exam(dlg)
+
+            self.page.run_task(_async_submit)
+
+        btn_confirm.on_click = _on_confirm
+
+        return ft.Row([btn_return, btn_confirm], spacing=10)
 
     def _confirm_and_submit_exam(self, dlg: ft.AlertDialog):
         """Atomically closes audit dialog and initiates exam submission."""
@@ -1313,10 +1398,12 @@ class CBTExamEngine:
                 if curr_tok:
                     from src.requests.study_partners import get_active_partnership, log_partnership_activity
                     p_res = await get_active_partnership(curr_tok)
-                    if p_res and p_res.get("has_partnership") and p_res.get("partnership"):
-                        p_id = p_res["partnership"]["id"]
+                    if p_res and p_res.get("has_partnership"):
+                        p_list = p_res.get("partnerships") or ([p_res.get("partnership")] if p_res.get("partnership") else [])
                         study_mins = max(1, elapsed_seconds // 60)
-                        await log_partnership_activity(curr_tok, p_id, minutes_studied=study_mins, questions_solved=self.total)
+                        for p in p_list:
+                            if p and p.get("id"):
+                                await log_partnership_activity(curr_tok, p["id"], minutes_studied=study_mins, questions_solved=self.total)
             except Exception as p_err:
                 print(f"[CBT] Error logging partnership activity: {p_err}")
 
@@ -1460,6 +1547,35 @@ class CBTExamEngine:
                 ], spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER, tight=True),
                 ft.Text("WAEC / WASSCE Credit Passes (A1 - C6)", size=11, weight=ft.FontWeight.W_700, color=ui.muted()),
             ], spacing=1, tight=True)
+
+            card_content.append(
+                ft.Row(
+                    [score_block, tier_badge],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                )
+            )
+
+        else:
+            # General / Academic Simulation summary score block
+            score_block = ft.Column([
+                ft.Row([
+                    ft.Text(f"{score}", size=36, weight=ft.FontWeight.W_900, color=ft.Colors.PRIMARY),
+                    ft.Text(f"/ {self.total}", size=18, weight=ft.FontWeight.W_800, color=ui.muted()),
+                ], spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER, tight=True),
+                ft.Text(f"{percentage:.1f}% Raw Accuracy", size=11, weight=ft.FontWeight.W_700, color=ui.muted()),
+            ], spacing=1, tight=True)
+
+            tier_badge = ft.Container(
+                padding=ft.Padding.symmetric(horizontal=12, vertical=6),
+                border_radius=ft.BorderRadius.all(10),
+                bgcolor=ui.tint(ft.Colors.PRIMARY, 0.12),
+                border=ft.Border.all(1, ft.Colors.PRIMARY),
+                content=ft.Column([
+                    ft.Text("Exam Completed", size=12, weight=ft.FontWeight.W_800, color=ft.Colors.PRIMARY),
+                    ft.Text(f"{score} of {self.total} correct", size=10, color=ft.Colors.ON_SURFACE),
+                ], spacing=2, tight=True),
+            )
 
             card_content.append(
                 ft.Row(
@@ -2071,7 +2187,14 @@ class CBTExamEngine:
                 content=ft.Column([
                     ft.Row([
                         ft.Icon(ft.Icons.GRID_VIEW_ROUNDED, size=18, color=ft.Colors.PRIMARY),
-                        ft.Text("JAMB UTME Subject Performance Breakdown", size=14, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
+                        ft.Text(
+                            "JAMB UTME Subject Breakdown" if is_jamb
+                            else ("WAEC / WASSCE Subject Breakdown" if is_waec
+                            else "Subject Performance Breakdown"),
+                            size=14,
+                            weight=ft.FontWeight.W_800,
+                            color=ft.Colors.ON_SURFACE,
+                        ),
                     ], spacing=8),
                     ft.Column(rows, spacing=6),
                 ], spacing=12),
@@ -2307,7 +2430,7 @@ def build_cbt_exam_view(
     questions: List[Dict[str, Any]],
     duration_seconds: Optional[int] = None,
     exam_title: str = "CBT Past Questions Examination",
-    exam_type: str = "JAMB UTME",
+    exam_type: str = "General CBT",
     exam_year: Optional[int] = None,
     candidate_name: str = "Student Candidate",
     material_id: Optional[str] = None,

@@ -101,6 +101,7 @@ def get_quick_hub(page: ft.Page) -> ft.Container:
     else:
         grid_content = ft.Column(
             spacing=10,
+            tight=True,
             controls=[
                 ft.Row(spacing=10, controls=[tiles[0], tiles[1]]),
                 ft.Row(spacing=10, controls=[tiles[2], tiles[3]]),
@@ -110,6 +111,7 @@ def get_quick_hub(page: ft.Page) -> ft.Container:
     return ft.Container(
         content=ft.Column(
             spacing=8,
+            tight=True,
             controls=[
                 ft.Row(
                     [

@@ -9,6 +9,7 @@ and compute live bundle economics and discount tiers.
 import flet as ft
 from typing import List, Dict, Any, Callable, Optional
 from src.components import study_ui as ui
+from src.components.nu_coin_icon import nu_coin_icon
 from src.utils.file_opener import show_page_snackbar
 
 _THEMES = [
@@ -50,7 +51,7 @@ def show_bundle_builder_dialog(
     # Initial state
     init_title = (existing_bundle.get("title") if existing_bundle else "") or ""
     init_desc = (existing_bundle.get("description") if existing_bundle else "") or ""
-    init_cat = (existing_bundle.get("category") if existing_bundle else "JAMB UTME") or "JAMB UTME"
+    init_cat = (existing_bundle.get("category") if existing_bundle else "General") or "General"
     init_theme = (existing_bundle.get("theme_gradient") if existing_bundle else "purple_indigo") or "purple_indigo"
     init_banner = (existing_bundle.get("banner_url") if existing_bundle else "") or ""
     init_disc = int(existing_bundle.get("discount_percentage", 20) if existing_bundle else 20)
@@ -69,7 +70,7 @@ def show_bundle_builder_dialog(
     # Inputs
     title_field = ft.TextField(
         value=init_title,
-        label="Bundle Title (e.g. JAMB 2025 Science Mega Pack)",
+        label="Bundle Title (e.g. Science Revision Mega Pack)",
         dense=True,
         border_radius=8,
     )
@@ -184,7 +185,7 @@ def show_bundle_builder_dialog(
         summary_savings_badge.visible = (disc_pct > 0 and tot_orig > 0)
 
         preview_title.value = title_field.value.strip() or "Bundle Preview"
-        preview_subtitle.value = f"{category_dropdown.value or 'JAMB UTME'} • {len(local_packs)} Constituent Packs"
+        preview_subtitle.value = f"{category_dropdown.value or 'General'} • {len(local_packs)} Constituent Packs"
 
         cur_t = theme_dropdown.value or "purple_indigo"
         for k, _, c1, c2 in _THEMES:
@@ -289,9 +290,9 @@ def show_bundle_builder_dialog(
                             ], spacing=2, expand=True),
                             ft.Container(
                                 content=ft.Row([
-                                    ft.Icon(ft.Icons.MONETIZATION_ON_ROUNDED, size=12, color=ui.C_WARN),
+                                    nu_coin_icon(size=12),
                                     ft.Text(f"{price}", size=11, weight=ft.FontWeight.BOLD, color=ui.C_WARN),
-                                ], spacing=2, tight=True),
+                                ], spacing=3, tight=True),
                                 bgcolor=ui.tint(ui.C_WARN, 0.12),
                                 padding=ft.Padding.symmetric(horizontal=8, vertical=4),
                                 border_radius=6,
@@ -515,7 +516,7 @@ def show_bundle_builder_dialog(
         bundle_payload = {
             "title": title,
             "description": description_field.value.strip(),
-            "category": category_dropdown.value or "JAMB UTME",
+            "category": category_dropdown.value or "General",
             "theme_gradient": theme_dropdown.value or "purple_indigo",
             "banner_url": banner_url_field.value.strip() or None,
             "price_coins": max(0, price_coins),

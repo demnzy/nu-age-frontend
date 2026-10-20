@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 import asyncio
 import json
 import re
+import uuid
 from typing import Optional, List, Dict, Any
 
 # ==========================================
@@ -13,6 +14,7 @@ from src.requests.auth import get_current_user_request
 from src.requests.chats import (
     get_user_channels,
     get_channel_messages,
+    send_channel_message_api,
     create_group_channel,
     start_direct_message,
     get_all_users,
@@ -32,6 +34,7 @@ from src.components.notifications_drawer import NotificationManager
 from src.services.notification_service import sync_learner_notifications
 from src.utils.file_opener import show_page_snackbar
 from src.components.shimmer_skeletons import shimmer_box, collect_shimmer_boxes
+from src.components.badge_pill import build_glossy_badge_pill
 
 def build_whatsapp_spans(text: str, default_color: str, palette_map: dict, on_mention_click=None, is_me: bool = False):
     if not text:
@@ -39,7 +42,7 @@ def build_whatsapp_spans(text: str, default_color: str, palette_map: dict, on_me
 
     pattern = re.compile(
         r'(https?://[^\s]+)|'
-        r'(@[a-zA-Z0-9_.-]+)|'
+        r'(@[\w.-]+)|'
         r'(\*[^\*\n]+\*)|'
         r'(_[^_\n]+_)|'
         r'(~[^~\n]+~)|'
@@ -303,7 +306,7 @@ async def chat_view(
     messages_listview = ft.ListView(
         expand=True,
         spacing=4,
-        auto_scroll=True,
+        auto_scroll=False,
         padding=ft.Padding.symmetric(horizontal=8 if not is_desktop[0] else 12, vertical=8 if not is_desktop[0] else 10)
     )
 
@@ -332,6 +335,58 @@ async def chat_view(
             page.run_task(_async_scroll_to_bottom, animate)
         except Exception:
             pass
+
+    async def _animate_bubble_entrance(bubble_w):
+        if not bubble_w:
+            return
+        inner_b = getattr(bubble_w, "bubble_ref", None) or bubble_w
+        is_me = getattr(bubble_w, "is_me_bubble", False)
+        # Yield brief moment for Flutter control tree to mount
+        await asyncio.sleep(0.02)
+        align = ft.Alignment.BOTTOM_RIGHT if is_me else (ft.Alignment.CENTER if isinstance(bubble_w, ft.Row) else ft.Alignment.BOTTOM_LEFT)
+        inner_b.scale = ft.Scale(1.0, alignment=align)
+        inner_b.opacity = 1.0
+        inner_b.offset = ft.Offset(0, 0)
+        try:
+            inner_b.update()
+        except Exception:
+            try:
+                page.update()
+            except Exception:
+                pass
+
+    async def _animate_history_bubbles(controls_list):
+        if not controls_list:
+            return
+        # Brief yield so Flutter mounts the controls at bottom scroll offset
+        await asyncio.sleep(0.04)
+        anim_targets = []
+        for ctrl in controls_list:
+            inner_b = getattr(ctrl, "bubble_ref", None)
+            if inner_b and getattr(inner_b, "opacity", 1.0) == 0.0:
+                anim_targets.append(ctrl)
+
+        if not anim_targets:
+            return
+
+        for ctrl in anim_targets:
+            inner_b = getattr(ctrl, "bubble_ref", None)
+            if not inner_b:
+                continue
+            is_me = getattr(ctrl, "is_me_bubble", False)
+            align = ft.Alignment.BOTTOM_RIGHT if is_me else (ft.Alignment.CENTER if isinstance(ctrl, ft.Row) else ft.Alignment.BOTTOM_LEFT)
+            inner_b.scale = ft.Scale(1.0, alignment=align)
+            inner_b.opacity = 1.0
+            inner_b.offset = ft.Offset(0, 0)
+            try:
+                inner_b.update()
+            except Exception:
+                try:
+                    page.update()
+                except Exception:
+                    pass
+            if len(anim_targets) > 1:
+                await asyncio.sleep(0.016)
 
     # ==========================================
     # 3. DATE & TIME FORMATTERS
@@ -387,26 +442,68 @@ async def chat_view(
         tooltip="Send Message"
     )
 
+    def update_bubble_status(ctrl, new_status: str):
+        if not ctrl:
+            return
+        tick_holder = getattr(ctrl, "status_tick", None)
+        mdata = getattr(ctrl, "msg_data", None)
+        if isinstance(mdata, dict):
+            mdata["status"] = new_status
+        if not tick_holder:
+            return
+
+        st = str(new_status or "delivered").lower()
+        ts_color = palette.get("bubble_out_ts", palette.get("text_muted"))
+
+        target_icon = ft.Icons.DONE_ALL_ROUNDED
+        target_size = 12
+        is_poll_msg = bool(mdata and (mdata.get("type") in ("poll", "poll_update") or "options" in (mdata.get("metadata_payload") or {})))
+        target_color = palette.get("accent", ft.Colors.with_opacity(0.85, ts_color)) if is_poll_msg else ft.Colors.with_opacity(0.85, ts_color)
+
+        if st == "pending":
+            target_icon = ft.Icons.ACCESS_TIME_ROUNDED
+            target_size = 10.5
+            target_color = ft.Colors.with_opacity(0.75, ts_color)
+        elif st == "sent":
+            target_icon = ft.Icons.CHECK_ROUNDED
+            target_size = 12
+            target_color = ft.Colors.with_opacity(0.85, ts_color)
+        elif st == "read":
+            target_icon = ft.Icons.DONE_ALL_ROUNDED
+            target_size = 12
+            target_color = ft.Colors.CYAN_300 if is_dark else ft.Colors.BLUE_600
+        elif st == "failed":
+            target_icon = ft.Icons.ERROR_OUTLINE_ROUNDED
+            target_size = 11
+            target_color = ft.Colors.RED_400
+
+        try:
+            new_icon_ctrl = ft.Icon(target_icon, size=target_size, color=target_color)
+            if isinstance(tick_holder, ft.Container):
+                tick_holder.content = new_icon_ctrl
+            elif isinstance(tick_holder, ft.Icon):
+                setattr(tick_holder, "icon", target_icon)
+                setattr(tick_holder, "size", target_size)
+                setattr(tick_holder, "color", target_color)
+        except Exception as ex:
+            print(f"[Chat] update_bubble_status error: {ex}")
+
     async def send_text_message(e=None):
         text = (msg_input.value or "").strip()
         if not text or not current_chat_id[0]:
-            return
-        if not ws_client_ref[0]:
-            show_page_snackbar(page, ft.SnackBar(content=ft.Text("Connecting to chat server, please wait..."), duration=2000))
             return
 
         autocomplete_card.visible = False
         msg_input.value = ""
         _update_send_btn_state()
-        page.update()
 
         # Parse mentions (@username / @admin)
-        mentions = re.findall(r'@([a-zA-Z0-9_.-]+)', text)
+        mentions = re.findall(r'@([\w.-]+)', text)
         extra_meta = {}
         if mentions:
             extra_meta["mentions"] = mentions
             mention_ids = []
-            candidates = active_channel_members if active_channel_members else all_users_cache
+            candidates = active_channel_members
             for m in mentions:
                 m_clean = m.lower()
                 if m_clean in selected_mention_map:
@@ -426,13 +523,118 @@ async def chat_view(
                 extra_meta["mention_ids"] = list(set(mention_ids))
             selected_mention_map.clear()
 
-        # Fire message dispatch over WebSocket
-        if extra_meta:
-            page.run_task(ws_client_ref[0].send_message, current_chat_id[0], text, "text", metadata_payload=extra_meta)
-        else:
-            page.run_task(ws_client_ref[0].send_message, current_chat_id[0], text, "text")
+        # 1. Generate unique client temporary ID for optimistic bubble tracking
+        client_temp_id = f"client_{uuid.uuid4().hex}"
+        extra_meta["client_msg_id"] = client_temp_id
 
+        my_id_str = str(current_user_id[0]).strip().lower()
+        my_name = "You"
+        for u in all_users_cache:
+            if str(u.get("id") or u.get("user_id", "")).strip().lower() == my_id_str:
+                my_name = (u.get("name") or u.get("full_name") or u.get("username") or "You").strip()
+                break
+        if my_name == "You" and hasattr(page, "session") and hasattr(page.session, "store"):
+            cu = page.session.store.get("current_user") or {}
+            if isinstance(cu, dict):
+                f = cu.get("first_name", "")
+                l = cu.get("last_name", "")
+                my_name = f"{f} {l}".strip() or cu.get("username", "You")
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        optimistic_dict = {
+            "id": client_temp_id,
+            "client_msg_id": client_temp_id,
+            "channel_id": current_chat_id[0],
+            "content": text,
+            "type": "text",
+            "metadata_payload": extra_meta,
+            "created_at": now_iso,
+            "sender": {
+                "id": my_id_str,
+                "name": my_name,
+            },
+            "sender_id": my_id_str,
+            "is_me": True,
+            "status": "pending",  # In-flight state: 🕒 Clock icon
+        }
+
+        # 2. Zero-latency instant UI render (appears immediately, never lost in the void)
+        if len(messages_listview.controls) == 1 and not hasattr(messages_listview.controls[0], "data"):
+            messages_listview.controls.clear()
+
+        prev_ctrl = None
+        if messages_listview.controls:
+            last_ctrl = messages_listview.controls[-1]
+            if hasattr(last_ctrl, "data"):
+                prev_ctrl = {"sender_id": my_id_str, "created_at": now_iso}
+
+        bubble_w = render_message_bubble(optimistic_dict, prev_msg=prev_ctrl, animate_entrance=True)
+        bubble_w.data = client_temp_id
+        bubble_w.client_msg_id = client_temp_id
+        bubble_w.msg_data = optimistic_dict
+        messages_listview.controls.append(bubble_w)
+        page.update()
+        page.run_task(_animate_bubble_entrance, bubble_w)
         _scroll_to_bottom(animate=True)
+
+        # 3. Resilient background dispatch (WebSocket with automatic REST API fallback)
+        async def _dispatch_msg_task(cid, m_text, m_meta, temp_id, opt_dict):
+            nonlocal token
+            sent_ok = False
+            curr_token = token or (await page.shared_preferences.get("auth_token"))
+
+            # Step A: Attempt primary WebSocket transmission
+            if ws_client_ref[0] and getattr(ws_client_ref[0], "websocket", None):
+                try:
+                    sent_ok = await ws_client_ref[0].send_message(
+                        cid, m_text, "text",
+                        client_msg_id=temp_id,
+                        metadata_payload=m_meta
+                    )
+                except Exception as ws_ex:
+                    print(f"[Chat] WebSocket dispatch error: {ws_ex}")
+                    sent_ok = False
+
+            def _get_target_bubble(tid):
+                for ctrl in messages_listview.controls:
+                    ctrl_id = getattr(ctrl, "client_msg_id", None) or getattr(ctrl, "data", None)
+                    if ctrl_id and str(ctrl_id) == str(tid):
+                        return ctrl
+                return bubble_w
+
+            # Step B: Resilient Fallback to REST API if WebSocket failed or is reconnecting
+            if not sent_ok and curr_token:
+                try:
+                    rest_res = await send_channel_message_api(
+                        curr_token, cid, m_text, "text",
+                        metadata_payload=m_meta
+                    )
+                    if isinstance(rest_res, dict) and "id" in rest_res:
+                        sent_ok = True
+                        target_b = _get_target_bubble(temp_id)
+                        if target_b:
+                            real_id = str(rest_res["id"])
+                            target_b.data = real_id
+                            seen_msg_ids.add(real_id)
+                            update_bubble_status(target_b, "delivered")
+                            page.update()
+                except Exception as rest_ex:
+                    print(f"[Chat] REST fallback error: {rest_ex}")
+                    sent_ok = False
+
+            if sent_ok:
+                target_b = _get_target_bubble(temp_id)
+                if target_b:
+                    if getattr(target_b, "msg_data", {}).get("status") == "pending":
+                        update_bubble_status(target_b, "sent")
+                        page.update()
+            else:
+                target_b = _get_target_bubble(temp_id)
+                if target_b:
+                    update_bubble_status(target_b, "failed")
+                    page.update()
+
+        page.run_task(_dispatch_msg_task, current_chat_id[0], text, extra_meta, client_temp_id, optimistic_dict)
 
     def _update_send_btn_state():
         has_text = bool(msg_input.value and msg_input.value.strip())
@@ -456,7 +658,7 @@ async def chat_view(
             return
 
         val = msg_input.value or ""
-        match = re.search(r'(@)([a-zA-Z0-9_.-]*)$', val)
+        match = re.search(r'(@)([\w.-]*)$', val)
         if match:
             query = match.group(2).lower()
             autocomplete_list.controls.clear()
@@ -474,7 +676,7 @@ async def chat_view(
             # 1. Specialized @all tag (Admins Only)
             if is_group_admin and ("all".startswith(query) or query in "all"):
                 def _select_all(ev):
-                    msg_input.value = re.sub(r'@[a-zA-Z0-9_.-]*$', '@all ', msg_input.value or '')
+                    msg_input.value = re.sub(r'@[\w.-]*$', '@all ', msg_input.value or '')
                     autocomplete_card.visible = False
                     _update_send_btn_state()
                     page.update()
@@ -508,7 +710,7 @@ async def chat_view(
             # 2. Specialized @admin tag (Course Instructor / Group Admin)
             if "admin".startswith(query) or query in "admin":
                 def _select_admin(ev):
-                    msg_input.value = re.sub(r'@[a-zA-Z0-9_.-]*$', '@admin ', msg_input.value or '')
+                    msg_input.value = re.sub(r'@[\w.-]*$', '@admin ', msg_input.value or '')
                     autocomplete_card.visible = False
                     _update_send_btn_state()
                     page.update()
@@ -533,8 +735,8 @@ async def chat_view(
                 )
                 autocomplete_list.controls.append(admin_tile)
 
-            # 2. Group members alone
-            candidate_members = active_channel_members if active_channel_members else all_users_cache
+            # 2. Group members alone (strictly channel members; never leak arbitrary outside users)
+            candidate_members = active_channel_members
             my_uid = str(current_user_id[0]).strip().lower()
             admin_id_val = str(active_channel_admin_id[0]).strip().lower() if active_channel_admin_id[0] else ""
 
@@ -555,7 +757,7 @@ async def chat_view(
 
                 def _select_m(ev, tag_h=handle, uid=u_id_str):
                     selected_mention_map[tag_h.lower()] = uid
-                    msg_input.value = re.sub(r'@[a-zA-Z0-9_.-]*$', f'@{tag_h} ', msg_input.value or '')
+                    msg_input.value = re.sub(r'@[\w.-]*$', f'@{tag_h} ', msg_input.value or '')
                     autocomplete_card.visible = False
                     _update_send_btn_state()
                     page.update()
@@ -1030,27 +1232,35 @@ async def chat_view(
     # 8. MESSAGE BUBBLE RENDERER
     # ==========================================
 
-    def render_message_bubble(msg: dict, prev_msg: Optional[dict] = None, next_msg: Optional[dict] = None):
+    def render_message_bubble(msg: dict, prev_msg: Optional[dict] = None, next_msg: Optional[dict] = None, animate_entrance: bool = False):
         msg_type = msg.get("type", "text")
 
         # ── A. System Announcement Pill ───────────────────────────────────────
         if msg_type == "system":
-            return ft.Row(
-                alignment=ft.MainAxisAlignment.CENTER,
-                controls=[
-                    ft.Container(
-                        content=ft.Row([
-                            ft.Icon(ft.Icons.INFO_OUTLINE_ROUNDED, size=12, color=palette["system_text"]),
-                            ft.Text(msg.get("content", ""), size=11, color=palette["system_text"], weight=ft.FontWeight.W_500),
-                        ], spacing=6, tight=True),
-                        bgcolor=palette["system_bg"],
-                        border=ft.Border.all(1, palette["border"]),
-                        padding=ft.Padding.symmetric(horizontal=12, vertical=5),
-                        border_radius=12,
-                        margin=ft.Margin.symmetric(vertical=4),
-                    )
-                ]
+            sys_pill = ft.Container(
+                content=ft.Row([
+                    ft.Icon(ft.Icons.INFO_OUTLINE_ROUNDED, size=12, color=palette["system_text"]),
+                    ft.Text(msg.get("content", ""), size=11, color=palette["system_text"], weight=ft.FontWeight.W_500),
+                ], spacing=6, tight=True),
+                bgcolor=palette["system_bg"],
+                border=ft.Border.all(1, palette["border"]),
+                padding=ft.Padding.symmetric(horizontal=12, vertical=5),
+                border_radius=12,
+                margin=ft.Margin.symmetric(vertical=4),
+                scale=ft.Scale(0.85, alignment=ft.Alignment.CENTER) if animate_entrance else 1.0,
+                opacity=0.0 if animate_entrance else 1.0,
+                offset=ft.Offset(0, 0.10) if animate_entrance else ft.Offset(0, 0),
+                animate_scale=ft.Animation(230, ft.AnimationCurve.EASE_OUT_BACK) if animate_entrance else None,
+                animate_opacity=ft.Animation(160, ft.AnimationCurve.EASE_OUT) if animate_entrance else None,
+                animate_offset=ft.Animation(230, ft.AnimationCurve.EASE_OUT_BACK) if animate_entrance else None,
             )
+            row = ft.Row(
+                alignment=ft.MainAxisAlignment.CENTER,
+                controls=[sys_pill]
+            )
+            row.bubble_ref = sys_pill
+            row.is_me_bubble = False
+            return row
 
         # ── B. Identify Sender & Clustering ───────────────────────────────────
         sender_info = msg.get("sender", {})
@@ -1121,14 +1331,46 @@ async def chat_view(
             ts_color = palette["bubble_in_ts"]
             border = ft.Border.all(1, palette["bubble_in_border"])
 
-        # ── D. Delivery Tick Telemetry ─────────────────────────────────────────
+        # ── D. Delivery Tick Telemetry (WhatsApp-style States) ──────────────────
         status_tick = ft.Container()
         if is_me:
-            status_tick = ft.Icon(
-                ft.Icons.DONE_ALL_ROUNDED,
-                size=12,
-                color=palette["accent"] if is_poll else ft.Colors.with_opacity(0.85, ft.Colors.WHITE)
-            )
+            msg_status = str(msg.get("status") or "delivered").lower()
+            if msg_status == "pending":
+                # In-flight / pending connection: 🕒 Clock
+                tick_icon = ft.Icon(
+                    ft.Icons.ACCESS_TIME_ROUNDED,
+                    size=10.5,
+                    color=ft.Colors.with_opacity(0.75, ts_color)
+                )
+            elif msg_status == "sent":
+                # Single check: ✓ Sent to server
+                tick_icon = ft.Icon(
+                    ft.Icons.CHECK_ROUNDED,
+                    size=12,
+                    color=ft.Colors.with_opacity(0.85, ts_color)
+                )
+            elif msg_status == "read":
+                # Double check: ✓✓ Blue / Cyan read receipt
+                tick_icon = ft.Icon(
+                    ft.Icons.DONE_ALL_ROUNDED,
+                    size=12,
+                    color=ft.Colors.CYAN_300 if is_dark else ft.Colors.BLUE_600
+                )
+            elif msg_status == "failed":
+                # Failed dispatch: ⚠️ Alert
+                tick_icon = ft.Icon(
+                    ft.Icons.ERROR_OUTLINE_ROUNDED,
+                    size=11,
+                    color=ft.Colors.RED_400
+                )
+            else:
+                # Double check: ✓✓ Delivered to server/recipients (grey)
+                tick_icon = ft.Icon(
+                    ft.Icons.DONE_ALL_ROUNDED,
+                    size=12,
+                    color=palette["accent"] if is_poll else ft.Colors.with_opacity(0.85, ts_color)
+                )
+            status_tick = ft.Container(content=tick_icon)
 
         ts_row = ft.Row(
             [
@@ -1147,8 +1389,19 @@ async def chat_view(
         if not is_me and not prev_is_same:
             active_info = next((c for c in channels_list if c.get("channel_id") == current_chat_id[0]), {})
             if active_info.get("type") != "direct":
-                body_controls.append(
+                sender_hdr_controls = [
                     ft.Text(sender_name, size=11, weight=ft.FontWeight.BOLD, color=palette["accent"])
+                ]
+                s_badge = sender_info.get("primary_badge")
+                if not s_badge:
+                    for mem in active_channel_members:
+                        if str(mem.get("id") or mem.get("user_id", "")).strip().lower() == sender_id:
+                            s_badge = mem.get("primary_badge")
+                            break
+                if s_badge and isinstance(s_badge, dict):
+                    sender_hdr_controls.append(build_glossy_badge_pill(s_badge, is_mobile=not is_desktop[0], max_width=110))
+                body_controls.append(
+                    ft.Row(sender_hdr_controls, spacing=6, tight=True, vertical_alignment=ft.CrossAxisAlignment.CENTER)
                 )
 
         # 2. Interactive Poll Rendering (Clean, lightweight design mirroring reference image)
@@ -1543,6 +1796,12 @@ async def chat_view(
                 color=ft.Colors.with_opacity(0.08, ft.Colors.BLACK),
                 offset=ft.Offset(0, 1)
             ),
+            scale=ft.Scale(0.82, alignment=ft.Alignment.BOTTOM_RIGHT if is_me else ft.Alignment.BOTTOM_LEFT) if animate_entrance else 1.0,
+            opacity=0.0 if animate_entrance else 1.0,
+            offset=ft.Offset(0.04, 0.10) if (animate_entrance and is_me) else (ft.Offset(-0.04, 0.10) if animate_entrance else ft.Offset(0, 0)),
+            animate_scale=ft.Animation(230, ft.AnimationCurve.EASE_OUT_BACK) if animate_entrance else None,
+            animate_opacity=ft.Animation(160, ft.AnimationCurve.EASE_OUT) if animate_entrance else None,
+            animate_offset=ft.Animation(230, ft.AnimationCurve.EASE_OUT_BACK) if animate_entrance else None,
             content=ft.Column(
                 body_controls,
                 tight=True,
@@ -1573,6 +1832,11 @@ async def chat_view(
                 margin=ft.Margin(top=v_margin, bottom=v_margin, left=out_left_margin, right=out_right_margin)
             )
             c.data = str(msg.get("id"))
+            c.client_msg_id = str(msg.get("client_msg_id") or "")
+            c.msg_data = msg
+            c.status_tick = status_tick
+            c.bubble_ref = bubble
+            c.is_me_bubble = True
             return c
         else:
             # Show avatar only on last message of cluster (or single message)
@@ -1618,6 +1882,10 @@ async def chat_view(
                 margin=ft.Margin(top=v_margin, bottom=v_margin, left=in_left_margin, right=in_right_margin)
             )
             c.data = str(msg.get("id"))
+            c.client_msg_id = str(msg.get("client_msg_id") or "")
+            c.msg_data = msg
+            c.bubble_ref = bubble
+            c.is_me_bubble = False
             return c
 
     # ==========================================
@@ -1815,11 +2083,22 @@ async def chat_view(
             else:
                 title_widget = title_txt
 
+            title_row_controls = [title_widget]
+            if _chat_type == "direct":
+                other_badge = chat_info.get("primary_badge") or chat_info.get("other_user_badge")
+                if not other_badge:
+                    for u in all_users_cache:
+                        if str(u.get("id") or u.get("user_id", "")).strip().lower() == str(_other_uid or "").strip().lower():
+                            other_badge = u.get("primary_badge")
+                            break
+                if other_badge and isinstance(other_badge, dict):
+                    title_row_controls.append(build_glossy_badge_pill(other_badge, is_mobile=not is_desktop[0], max_width=120))
+
             active_chat_header.controls = [
                 back_btn,
                 header_avatar,
                 ft.Column([
-                    title_widget,
+                    ft.Row(title_row_controls, spacing=6, tight=True, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                     status_txt
                 ], spacing=1, expand=True),
                 *header_actions
@@ -1871,11 +2150,12 @@ async def chat_view(
             update_responsive_layout()
             page.update()
 
+            has_animated_room = [False]
+
             # --- 1. RENDER FROM LOCAL SQLITE CACHE ---
             def _render_history(hist_list: list):
-                # Reset transition for smooth upward fade-in
-                messages_anim_container.opacity = 0.0
-                messages_anim_container.offset = ft.Offset(0, 0.035)
+                messages_anim_container.opacity = 1.0
+                messages_anim_container.offset = ft.Offset(0, 0)
                 messages_listview.controls.clear()
                 seen_msg_ids.clear()
 
@@ -1897,11 +2177,21 @@ async def chat_view(
                     page.update()
                     return
 
+                should_animate_entrance = not has_animated_room[0]
+                if should_animate_entrance and clean_msgs:
+                    has_animated_room[0] = True
+
                 current_date_label = None
+                total_clean = len(clean_msgs)
+                # Animate the visible window of messages (up to the last 18 messages) on initial load
+                anim_threshold = max(0, total_clean - 18)
+
                 for i, m in enumerate(clean_msgs):
                     mid = str(m.get("id"))
                     if mid:
                         seen_msg_ids.add(mid)
+
+                    should_anim = should_animate_entrance and (i >= anim_threshold)
 
                     m_date = get_day_label(m.get("created_at"))
                     if m_date and m_date != current_date_label:
@@ -1914,26 +2204,28 @@ async def chat_view(
                             border=ft.Border.all(1, palette["border"]),
                             padding=ft.Padding.symmetric(horizontal=12, vertical=4),
                             border_radius=12,
-                            margin=ft.Margin.symmetric(vertical=6)
+                            margin=ft.Margin.symmetric(vertical=6),
+                            scale=ft.Scale(0.85, alignment=ft.Alignment.CENTER) if should_anim else 1.0,
+                            opacity=0.0 if should_anim else 1.0,
+                            offset=ft.Offset(0, 0.10) if should_anim else ft.Offset(0, 0),
+                            animate_scale=ft.Animation(230, ft.AnimationCurve.EASE_OUT_BACK) if should_anim else None,
+                            animate_opacity=ft.Animation(160, ft.AnimationCurve.EASE_OUT) if should_anim else None,
+                            animate_offset=ft.Animation(230, ft.AnimationCurve.EASE_OUT_BACK) if should_anim else None,
                         )
-                        messages_listview.controls.append(
-                            ft.Row([date_pill], alignment=ft.MainAxisAlignment.CENTER)
-                        )
+                        date_row = ft.Row([date_pill], alignment=ft.MainAxisAlignment.CENTER)
+                        date_row.bubble_ref = date_pill
+                        date_row.is_me_bubble = False
+                        messages_listview.controls.append(date_row)
                         current_date_label = m_date
 
                     prev_item = clean_msgs[i - 1] if i > 0 else None
                     next_item = clean_msgs[i + 1] if i < len(clean_msgs) - 1 else None
-                    messages_listview.controls.append(render_message_bubble(m, prev_msg=prev_item, next_msg=next_item))
+                    messages_listview.controls.append(render_message_bubble(m, prev_msg=prev_item, next_msg=next_item, animate_entrance=should_anim))
 
                 page.update()
                 _scroll_to_bottom(animate=False)
-                # Animate entrance upwards
-                messages_anim_container.opacity = 1.0
-                messages_anim_container.offset = ft.Offset(0, 0)
-                try:
-                    messages_anim_container.update()
-                except Exception:
-                    page.update()
+                if should_animate_entrance:
+                    page.run_task(_animate_history_bubbles, list(messages_listview.controls))
 
             cached_history = get_cached_messages(page, chat_id)
             if cached_history:
@@ -1957,7 +2249,7 @@ async def chat_view(
                         "content": m.get("content", ""),
                         "metadata_payload": json.dumps(m.get("metadata_payload")) if m.get("metadata_payload") else None,
                         "created_at": str(m.get("created_at", "")),
-                        "status": "sent"
+                        "status": str(m.get("status") or "sent")
                     })
 
                 if formatted_msgs:
@@ -2038,11 +2330,64 @@ async def chat_view(
                 pass
             return
 
+        # ── Read Receipt (Double Cyan/Blue Ticks) ────────────────────────────
+        if msg_type == "read_receipt":
+            incoming_cid = str(incoming_channel_id or "").strip().lower()
+            curr_cid = str(current_chat_id[0] or "").strip().lower()
+            if incoming_cid and curr_cid and incoming_cid == curr_cid:
+                reader_id = str((msg_dict.get("sender") or {}).get("id") or msg_dict.get("sender_id", "")).strip().lower()
+                my_id_str = str(current_user_id[0]).strip().lower()
+                if reader_id != my_id_str:
+                    updated_any = False
+                    for ctrl in messages_listview.controls:
+                        mdata = getattr(ctrl, "msg_data", None)
+                        if mdata and mdata.get("is_me"):
+                            if mdata.get("status") != "read":
+                                update_bubble_status(ctrl, "read")
+                                updated_any = True
+                    if updated_any:
+                        page.update()
+            return
+
         # ── Normal Message / Poll Creation ────────────────────────────────────
         msg_id = msg_dict.get("id")
         if not msg_id:
             return
         msg_id_str = str(msg_id)
+
+        meta_payload = msg_dict.get("metadata_payload") or msg_dict.get("metadata") or {}
+        if isinstance(meta_payload, str):
+            try: meta_payload = json.loads(meta_payload)
+            except: meta_payload = {}
+        if not isinstance(meta_payload, dict):
+            meta_payload = {}
+
+        incoming_client_id = msg_dict.get("client_msg_id") or meta_payload.get("client_msg_id")
+        sender_id_str = str((msg_dict.get("sender") or {}).get("id") or msg_dict.get("sender_id", "")).strip().lower()
+        my_id_str = str(current_user_id[0]).strip().lower()
+        is_own_message = (sender_id_str == my_id_str) or msg_dict.get("is_me", False)
+
+        # Reconcile optimistic bubble if this is a server acknowledgment/broadcast of our in-flight message
+        if incoming_client_id or is_own_message:
+            for ctrl in messages_listview.controls:
+                c_mid = getattr(ctrl, "client_msg_id", None) or getattr(ctrl, "data", None)
+                c_data = getattr(ctrl, "msg_data", None) or {}
+                matched = False
+                if incoming_client_id and c_mid and str(c_mid) == str(incoming_client_id):
+                    matched = True
+                elif is_own_message and c_data.get("is_me"):
+                    if str(c_mid).startswith("client_") and c_data.get("content") == msg_dict.get("content"):
+                        matched = True
+                    elif str(getattr(ctrl, "data", "")) == msg_id_str:
+                        matched = True
+
+                if matched:
+                    seen_msg_ids.add(msg_id_str)
+                    ctrl.data = msg_id_str
+                    update_bubble_status(ctrl, msg_dict.get("status") or "delivered")
+                    page.update()
+                    return
+
         if msg_id_str in seen_msg_ids:
             return
         seen_msg_ids.add(msg_id_str)
@@ -2056,7 +2401,7 @@ async def chat_view(
         msg_mentions = meta_payload.get("mentions", []) if isinstance(meta_payload, dict) else []
         msg_mention_ids = meta_payload.get("mention_ids", []) if isinstance(meta_payload, dict) else []
         msg_content = msg_dict.get("content", "") or ""
-        all_mentions = set([str(m).lstrip("@").strip().lower() for m in msg_mentions] + [str(m).strip().lower() for m in re.findall(r'@([a-zA-Z0-9_.-]+)', msg_content)])
+        all_mentions = set([str(m).lstrip("@").strip().lower() for m in msg_mentions] + [str(m).strip().lower() for m in re.findall(r'@([\w.-]+)', msg_content)])
         all_ids = set([str(m).strip().lower() for m in msg_mention_ids])
 
         sender_id_str = str((msg_dict.get("sender") or {}).get("id") or msg_dict.get("sender_id", "")).strip().lower()
@@ -2108,15 +2453,23 @@ async def chat_view(
 
         # Append to active room if viewing
         if incoming_channel_id == current_chat_id[0]:
+            if is_own_message:
+                # Never duplicate our own sent message in the active room
+                return
+
+            if len(messages_listview.controls) == 1 and not hasattr(messages_listview.controls[0], "data"):
+                messages_listview.controls.clear()
+
             prev_ctrl = None
             if messages_listview.controls:
                 last_ctrl = messages_listview.controls[-1]
                 if hasattr(last_ctrl, "data"):
                     prev_ctrl = {"sender_id": msg_dict.get("sender_id"), "created_at": msg_dict.get("created_at")}
 
-            bubble_w = render_message_bubble(msg_dict, prev_msg=prev_ctrl)
+            bubble_w = render_message_bubble(msg_dict, prev_msg=prev_ctrl, animate_entrance=True)
             messages_listview.controls.append(bubble_w)
             page.update()
+            page.run_task(_animate_bubble_entrance, bubble_w)
             _scroll_to_bottom(animate=True)
 
             # Mark read immediately since user is actively in room
@@ -2127,70 +2480,19 @@ async def chat_view(
     # 12. COMPOSER ACTIONS & MODALS HELPER
     # ==========================================
     def _open_modal(control):
-        try:
-            if hasattr(page, "show_dialog"):
-                page.show_dialog(control)
-                return
-        except Exception:
-            pass
         if hasattr(page, "overlay"):
             if control not in page.overlay:
                 page.overlay.append(control)
         control.open = True
-        try:
-            control.update()
-        except Exception:
-            page.update()
+        page.update()
 
     def _close_modal(control=None):
-        try:
-            if hasattr(page, "pop_dialog"):
-                popped = page.pop_dialog()
-                if popped:
-                    return
-        except Exception:
-            pass
         if control:
             control.open = False
-            try:
-                control.update()
-            except Exception:
-                page.update()
+            page.update()
 
     def open_attachment_actions_modal(e=None):
-        def _launch_poll_creator(ev):
-            _close_modal(action_dlg)
-            open_poll_modal()
-
-        action_dlg = ft.AlertDialog(
-            modal=True,
-            shape=ft.RoundedRectangleBorder(radius=16),
-            bgcolor=palette["surface"],
-            title=ft.Row([
-                ft.Row([
-                    ft.Icon(ft.Icons.ADD_CIRCLE_ROUNDED, color=palette["accent"], size=22),
-                    ft.Text("Chat Actions", weight=ft.FontWeight.BOLD, size=16, color=palette["text"]),
-                ], spacing=8),
-                ft.IconButton(
-                    icon=ft.Icons.CLOSE_ROUNDED,
-                    icon_size=18,
-                    icon_color=palette["text_muted"],
-                    on_click=lambda _: _close_modal(action_dlg)
-                )
-            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-            content=ft.Container(
-                width=340,
-                content=ft.Column([
-                    ft.ListTile(
-                        leading=ft.Icon(ft.Icons.POLL_ROUNDED, color=palette["accent"]),
-                        title=ft.Text("Create In-Chat Poll", weight=ft.FontWeight.W_600, color=palette["text"]),
-                        subtitle=ft.Text("Ask peers a question and collect instant live votes", size=12, color=palette["text_muted"]),
-                        on_click=_launch_poll_creator
-                    ),
-                ], tight=True, spacing=4)
-            )
-        )
-        _open_modal(action_dlg)
+        open_poll_modal()
 
     # ── Poll Creator Dialog ───────────────────────────────────────────────────
     def open_poll_modal():

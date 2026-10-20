@@ -2,7 +2,7 @@ import asyncio
 import urllib.parse
 import flet as ft
 from src.requests.Courses import get_courses, get_course_curriculum
-from src.requests.enrollments import get_enrollments, enrol_user
+from src.requests.enrollments import get_enrollments, enrol_user, unenrol_from_course
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -30,7 +30,7 @@ async def course_details_view(page: ft.Page, course_id: str, back_target: str = 
 
     async def open_whatsapp_share(e):
         c_title = course_title_holder.get("name") or "this course"
-        message = f"""Hey! Check out the course "{c_title}" on Nu-Age! 🚀
+        message = f"""Hey! Check out the course "{c_title}" on Nu Age! 🚀
 
 It comes with interactive modules, flashcards, quizzes, and an AI tutor!
 
@@ -65,6 +65,8 @@ Check it out 👉 : nu-age.com.ng"""
             ft.Container(width=8),
         ],
         elevation=0,
+        elevation_on_scroll=0.0,
+        shadow_color=ft.Colors.TRANSPARENT,
         center_title=False,
     )
 
@@ -117,6 +119,128 @@ Check it out 👉 : nu-age.com.ng"""
             e.control.content = ft.Text("Error — tap to retry", color=ft.Colors.ON_PRIMARY, size=13)
             page.update()
 
+    # ── mobile sticky bottom dock ─────────────────────────────────────────────
+    is_mobile_screen = bool(page.width and page.width < 768)
+    mobile_cta_label = ft.Text("Enroll Now", size=13, weight=ft.FontWeight.W_800, color=ft.Colors.ON_PRIMARY)
+    mobile_cta_icon = ft.Icon(ft.Icons.ROCKET_LAUNCH_ROUNDED, size=15, color=ft.Colors.ON_PRIMARY)
+    mobile_cta_btn = ft.ElevatedButton(
+        content=ft.Row(
+            tight=True,
+            spacing=6,
+            controls=[mobile_cta_icon, mobile_cta_label],
+        ),
+        bgcolor=ft.Colors.PRIMARY,
+        height=40,
+        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10), elevation=0),
+        on_click=handle_enrol_click,
+    )
+    mobile_enroll_bar = ft.Container(
+        bgcolor=ft.Colors.SURFACE,
+        border=ft.Border(top=ft.BorderSide(1, ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE))),
+        padding=ft.Padding.symmetric(horizontal=16, vertical=10),
+        visible=is_mobile_screen,
+        shadow=ft.BoxShadow(
+            blur_radius=12,
+            color=ft.Colors.with_opacity(0.08, ft.Colors.BLACK),
+            offset=ft.Offset(0, -3),
+        ),
+        content=ft.Row(
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                ft.Column(
+                    spacing=1,
+                    tight=True,
+                    controls=[
+                        ft.Text("Full Course Access", size=10.5, color=ft.Colors.ON_SURFACE_VARIANT),
+                        ft.Text("Free Enrollment", size=13, weight=ft.FontWeight.W_800, color=ft.Colors.PRIMARY),
+                    ],
+                ),
+                mobile_cta_btn,
+            ],
+        ),
+    )
+
+    # ── leave-course (unenroll) ───────────────────────────────────────────────
+    def _attach_leave_course_menu(cid: str, course_name: str):
+        """Adds an overflow menu with 'Leave course' to the app bar for enrolled learners."""
+        if any(getattr(a, "data", None) == "leave_menu" for a in (app_bar.actions or [])):
+            return
+
+        def _open_leave_dialog(e=None):
+            confirm_btn = ft.FilledButton(
+                "Leave Course",
+                icon=ft.Icons.LOGOUT_ROUNDED,
+                style=ft.ButtonStyle(bgcolor=ft.Colors.ERROR, color=ft.Colors.ON_ERROR),
+            )
+            dlg = ft.AlertDialog(
+                modal=True,
+                title=ft.Text("Leave this course?", weight=ft.FontWeight.W_700, size=16),
+                content=ft.Text(
+                    f"You will be unenrolled from \"{course_name}\" and lose access to its lessons and discussion group. "
+                    "You can enroll again later.",
+                    size=13,
+                ),
+            )
+
+            async def _do_leave(ev=None):
+                confirm_btn.disabled = True
+                confirm_btn.content = ft.Row(
+                    tight=True, spacing=8,
+                    controls=[ft.ProgressRing(width=14, height=14, stroke_width=2, color=ft.Colors.ON_ERROR),
+                              ft.Text("Leaving…", color=ft.Colors.ON_ERROR)],
+                )
+                page.update()
+                token = await page.shared_preferences.get("auth_token")
+                status, data = await unenrol_from_course(token, cid)
+                if status in (200, 204):
+                    dlg.open = False
+                    page.update()
+                    page.go("/courses")
+                else:
+                    confirm_btn.disabled = False
+                    confirm_btn.content = None
+                    confirm_btn.text = "Leave Course"
+                    dlg.open = False
+                    page.update()
+                    detail = data.get("detail") if isinstance(data, dict) else None
+                    page.show_dialog(
+                        ft.SnackBar(
+                            content=ft.Text(detail or "Could not leave the course. Please try again.", color=ft.Colors.WHITE),
+                            bgcolor=ft.Colors.ERROR,
+                        )
+                    )
+
+            def _cancel(ev=None):
+                dlg.open = False
+                page.update()
+
+            confirm_btn.on_click = lambda ev: page.run_task(_do_leave, ev)
+            dlg.actions = [ft.TextButton("Cancel", on_click=_cancel), confirm_btn]
+            page.overlay.append(dlg)
+            dlg.open = True
+            page.update()
+
+        menu = ft.PopupMenuButton(
+            data="leave_menu",
+            icon=ft.Icons.MORE_VERT_ROUNDED,
+            icon_color=ft.Colors.ON_SURFACE,
+            tooltip="More options",
+            items=[
+                ft.PopupMenuItem(
+                    content=ft.Row(
+                        tight=True, spacing=8,
+                        controls=[ft.Icon(ft.Icons.LOGOUT_ROUNDED, size=16, color=ft.Colors.ERROR),
+                                  ft.Text("Leave course", color=ft.Colors.ERROR)],
+                    ),
+                    on_click=_open_leave_dialog,
+                ),
+            ],
+        )
+        actions = list(app_bar.actions or [])
+        actions.insert(max(0, len(actions) - 1), menu)
+        app_bar.actions = actions
+
     # ─────────────────────────────────────────────────────────────────────────
     # DATA LOADER
     # ─────────────────────────────────────────────────────────────────────────
@@ -158,6 +282,11 @@ Check it out 👉 : nu-age.com.ng"""
 
             enrolled_ids = [str(c.get("id")) for c in (enrolled_list or [])]
             is_already_enrolled = str(cid) in enrolled_ids
+            if is_already_enrolled:
+                mobile_cta_label.value = "Continue"
+                mobile_cta_icon.name = ft.Icons.PLAY_ARROW_ROUNDED
+                mobile_cta_btn.on_click = lambda _: page.go(f"/courses/{cid}/view")
+                _attach_leave_course_menu(cid, name)
 
             # Eagerly load curriculum modules with their nested lessons
             modules = []
@@ -668,6 +797,7 @@ Check it out 👉 : nu-age.com.ng"""
 
             # ── 5. Sticky Enrollment Card (Sidebar on desktop) ────────────────
             enrol_action_btn = ft.ElevatedButton(
+                width=float("inf"),
                 content=ft.Row(
                     alignment=ft.MainAxisAlignment.CENTER,
                     tight=True,
@@ -682,7 +812,7 @@ Check it out 👉 : nu-age.com.ng"""
                             "Continue Learning" if is_already_enrolled else "Enroll in Course",
                             size=15,
                             weight=ft.FontWeight.W_700,
-                            color=ft.Colors.ON_PRIMARY,
+                            color=ft.Colors.ON_PRIMARY
                         ),
                     ],
                 ),
@@ -748,6 +878,7 @@ Check it out 👉 : nu-age.com.ng"""
                         enrollment_status_banner,
                         enrol_action_btn,
                         ft.OutlinedButton(
+                            width=float("inf"),
                             content=ft.Row(
                                 alignment=ft.MainAxisAlignment.CENTER,
                                 tight=True,
@@ -798,8 +929,11 @@ Check it out 👉 : nu-age.com.ng"""
             main_container = ft.Container(
                 padding=ft.Padding.symmetric(horizontal=20, vertical=16),
                 alignment=ft.Alignment.TOP_CENTER,
+                expand=True,
                 content=ft.Column(
                     spacing=0,
+                    scroll=ft.ScrollMode.AUTO,
+                    expand=True,
                     controls=[
                         hero_card,
                         responsive_grid,
@@ -863,7 +997,7 @@ Check it out 👉 : nu-age.com.ng"""
         padding=0,
         bgcolor=ft.Colors.SURFACE,
         appbar=app_bar,
-        scroll=ft.ScrollMode.AUTO,
+        bottom_appbar=mobile_enroll_bar if is_mobile_screen else None,
         controls=[content_socket],
     )
     return view

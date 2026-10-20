@@ -17,7 +17,8 @@ async def edit_profile_view(page: ft.Page) -> ft.View:
     ICON_BG       = ft.Colors.with_opacity(0.15 if is_dark else 0.08, ft.Colors.PRIMARY)
 
     # ── Session & Auth Validation ─────────────────────────────────────────────
-    user_data = page.session.store.get("current_user") or {}
+    from src.utils.session_utils import get_session_user, set_session_value
+    user_data = get_session_user(page)
     token = await page.shared_preferences.get("auth_token")
 
     if not user_data or not token:
@@ -213,12 +214,7 @@ async def edit_profile_view(page: ft.Page) -> ft.View:
                     user_data.update(updated_data)
                     if remove_picture_flag:
                         user_data["profile_picture_url"] = None
-                if hasattr(page.session.store, "set"):
-                    page.session.store.set("current_user", user_data)
-                elif isinstance(page.session.store, dict):
-                    page.session.store["current_user"] = user_data
-                elif hasattr(page.session, "set"):
-                    page.session.set("current_user", user_data)
+                set_session_value(page, "current_user", user_data)
                 show_feedback("Profile updated successfully! Redirecting...", is_error=False)
                 await asyncio.sleep(0.6)
                 page.go("/profile")

@@ -187,7 +187,7 @@ name = input("Enter your full name: ")
 age = int(input("Enter your age: "))
 track = input("Select your primary learning track: ")
 
-print(f"\\nWelcome to Nu-Age, {name}!")
+print(f"\\nWelcome to Nu Age, {name}!")
 print(f"Enrolled Track: {track}")
 print(f"Years until 30: {max(0, 30 - age)}")
 print("Status: Verified & Ready to Learn!")
@@ -231,7 +231,7 @@ print(" -> ".join(letter_grades))
             "stdin": "",
             "code": '''# Write your Python 3 code here!
 def main():
-    print("Hello from Nu-Age Playground!")
+    print("Hello from Nu Age Playground!")
 
 if __name__ == "__main__":
     main()
@@ -324,7 +324,7 @@ CREATE TABLE scratchpad (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-INSERT INTO scratchpad (note) VALUES ('Welcome to Nu-Age SQL Lab');
+INSERT INTO scratchpad (note) VALUES ('Welcome to Nu Age SQL Lab');
 SELECT * FROM scratchpad;
 ''',
         },
@@ -338,7 +338,7 @@ SELECT * FROM scratchpad;
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Nu-Age Web Sandbox</title>
+  <title>Nu Age Web Sandbox</title>
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -426,7 +426,7 @@ int main() {
         for (int x : nums) cout << x << " ";
         cout << "\\n";
     } else {
-        cout << "Hello from Nu-Age C++ Compiler!\\n";
+        cout << "Hello from Nu Age C++ Compiler!\\n";
     }
 
     return 0;
@@ -438,7 +438,7 @@ int main() {
         {
             "name": "Main Class & Methods",
             "description": "Java class with standard static methods and loops.",
-            "stdin": "Nu-Age Learner\n",
+            "stdin": "Nu Age Learner\n",
             "code": '''import java.util.Scanner;
 
 public class Main {
@@ -448,7 +448,7 @@ public class Main {
 
         if (scanner.hasNextLine()) {
             String name = scanner.nextLine();
-            System.out.println("Hello, " + name + "! Welcome to Java on Nu-Age.");
+            System.out.println("Hello, " + name + "! Welcome to Java on Nu Age.");
         } else {
             System.out.println("Hello, World from Java!");
         }
@@ -475,7 +475,7 @@ const students = [
   { name: "Damilola", score: 96 }
 ];
 
-console.log("=== NU-AGE STUDENT DATA LAB ===");
+console.log("=== NU AGE STUDENT DATA LAB ===");
 
 // 1. Filter honors students
 const honors = students.filter(s => s.score >= 85);

@@ -157,6 +157,19 @@ def _run_migrations(conn: sqlite3.Connection):
         CREATE INDEX IF NOT EXISTS idx_progress_course ON lesson_progress(course_id);
         CREATE INDEX IF NOT EXISTS idx_progress_unsynced ON lesson_progress(synced_at);
 
+        CREATE TABLE IF NOT EXISTS downloaded_lesson_audio (
+            id TEXT PRIMARY KEY,
+            lesson_id TEXT NOT NULL,
+            course_id TEXT NOT NULL,
+            language TEXT NOT NULL,
+            local_path TEXT NOT NULL,
+            remote_url TEXT,
+            size_bytes INTEGER DEFAULT 0,
+            downloaded_at TEXT NOT NULL,
+            UNIQUE(lesson_id, language)
+        );
+        CREATE INDEX IF NOT EXISTS idx_lesson_audio_lesson ON downloaded_lesson_audio(lesson_id, language);
+
         CREATE TABLE IF NOT EXISTS chat_channels (
             id TEXT PRIMARY KEY,
             name TEXT,
@@ -408,6 +421,65 @@ def is_study_material_downloaded(material_id: str, page: ft.Page = None) -> bool
         return row is not None
     except Exception:
         return False
+
+
+def get_offline_lesson_audio(lesson_id: str, language: str, page: ft.Page = None) -> str | None:
+    """Returns absolute local path to downloaded audio if it exists on disk, else None."""
+    if page is not None and getattr(page, "web", False):
+        return None
+    if not lesson_id or not language:
+        return None
+    try:
+        db = get_local_db(page)
+        row = db.execute(
+            "SELECT local_path FROM downloaded_lesson_audio WHERE lesson_id = ? AND language = ? LIMIT 1",
+            (str(lesson_id), str(language).lower())
+        ).fetchone()
+        if row and row[0] and os.path.exists(row[0]):
+            return row[0]
+        return None
+    except Exception:
+        return None
+
+
+def is_lesson_audio_cached(lesson_id: str, language: str, page: ft.Page = None) -> bool:
+    """Returns True if local audio is cached and present on disk."""
+    return get_offline_lesson_audio(lesson_id, language, page) is not None
+
+
+def save_offline_lesson_audio(
+    lesson_id: str,
+    course_id: str,
+    language: str,
+    local_path: str,
+    remote_url: str = "",
+    size_bytes: int = 0,
+    page: ft.Page = None,
+):
+    """Saves or updates a downloaded lesson audio reference in SQLite."""
+    if page is not None and getattr(page, "web", False):
+        return
+    if not lesson_id or not language or not local_path:
+        return
+    try:
+        db = get_local_db(page)
+        row_id = str(uuid.uuid4())
+        now_iso = datetime.now(timezone.utc).isoformat()
+        with db:
+            db.execute(
+                """
+                INSERT INTO downloaded_lesson_audio (id, lesson_id, course_id, language, local_path, remote_url, size_bytes, downloaded_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(lesson_id, language) DO UPDATE SET
+                    local_path = excluded.local_path,
+                    remote_url = excluded.remote_url,
+                    size_bytes = excluded.size_bytes,
+                    downloaded_at = excluded.downloaded_at
+                """,
+                (row_id, str(lesson_id), str(course_id or ""), str(language).lower(), str(local_path), str(remote_url or ""), int(size_bytes or 0), now_iso)
+            )
+    except Exception as e:
+        print(f"[local_db] Notice saving offline lesson audio: {e}")
 
 
 # ── Study Materials & SRS Local DB Operations ─────────────────────────────
@@ -676,7 +748,7 @@ def get_offline_quiz_questions(material_ids: list | None = None, limit: int = 10
                 opts = []
             questions.append({
                 "id": r["id"],
-                "question": r["question_text"],
+                "question": re.sub(r'^\s*[\(\[]?\s*(?:exam[\s\-_]?level|tricky|straightforward|easy|medium|hard)\s*[\)\]]?[\s:\-–—]*', '', str(r["question_text"] or ""), flags=re.IGNORECASE).strip(),
                 "options": opts,
                 "answer": r["answer_index"],
                 "explanation": r["explanation"] or "",
@@ -692,7 +764,63 @@ def get_offline_quiz_questions(material_ids: list | None = None, limit: int = 10
         return []
 
 
-def get_offline_exam_questions(material_ids: list | None = None, limit: int = 50, page: ft.Page = None) -> dict:
+def get_offline_exam_categories(material_ids: list | None = None, page: ft.Page = None) -> dict:
+    """Returns available topics/categories, counts, and exam type from local SQLite."""
+    if page is not None and getattr(page, "web", False):
+        return {"total_questions": 0, "exam_type": None, "categories": []}
+    try:
+        db = get_local_db(page)
+        db.row_factory = sqlite3.Row
+
+        where_clause = "WHERE 1=1"
+        params = []
+        if material_ids:
+            clean_ids = [str(mid) for mid in material_ids if mid]
+            if clean_ids:
+                placeholders = ",".join("?" for _ in clean_ids)
+                where_clause += f" AND material_id IN ({placeholders})"
+                params.extend(clean_ids)
+
+        query = f"""
+            SELECT 
+                COALESCE(NULLIF(TRIM(topic), ''), 'General') as topic_name,
+                COUNT(id) as q_count,
+                MAX(exam_type) as ex_type
+            FROM downloaded_study_questions
+            {where_clause}
+            GROUP BY topic_name
+            ORDER BY q_count DESC
+        """
+        rows = db.execute(query, params).fetchall()
+        categories = []
+        total = 0
+        detected_exam_type = None
+
+        for r in rows:
+            name = r["topic_name"]
+            cnt = int(r["q_count"])
+            categories.append({"name": name, "count": cnt})
+            total += cnt
+            if not detected_exam_type and r["ex_type"]:
+                detected_exam_type = r["ex_type"]
+
+        return {
+            "total_questions": total,
+            "exam_type": detected_exam_type,
+            "categories": categories,
+        }
+    except Exception as e:
+        print(f"[LOCAL DB ERROR] get_offline_exam_categories failed: {e}")
+        return {"total_questions": 0, "exam_type": None, "categories": []}
+
+
+def get_offline_exam_questions(
+    material_ids: list | None = None,
+    limit: int = 50,
+    topics: list | None = None,
+    duration_seconds: int | None = None,
+    page: ft.Page = None
+) -> dict:
     """Returns questions and calculated duration for full exam simulator from local SQLite."""
     if page is not None and getattr(page, "web", False):
         return {"questions": [], "duration_seconds": 300}
@@ -710,6 +838,22 @@ def get_offline_exam_questions(material_ids: list | None = None, limit: int = 50
                 query += f" AND material_id IN ({placeholders})"
                 params.extend(clean_ids)
 
+        if topics and "all" not in [t.lower() for t in topics] and "all topics" not in [t.lower() for t in topics]:
+            clean_topics = [str(t).strip() for t in topics if str(t).strip()]
+            if clean_topics:
+                if "General" in clean_topics:
+                    other_topics = [t for t in clean_topics if t != "General"]
+                    if other_topics:
+                        placeholders = ",".join("?" for _ in other_topics)
+                        query += f" AND (topic IN ({placeholders}) OR topic IS NULL OR TRIM(topic) = '')"
+                        params.extend(other_topics)
+                    else:
+                        query += " AND (topic IS NULL OR TRIM(topic) = '')"
+                else:
+                    placeholders = ",".join("?" for _ in clean_topics)
+                    query += f" AND topic IN ({placeholders})"
+                    params.extend(clean_topics)
+
         query += f" ORDER BY RANDOM() LIMIT {int(limit)}"
         rows = db.execute(query, params).fetchall()
 
@@ -721,7 +865,7 @@ def get_offline_exam_questions(material_ids: list | None = None, limit: int = 50
                 opts = []
             questions.append({
                 "id": r["id"],
-                "question": r["question_text"],
+                "question": re.sub(r'^\s*[\(\[]?\s*(?:exam[\s\-_]?level|tricky|straightforward|easy|medium|hard)\s*[\)\]]?[\s:\-–—]*', '', str(r["question_text"] or ""), flags=re.IGNORECASE).strip(),
                 "options": opts,
                 "answer": r["answer_index"],
                 "explanation": r["explanation"] or "",
@@ -732,7 +876,38 @@ def get_offline_exam_questions(material_ids: list | None = None, limit: int = 50
                 "exam_year": r["exam_year"] if "exam_year" in r.keys() else None,
             })
 
-        duration = max(len(questions) * 60, 300)
+        if duration_seconds and int(duration_seconds) > 0:
+            duration = int(duration_seconds)
+        else:
+            # Smart exam standard duration computation
+            exam_std = None
+            for q in questions:
+                et = str(q.get("exam_type") or "").strip().upper()
+                if et:
+                    exam_std = et
+                    break
+
+            if exam_std:
+                if "POST-UTME" in exam_std or "PUTME" in exam_std:
+                    sec_per_q = 42
+                elif "JAMB" in exam_std or "UTME" in exam_std:
+                    sec_per_q = 48
+                elif "WAEC" in exam_std or "WASSCE" in exam_std:
+                    sec_per_q = 72
+                elif "NECO" in exam_std:
+                    sec_per_q = 60
+                elif "SAT" in exam_std:
+                    sec_per_q = 75
+                elif any(x in exam_std for x in ("NCLEX", "MCAT", "USMLE")):
+                    sec_per_q = 84
+                else:
+                    sec_per_q = 60
+            else:
+                sec_per_q = 60
+
+            total_secs = len(questions) * sec_per_q
+            duration = max(300, round(total_secs / 60) * 60)
+
         return {"questions": questions, "duration_seconds": duration}
     except Exception as e:
         print(f"[LOCAL DB ERROR] get_offline_exam_questions failed: {e}")

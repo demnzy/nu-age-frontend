@@ -63,7 +63,8 @@ async def check_is_first_login(page: ft.Page) -> bool:
             return False
     except Exception:
         pass
-    user_data = page.session.store.get("current_user") or {} if hasattr(page, "session") and hasattr(page.session, "store") else {}
+    from src.utils.session_utils import get_session_user
+    user_data = get_session_user(page)
     if user_data.get("has_seen_onboarding"):
         return False
     streak = user_data.get("streak", 0) or 0
@@ -197,7 +198,8 @@ async def dashboard_view(page: ft.Page):
     stat_finished = ft.Text("-", size=20, weight=ft.FontWeight.W_800, color=ft.Colors.SURFACE)
     stat_streak = ft.Text("-", size=20, weight=ft.FontWeight.W_800, color=ft.Colors.SURFACE)
 
-    user_init_data = page.session.store.get("current_user") or {}
+    from src.utils.session_utils import get_session_user
+    user_init_data = get_session_user(page)
     dash_p_pic = user_init_data.get("profile_picture_url")
     dash_fname = user_init_data.get("first_name", "")
     dash_lname = user_init_data.get("last_name", "")
@@ -342,7 +344,7 @@ async def dashboard_view(page: ft.Page):
             )
 
     header = ft.Container(
-        bgcolor=ft.Colors.SECONDARY,  # Matches theme secondary color (#37BF14) & hero_graduation.png background
+        bgcolor=ft.Colors.PRIMARY,  # Matches theme secondary color (#37BF14) & hero_graduation.png background
         width=float("inf"),
         border_radius=20,
         padding=ft.Padding.all(20),
@@ -766,6 +768,135 @@ async def dashboard_view(page: ft.Page):
         content=get_quick_hub(page),
     )
 
+    incoming_duel_container = ft.Container(visible=False)
+
+    def _build_leaderboards_action_card(coins_count: int = 0, streak_count: int = 0) -> ft.Container:
+        is_dark = getattr(page, "theme_mode", None) == ft.ThemeMode.DARK
+        card_bg = ft.Colors.SURFACE if is_dark else "#FFFFFF"
+        border_clr = ft.Colors.with_opacity(0.12, ft.Colors.WHITE) if is_dark else ft.Colors.GREY_200
+        is_mobile = bool(page.width and page.width < 768)
+
+        streak_pill = ft.Container(
+            padding=ft.Padding.symmetric(horizontal=10, vertical=5),
+            border_radius=ft.BorderRadius.all(10),
+            bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.ORANGE),
+            content=ft.Row(
+                spacing=5,
+                tight=True,
+                controls=[
+                    ft.Icon(ft.Icons.LOCAL_FIRE_DEPARTMENT_ROUNDED, size=15, color=ft.Colors.ORANGE_800),
+                    ft.Text(f"{streak_count}d Streak", size=11.5, weight=ft.FontWeight.W_800, color=ft.Colors.ORANGE_900),
+                ],
+            ),
+        )
+
+        action_btn = ft.ElevatedButton(
+            content=ft.Row(
+                tight=True,
+                spacing=6,
+                controls=[
+                    ft.Icon(ft.Icons.LEADERBOARD_ROUNDED, size=16, color=ft.Colors.WHITE),
+                    ft.Text("View Leaderboards", size=12, weight=ft.FontWeight.W_800, color=ft.Colors.WHITE),
+                ],
+            ),
+            bgcolor=ft.Colors.PRIMARY,
+            height=38,
+            style=ft.ButtonStyle(
+                shape=ft.RoundedRectangleBorder(radius=10),
+                elevation=0,
+                padding=ft.Padding.symmetric(horizontal=14),
+            ),
+            on_click=lambda _: page.go("/leaderboards"),
+        )
+
+        left_side = ft.Row(
+            spacing=12,
+            tight=True,
+            expand=True,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                ft.Container(
+                    width=44,
+                    height=44,
+                    border_radius=ft.BorderRadius.all(12),
+                    gradient=ft.LinearGradient(
+                        colors=[ft.Colors.AMBER_600, ft.Colors.ORANGE_600],
+                        begin=ft.Alignment.TOP_LEFT,
+                        end=ft.Alignment.BOTTOM_RIGHT,
+                    ),
+                    alignment=ft.Alignment.CENTER,
+                    content=ft.Icon(ft.Icons.EMOJI_EVENTS_ROUNDED, color=ft.Colors.WHITE, size=24),
+                ),
+                ft.Column(
+                    spacing=3,
+                    tight=True,
+                    expand=True,
+                    controls=[
+                        ft.Row(
+                            spacing=8,
+                            tight=True,
+                            controls=[
+                                ft.Text("Campus Leaderboards & Objectives", size=13.5, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE)
+                            ],
+                        ),
+                        ft.Text(
+                            "Complete daily learning objectives to earn Nu-Coins & climb the rankings.",
+                            size=11,
+                            color=ft.Colors.GREY_500,
+                            max_lines=1,
+                            overflow=ft.TextOverflow.ELLIPSIS,
+                        ),
+                        ft.Row(
+                            spacing=8,
+                            tight=True,
+                            controls=[streak_pill],
+                        ),
+                    ],
+                ),
+            ],
+        )
+
+        if is_mobile:
+            content_layout = ft.Column(
+                spacing=12,
+                tight=True,
+                controls=[
+                    left_side,
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.END,
+                        controls=[action_btn],
+                    ),
+                ],
+            )
+        else:
+            content_layout = ft.Row(
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[
+                    left_side,
+                    action_btn,
+                ],
+            )
+
+        return ft.Container(
+            width=float("inf"),
+            bgcolor=card_bg,
+            border_radius=ft.BorderRadius.all(16),
+            border=ft.Border.all(1, border_clr),
+            padding=ft.Padding.symmetric(horizontal=16, vertical=14),
+            shadow=ft.BoxShadow(
+                blur_radius=8,
+                color=ft.Colors.with_opacity(0.04, ft.Colors.BLACK),
+                offset=ft.Offset(0, 2),
+            ),
+            content=content_layout,
+        )
+
+    leaderboards_action_card = ft.Container(
+        width=float("inf"),
+        content=_build_leaderboards_action_card(),
+    )
+
     continue_learning_section = ft.Container(
         width=float("inf"),
         opacity=0,
@@ -779,7 +910,8 @@ async def dashboard_view(page: ft.Page):
     # ─────────────────────────────────────────────────────────────────────────
     async def fetch_dashboard_data():
         # ── user greeting & stats ─────────────────────────────────────────────
-        user_data  = page.session.store.get("current_user") or {}
+        from src.utils.session_utils import get_session_user
+        user_data  = get_session_user(page)
         first_name = user_data.get("first_name", "there")
         target_greeting = f"{get_random_greeting()} {first_name}!"
 
@@ -854,6 +986,342 @@ async def dashboard_view(page: ft.Page):
             pass
 
         my_cohorts = learner_cohorts_res.get("cohorts", [])
+
+        # ── Fetch Active Study Duo Partnership for Incoming Duel Banner ──────
+        try:
+            if token:
+                from src.requests.study_partners import get_active_partnership
+                from src.components.partner_challenge_modal import show_duel_results_dialog, is_challenge_completed
+                p_res = await asyncio.wait_for(get_active_partnership(token), timeout=3.5)
+                if p_res and p_res.get("has_partnership"):
+                    all_partnerships = p_res.get("partnerships") or ([p_res.get("partnership")] if p_res.get("partnership") else [])
+                    active_duel = None
+                    p_id_str = ""
+                    for p_item in all_partnerships:
+                        ch_match = next((c for c in p_item.get("recent_challenges", []) if c.get("needs_my_response") and c.get("status") == "challenger_done" and not is_challenge_completed(str(c.get("id") or ""))), None)
+                        if ch_match:
+                            active_duel = ch_match
+                            p_id_str = str(p_item.get("id") or "")
+                            break
+                    if active_duel:
+                        c_name = active_duel.get("challenger_name", "Partner")
+                        c_title = active_duel.get("title", "15-Q Quickfire Duel")
+
+                        def _render_duel_banner(is_desk: bool):
+                            is_dark = getattr(page, "theme_mode", None) == ft.ThemeMode.DARK
+                            banner_bg = ft.Colors.with_opacity(0.14, ft.Colors.ORANGE_900) if is_dark else ft.Colors.with_opacity(0.12, ft.Colors.ORANGE)
+                            banner_border = ft.Border.all(1.5, ft.Colors.with_opacity(0.45, ft.Colors.ORANGE_400 if is_dark else ft.Colors.ORANGE_700))
+                            title_clr = ft.Colors.ORANGE_200 if is_dark else ft.Colors.ORANGE_900
+                            sub_clr = ft.Colors.ORANGE_300 if is_dark else ft.Colors.ORANGE_800
+                            detail_clr = ft.Colors.ORANGE_100 if is_dark else ft.Colors.with_opacity(0.85, ft.Colors.ORANGE_900)
+
+                            wager_amount = active_duel.get("wager_amount", 0) or 0
+                            if wager_amount > 0:
+                                wager_badge = ft.Container(
+                                    padding=ft.Padding.symmetric(horizontal=8, vertical=2),
+                                    border_radius=ft.BorderRadius.all(8),
+                                    bgcolor=ft.Colors.with_opacity(0.20, ft.Colors.AMBER_700),
+                                    border=ft.Border.all(1, ft.Colors.with_opacity(0.40, ft.Colors.AMBER_600)),
+                                    content=ft.Row(
+                                        spacing=4,
+                                        tight=True,
+                                        controls=[
+                                            ft.Text("🪙", size=10),
+                                            ft.Text(f"{wager_amount} Coins", size=10.5, weight=ft.FontWeight.W_800, color=title_clr),
+                                        ],
+                                    ),
+                                )
+                            else:
+                                wager_badge = ft.Container(
+                                    padding=ft.Padding.symmetric(horizontal=8, vertical=2),
+                                    border_radius=ft.BorderRadius.all(8),
+                                    bgcolor=ft.Colors.with_opacity(0.15, ft.Colors.ORANGE_700),
+                                    content=ft.Text("⚔️ Casual Match", size=10.5, weight=ft.FontWeight.W_700, color=title_clr),
+                                )
+
+                            is_opening_duel = False
+
+                            def _on_play_duel(e=None):
+                                nonlocal is_opening_duel
+                                ch_id_str = str(active_duel.get("id") or "")
+                                if is_opening_duel or is_challenge_completed(ch_id_str):
+                                    return
+                                is_opening_duel = True
+                                play_btn.disabled = True
+                                page.update()
+
+                                def _on_duel_closed():
+                                    # Optimistically hide the banner immediately so it cannot be spam tapped
+                                    incoming_duel_container.visible = False
+                                    incoming_duel_container.content = None
+                                    page.update()
+                                    page.run_task(fetch_dashboard_data)
+
+                                show_duel_results_dialog(
+                                    page=page,
+                                    challenge=active_duel,
+                                    current_user_id=str(user_data.get("id") or ""),
+                                    token=token,
+                                    partnership_id=p_id_str,
+                                    on_duel_updated=_on_duel_closed,
+                                )
+                                is_opening_duel = False
+                                play_btn.disabled = False
+                                page.update()
+
+                            play_btn = ft.ElevatedButton(
+                                content=ft.Row(
+                                    tight=True,
+                                    spacing=4,
+                                    alignment=ft.MainAxisAlignment.CENTER,
+                                    controls=[
+                                        ft.Icon(ft.Icons.PLAY_ARROW_ROUNDED, size=16, color=ft.Colors.WHITE),
+                                        ft.Text("Play Duel Now", size=11.5, weight=ft.FontWeight.W_800, color=ft.Colors.WHITE),
+                                    ],
+                                ),
+                                bgcolor=ft.Colors.ORANGE_800,
+                                color=ft.Colors.WHITE,
+                                height=36,
+                                style=ft.ButtonStyle(
+                                    shape=ft.RoundedRectangleBorder(radius=10),
+                                    elevation=0,
+                                    padding=ft.Padding.symmetric(horizontal=12, vertical=0),
+                                ),
+                                on_click=_on_play_duel,
+                            )
+
+                            preview_row = ft.Row(
+                                tight=True,
+                                spacing=5,
+                                alignment=ft.MainAxisAlignment.CENTER,
+                                controls=[
+                                    ft.Icon(ft.Icons.STYLE_ROUNDED, size=15, color=title_clr),
+                                    ft.Text("Preview Deck", size=11.5, weight=ft.FontWeight.W_800, color=title_clr),
+                                ],
+                            )
+
+                            preview_btn = ft.OutlinedButton(
+                                content=preview_row,
+                                height=36,
+                                style=ft.ButtonStyle(
+                                    shape=ft.RoundedRectangleBorder(radius=10),
+                                    side=ft.BorderSide(1.4, ft.Colors.with_opacity(0.45, ft.Colors.ORANGE_400 if is_dark else ft.Colors.ORANGE_800)),
+                                    bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.ORANGE_700),
+                                    padding=ft.Padding.symmetric(horizontal=12, vertical=0),
+                                ),
+                            )
+
+                            async def _handle_preview(e=None):
+                                preview_row.controls = [
+                                    ft.ProgressRing(width=13, height=13, stroke_width=2, color=title_clr),
+                                    ft.Text("Loading...", size=11.5, weight=ft.FontWeight.W_700, color=title_clr),
+                                ]
+                                preview_btn.disabled = True
+                                page.update()
+                                try:
+                                    from src.requests.study_partners import preview_shared_study_pack_api, get_shared_study_packs_api
+                                    from src.components.partner_challenge_modal import show_flashcard_preview_dialog
+                                    from src.utils.file_opener import show_page_snackbar
+
+                                    pack_id = active_duel.get("pack_id")
+                                    preloaded_fcs = None
+                                    if not pack_id and p_id_str:
+                                        shared_packs = await get_shared_study_packs_api(token, p_id_str)
+                                        if shared_packs and isinstance(shared_packs, list):
+                                            match = next(
+                                                (p for p in shared_packs if p.get("title", "").strip().lower() in c_title.strip().lower() or c_title.strip().lower() in p.get("title", "").strip().lower()),
+                                                None
+                                            )
+                                            if match:
+                                                pack_id = match.get("pack_id") or match.get("id")
+                                                preloaded_fcs = match.get("flashcards")
+                                            elif len(shared_packs) > 0:
+                                                pack_id = shared_packs[0].get("pack_id") or shared_packs[0].get("id")
+                                                preloaded_fcs = shared_packs[0].get("flashcards")
+
+                                    if not pack_id:
+                                        show_page_snackbar(page, "No study deck is linked to this quickfire duel.")
+                                        return
+
+                                    fcs = preloaded_fcs
+                                    if not fcs:
+                                        p_res = await preview_shared_study_pack_api(token, p_id_str, str(pack_id))
+                                        if p_res and not p_res.get("error"):
+                                            fcs = p_res.get("flashcards", [])
+                                        else:
+                                            err = p_res.get("error") if p_res else "Could not load study material preview."
+                                            show_page_snackbar(page, err)
+                                            return
+
+                                    if not fcs:
+                                        show_page_snackbar(page, "This study pack has no flashcards to preview.")
+                                        return
+
+                                    show_flashcard_preview_dialog(
+                                        page=page,
+                                        token=token,
+                                        partnership_id=p_id_str,
+                                        pack_id=str(pack_id),
+                                        pack_title=c_title,
+                                        partner_name=c_name,
+                                        flashcards=fcs,
+                                        on_action_click=_on_play_duel,
+                                        duel_action_label="Play Duel Now",
+                                    )
+                                except Exception as ex:
+                                    from src.utils.file_opener import show_page_snackbar
+                                    show_page_snackbar(page, f"Preview error: {ex}")
+                                finally:
+                                    preview_row.controls = [
+                                        ft.Icon(ft.Icons.STYLE_ROUNDED, size=15, color=title_clr),
+                                        ft.Text("Preview Deck", size=11.5, weight=ft.FontWeight.W_800, color=title_clr),
+                                    ]
+                                    preview_btn.disabled = False
+                                    page.update()
+
+                            preview_btn.on_click = lambda _: page.run_task(_handle_preview)
+
+                            if is_desk:
+                                card_content = ft.Row(
+                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                    spacing=16,
+                                    controls=[
+                                        ft.Row(
+                                            spacing=12,
+                                            tight=True,
+                                            expand=True,
+                                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                            controls=[
+                                                ft.Container(
+                                                    width=42,
+                                                    height=42,
+                                                    border_radius=ft.BorderRadius.all(12),
+                                                    bgcolor=ft.Colors.ORANGE_800,
+                                                    alignment=ft.Alignment.CENTER,
+                                                    content=ft.Icon(ft.Icons.FLASH_ON_ROUNDED, color=ft.Colors.WHITE, size=22),
+                                                ),
+                                                ft.Column(
+                                                    spacing=3,
+                                                    tight=True,
+                                                    expand=True,
+                                                    controls=[
+                                                        ft.Row(
+                                                            spacing=8,
+                                                            tight=True,
+                                                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                                            controls=[
+                                                                ft.Text(f"⚔️ {c_name} challenged you to a 15-Q Duel!", size=13.5, weight=ft.FontWeight.W_800, color=title_clr),
+                                                                wager_badge,
+                                                            ],
+                                                        ),
+                                                        ft.Text(f"{c_title} • 15 Questions • Beat their score!", size=11.5, color=sub_clr),
+                                                    ],
+                                                ),
+                                            ],
+                                        ),
+                                        ft.Row(
+                                            spacing=10,
+                                            tight=True,
+                                            controls=[
+                                                preview_btn,
+                                                play_btn,
+                                            ],
+                                        ),
+                                    ],
+                                )
+                            else:
+                                card_content = ft.Column(
+                                    spacing=12,
+                                    horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+                                    controls=[
+                                        ft.Row(
+                                            spacing=10,
+                                            vertical_alignment=ft.CrossAxisAlignment.START,
+                                            controls=[
+                                                ft.Container(
+                                                    width=38,
+                                                    height=38,
+                                                    border_radius=ft.BorderRadius.all(11),
+                                                    bgcolor=ft.Colors.ORANGE_800,
+                                                    alignment=ft.Alignment.CENTER,
+                                                    content=ft.Icon(ft.Icons.FLASH_ON_ROUNDED, color=ft.Colors.WHITE, size=20),
+                                                ),
+                                                ft.Column(
+                                                    spacing=3,
+                                                    tight=True,
+                                                    expand=True,
+                                                    controls=[
+                                                        ft.Row(
+                                                            spacing=6,
+                                                            wrap=True,
+                                                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                                            controls=[
+                                                                ft.Text(f"⚔️ {c_name} challenged you!", size=13, weight=ft.FontWeight.W_800, color=title_clr),
+                                                                wager_badge,
+                                                            ],
+                                                        ),
+                                                        ft.Text(f"{c_title} • 15 Questions", size=11.5, weight=ft.FontWeight.W_600, color=sub_clr),
+                                                        ft.Text("Beat their score to claim victory & streak points!", size=10.5, color=detail_clr),
+                                                    ],
+                                                ),
+                                            ],
+                                        ),
+                                        ft.Row(
+                                            spacing=10,
+                                            controls=[
+                                                ft.Container(content=preview_btn, expand=True),
+                                                ft.Container(content=play_btn, expand=True),
+                                            ],
+                                        ),
+                                    ],
+                                )
+
+                            incoming_duel_container.content = ft.Container(
+                                padding=ft.Padding.symmetric(horizontal=14 if not is_desk else 18, vertical=12 if not is_desk else 14),
+                                border_radius=ft.BorderRadius.all(16),
+                                bgcolor=banner_bg,
+                                border=banner_border,
+                                shadow=ft.BoxShadow(blur_radius=12, color=ft.Colors.with_opacity(0.09, ft.Colors.ORANGE_700), offset=ft.Offset(0, 3)),
+                                content=card_content,
+                            )
+                            incoming_duel_container.visible = True
+                            page.update()
+
+                        incoming_duel_container.data = _render_duel_banner
+                        _render_duel_banner((page.width or 400) >= 680)
+                    else:
+                        incoming_duel_container.visible = False
+                        incoming_duel_container.content = None
+                        incoming_duel_container.data = None
+                else:
+                    incoming_duel_container.visible = False
+                    incoming_duel_container.content = None
+                    incoming_duel_container.data = None
+        except Exception:
+            incoming_duel_container.visible = False
+            incoming_duel_container.content = None
+            incoming_duel_container.data = None
+
+        # ── Fetch Nu-Coins for Leaderboards Action Card ──────────────────────
+        coins_bal = user_data.get("coins_balance", 0)
+        try:
+            if token:
+                from src.requests.objectives import get_platform_objectives_api
+                obj_res = await asyncio.wait_for(get_platform_objectives_api(token), timeout=2.5)
+                if obj_res and "coins_balance" in obj_res:
+                    coins_bal = obj_res.get("coins_balance", coins_bal)
+                    from src.utils.session_utils import get_session_user, set_session_value
+                    u_store = get_session_user(page)
+                    u_store["coins_balance"] = coins_bal
+                    set_session_value(page, "current_user", u_store)
+        except Exception:
+            pass
+
+        leaderboards_action_card.content = _build_leaderboards_action_card(
+            coins_count=coins_bal,
+            streak_count=streak,
+        )
 
         # ── Learner Training Cohorts Card ─────────────────────────────────────
         learner_cohorts_card = ft.Container()
@@ -1314,7 +1782,9 @@ async def dashboard_view(page: ft.Page):
                             content=ft.Column(
                                 spacing=16,
                                 controls=[
+                                    incoming_duel_container,     # 0. Active Incoming 15-Q Duel Banner (Shows only when challenged!)
                                     quick_hub_section,          # 1. 4-tile Quick Launch Hub
+                                    leaderboards_action_card,   # 2. Campus Leaderboards & Objectives Card (Prominent & Visible!)
                                     continue_learning_section,  # 3. Continue Learning Course Cards
                                     trackers_container,         # 4. Dual Course Mastery & Learning Focus Trackers
                                     learner_cohorts_card,       # 5. My Training Cohorts Track
@@ -1358,6 +1828,8 @@ async def dashboard_view(page: ft.Page):
         self_study_card.content = build_self_study_content(is_desk)
         network_card.content = build_network_content(is_desk)
         quick_hub_section.content = get_quick_hub(page)
+        if callable(getattr(incoming_duel_container, "data", None)):
+            incoming_duel_container.data((page.width or 400) >= 680)
         page.update()
 
     page.on_resize = on_dashboard_resize

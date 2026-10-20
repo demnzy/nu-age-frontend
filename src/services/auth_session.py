@@ -140,11 +140,11 @@ class AuthSession:
                 except Exception as e:
                     print(f"[AuthSession] Error saving tokens to shared_preferences: {e}")
 
-            if hasattr(self._page, "session") and hasattr(self._page.session, "store"):
-                try:
-                    self._page.session.store.set("session_auth_token", access_token)
-                except Exception:
-                    pass
+            try:
+                from src.utils.session_utils import set_session_value
+                set_session_value(self._page, "session_auth_token", access_token)
+            except Exception:
+                pass
 
     async def clear_tokens(self):
         """Clear tokens from cache and local storage upon logout or session expiry."""
@@ -160,12 +160,11 @@ class AuthSession:
                 except Exception as e:
                     print(f"[AuthSession] Error removing tokens from shared_preferences: {e}")
 
-            if hasattr(self._page, "session") and hasattr(self._page.session, "store"):
-                try:
-                    self._page.session.store.remove("session_auth_token")
-                    self._page.session.store.remove("current_user")
-                except Exception:
-                    pass
+            try:
+                from src.utils.session_utils import clear_session_store
+                clear_session_store(self._page)
+            except Exception:
+                pass
 
             try:
                 from src.services.push_notification_service import unbind_user_push_identity

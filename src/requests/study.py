@@ -181,13 +181,41 @@ async def get_quiz_questions(token: str, material_ids: typing.Optional[list] = N
         return []
 
 
-async def get_exam_questions(token: str, material_ids: typing.Optional[list] = None) -> list:
+async def get_exam_categories(token: str, material_ids: typing.Optional[list] = None) -> dict:
+    url = f"{api_url}/study/exam/categories"
+    headers = {"Authorization": f"Bearer {token}"}
+    params = {}
+    if material_ids:
+        params["material_ids"] = ",".join(str(mid) for mid in material_ids if mid)
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
+            response = await client.get(url, headers=headers, params=params)
+            response.raise_for_status()
+            return response.json()
+    except Exception as e:
+        print(f"get_exam_categories error: {e}")
+        return {"total_questions": 0, "exam_type": None, "categories": []}
+
+
+async def get_exam_questions(
+    token: str,
+    material_ids: typing.Optional[list] = None,
+    limit: typing.Optional[int] = None,
+    topics: typing.Optional[list] = None,
+    duration_seconds: typing.Optional[int] = None
+) -> dict:
     url = f"{api_url}/study/exam/questions"
     headers = {"Authorization": f"Bearer {token}"}
     params = {}
 
     if material_ids:
-        params["material_ids"] = ",".join(material_ids)
+        params["material_ids"] = ",".join(str(mid) for mid in material_ids if mid)
+    if limit is not None:
+        params["limit"] = str(limit)
+    if topics:
+        params["topics"] = ",".join(str(t) for t in topics if t)
+    if duration_seconds is not None:
+        params["duration_seconds"] = str(duration_seconds)
 
     try:
         async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
@@ -196,16 +224,16 @@ async def get_exam_questions(token: str, material_ids: typing.Optional[list] = N
             return response.json()
     except httpx.TimeoutException:
         print("get_exam_questions timed out.")
-        return []
+        return {"questions": [], "duration_seconds": 300}
     except httpx.HTTPStatusError as e:
         print(f"get_exam_questions failed with status {e.response.status_code}")
-        return []
+        return {"questions": [], "duration_seconds": 300}
     except httpx.RequestError as e:
         print(f"get_exam_questions connection error: {e}")
-        return []
+        return {"questions": [], "duration_seconds": 300}
     except Exception as e:
         print(f"get_exam_questions unexpected error: {e}")
-        return []
+        return {"questions": [], "duration_seconds": 300}
 
 
 async def generate_from_materials(token: str, material_ids: list, types: list) -> dict:
@@ -353,4 +381,25 @@ async def delete_study_material(token: str, material_id: str) -> dict:
                 except Exception:
                     return {"error": f"Failed with status {resp.status_code}"}
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": str(e)}
+
+
+async def log_study_session_api(token: str, minutes_spent: int, questions_completed: int = 0) -> dict:
+    """Logs study session time and completed questions, triggering backend milestone objectives."""
+    url = f"{api_url}/study/log-session"
+    headers = {"Authorization": f"Bearer {token}"}
+    payload = {
+        "minutes_spent": int(minutes_spent),
+        "questions_completed": int(questions_completed),
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0, verify=ssl_context) as client:
+            resp = await client.post(url, headers=headers, json=payload)
+            if resp.status_code == 200:
+                return resp.json()
+            return {"status": "error", "code": resp.status_code}
+    except Exception as e:
+        print(f"[log_study_session_api] error: {e}")
+        return {"status": "error", "message": str(e)}
+

@@ -65,8 +65,11 @@ async def sync_offline_progress(page: ft.Page, result: SyncResult = None) -> Syn
             token = await page.shared_preferences.get("auth_token")
         except Exception:
             pass
-    if not token and hasattr(page, "session") and getattr(page.session, "store", None):
-        token = page.session.store.get("session_auth_token") or page.session.store.get("auth_token") or page.session.store.get("token")
+    if not token:
+        from src.utils.session_utils import get_session_store
+        _s = get_session_store(page)
+        if hasattr(_s, "get"):
+            token = _s.get("session_auth_token") or _s.get("auth_token") or _s.get("token")
     if not token and hasattr(page, "client_storage"):
         try:
             token = await page.client_storage.get_async("token") or await page.client_storage.get_async("auth_token")
