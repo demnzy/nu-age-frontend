@@ -201,7 +201,8 @@ async def create_partner_challenge(
     question_snapshot: List[dict],
     challenger_score: int,
     challenger_time_seconds: int,
-    challenger_breakdown: Optional[dict] = None
+    challenger_breakdown: Optional[dict] = None,
+    wager_amount: int = 0,
 ) -> dict:
     url = f"{api_url}/study/partnerships/{partnership_id}/challenges/create"
     headers = {"Authorization": f"Bearer {token}"}
@@ -212,6 +213,7 @@ async def create_partner_challenge(
         "challenger_score": challenger_score,
         "challenger_time_seconds": challenger_time_seconds,
         "challenger_breakdown": challenger_breakdown or {},
+        "wager_amount": wager_amount,
     }
     try:
         async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
@@ -413,7 +415,13 @@ async def preview_shared_study_pack_api(token: str, partnership_id: str, pack_id
         async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
             resp = await client.get(url, headers=headers)
             if resp.status_code == 404:
-                return {"error": "Preview not available on this server yet."}
+                try:
+                    err_msg = resp.json().get("detail")
+                    if err_msg:
+                        return {"error": err_msg}
+                except Exception:
+                    pass
+                return {"error": "Study material preview not found."}
             resp.raise_for_status()
             return resp.json()
     except Exception as e:

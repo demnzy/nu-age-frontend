@@ -85,7 +85,6 @@ def build_exam(
         top=56,
         right=16 if not compact else None,
         left=16 if compact else None,
-        alignment=ft.Alignment.TOP_CENTER if compact else ft.Alignment.TOP_RIGHT,
     )
 
     def _render_calculator():
@@ -94,6 +93,7 @@ def build_exam(
             calculator_type=calc_state["type"],
             on_close=toggle_calc,
             on_toggle_mode=_toggle_calc_mode,
+            target_container=calc_overlay,
         )
 
     def _toggle_calc_mode(_=None):

@@ -2,7 +2,7 @@ import asyncio
 import urllib.parse
 import flet as ft
 from src.requests.Courses import get_courses, get_course_curriculum
-from src.requests.enrollments import get_enrollments, enrol_user
+from src.requests.enrollments import get_enrollments, enrol_user, unenrol_from_course
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -30,7 +30,7 @@ async def course_details_view(page: ft.Page, course_id: str, back_target: str = 
 
     async def open_whatsapp_share(e):
         c_title = course_title_holder.get("name") or "this course"
-        message = f"""Hey! Check out the course "{c_title}" on Nu-Age! 🚀
+        message = f"""Hey! Check out the course "{c_title}" on Nu Age! 🚀
 
 It comes with interactive modules, flashcards, quizzes, and an AI tutor!
 
@@ -161,6 +161,86 @@ Check it out 👉 : nu-age.com.ng"""
         ),
     )
 
+    # ── leave-course (unenroll) ───────────────────────────────────────────────
+    def _attach_leave_course_menu(cid: str, course_name: str):
+        """Adds an overflow menu with 'Leave course' to the app bar for enrolled learners."""
+        if any(getattr(a, "data", None) == "leave_menu" for a in (app_bar.actions or [])):
+            return
+
+        def _open_leave_dialog(e=None):
+            confirm_btn = ft.FilledButton(
+                "Leave Course",
+                icon=ft.Icons.LOGOUT_ROUNDED,
+                style=ft.ButtonStyle(bgcolor=ft.Colors.ERROR, color=ft.Colors.ON_ERROR),
+            )
+            dlg = ft.AlertDialog(
+                modal=True,
+                title=ft.Text("Leave this course?", weight=ft.FontWeight.W_700, size=16),
+                content=ft.Text(
+                    f"You will be unenrolled from \"{course_name}\" and lose access to its lessons and discussion group. "
+                    "You can enroll again later.",
+                    size=13,
+                ),
+            )
+
+            async def _do_leave(ev=None):
+                confirm_btn.disabled = True
+                confirm_btn.content = ft.Row(
+                    tight=True, spacing=8,
+                    controls=[ft.ProgressRing(width=14, height=14, stroke_width=2, color=ft.Colors.ON_ERROR),
+                              ft.Text("Leaving…", color=ft.Colors.ON_ERROR)],
+                )
+                page.update()
+                token = await page.shared_preferences.get("auth_token")
+                status, data = await unenrol_from_course(token, cid)
+                if status in (200, 204):
+                    dlg.open = False
+                    page.update()
+                    page.go("/courses")
+                else:
+                    confirm_btn.disabled = False
+                    confirm_btn.content = None
+                    confirm_btn.text = "Leave Course"
+                    dlg.open = False
+                    page.update()
+                    detail = data.get("detail") if isinstance(data, dict) else None
+                    page.show_dialog(
+                        ft.SnackBar(
+                            content=ft.Text(detail or "Could not leave the course. Please try again.", color=ft.Colors.WHITE),
+                            bgcolor=ft.Colors.ERROR,
+                        )
+                    )
+
+            def _cancel(ev=None):
+                dlg.open = False
+                page.update()
+
+            confirm_btn.on_click = lambda ev: page.run_task(_do_leave, ev)
+            dlg.actions = [ft.TextButton("Cancel", on_click=_cancel), confirm_btn]
+            page.overlay.append(dlg)
+            dlg.open = True
+            page.update()
+
+        menu = ft.PopupMenuButton(
+            data="leave_menu",
+            icon=ft.Icons.MORE_VERT_ROUNDED,
+            icon_color=ft.Colors.ON_SURFACE,
+            tooltip="More options",
+            items=[
+                ft.PopupMenuItem(
+                    content=ft.Row(
+                        tight=True, spacing=8,
+                        controls=[ft.Icon(ft.Icons.LOGOUT_ROUNDED, size=16, color=ft.Colors.ERROR),
+                                  ft.Text("Leave course", color=ft.Colors.ERROR)],
+                    ),
+                    on_click=_open_leave_dialog,
+                ),
+            ],
+        )
+        actions = list(app_bar.actions or [])
+        actions.insert(max(0, len(actions) - 1), menu)
+        app_bar.actions = actions
+
     # ─────────────────────────────────────────────────────────────────────────
     # DATA LOADER
     # ─────────────────────────────────────────────────────────────────────────
@@ -206,6 +286,7 @@ Check it out 👉 : nu-age.com.ng"""
                 mobile_cta_label.value = "Continue"
                 mobile_cta_icon.name = ft.Icons.PLAY_ARROW_ROUNDED
                 mobile_cta_btn.on_click = lambda _: page.go(f"/courses/{cid}/view")
+                _attach_leave_course_menu(cid, name)
 
             # Eagerly load curriculum modules with their nested lessons
             modules = []
@@ -848,8 +929,11 @@ Check it out 👉 : nu-age.com.ng"""
             main_container = ft.Container(
                 padding=ft.Padding.symmetric(horizontal=20, vertical=16),
                 alignment=ft.Alignment.TOP_CENTER,
+                expand=True,
                 content=ft.Column(
                     spacing=0,
+                    scroll=ft.ScrollMode.AUTO,
+                    expand=True,
                     controls=[
                         hero_card,
                         responsive_grid,
@@ -914,7 +998,6 @@ Check it out 👉 : nu-age.com.ng"""
         bgcolor=ft.Colors.SURFACE,
         appbar=app_bar,
         bottom_appbar=mobile_enroll_bar if is_mobile_screen else None,
-        scroll=ft.ScrollMode.AUTO,
         controls=[content_socket],
     )
     return view

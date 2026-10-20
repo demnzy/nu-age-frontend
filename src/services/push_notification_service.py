@@ -226,8 +226,9 @@ async def init_push_notifications(
             await asyncio.sleep(0.35)
 
             # 2. If dedicated on_navigate callback was provided (e.g. from main.py)
+            import inspect
             if on_navigate:
-                if asyncio.iscoroutinefunction(on_navigate):
+                if inspect.iscoroutinefunction(on_navigate):
                     await on_navigate(target_route)
                 else:
                     res = on_navigate(target_route)
@@ -241,7 +242,7 @@ async def init_push_notifications(
                 # If already on this route, trigger route_change so view refreshes
                 if hasattr(page, "on_route_change") and callable(page.on_route_change):
                     ev = ft.RouteChangeEvent(route=target_route) if hasattr(ft, "RouteChangeEvent") else None
-                    if asyncio.iscoroutinefunction(page.on_route_change):
+                    if inspect.iscoroutinefunction(page.on_route_change):
                         await page.on_route_change(ev)
                     else:
                         page.on_route_change(ev)

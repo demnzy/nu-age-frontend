@@ -487,3 +487,72 @@ async def test_trigger_admin_objective(token: str, objective_id: str) -> Tuple[i
         return 503, {"detail": f"Connection error: {ex}"}
 
 
+
+
+# -----------------------------------------------------------------------------
+# CATEGORIES CRUD, RE-ENGAGEMENT ENGINE & PUSH DIAGNOSTICS
+# -----------------------------------------------------------------------------
+
+async def _admin_call(method: str, path: str, token: str, *, params: dict = None, json_body: dict = None, timeout: float = 30.0) -> Tuple[int, Any]:
+    url = f"{API_URL}{path}"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(connect=5.0, read=timeout, write=15.0, pool=5.0), verify=ssl_context) as client:
+            res = await client.request(method, url, headers=headers, params=params, json=json_body)
+            if res.status_code == 204 or not res.content:
+                return res.status_code, {}
+            try:
+                return res.status_code, res.json()
+            except Exception:
+                return res.status_code, {"detail": res.text}
+    except Exception as ex:
+        print(f"[platform_admin_api] {method} {path} error: {ex}")
+        return 503, {"detail": f"Connection error: {ex}"}
+
+
+async def get_categories_admin(token: str, name: Optional[str] = None) -> Tuple[int, Any]:
+    return await _admin_call("GET", "/categories", token, params={"name": name} if name else None)
+
+
+async def create_category_admin(token: str, name: str, description: str) -> Tuple[int, Any]:
+    return await _admin_call("POST", "/categories/create", token, json_body={"name": name, "description": description})
+
+
+async def update_category_admin(token: str, category_id: str, name: Optional[str] = None, description: Optional[str] = None) -> Tuple[int, Any]:
+    body = {k: v for k, v in (("name", name), ("description", description)) if v is not None}
+    return await _admin_call("PATCH", "/categories/update", token, params={"id": category_id}, json_body=body)
+
+
+async def delete_category_admin(token: str, category_id: str) -> Tuple[int, Any]:
+    return await _admin_call("DELETE", "/categories/delete", token, params={"id": category_id})
+
+
+async def get_engine_preview_admin(token: str, preferred_tier: Optional[int] = None, category: Optional[str] = None) -> Tuple[int, Any]:
+    params = {}
+    if preferred_tier:
+        params["preferred_tier"] = preferred_tier
+    if category:
+        params["category"] = category
+    return await _admin_call("GET", "/notifications/engine/preview", token, params=params or None)
+
+
+async def run_engine_evaluations_admin(
+    token: str,
+    dry_run: bool = True,
+    force: bool = False,
+    user_id: Optional[str] = None,
+    preferred_tier: Optional[int] = None,
+    category: Optional[str] = None,
+) -> Tuple[int, Any]:
+    params: Dict[str, Any] = {"dry_run": str(bool(dry_run)).lower(), "force": str(bool(force)).lower()}
+    if user_id:
+        params["user_id"] = user_id
+    if preferred_tier:
+        params["preferred_tier"] = preferred_tier
+    if category:
+        params["category"] = category
+    return await _admin_call("POST", "/notifications/engine/run-evaluations", token, params=params, timeout=120.0)
+
+
+async def get_onesignal_diagnostics_admin(token: str) -> Tuple[int, Any]:
+    return await _admin_call("GET", "/platform-admin/onesignal/diagnostics", token, timeout=45.0)

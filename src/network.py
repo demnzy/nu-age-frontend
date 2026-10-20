@@ -1,9 +1,10 @@
 """
 network_view.py
 ──────────────────────────────────────────────────────────────────────────────
-Nu-age Network  —  My Network · Requests · Discover
+Nu-age Network  —  My Network · Requests · Discover · Study Partners
 Clean iOS-inspired friends cards, horizontal active friends row,
-pill actions, and modern underline tab switching.
+pill actions, modern underline tab switching, and staggered
+fade/slide-up entrance animations when tabs are switched.
 ──────────────────────────────────────────────────────────────────────────────
 """
 
@@ -213,6 +214,34 @@ async def network_view(page: ft.Page):
 
     header_subtitle_ref = ft.Ref[ft.Text]()
 
+    # ── entrance animation helpers ────────────────────────────────────────────
+    anim_queue: list = []
+
+    def _enter(ctrl):
+        """Prepare a control to fade/slide in. Returns it so it can be used inline."""
+        ctrl.opacity = 0
+        ctrl.offset = ft.Offset(0, 0.06)
+        ctrl.animate_opacity = ft.Animation(280, ft.AnimationCurve.EASE_OUT)
+        ctrl.animate_offset = ft.Animation(320, ft.AnimationCurve.EASE_OUT)
+        anim_queue.append(ctrl)
+        return ctrl
+
+    async def _flush_entrances(step: float = 0.045, max_stagger: int = 10):
+        # Let the opacity=0 frame render first, otherwise there's nothing to animate from
+        await asyncio.sleep(0.05)
+        items = anim_queue[:]
+        anim_queue.clear()
+        for i, c in enumerate(items):
+            c.opacity = 1
+            c.offset = ft.Offset(0, 0)
+            if _is_mounted(c):
+                try:
+                    c.update()
+                except Exception:
+                    pass
+            if i < max_stagger:  # stagger the first few, the rest land together
+                await asyncio.sleep(step)
+
     # ── segmented control (clean underline/pill style matching reference) ──────
     seg_labels = ["My Network", "Requests", "Discover", "Study Partners"]
 
@@ -276,6 +305,7 @@ async def network_view(page: ft.Page):
     # ── tab switcher ──────────────────────────────────────────────────────────
     async def switch_tab(idx: int):
         active_tab["index"] = idx
+        anim_queue.clear()
         _rebuild_seg()
 
         # Show spinner immediately — yield so Flet can repaint before we await
@@ -299,6 +329,8 @@ async def network_view(page: ft.Page):
 
         if page.views and _is_mounted(content_socket):
             page.update()
+
+        await _flush_entrances()
 
     # ─────────────────────────────────────────────────────────────────────────
     # TAB 1 — MY NETWORK
@@ -482,8 +514,11 @@ async def network_view(page: ft.Page):
                 ),
             )
 
-        def rebuild_list(friends: list):
-            friends_list_col.controls = [_friend_card(f) for f in friends]
+        def rebuild_list(friends: list, animate: bool = False):
+            friends_list_col.controls = [
+                _enter(_friend_card(f)) if animate else _friend_card(f)
+                for f in friends
+            ]
             if section_count_ref.current and _is_mounted(section_count_ref.current):
                 section_count_ref.current.value = f"All Friends ({len(friends)})"
                 section_count_ref.current.update()
@@ -551,7 +586,7 @@ async def network_view(page: ft.Page):
                     content=ft.Column(
                         spacing=10,
                         controls=[
-                            bubbles_row,
+                            _enter(bubbles_row),
                             ft.Row(controls=[search]),
                             ft.Row(
                                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -588,7 +623,7 @@ async def network_view(page: ft.Page):
             ],
         )
 
-        rebuild_list(all_friends)
+        rebuild_list(all_friends, animate=True)
 
     # ─────────────────────────────────────────────────────────────────────────
     # TAB 2 — REQUESTS
@@ -858,9 +893,9 @@ async def network_view(page: ft.Page):
             )
 
         for req in incoming_data:
-            incoming_col.controls.append(_incoming_card(req))
+            incoming_col.controls.append(_enter(_incoming_card(req)))
         for req in sent_data:
-            sent_col.controls.append(_sent_card(req))
+            sent_col.controls.append(_enter(_sent_card(req)))
 
         content_socket.content = ft.Container(
             expand=True,
@@ -950,7 +985,7 @@ async def network_view(page: ft.Page):
             async def on_add(e):
                 if requested["v"]:
                     return
-                # Optimistic UI update: transitions to outlined "Added" pill matching reference Screen 2
+                # Optimistic UI update: transitions to outlined "Added" pill
                 requested["v"] = True
                 btn_container.current.bgcolor = ft.Colors.TRANSPARENT
                 btn_container.current.border = ft.Border.all(1, ft.Colors.PRIMARY)
@@ -1041,7 +1076,7 @@ async def network_view(page: ft.Page):
                                 ],
                             ),
                         ),
-                        # Solid "Add" pill -> Outlined "Added" pill (directly matches reference UI)
+                        # Solid "Add" pill -> Outlined "Added" pill
                         ft.Container(
                             ref=btn_container,
                             height=32,
@@ -1073,7 +1108,7 @@ async def network_view(page: ft.Page):
             else:
                 body = ft.Column(
                     spacing=8,
-                    controls=[_discover_row_card(u) for u in users],
+                    controls=[_enter(_discover_row_card(u)) for u in users],
                 )
             return ft.Container(
                 content=ft.Column(
@@ -1172,7 +1207,7 @@ async def network_view(page: ft.Page):
 
         selected_partner_idx = {"index": 0}
 
-        def _render_partner_view():
+        def _render_partner_view(animate: bool = False, flush: bool = True):
             current_idx = study_subtab["index"]
 
             # ── Subtab Pill Header ───────────────────────────────────────────
@@ -1338,7 +1373,7 @@ async def network_view(page: ft.Page):
                                 can_nudge = False
                                 show_page_snackbar(page, f"Nudge sent to {p_first}! 🔥")
                             else:
-                                show_page_snackbar(page, res.get("error", "Could not send nudge."))
+                                show_page_snackbar(page, (res or {}).get("error", "Could not send nudge."))
                         except Exception as n_err:
                             show_page_snackbar(page, f"Error: {n_err}")
                         finally:
@@ -1643,8 +1678,11 @@ async def network_view(page: ft.Page):
 
             # ── SUBTAB 1: RECOMMENDED MATCHES ────────────────────────────────
             elif current_idx == 1:
-                # Exclude users who are active partners, in pending incoming, pending sent, or locally invited
-                partner_id = (partnership.get("partner") or {}).get("id") if has_partnership else None
+                # Exclude: ALL active partners, pending incoming, pending sent, locally invited
+                active_partner_ids = {
+                    (p.get("partner") or {}).get("id")
+                    for p in active_partnerships_list if p
+                }
                 incoming_user_ids = {
                     (req.get("user") or req.get("partner") or {}).get("id")
                     for req in incoming if (req.get("user") or req.get("partner"))
@@ -1653,7 +1691,12 @@ async def network_view(page: ft.Page):
                     (s.get("user") or s.get("partner") or {}).get("id")
                     for s in sent if (s.get("user") or s.get("partner"))
                 }
-                excluded_ids = {i for i in [partner_id] if i} | incoming_user_ids | sent_user_ids | locally_invited_ids
+                excluded_ids = (
+                    {i for i in active_partner_ids if i}
+                    | {i for i in incoming_user_ids if i}
+                    | {i for i in sent_user_ids if i}
+                    | locally_invited_ids
+                )
 
                 filtered_recs = [c for c in recs if c.get("id") and c.get("id") not in excluded_ids]
 
@@ -1693,7 +1736,7 @@ async def network_view(page: ft.Page):
                                 _render_partner_view()
                                 page.update()
                             else:
-                                err_msg = res.get("error", "Could not send invite.")
+                                err_msg = (res or {}).get("error", "Could not send invite.")
                                 show_page_snackbar(page, err_msg)
                                 if "already exists" in err_msg.lower():
                                     locally_invited_ids.add(target_id)
@@ -1727,73 +1770,73 @@ async def network_view(page: ft.Page):
 
                     rec_cards.append(
                         ft.Container(
-    padding=ft.Padding.symmetric(horizontal=14, vertical=12),
-    border_radius=ft.BorderRadius.all(14),
-    bgcolor=ft.Colors.SURFACE,
-    border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
-    content=ft.Row(
-        spacing=10,
-        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        controls=[
-            # Left side takes whatever width the button leaves
-            ft.Row(
-                expand=True,
-                spacing=10,
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                controls=[
-                    _avatar(cand, radius=20),
-                    ft.Column(
-                        expand=True,
-                        spacing=3,
-                        tight=True,
-                        controls=[
-                            ft.Text(
-                                c_name, size=13, weight=ft.FontWeight.W_700,
-                                color=ft.Colors.ON_SURFACE,
-                                max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
-                            ),
-                            # Badge + streak wrap onto a new line if space runs out
-                            ft.Row(
-                                wrap=True, spacing=5, run_spacing=3,
+                            padding=ft.Padding.symmetric(horizontal=14, vertical=12),
+                            border_radius=ft.BorderRadius.all(14),
+                            bgcolor=ft.Colors.SURFACE,
+                            border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                            content=ft.Row(
+                                spacing=10,
+                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
                                 controls=[
-                                    ft.Container(
-                                        padding=ft.Padding.symmetric(horizontal=6, vertical=1.5),
-                                        border_radius=ft.BorderRadius.all(6),
-                                        bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.PRIMARY),
-                                        content=ft.Text(c_badge, size=8.5, weight=ft.FontWeight.W_700, color=ft.Colors.PRIMARY),
+                                    # Left side takes whatever width the button leaves
+                                    ft.Row(
+                                        expand=True,
+                                        spacing=10,
+                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                        controls=[
+                                            _avatar(cand, radius=20),
+                                            ft.Column(
+                                                expand=True,
+                                                spacing=3,
+                                                tight=True,
+                                                controls=[
+                                                    ft.Text(
+                                                        c_name, size=13, weight=ft.FontWeight.W_700,
+                                                        color=ft.Colors.ON_SURFACE,
+                                                        max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
+                                                    ),
+                                                    # Badge + streak wrap onto a new line if space runs out
+                                                    ft.Row(
+                                                        wrap=True, spacing=5, run_spacing=3,
+                                                        controls=[
+                                                            ft.Container(
+                                                                padding=ft.Padding.symmetric(horizontal=6, vertical=1.5),
+                                                                border_radius=ft.BorderRadius.all(6),
+                                                                bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.PRIMARY),
+                                                                content=ft.Text(c_badge, size=8.5, weight=ft.FontWeight.W_700, color=ft.Colors.PRIMARY),
+                                                            ),
+                                                            streak_pill,
+                                                        ],
+                                                    ),
+                                                    ft.Text(
+                                                        c_uni, size=11, color=ft.Colors.GREY_500,
+                                                        max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
+                                                    ),
+                                                ],
+                                            ),
+                                        ],
                                     ),
-                                    streak_pill,
+                                    # Button keeps its natural size
+                                    ft.FilledButton(
+                                        ref=btn_ref,
+                                        content=ft.Row([
+                                            ft.ProgressRing(ref=spinner_ref, width=12, height=12, stroke_width=2, color=ft.Colors.ON_PRIMARY, visible=False),
+                                            ft.Text("Invite as Duo", size=11, weight=ft.FontWeight.W_700, no_wrap=True),
+                                        ], spacing=4, tight=True),
+                                        style=ft.ButtonStyle(
+                                            bgcolor=ft.Colors.PRIMARY,
+                                            color=ft.Colors.ON_PRIMARY,
+                                            padding=ft.Padding.symmetric(horizontal=12, vertical=6),
+                                            shape=ft.RoundedRectangleBorder(radius=8),
+                                        ),
+                                        height=34,
+                                        on_click=lambda _, tid=c_id, nm=c_name, br=btn_ref, sr=spinner_ref, cd=cand: page.run_task(
+                                            _send_invite_action, tid, nm, br, sr, cd
+                                        ),
+                                    ),
                                 ],
                             ),
-                            ft.Text(
-                                c_uni, size=11, color=ft.Colors.GREY_500,
-                                max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
-                            ),
-                        ],
-                    ),
-                ],
-            ),
-            # Button keeps its natural size
-            ft.FilledButton(
-                ref=btn_ref,
-                content=ft.Row([
-                    ft.ProgressRing(ref=spinner_ref, width=12, height=12, stroke_width=2, color=ft.Colors.ON_PRIMARY, visible=False),
-                    ft.Text("Invite as Duo", size=11, weight=ft.FontWeight.W_700, no_wrap=True),
-                ], spacing=4, tight=True),
-                style=ft.ButtonStyle(
-                    bgcolor=ft.Colors.PRIMARY,
-                    color=ft.Colors.ON_PRIMARY,
-                    padding=ft.Padding.symmetric(horizontal=12, vertical=6),
-                    shape=ft.RoundedRectangleBorder(radius=8),
-                ),
-                height=34,
-                on_click=lambda _, tid=c_id, nm=c_name, br=btn_ref, sr=spinner_ref, cd=cand: page.run_task(
-                    _send_invite_action, tid, nm, br, sr, cd
-                ),
-            ),
-        ],
-    ),
-)
+                        )
                     )
 
                 body_controls.append(
@@ -1849,7 +1892,7 @@ async def network_view(page: ft.Page):
                             show_page_snackbar(page, "Study Partnership formed! 🔥")
                             await switch_tab(3)
                         else:
-                            show_page_snackbar(page, res.get("error", "Failed to accept."))
+                            show_page_snackbar(page, (res or {}).get("error", "Failed to accept."))
 
                     async def _decline_action(rid=req_id):
                         await decline_partnership_request(token, rid)
@@ -1858,82 +1901,86 @@ async def network_view(page: ft.Page):
                         _render_partner_view()
                         page.update()
 
+                    is_narrow = (page.width or 0) < 480
+                    row_or_col = ft.Column if is_narrow else ft.Row
+                    row_kwargs = {} if is_narrow else {"vertical_alignment": ft.CrossAxisAlignment.CENTER}
+
                     incoming_cards.append(
-    ft.Container(
-        padding=ft.Padding.all(12),
-        border_radius=ft.BorderRadius.all(14),
-        bgcolor=ft.Colors.SURFACE,
-        border=ft.Border.all(1, ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY)),
-        # Phone (< 480px): info on top, buttons below. Wider: one row.
-        content=(ft.Column if (page.width or 0) < 480 else ft.Row)(
-            spacing=10,
-            **({} if (page.width or 0) < 480 else {"vertical_alignment": ft.CrossAxisAlignment.CENTER}),
-            controls=[
-                ft.Row(
-                    expand=(page.width or 0) >= 480,
-                    spacing=10,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                    controls=[
-                        _avatar(req_user, radius=20),
-                        ft.Column(
-                            expand=True,
-                            spacing=3,
-                            tight=True,
-                            controls=[
-                                ft.Text(
-                                    r_name, size=13, weight=ft.FontWeight.W_700,
-                                    max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
-                                ),
-                                ft.Row(
-                                    wrap=True, spacing=5, run_spacing=3,
-                                    controls=[
-                                        ft.Container(
-                                            padding=ft.Padding.symmetric(horizontal=6, vertical=1.5),
-                                            border_radius=ft.BorderRadius.all(6),
-                                            bgcolor=ft.Colors.with_opacity(0.10, ft.Colors.PRIMARY),
-                                            content=ft.Text(r_badge, size=8.5, weight=ft.FontWeight.W_700, color=ft.Colors.PRIMARY),
-                                        ),
-                                    ],
-                                ),
-                                ft.Text(
-                                    r_uni, size=10.5, color=ft.Colors.GREY_500,
-                                    max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
-                                ),
-                            ],
-                        ),
-                    ],
-                ),
-                ft.Row(
-                    spacing=8,
-                    tight=(page.width or 0) >= 480,
-                    controls=[
-                        ft.FilledButton(
-                            "Accept",
-                            expand=(page.width or 0) < 480,
-                            style=ft.ButtonStyle(
-                                bgcolor=ft.Colors.PRIMARY,
-                                padding=ft.Padding.symmetric(horizontal=12, vertical=4),
-                                shape=ft.RoundedRectangleBorder(radius=8),
+                        ft.Container(
+                            padding=ft.Padding.all(12),
+                            border_radius=ft.BorderRadius.all(14),
+                            bgcolor=ft.Colors.SURFACE,
+                            border=ft.Border.all(1, ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY)),
+                            # Phone (< 480px): info on top, buttons below. Wider: one row.
+                            content=row_or_col(
+                                spacing=10,
+                                **row_kwargs,
+                                controls=[
+                                    ft.Row(
+                                        expand=not is_narrow,
+                                        spacing=10,
+                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                        controls=[
+                                            _avatar(req_user, radius=20),
+                                            ft.Column(
+                                                expand=True,
+                                                spacing=3,
+                                                tight=True,
+                                                controls=[
+                                                    ft.Text(
+                                                        r_name, size=13, weight=ft.FontWeight.W_700,
+                                                        max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
+                                                    ),
+                                                    ft.Row(
+                                                        wrap=True, spacing=5, run_spacing=3,
+                                                        controls=[
+                                                            ft.Container(
+                                                                padding=ft.Padding.symmetric(horizontal=6, vertical=1.5),
+                                                                border_radius=ft.BorderRadius.all(6),
+                                                                bgcolor=ft.Colors.with_opacity(0.10, ft.Colors.PRIMARY),
+                                                                content=ft.Text(r_badge, size=8.5, weight=ft.FontWeight.W_700, color=ft.Colors.PRIMARY),
+                                                            ),
+                                                        ],
+                                                    ),
+                                                    ft.Text(
+                                                        r_uni, size=10.5, color=ft.Colors.GREY_500,
+                                                        max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
+                                                    ),
+                                                ],
+                                            ),
+                                        ],
+                                    ),
+                                    ft.Row(
+                                        spacing=8,
+                                        tight=not is_narrow,
+                                        controls=[
+                                            ft.FilledButton(
+                                                "Accept",
+                                                expand=is_narrow,
+                                                style=ft.ButtonStyle(
+                                                    bgcolor=ft.Colors.PRIMARY,
+                                                    padding=ft.Padding.symmetric(horizontal=12, vertical=4),
+                                                    shape=ft.RoundedRectangleBorder(radius=8),
+                                                ),
+                                                height=34,
+                                                on_click=lambda _, rid=req_id: page.run_task(_accept_action, rid),
+                                            ),
+                                            ft.OutlinedButton(
+                                                "Decline",
+                                                expand=is_narrow,
+                                                style=ft.ButtonStyle(
+                                                    padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+                                                    shape=ft.RoundedRectangleBorder(radius=8),
+                                                ),
+                                                height=34,
+                                                on_click=lambda _, rid=req_id: page.run_task(_decline_action, rid),
+                                            ),
+                                        ],
+                                    ),
+                                ],
                             ),
-                            height=34,
-                            on_click=lambda _, rid=req_id: page.run_task(_accept_action, rid),
-                        ),
-                        ft.OutlinedButton(
-                            "Decline",
-                            expand=(page.width or 0) < 480,
-                            style=ft.ButtonStyle(
-                                padding=ft.Padding.symmetric(horizontal=8, vertical=4),
-                                shape=ft.RoundedRectangleBorder(radius=8),
-                            ),
-                            height=34,
-                            on_click=lambda _, rid=req_id: page.run_task(_decline_action, rid),
-                        ),
-                    ],
-                ),
-            ],
-        ),
-    )
-)
+                        )
+                    )
 
                 body_controls.append(
                     ft.Column(
@@ -1971,65 +2018,65 @@ async def network_view(page: ft.Page):
 
                     sent_cards.append(
                         ft.Container(
-    padding=ft.Padding.symmetric(horizontal=12, vertical=10),
-    border_radius=ft.BorderRadius.all(12),
-    bgcolor=ft.Colors.with_opacity(0.03, ft.Colors.ON_SURFACE),
-    content=ft.Row(
-        spacing=8,
-        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        controls=[
-            # Left side takes whatever width the status pill + button leave
-            ft.Row(
-                expand=True,
-                spacing=8,
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                controls=[
-                    _avatar(s_part, radius=18),
-                    ft.Column(
-                        expand=True,
-                        spacing=1,
-                        tight=True,
-                        controls=[
-                            ft.Text(
-                                s_name, size=12.5, weight=ft.FontWeight.W_600,
-                                max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
+                            padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+                            border_radius=ft.BorderRadius.all(12),
+                            bgcolor=ft.Colors.with_opacity(0.03, ft.Colors.ON_SURFACE),
+                            content=ft.Row(
+                                spacing=8,
+                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                controls=[
+                                    # Left side takes whatever width the status pill + button leave
+                                    ft.Row(
+                                        expand=True,
+                                        spacing=8,
+                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                        controls=[
+                                            _avatar(s_part, radius=18),
+                                            ft.Column(
+                                                expand=True,
+                                                spacing=1,
+                                                tight=True,
+                                                controls=[
+                                                    ft.Text(
+                                                        s_name, size=12.5, weight=ft.FontWeight.W_600,
+                                                        max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
+                                                    ),
+                                                    ft.Text(
+                                                        s_uni, size=10.5, color=ft.Colors.GREY_500,
+                                                        max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
+                                                    ),
+                                                ],
+                                            ),
+                                        ],
+                                    ),
+                                    # Status pill + cancel keep their natural size
+                                    ft.Row(
+                                        spacing=4,
+                                        tight=True,
+                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                        controls=[
+                                            ft.Container(
+                                                padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+                                                border_radius=ft.BorderRadius.all(6),
+                                                bgcolor=ft.Colors.with_opacity(0.10, ft.Colors.ORANGE),
+                                                content=ft.Text(
+                                                    "Pending" if (page.width or 0) < 420 else "Waiting for response",
+                                                    size=9.5, weight=ft.FontWeight.W_700,
+                                                    color=ft.Colors.ORANGE_800, no_wrap=True,
+                                                ),
+                                            ),
+                                            ft.IconButton(
+                                                icon=ft.Icons.CLOSE_ROUNDED,
+                                                icon_size=16,
+                                                icon_color=ft.Colors.RED_400,
+                                                tooltip="Cancel Invitation",
+                                                on_click=lambda _, sid=s_id: page.run_task(_cancel_sent_action, sid),
+                                            ),
+                                        ],
+                                    ),
+                                ],
                             ),
-                            ft.Text(
-                                s_uni, size=10.5, color=ft.Colors.GREY_500,
-                                max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
-                            ),
-                        ],
-                    ),
-                ],
-            ),
-            # Status pill + cancel keep their natural size
-            ft.Row(
-                spacing=4,
-                tight=True,
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                controls=[
-                    ft.Container(
-                        padding=ft.Padding.symmetric(horizontal=8, vertical=3),
-                        border_radius=ft.BorderRadius.all(6),
-                        bgcolor=ft.Colors.with_opacity(0.10, ft.Colors.ORANGE),
-                        content=ft.Text(
-                            "Pending" if (page.width or 0) < 420 else "Waiting for response",
-                            size=9.5, weight=ft.FontWeight.W_700,
-                            color=ft.Colors.ORANGE_800, no_wrap=True,
-                        ),
-                    ),
-                    ft.IconButton(
-                        icon=ft.Icons.CLOSE_ROUNDED,
-                        icon_size=16,
-                        icon_color=ft.Colors.RED_400,
-                        tooltip="Cancel Invitation",
-                        on_click=lambda _, sid=s_id: page.run_task(_cancel_sent_action, sid),
-                    ),
-                ],
-            ),
-        ],
-    ),
-)
+                        )
                     )
 
                 body_controls.append(ft.Container(height=8))
@@ -2051,6 +2098,12 @@ async def network_view(page: ft.Page):
                     )
                 )
 
+            # Entrance animation: skip the sub-tab pill row (index 0)
+            if animate:
+                anim_queue.clear()
+                for c in body_controls[1:]:
+                    _enter(c)
+
             content_socket.content = ft.Container(
                 expand=True,
                 content=ft.Column(
@@ -2070,9 +2123,13 @@ async def network_view(page: ft.Page):
             if _is_mounted(content_socket):
                 content_socket.update()
 
+            # When called from switch_tab, switch_tab does the flush itself (flush=False)
+            if animate and flush:
+                page.run_task(_flush_entrances)
+
         def _select_subtab(idx: int):
             study_subtab["index"] = idx
-            _render_partner_view()
+            _render_partner_view(animate=True)
             page.update()
 
         def _subtab_pill(label: str, idx: int, count: int = 0, is_alert: bool = False):
@@ -2112,7 +2169,8 @@ async def network_view(page: ft.Page):
                 ),
             )
 
-        _render_partner_view()
+        # Initial render: switch_tab flushes the animation queue afterwards
+        _render_partner_view(animate=True, flush=False)
 
     # ── Top Header matching reference UI (Clean, Minimalist, No Hero) ────────
     header_title = ft.Text(

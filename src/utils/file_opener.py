@@ -11,7 +11,13 @@ import flet as ft
 _toast_registry = {}  # {page_id: {"container": c, "text": t, "icon": i, "card": k, "dismiss_id": int}}
 
 
-def show_page_snackbar(page: ft.Page, snack: Any):
+def show_page_snackbar(
+    page: ft.Page,
+    snack: Any,
+    icon: Optional[Any] = None,
+    bgcolor: Optional[str] = None,
+    **kwargs,
+):
     """
     Safely presents a sleek floating toast notification in page.overlay.
     Unlike modal dialog routes, this never pops Flutter's Navigator,
@@ -24,7 +30,7 @@ def show_page_snackbar(page: ft.Page, snack: Any):
         page, snack = snack, page
 
     message = ""
-    bg_color = "#064E3B"
+    bg_color = bgcolor or "#064E3B"
     text_color = ft.Colors.WHITE
 
     def _extract_text_from_control(ctrl: Any) -> str:
@@ -48,7 +54,7 @@ def show_page_snackbar(page: ft.Page, snack: Any):
     if isinstance(snack, str):
         message = snack
     elif isinstance(snack, ft.SnackBar):
-        bg_color = snack.bgcolor or "#064E3B"
+        bg_color = bgcolor or snack.bgcolor or "#064E3B"
         extracted = _extract_text_from_control(snack.content)
         message = extracted if extracted else str(getattr(snack.content, "value", ""))
     elif hasattr(snack, "value") and isinstance(snack.value, str):
@@ -77,6 +83,12 @@ def show_page_snackbar(page: ft.Page, snack: Any):
     else:
         icon_name = ft.Icons.INFO_OUTLINE_ROUNDED
         icon_color = "#A7F3D0"
+
+    # Allow caller override for icon and bgcolor
+    if icon:
+        icon_name = icon
+    if bgcolor:
+        bg_color = bgcolor
 
     page_key = id(page)
     state = _toast_registry.get(page_key)

@@ -7,10 +7,12 @@ from src.requests.payments import (
     initialize_payment,
     verify_payment,
     get_payment_history,
+    exchange_coins_api,
     DEFAULT_STORE_CATALOG,
 )
 from src.requests.subscription import get_subscription_status
 from src.utils.file_opener import show_page_snackbar, safe_set_clipboard
+from src.components.nu_coin_icon import nu_coin_icon
 
 
 async def store_view(page: ft.Page, initial_tab: str = "plans", back_target: str = "/dashboard") -> ft.View:
@@ -37,15 +39,18 @@ async def store_view(page: ft.Page, initial_tab: str = "plans", back_target: str
     mapped_tab = "plans"
     if str(initial_tab or "").lower() in ("boosters", "coins"):
         mapped_tab = "boosters"
+    elif str(initial_tab or "").lower() in ("exchange", "swap", "credits", "nu-coins", "nu_coins"):
+        mapped_tab = "exchange"
     elif str(initial_tab or "").lower() in ("history", "receipts"):
         mapped_tab = "history"
 
     # ── STATE ────────────────────────────────────────────────────────────────
     state = {
         "catalog": DEFAULT_STORE_CATALOG,
-        "selected_tab": mapped_tab,  # "plans", "boosters", "history"
+        "selected_tab": mapped_tab,  # "plans", "boosters", "exchange", "history"
         "is_loading": True,
         "is_checking_out": False,
+        "is_exchanging": False,
         "active_reference": None,
         "user_sub": None,
         "history": [],
@@ -78,7 +83,7 @@ async def store_view(page: ft.Page, initial_tab: str = "plans", back_target: str
                     alignment=ft.Alignment.CENTER,
                     content=ft.Icon(ft.Icons.STOREFRONT_ROUNDED, color=ft.Colors.PRIMARY, size=18),
                 ),
-                ft.Text("Nu-Age Learning Store", size=17, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
+                ft.Text("Nu Age Store", size=17, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
             ],
         ),
         center_title=False,
@@ -516,11 +521,10 @@ async def store_view(page: ft.Page, initial_tab: str = "plans", back_target: str
             features_col.controls.append(
                 ft.Row(
                     spacing=8,
-                    tight=True,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    vertical_alignment=ft.CrossAxisAlignment.START,
                     controls=[
                         ft.Icon(ft.Icons.CHECK_ROUNDED, size=15, color=ft.Colors.PRIMARY),
-                        ft.Text(feat, size=11.5, weight=ft.FontWeight.W_500, color=ft.Colors.ON_SURFACE),
+                        ft.Text(feat, size=11.5, weight=ft.FontWeight.W_500, color=ft.Colors.ON_SURFACE, expand=True),
                     ],
                 )
             )
@@ -699,11 +703,10 @@ async def store_view(page: ft.Page, initial_tab: str = "plans", back_target: str
             features_col.controls.append(
                 ft.Row(
                     spacing=8,
-                    tight=True,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    vertical_alignment=ft.CrossAxisAlignment.START,
                     controls=[
                         ft.Icon(ft.Icons.BOLT_ROUNDED, size=15, color=ft.Colors.PURPLE_600),
-                        ft.Text(feat, size=11.5, weight=ft.FontWeight.W_500, color=ft.Colors.ON_SURFACE),
+                        ft.Text(feat, size=11.5, weight=ft.FontWeight.W_500, color=ft.Colors.ON_SURFACE, expand=True),
                     ],
                 )
             )
@@ -778,11 +781,10 @@ async def store_view(page: ft.Page, initial_tab: str = "plans", back_target: str
             features_col.controls.append(
                 ft.Row(
                     spacing=8,
-                    tight=True,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    vertical_alignment=ft.CrossAxisAlignment.START,
                     controls=[
                         ft.Icon(ft.Icons.CORPORATE_FARE_ROUNDED, size=15, color=ft.Colors.TEAL_600),
-                        ft.Text(feat, size=11.5, weight=ft.FontWeight.W_500, color=ft.Colors.ON_SURFACE),
+                        ft.Text(feat, size=11.5, weight=ft.FontWeight.W_500, color=ft.Colors.ON_SURFACE, expand=True),
                     ],
                 )
             )
@@ -852,11 +854,10 @@ async def store_view(page: ft.Page, initial_tab: str = "plans", back_target: str
             features_col.controls.append(
                 ft.Row(
                     spacing=8,
-                    tight=True,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    vertical_alignment=ft.CrossAxisAlignment.START,
                     controls=[
-                        ft.Icon(ft.Icons.MONETIZATION_ON_ROUNDED, size=15, color=ft.Colors.AMBER_600),
-                        ft.Text(feat, size=11.5, weight=ft.FontWeight.W_500, color=ft.Colors.ON_SURFACE),
+                        nu_coin_icon(size=15),
+                        ft.Text(feat, size=11.5, weight=ft.FontWeight.W_500, color=ft.Colors.ON_SURFACE, expand=True),
                     ],
                 )
             )
@@ -867,7 +868,7 @@ async def store_view(page: ft.Page, initial_tab: str = "plans", back_target: str
                 spacing=6,
                 alignment=ft.MainAxisAlignment.CENTER,
                 controls=[
-                    ft.Icon(ft.Icons.TOLL_ROUNDED, size=14, color=ft.Colors.WHITE),
+                    nu_coin_icon(size=15),
                     ft.Text(f"Get {coins_val} Coins • {price_str}", size=12.5, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE),
                 ],
             ),
@@ -913,6 +914,492 @@ async def store_view(page: ft.Page, initial_tab: str = "plans", back_target: str
                     action_btn,
                 ],
             ),
+        )
+
+    # ── EXPLICIT NU-COINS -> AI CREDITS EXCHANGE ─────────────────────────────
+    EXCHANGE_TIERS = [
+        {
+            "id": "ai_gen_1",
+            "generations": 1,
+            "coins": 25,
+            "label": "1 AI Generation",
+            "badge": "STARTER",
+            "badge_color": ft.Colors.BLUE_700,
+            "discount": None,
+            "description": "Generate 1 targeted study deck, custom mock exam, or course summary.",
+        },
+        {
+            "id": "ai_gen_5",
+            "generations": 5,
+            "coins": 100,
+            "label": "5 AI Generations",
+            "badge": "POPULAR",
+            "badge_color": ft.Colors.PRIMARY,
+            "discount": "Save 25 Coins (20% Off)",
+            "description": "5 full AI generations for course materials, flashcard decks, and quiz packs.",
+        },
+        {
+            "id": "ai_gen_12",
+            "generations": 12,
+            "coins": 200,
+            "label": "12 AI Generations",
+            "badge": "SCHOLAR PACK",
+            "badge_color": ft.Colors.PURPLE_700,
+            "discount": "Save 100 Coins (33% Off)",
+            "description": "12 bonus generations for comprehensive multi-chapter exam preparation.",
+        },
+        {
+            "id": "ai_gen_25",
+            "generations": 25,
+            "coins": 400,
+            "label": "25 AI Generations",
+            "badge": "MAX VALUE",
+            "badge_color": ft.Colors.AMBER_800,
+            "discount": "Save 225 Coins (36% Off)",
+            "description": "25 heavy-duty AI generations for end-to-end semester course creation.",
+        },
+    ]
+
+    async def _handle_exchange(tier: dict, trigger_btn: ft.Control = None):
+        if state.get("is_exchanging"):
+            return
+
+        u_data = page.session.store.get("current_user") or {} if hasattr(page, "session") and hasattr(page.session, "store") else {}
+        user_coins = int(u_data.get("coins_balance") or 0)
+        coins_required = tier["coins"]
+        gen_awarded = tier["generations"]
+
+        if user_coins < coins_required:
+            show_page_snackbar(
+                page,
+                f"Insufficient Nu-Coins. You have {user_coins} coins, but this package requires {coins_required} Nu-Coins. Win duels or maintain study streaks to earn more!"
+            )
+            return
+
+        state["is_exchanging"] = True
+        if trigger_btn and hasattr(trigger_btn, "disabled"):
+            trigger_btn.disabled = True
+            trigger_btn.update()
+
+        progress_dlg = ft.AlertDialog(
+            modal=True,
+            shape=ft.RoundedRectangleBorder(radius=18),
+            bgcolor=ft.Colors.SURFACE,
+            content=ft.Container(
+                width=320,
+                padding=ft.Padding.all(18),
+                content=ft.Column(
+                    tight=True,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    spacing=14,
+                    controls=[
+                        ft.ProgressRing(width=34, height=34, stroke_width=3, color=ft.Colors.PRIMARY),
+                        ft.Text("Exchanging Nu-Coins…", size=14, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
+                        ft.Text(f"Converting {coins_required} Nu-Coins to +{gen_awarded} AI Credits", size=11.5, color=ft.Colors.GREY_500),
+                    ],
+                ),
+            ),
+        )
+        page.overlay.append(progress_dlg)
+        progress_dlg.open = True
+        page.update()
+
+        try:
+            res = await exchange_coins_api(token, tier["id"])
+            progress_dlg.open = False
+            page.update()
+
+            if res and res.get("success"):
+                new_bonus = res.get("new_bonus_generations")
+                new_bal = res.get("new_coins_balance")
+
+                if state.get("user_sub") is None:
+                    state["user_sub"] = {}
+                if new_bonus is not None:
+                    state["user_sub"]["bonus_generations"] = new_bonus
+
+                if hasattr(page, "session") and hasattr(page.session, "store"):
+                    cur_u = page.session.store.get("current_user") or {}
+                    if new_bal is not None:
+                        cur_u["coins_balance"] = new_bal
+                    page.session.store.set("current_user", cur_u)
+
+                show_page_snackbar(page, res.get("message", f"🎉 Exchanged {coins_required} Nu-Coins for +{gen_awarded} AI Credits!"))
+                _render_view()
+            else:
+                err_msg = res.get("error", "Exchange failed. Please try again.")
+                show_page_snackbar(page, f"Exchange failed: {err_msg}")
+        except Exception as ex:
+            progress_dlg.open = False
+            page.update()
+            show_page_snackbar(page, f"Exchange error: {ex}")
+        finally:
+            state["is_exchanging"] = False
+            if trigger_btn and hasattr(trigger_btn, "disabled"):
+                trigger_btn.disabled = False
+                try:
+                    trigger_btn.update()
+                except Exception:
+                    pass
+
+    def _render_exchange_card(tier: dict):
+        u_data = page.session.store.get("current_user") or {} if hasattr(page, "session") and hasattr(page.session, "store") else {}
+        user_coins = int(u_data.get("coins_balance") or 0)
+        coins_required = tier["coins"]
+        can_afford = user_coins >= coins_required
+
+        badge_color = tier.get("badge_color", ft.Colors.PRIMARY)
+        badge_container = ft.Container(
+            padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+            border_radius=ft.BorderRadius.all(6),
+            bgcolor=ft.Colors.with_opacity(0.12, badge_color),
+            content=ft.Text(tier.get("badge", "EXCHANGE"), size=9, weight=ft.FontWeight.W_900, color=badge_color),
+        )
+
+        discount_pill = None
+        if tier.get("discount"):
+            discount_pill = ft.Container(
+                padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+                border_radius=ft.BorderRadius.all(4),
+                bgcolor=ft.Colors.with_opacity(0.10, ft.Colors.GREEN_700),
+                content=ft.Text(tier["discount"], size=9.5, weight=ft.FontWeight.W_800, color=ft.Colors.GREEN_700),
+            )
+
+        action_btn = ft.ElevatedButton(
+            content=ft.Row(
+                tight=True,
+                spacing=6,
+                alignment=ft.MainAxisAlignment.CENTER,
+                controls=[
+                    nu_coin_icon(size=14),
+                    ft.Text(
+                        f"Exchange {coins_required} Coins",
+                        size=12,
+                        weight=ft.FontWeight.W_700,
+                        color=ft.Colors.WHITE,
+                    ),
+                ],
+            ),
+            bgcolor=ft.Colors.AMBER_800 if can_afford else ft.Colors.with_opacity(0.65, ft.Colors.GREY_700),
+            height=38,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10), elevation=0),
+            on_click=lambda e: page.run_task(_handle_exchange, tier, action_btn),
+        )
+
+        status_note = ft.Text(
+            "✓ Ready to convert" if can_afford else f"Need {coins_required - user_coins} more coins",
+            size=10.5,
+            weight=ft.FontWeight.W_600,
+            color=ft.Colors.GREEN_700 if can_afford else ft.Colors.GREY_500,
+        )
+
+        return ft.Container(
+            col={"xs": 12, "sm": 6, "md": 6, "lg": 3},
+            border_radius=ft.BorderRadius.all(18),
+            bgcolor=ft.Colors.SURFACE,
+            border=ft.Border.all(
+                1.5 if tier.get("badge") == "POPULAR" else 1.2,
+                ft.Colors.PRIMARY if tier.get("badge") == "POPULAR" else ft.Colors.with_opacity(0.25, badge_color)
+            ),
+            padding=ft.Padding.all(18),
+            shadow=ft.BoxShadow(
+                blur_radius=12,
+                color=ft.Colors.with_opacity(0.05, ft.Colors.BLACK),
+                offset=ft.Offset(0, 3),
+            ),
+            content=ft.Column(
+                spacing=12,
+                controls=[
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[
+                            badge_container,
+                            discount_pill if discount_pill else ft.Container(),
+                        ],
+                    ),
+                    ft.Column(
+                        spacing=2,
+                        controls=[
+                            ft.Text(tier["label"], size=16, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
+                            ft.Text(tier.get("description", ""), size=11, color=ft.Colors.ON_SURFACE_VARIANT),
+                        ],
+                    ),
+                    ft.Row(
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        spacing=6,
+                        controls=[
+                            nu_coin_icon(size=20),
+                            ft.Text(f"{coins_required}", size=24, weight=ft.FontWeight.W_900, color=ft.Colors.AMBER_800),
+                            ft.Text("Nu-Coins", size=11.5, weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE_VARIANT),
+                        ],
+                    ),
+                    ft.Divider(height=1, color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                    ft.Row(
+                        spacing=8,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[
+                            ft.Icon(ft.Icons.AUTO_AWESOME_ROUNDED, size=15, color=ft.Colors.PRIMARY),
+                            ft.Text(f"+{tier['generations']} AI Generation Quota", size=11.5, weight=ft.FontWeight.W_700, color=ft.Colors.ON_SURFACE, expand=True),
+                        ],
+                    ),
+                    ft.Row(
+                        spacing=8,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[
+                            ft.Icon(ft.Icons.ALL_INCLUSIVE_ROUNDED, size=15, color=ft.Colors.BLUE_600),
+                            ft.Text("Non-expiring bonus credit", size=11, color=ft.Colors.ON_SURFACE_VARIANT, expand=True),
+                        ],
+                    ),
+                    ft.Container(height=4),
+                    action_btn,
+                    ft.Row([status_note], alignment=ft.MainAxisAlignment.CENTER),
+                ],
+            ),
+        )
+
+    def _render_exchange_section():
+        u_data = page.session.store.get("current_user") or {} if hasattr(page, "session") and hasattr(page.session, "store") else {}
+        user_coins = int(u_data.get("coins_balance") or 0)
+        sub = state.get("user_sub") or {}
+        bonus_gens = int(sub.get("bonus_generations") or 0)
+
+        overview_card = ft.Container(
+            border_radius=ft.BorderRadius.all(18),
+            bgcolor=ft.Colors.SURFACE,
+            padding=ft.Padding.all(16),
+            border=ft.Border.all(1.2, ft.Colors.with_opacity(0.18, ft.Colors.PRIMARY)),
+            shadow=ft.BoxShadow(
+                blur_radius=12,
+                color=ft.Colors.with_opacity(0.05, ft.Colors.BLACK),
+                offset=ft.Offset(0, 3),
+            ),
+            content=ft.ResponsiveRow(
+                spacing=12,
+                run_spacing=12,
+                controls=[
+                    ft.Container(
+                        col={"xs": 12, "sm": 6},
+                        border_radius=ft.BorderRadius.all(14),
+                        bgcolor=ft.Colors.SURFACE,
+                        gradient=ft.LinearGradient(
+                            begin=ft.Alignment.TOP_LEFT,
+                            end=ft.Alignment.BOTTOM_RIGHT,
+                            colors=[
+                                ft.Colors.with_opacity(0.14, ft.Colors.AMBER_700),
+                                ft.Colors.with_opacity(0.04, ft.Colors.AMBER_900),
+                            ],
+                        ),
+                        padding=ft.Padding.all(14),
+                        border=ft.Border.all(1.2, ft.Colors.with_opacity(0.32, ft.Colors.AMBER_700)),
+                        content=ft.Row(
+                            spacing=12,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            controls=[
+                                ft.Container(
+                                    width=46,
+                                    height=46,
+                                    border_radius=ft.BorderRadius.all(12),
+                                    bgcolor=ft.Colors.with_opacity(0.2, ft.Colors.AMBER_700),
+                                    alignment=ft.Alignment.CENTER,
+                                    content=nu_coin_icon(size=26),
+                                ),
+                                ft.Column(
+                                    spacing=2,
+                                    expand=True,
+                                    controls=[
+                                        ft.Text("Nu-Coins Balance", size=11, color=ft.Colors.ON_SURFACE_VARIANT, weight=ft.FontWeight.W_700),
+                                        ft.Text(f"{user_coins:,} Coins", size=19, weight=ft.FontWeight.W_900, color=ft.Colors.AMBER_800),
+                                        ft.Text("Available to convert into AI generation credits", size=10.5, color=ft.Colors.ON_SURFACE_VARIANT),
+                                    ],
+                                ),
+                            ],
+                        ),
+                    ),
+                    ft.Container(
+                        col={"xs": 12, "sm": 6},
+                        border_radius=ft.BorderRadius.all(14),
+                        bgcolor=ft.Colors.SURFACE,
+                        gradient=ft.LinearGradient(
+                            begin=ft.Alignment.TOP_LEFT,
+                            end=ft.Alignment.BOTTOM_RIGHT,
+                            colors=[
+                                ft.Colors.with_opacity(0.14, ft.Colors.PRIMARY),
+                                ft.Colors.with_opacity(0.04, ft.Colors.PRIMARY),
+                            ],
+                        ),
+                        padding=ft.Padding.all(14),
+                        border=ft.Border.all(1.2, ft.Colors.with_opacity(0.32, ft.Colors.PRIMARY)),
+                        content=ft.Row(
+                            spacing=12,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            controls=[
+                                ft.Container(
+                                    width=46,
+                                    height=46,
+                                    border_radius=ft.BorderRadius.all(12),
+                                    bgcolor=ft.Colors.with_opacity(0.2, ft.Colors.PRIMARY),
+                                    alignment=ft.Alignment.CENTER,
+                                    content=ft.Icon(ft.Icons.AUTO_AWESOME_ROUNDED, color=ft.Colors.PRIMARY, size=24),
+                                ),
+                                ft.Column(
+                                    spacing=2,
+                                    expand=True,
+                                    controls=[
+                                        ft.Text("Bonus AI Credits Quota", size=11, color=ft.Colors.ON_SURFACE_VARIANT, weight=ft.FontWeight.W_700),
+                                        ft.Text(f"{bonus_gens:,} Generations", size=19, weight=ft.FontWeight.W_900, color=ft.Colors.PRIMARY),
+                                        ft.Text("Permanent quota; used when monthly plan limit is reached", size=10.5, color=ft.Colors.ON_SURFACE_VARIANT),
+                                    ],
+                                ),
+                            ],
+                        ),
+                    ),
+                ],
+            ),
+        )
+        section_title = ft.Row(
+            spacing=8,
+            tight=True,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                ft.Container(
+                    width=28,
+                    height=28,
+                    border_radius=ft.BorderRadius.all(8),
+                    bgcolor=ft.Colors.with_opacity(0.15, ft.Colors.AMBER_700),
+                    alignment=ft.Alignment.CENTER,
+                    content=ft.Icon(ft.Icons.SWAP_HORIZ_ROUNDED, size=16, color=ft.Colors.AMBER_800),
+                ),
+                ft.Text("Nu-Coins to AI Credits Exchange", size=14, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
+            ],
+        )
+
+        grid = ft.ResponsiveRow(
+            spacing=14,
+            run_spacing=14,
+            controls=[_render_exchange_card(t) for t in EXCHANGE_TIERS],
+        )
+
+        earn_bullets = [
+            {
+                "icon": "⚔️",
+                "color": ft.Colors.AMBER_700,
+                "title": "Wagered Partner Duels",
+                "desc": "Stake 10–100 Nu-Coins in 15-question quickfire duels against your study partner and claim 90% of the pot on victory.",
+            },
+            {
+                "icon": "🔥",
+                "color": ft.Colors.DEEP_ORANGE_600,
+                "title": "Daily Duo Study Streaks",
+                "desc": "Review shared flashcards daily with your partner to build streaks and unlock escalating Nu-Coin multiplier bonuses.",
+            },
+            {
+                "icon": "🎯",
+                "color": ft.Colors.PRIMARY,
+                "title": "Platform Quests & Milestones",
+                "desc": "Complete practice exam simulations, finish course drills, and reach weekly challenge milestones for quest coin rewards.",
+            },
+            {
+                "icon": "🪙",
+                "color": ft.Colors.PURPLE_600,
+                "title": "Instant Coin Pack Top-Ups",
+                "desc": "Need an immediate wallet boost? Top up Nu-Coin bundles anytime from the Boosters & Coins tab.",
+            },
+        ]
+
+        bullet_controls = [
+            ft.Container(
+                padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+                border_radius=ft.BorderRadius.all(12),
+                bgcolor=ft.Colors.with_opacity(0.06, b["color"]),
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.2, b["color"])),
+                content=ft.Row(
+                    spacing=12,
+                    vertical_alignment=ft.CrossAxisAlignment.START,
+                    controls=[
+                        ft.Container(
+                            width=32,
+                            height=32,
+                            border_radius=ft.BorderRadius.all(8),
+                            bgcolor=ft.Colors.with_opacity(0.16, b["color"]),
+                            alignment=ft.Alignment.CENTER,
+                            content=ft.Text(b["icon"], size=16),
+                        ),
+                        ft.Column(
+                            spacing=2,
+                            expand=True,
+                            controls=[
+                                ft.Text(b["title"], size=12.5, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
+                                ft.Text(b["desc"], size=11, color=ft.Colors.ON_SURFACE_VARIANT),
+                            ],
+                        ),
+                    ],
+                ),
+            )
+            for b in earn_bullets
+        ]
+
+        earn_tips = ft.Container(
+            border_radius=ft.BorderRadius.all(16),
+            bgcolor=ft.Colors.SURFACE,
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment.TOP_LEFT,
+                end=ft.Alignment.BOTTOM_RIGHT,
+                colors=[
+                    ft.Colors.with_opacity(0.08, ft.Colors.AMBER_700),
+                    ft.Colors.with_opacity(0.03, ft.Colors.PURPLE_600),
+                ],
+            ),
+            border=ft.Border.all(1.2, ft.Colors.with_opacity(0.25, ft.Colors.AMBER_700)),
+            padding=ft.Padding.all(16),
+            content=ft.Column(
+                spacing=12,
+                controls=[
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        wrap=True,
+                        spacing=8,
+                        controls=[
+                            ft.Row(
+                                spacing=8,
+                                tight=True,
+                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                controls=[
+                                    nu_coin_icon(size=20),
+                                    ft.Text("How to Earn More Nu-Coins", size=14, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
+                                ],
+                            ),
+                            ft.Container(
+                                padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+                                border_radius=ft.BorderRadius.all(6),
+                                bgcolor=ft.Colors.with_opacity(0.14, ft.Colors.AMBER_700),
+                                content=ft.Text("REWARDS GUIDE", size=9.5, weight=ft.FontWeight.W_900, color=ft.Colors.AMBER_800),
+                            ),
+                        ],
+                    ),
+                    ft.Text(
+                        "Nu-Coins are earned through active study habits and friendly competition. Complete these activities to stack coins:",
+                        size=11.5,
+                        color=ft.Colors.ON_SURFACE_VARIANT,
+                    ),
+                    ft.Column(
+                        spacing=8,
+                        controls=bullet_controls,
+                    ),
+                ],
+            ),
+        )
+
+        return ft.Column(
+            spacing=16,
+            horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+            controls=[
+                overview_card,
+                section_title,
+                grid,
+                earn_tips,
+            ],
         )
 
     def _render_history_tab():
@@ -1000,7 +1487,6 @@ async def store_view(page: ft.Page, initial_tab: str = "plans", back_target: str
             actions_row = ft.Row(
                 spacing=8,
                 tight=True,
-                width=float('inf'),
                 controls=[
                     ft.TextButton(
                         content=ft.Row(
@@ -1036,6 +1522,7 @@ async def store_view(page: ft.Page, initial_tab: str = "plans", back_target: str
             card = ft.Container(
                 border_radius=ft.BorderRadius.all(14),
                 bgcolor=ft.Colors.SURFACE,
+                width=float("inf"),
                 border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
                 padding=ft.Padding.symmetric(horizontal=16, vertical=14),
                 content=ft.Row(
@@ -1129,7 +1616,7 @@ async def store_view(page: ft.Page, initial_tab: str = "plans", back_target: str
                         controls=[
                             ft.ProgressRing(width=44, height=44, stroke_width=3.5, color=ft.Colors.PRIMARY),
                             ft.Text(
-                                "Loading Nu-Age Learning Store…",
+                                "Loading Nu Age Learning Store…",
                                 size=16,
                                 weight=ft.FontWeight.W_800,
                                 color=ft.Colors.ON_SURFACE,
@@ -1151,20 +1638,28 @@ async def store_view(page: ft.Page, initial_tab: str = "plans", back_target: str
             return
 
         # 1. Hero Trust Banner (Full Width & Theme-Adaptive Contrast)
+        is_mobile_screen = bool((page.width or 0) < 680)
+        is_small_screen = bool((page.width or 0) < 450)
+
         hero_banner = ft.Container(
             width=float("inf"),
             bgcolor=ft.Colors.SURFACE,
-            padding=ft.Padding.symmetric(horizontal=20, vertical=22),
+            padding=ft.Padding.symmetric(horizontal=14 if is_small_screen else 20, vertical=16 if is_small_screen else 22),
             border_radius=ft.BorderRadius.all(18),
             gradient=ft.LinearGradient(
                 begin=ft.Alignment.TOP_LEFT,
                 end=ft.Alignment.BOTTOM_RIGHT,
                 colors=[
-                    ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY),
-                    ft.Colors.with_opacity(0.05, ft.Colors.PURPLE_600),
+                    ft.Colors.with_opacity(0.16, ft.Colors.PRIMARY),
+                    ft.Colors.with_opacity(0.06, ft.Colors.AMBER_700),
                 ],
             ),
-            border=ft.Border.all(1, ft.Colors.with_opacity(0.18, ft.Colors.PRIMARY)),
+            border=ft.Border.all(1.2, ft.Colors.with_opacity(0.28, ft.Colors.PRIMARY)),
+            shadow=ft.BoxShadow(
+                blur_radius=12,
+                color=ft.Colors.with_opacity(0.04, ft.Colors.BLACK),
+                offset=ft.Offset(0, 3),
+            ),
             content=ft.Column(
                 spacing=10,
                 controls=[
@@ -1213,10 +1708,10 @@ async def store_view(page: ft.Page, initial_tab: str = "plans", back_target: str
                             ),
                         ],
                     ),
-                    ft.Text("Supercharge Your Learning Studio", size=18 if not is_small else 16, weight=ft.FontWeight.W_900, color=ft.Colors.ON_SURFACE),
+                    ft.Text("Supercharge Your Learning Studio", size=18 if not is_small_screen else 16, weight=ft.FontWeight.W_900, color=ft.Colors.ON_SURFACE),
                     ft.Text(
-                        "Upgrade personal scholar plans or top-up non-expiring AI decks and upload quotas using your debit card, bank transfer, or USSD.",
-                        size=12,
+                        "Upgrade personal scholar plans or top-up non-expiring AI generations and upload quotas using your debit card, bank transfer, or USSD.",
+                        size=12 if not is_small_screen else 11,
                         color=ft.Colors.ON_SURFACE_VARIANT,
                     ),
                 ],
@@ -1227,7 +1722,8 @@ async def store_view(page: ft.Page, initial_tab: str = "plans", back_target: str
         # 2. Consolidated Segmented Navigation Tabs
         tab_row = ft.Container(
             border_radius=ft.BorderRadius.all(12),
-            bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
+            bgcolor=ft.Colors.SURFACE,
+            border=ft.Border.all(1, ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY)),
             padding=4,
             content=ft.Row(
                 spacing=6,
@@ -1235,6 +1731,7 @@ async def store_view(page: ft.Page, initial_tab: str = "plans", back_target: str
                 controls=[
                     _tab_button("Plans & Subscriptions", "plans", ft.Icons.STARS_ROUNDED),
                     _tab_button("Boosters & Coins", "boosters", ft.Icons.BOLT_ROUNDED),
+                    _tab_button("Nu-Coins Exchange", "exchange", ft.Icons.SWAP_HORIZ_ROUNDED),
                     _tab_button("Receipts & History", "history", ft.Icons.RECEIPT_LONG_ROUNDED),
                 ],
             ),
@@ -1313,25 +1810,46 @@ async def store_view(page: ft.Page, initial_tab: str = "plans", back_target: str
                     on_click=lambda e: page.run_task(_handle_checkout, matched_plan, "plan", cta_btn),
                 )
 
-            return ft.Container(
-                border_radius=ft.BorderRadius.all(14),
-                bgcolor=bg_col,
-                border=ft.Border.all(1.2, border_col),
-                padding=ft.Padding.symmetric(horizontal=16, vertical=12),
-                content=ft.Row(
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                    wrap=True,
+            is_mobile_sub = bool((page.width or 0) < 680)
+
+            sub_banner_content = (
+                ft.Column(
                     spacing=12,
+                    horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
                     controls=[
                         ft.Row(
                             spacing=12,
-                            tight=True,
+                            vertical_alignment=ft.CrossAxisAlignment.START,
                             controls=[
                                 ft.Icon(icon, size=24, color=icon_col),
                                 ft.Column(
                                     spacing=2,
-                                    tight=True,
+                                    expand=True,
+                                    controls=[
+                                        ft.Text(title, size=13, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
+                                        ft.Text(desc, size=11, color=ft.Colors.ON_SURFACE_VARIANT),
+                                    ],
+                                ),
+                            ],
+                        ),
+                        cta_btn if cta_btn else ft.Container(),
+                    ],
+                )
+                if is_mobile_sub
+                else ft.Row(
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    spacing=14,
+                    controls=[
+                        ft.Row(
+                            spacing=12,
+                            expand=True,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            controls=[
+                                ft.Icon(icon, size=24, color=icon_col),
+                                ft.Column(
+                                    spacing=2,
+                                    expand=True,
                                     controls=[
                                         ft.Text(title, size=13.5, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
                                         ft.Text(desc, size=11, color=ft.Colors.ON_SURFACE_VARIANT),
@@ -1341,7 +1859,15 @@ async def store_view(page: ft.Page, initial_tab: str = "plans", back_target: str
                         ),
                         cta_btn if cta_btn else ft.Container(),
                     ],
-                ),
+                )
+            )
+
+            return ft.Container(
+                border_radius=ft.BorderRadius.all(14),
+                bgcolor=bg_col,
+                border=ft.Border.all(1.2, border_col),
+                padding=ft.Padding.symmetric(horizontal=16, vertical=12),
+                content=sub_banner_content,
             )
 
         catalog = state.get("catalog", {})
@@ -1349,11 +1875,6 @@ async def store_view(page: ft.Page, initial_tab: str = "plans", back_target: str
 
         if cur_tab in ("plans", "org_plans", "org_seats", "org"):
             plans = catalog.get("plans", [])
-            org_plans = catalog.get("org_plans") or [p for p in catalog.get("org_products", []) if p.get("category") == "org_plan"]
-            org_items = catalog.get("org_seats") or [p for p in catalog.get("org_products", []) if p.get("category") != "org_plan"]
-            if not org_items:
-                org_items = catalog.get("org_products", [])
-            all_org = org_plans + [o for o in org_items if o not in org_plans]
 
             sub_banner = _render_subscription_status_banner()
             if sub_banner:
@@ -1369,20 +1890,114 @@ async def store_view(page: ft.Page, initial_tab: str = "plans", back_target: str
             grid = ft.ResponsiveRow(spacing=14, run_spacing=14, controls=[_render_plan_card(p) for p in plans])
             content_area.controls.append(grid)
 
-            if all_org:
-                content_area.controls.append(ft.Container(height=12))
-                content_area.controls.append(
-                    ft.Row([
-                        ft.Icon(ft.Icons.CORPORATE_FARE_ROUNDED, size=16, color=ft.Colors.TEAL_600),
-                        ft.Text("Institution & Team Licensing", size=14, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
-                    ], spacing=6, tight=True)
-                )
-                org_grid = ft.ResponsiveRow(spacing=14, run_spacing=14, controls=[_render_org_card(o) for o in all_org])
-                content_area.controls.append(org_grid)
-
         elif cur_tab in ("boosters", "coins"):
             packs = catalog.get("packs", [])
             coin_packs = catalog.get("coins", [])
+
+            # Nu-Coins Exchange Teaser Banner in Boosters & Coins tab
+            u_data_b = page.session.store.get("current_user") or {} if hasattr(page, "session") and hasattr(page.session, "store") else {}
+            u_coins_b = int(u_data_b.get("coins_balance") or 0)
+            
+            is_mobile_teaser = bool((page.width or 0) < 680)
+            teaser_content = (
+                ft.Column(
+                    spacing=12,
+                    horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+                    controls=[
+                        ft.Row(
+                            spacing=12,
+                            vertical_alignment=ft.CrossAxisAlignment.START,
+                            controls=[
+                                ft.Container(
+                                    width=40,
+                                    height=40,
+                                    border_radius=ft.BorderRadius.all(10),
+                                    bgcolor=ft.Colors.with_opacity(0.18, ft.Colors.AMBER_700),
+                                    alignment=ft.Alignment.CENTER,
+                                    content=nu_coin_icon(size=24),
+                                ),
+                                ft.Column(
+                                    spacing=2,
+                                    expand=True,
+                                    controls=[
+                                        ft.Text("Have Nu-Coins? Exchange directly for AI Credits", size=13, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
+                                        ft.Text(f"Convert your duel winnings into AI Generations without cash • Balance: {u_coins_b:,} Coins", size=11, color=ft.Colors.ON_SURFACE_VARIANT),
+                                    ],
+                                ),
+                            ],
+                        ),
+                        ft.ElevatedButton(
+                            content=ft.Row([
+                                ft.Icon(ft.Icons.SWAP_HORIZ_ROUNDED, size=15, color=ft.Colors.WHITE),
+                                ft.Text("Exchange Coins for AI Credits", size=12, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE),
+                            ], spacing=6, alignment=ft.MainAxisAlignment.CENTER),
+                            bgcolor=ft.Colors.AMBER_800,
+                            height=38,
+                            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10), elevation=0),
+                            on_click=lambda _: _switch_tab("exchange"),
+                        ),
+                    ],
+                )
+                if is_mobile_teaser
+                else ft.Row(
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    spacing=14,
+                    controls=[
+                        ft.Row(
+                            spacing=12,
+                            expand=True,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            controls=[
+                                ft.Container(
+                                    width=44,
+                                    height=44,
+                                    border_radius=ft.BorderRadius.all(12),
+                                    bgcolor=ft.Colors.with_opacity(0.18, ft.Colors.AMBER_700),
+                                    alignment=ft.Alignment.CENTER,
+                                    content=nu_coin_icon(size=26),
+                                ),
+                                ft.Column(
+                                    spacing=2,
+                                    expand=True,
+                                    controls=[
+                                        ft.Text("Have Nu-Coins? Exchange directly for AI Credits", size=13.5, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
+                                        ft.Text(f"Convert your duel winnings into AI Generations without cash • Current Balance: {u_coins_b:,} Coins", size=11.5, color=ft.Colors.ON_SURFACE_VARIANT),
+                                    ],
+                                ),
+                            ],
+                        ),
+                        ft.ElevatedButton(
+                            content=ft.Row([
+                                ft.Icon(ft.Icons.SWAP_HORIZ_ROUNDED, size=15, color=ft.Colors.WHITE),
+                                ft.Text("Exchange Coins", size=12, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE),
+                            ], spacing=6, tight=True),
+                            bgcolor=ft.Colors.AMBER_800,
+                            height=38,
+                            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10), elevation=0),
+                            on_click=lambda _: _switch_tab("exchange"),
+                        ),
+                    ],
+                )
+            )
+
+            exchange_teaser = ft.Container(
+                border_radius=ft.BorderRadius.all(16),
+                bgcolor=ft.Colors.SURFACE,
+                gradient=ft.LinearGradient(
+                    begin=ft.Alignment.TOP_LEFT,
+                    end=ft.Alignment.BOTTOM_RIGHT,
+                    colors=[
+                        ft.Colors.with_opacity(0.14, ft.Colors.AMBER_700),
+                        ft.Colors.with_opacity(0.04, ft.Colors.AMBER_900),
+                    ],
+                ),
+                border=ft.Border.all(1.2, ft.Colors.with_opacity(0.35, ft.Colors.AMBER_700)),
+                padding=ft.Padding.symmetric(horizontal=16, vertical=14),
+                content=teaser_content,
+            )
+            content_area.controls.append(exchange_teaser)
+            content_area.controls.append(ft.Container(height=4))
 
             content_area.controls.append(
                 ft.Row([
@@ -1397,12 +2012,15 @@ async def store_view(page: ft.Page, initial_tab: str = "plans", back_target: str
                 content_area.controls.append(ft.Container(height=12))
                 content_area.controls.append(
                     ft.Row([
-                        ft.Icon(ft.Icons.MONETIZATION_ON_ROUNDED, size=16, color=ft.Colors.AMBER_700),
+                        nu_coin_icon(size=18),
                         ft.Text("Nu-Coins Credit Bundles", size=14, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
                     ], spacing=6, tight=True)
                 )
                 coin_grid = ft.ResponsiveRow(spacing=14, run_spacing=14, controls=[_render_coin_card(c) for c in coin_packs])
                 content_area.controls.append(coin_grid)
+
+        elif cur_tab == "exchange":
+            content_area.controls.append(_render_exchange_section())
 
         elif cur_tab == "history":
             content_area.controls.append(_render_history_tab())

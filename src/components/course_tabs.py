@@ -25,6 +25,7 @@ from src.requests.discussions import (
     create_discussion_reply_api,
     toggle_discussion_upvote_api,
     toggle_reply_upvote_api,
+    toggle_reply_endorse_api,
     toggle_resolve_discussion_api,
     report_discussion_api,
 )
@@ -479,6 +480,24 @@ def build_discuss_tab_view(
         reply_item["upvotes_count"] = max(0, reply_item.get("upvotes_count", 0) + (-1 if has_upvoted else 1))
         _render_view()
         await toggle_reply_upvote_api(token, reply_item["id"])
+
+    async def _on_endorse_reply(reply_item: Dict[str, Any], e=None):
+        """Instructor-only: toggles the verified-answer endorsement (optimistic, rolls back on failure)."""
+        rid = str(reply_item.get("id", ""))
+        if not rid or rid.startswith("temp_"):
+            return
+        token = await _get_auth_token(page) or ""
+        previous = bool(reply_item.get("is_endorsed", False))
+        reply_item["is_endorsed"] = not previous
+        _render_view()
+        res = await toggle_reply_endorse_api(token, rid)
+        if res is None:
+            reply_item["is_endorsed"] = previous
+            _render_view()
+            show_page_snackbar(page, "Could not update endorsement. Please try again.")
+        else:
+            reply_item["is_endorsed"] = bool(res.get("is_endorsed", not previous))
+            _render_view()
 
     async def _on_toggle_resolve(disc_item: Dict[str, Any], e=None):
         token = await _get_auth_token(page) or ""
@@ -1373,6 +1392,27 @@ def build_discuss_tab_view(
                             ft.Row(
                                 alignment=ft.MainAxisAlignment.END,
                                 controls=[
+                                    ft.Container(
+                                        visible=is_instructor and not str(r.get("id", "")).startswith("temp_"),
+                                        padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+                                        border_radius=ft.BorderRadius.all(6),
+                                        bgcolor=ft.Colors.with_opacity(0.14 if is_endorsed else 0.04, ft.Colors.AMBER if is_endorsed else ft.Colors.GREY_500),
+                                        ink=True,
+                                        tooltip="Remove verified-answer badge" if is_endorsed else "Mark as verified answer",
+                                        on_click=lambda e, item=r: page.run_task(_on_endorse_reply, item),
+                                        content=ft.Row(
+                                            spacing=3,
+                                            tight=True,
+                                            controls=[
+                                                ft.Icon(
+                                                    ft.Icons.VERIFIED_ROUNDED if is_endorsed else ft.Icons.VERIFIED_OUTLINED,
+                                                    size=11,
+                                                    color=ft.Colors.AMBER if is_endorsed else ft.Colors.GREY_500,
+                                                ),
+                                                ft.Text("Verified" if is_endorsed else "Endorse", size=10.5, color=ft.Colors.AMBER if is_endorsed else ft.Colors.GREY_500),
+                                            ],
+                                        ),
+                                    ),
                                     ft.Container(
                                         padding=ft.Padding.symmetric(horizontal=6, vertical=2),
                                         border_radius=ft.BorderRadius.all(6),

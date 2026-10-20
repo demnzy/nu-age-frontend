@@ -213,13 +213,14 @@ async def main(page: ft.Page):
     shell_history = []
 
     shell_content = ft.AnimatedSwitcher(
-        content=ft.Container(expand=True),
+        content=ft.Container(expand=True, alignment=ft.Alignment.TOP_CENTER),
         transition=ft.AnimatedSwitcherTransition.FADE,
         duration=180,
         reverse_duration=150,
         switch_in_curve=ft.AnimationCurve.EASE_OUT,
         switch_out_curve=ft.AnimationCurve.EASE_IN,
         expand=True,
+        align=ft.Alignment.TOP_CENTER,
     )
 
     shell_view = ft.View(
@@ -846,11 +847,12 @@ async def main(page: ft.Page):
             skel = existing_skeleton
             shimmer_task = existing_shimmer_task
         else:
-            # Check if coro takes longer than 350ms (e.g. cold start).
-            # Normal in-memory view construction completes in <100ms and transitions
-            # directly and smoothly without jarring skeleton flicker or premature view popping.
-            done, _ = await asyncio.wait([coro_task], timeout=0.35)
+            # Check with a micro-timeout (35ms / ~2 frames) so synchronous or instant in-memory views
+            # can render immediately without any intermediate placeholder.
+            done, _ = await asyncio.wait([coro_task], timeout=0.035)
             if not done:
+                # Coroutine takes noticeable time: immediately mount destination skeleton/placeholder
+                # so the UI transitions smoothly on tap rather than sitting frozen on the old view.
                 if in_shell:
                     if shell_view not in page.views:
                         page.views.clear()
@@ -859,11 +861,13 @@ async def main(page: ft.Page):
                         while len(page.views) > 1 and page.views[-1] is not shell_view:
                             page.views.pop()
                     persistent_nav_bar.set_active_route(route)
+                    shell_view.appbar = None
                     skel = skeleton_view(route)
                     shell_content.content = ft.Container(
                         content=ft.Column(skel.controls, expand=True, spacing=0) if len(skel.controls) > 1 else (skel.controls[0] if skel.controls else ft.Container()),
                         expand=True,
-                        key=f"skel_{route}",
+                        alignment=ft.Alignment.TOP_CENTER,
+                        key=f"shell_view_{route}",
                     )
                     page.update()
                     await asyncio.sleep(0)
@@ -894,6 +898,7 @@ async def main(page: ft.Page):
                     shell_content.content = ft.Container(
                         content=ft.Column(err_v.controls, expand=True, spacing=0) if len(err_v.controls) > 1 else (err_v.controls[0] if err_v.controls else ft.Container()),
                         expand=True,
+                        alignment=ft.Alignment.TOP_CENTER,
                         key=f"shell_error_{route}",
                     )
                 page.update()
@@ -954,7 +959,7 @@ async def main(page: ft.Page):
             shell_view.floating_action_button = real_view.floating_action_button
             default_shell_bg = "#121212" if page.theme_mode == ft.ThemeMode.DARK else ft.Colors.SURFACE
             shell_view.bgcolor = real_view.bgcolor or default_shell_bg
-            shell_view.scroll = real_view.scroll
+            shell_view.scroll = None
             shell_view.horizontal_alignment = real_view.horizontal_alignment
             shell_view.vertical_alignment = real_view.vertical_alignment
             shell_view.drawer = real_view.drawer
@@ -965,7 +970,8 @@ async def main(page: ft.Page):
             shell_content.content = ft.Container(
                 content=ft.Column(clean_controls, expand=True, spacing=0) if len(clean_controls) > 1 else (clean_controls[0] if clean_controls else ft.Container()),
                 expand=True,
-                key=f"shell_content_{route}",
+                alignment=ft.Alignment.TOP_CENTER,
+                key=f"shell_view_{route}",
             )
 
             persistent_nav_bar.set_active_route(route)
@@ -1500,10 +1506,12 @@ async def main(page: ft.Page):
                     while len(page.views) > 1 and page.views[-1] is not shell_view:
                         page.views.pop()
                 persistent_nav_bar.set_active_route(page.route)
+                shell_view.appbar = None
                 shell_content.content = ft.Container(
                     content=ft.Column(skel.controls, expand=True, spacing=0) if len(skel.controls) > 1 else (skel.controls[0] if skel.controls else ft.Container()),
                     expand=True,
-                    key=f"skel_{page.route}",
+                    alignment=ft.Alignment.TOP_CENTER,
+                    key=f"shell_view_{page.route}",
                 )
                 page.update()
                 await asyncio.sleep(0)

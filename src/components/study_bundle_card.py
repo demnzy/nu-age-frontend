@@ -1,5 +1,6 @@
 import flet as ft
 from typing import Dict, Any, Callable, Optional
+from src.components.nu_coin_icon import nu_coin_icon
 
 
 BUNDLE_GRADIENTS = {
@@ -129,11 +130,11 @@ class StudyBundleCard(ft.Container):
             price_widgets.append(
                 ft.Row(
                     [
-                        ft.Icon(ft.Icons.MONETIZATION_ON_ROUNDED, size=14, color="#FDE047"),
+                        nu_coin_icon(size=14),
                         ft.Text(f"{price}", size=15, weight=ft.FontWeight.W_800, color=ft.Colors.WHITE),
                         ft.Text("coins", size=11, color=ft.Colors.WHITE70),
                     ],
-                    spacing=3,
+                    spacing=4,
                     tight=True,
                 )
             )

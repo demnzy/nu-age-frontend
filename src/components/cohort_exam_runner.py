@@ -1171,8 +1171,8 @@ def build_cohort_exam_view(
         # Floating Calculator overlay
         calc_overlay = ft.Container(
             visible=False,
-            alignment=ft.Alignment.TOP_RIGHT,
-            padding=ft.Padding.only(top=14, right=14),
+            top=60,
+            right=20,
         )
 
         def toggle_calc(_=None):
@@ -1182,6 +1182,7 @@ def build_cohort_exam_view(
                     page=page,
                     calculator_type=calculator_type,
                     on_close=toggle_calc,
+                    target_container=calc_overlay,
                 )
             page.update()
 

@@ -11,6 +11,7 @@ from src.components.shimmer_skeletons import shimmer_box, grey_card, collect_shi
 from src.requests.Cohorts import get_learner_cohorts, start_cohort_exam
 from src.components.cohort_exam_runner import build_cohort_exam_view
 from src.utils.file_opener import show_page_snackbar
+from src.components.nu_coin_icon import nu_coin_icon
 
 
 def get_effective_cohort_status(cohort: dict) -> str:
@@ -409,7 +410,7 @@ async def notifications_view(page: ft.Page) -> ft.View:
                     is_claimed = bool(n.get("is_claimed", False) or n_data.get("is_claimed", False))
                     claim_spinner = ft.ProgressRing(width=12, height=12, stroke_width=2, color=ft.Colors.WHITE, visible=False)
                     claim_text = ft.Text("Claim Reward", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE)
-                    claim_icon = ft.Icon(ft.Icons.MONETIZATION_ON_ROUNDED, size=13, color=ft.Colors.WHITE)
+                    claim_icon = nu_coin_icon(size=14)
 
                     claim_btn = ft.ElevatedButton(
                         content=ft.Row([claim_spinner, claim_icon, claim_text], tight=True, spacing=4),

@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 import flet as ft
 
 from src.components.bottom_appbar import PersistentBottomAppBar
+from src.components.nu_coin_icon import nu_coin_icon
 from src.requests.objectives import (
     get_platform_objectives_api,
     claim_objective_reward_api,
@@ -26,6 +27,7 @@ from src.requests.study_partners import (
 from src.utils.session_utils import get_session_user, get_session_store
 from src.components.partner_challenge_modal import show_duel_results_dialog
 from src.utils.file_opener import show_page_snackbar
+from src.components.badge_pill import build_glossy_badge_pill
 
 
 async def leaderboards_view(
@@ -39,31 +41,22 @@ async def leaderboards_view(
     partner_box = [{}]
     coins_balance_box = [0]
 
-    content_area = ft.Container(
+    content_area = ft.AnimatedSwitcher(
+        content=ft.Container(),
+        transition=ft.AnimatedSwitcherTransition.FADE,
+        duration=220,
+        reverse_duration=160,
+        switch_in_curve=ft.AnimationCurve.EASE_OUT,
+        switch_out_curve=ft.AnimationCurve.EASE_IN,
         expand=True,
-        opacity=1,
-        offset=ft.Offset(0, 0),
-        animate_opacity=ft.Animation(360, ft.AnimationCurve.DECELERATE),
-        animate_offset=ft.Animation(360, ft.AnimationCurve.DECELERATE),
     )
 
     async def _swap_content_smoothly(new_content, is_initial: bool = False):
-        if is_initial:
-            content_area.content = new_content
-            content_area.opacity = 1
-            content_area.offset = ft.Offset(0, 0)
-            return
-
-        content_area.opacity = 0
-        content_area.offset = ft.Offset(0, 0.04)
-        page.update()
-        await asyncio.sleep(0.06)
-        content_area.content = new_content
         content_area.opacity = 1
-        content_area.offset = ft.Offset(0, 0)
+        content_area.content = new_content
         page.update()
 
-    coins_badge_text = ft.Text("... 🪙", size=12, weight=ft.FontWeight.W_800, color=ft.Colors.AMBER_900)
+    coins_badge_text = ft.Text("...", size=12, weight=ft.FontWeight.W_800, color=ft.Colors.AMBER_900)
 
     # ── Helper to retrieve current token reliably ────────────────────────────
     async def _get_auth_token():
@@ -83,10 +76,10 @@ async def leaderboards_view(
         bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.AMBER),
         border=ft.Border.all(1, ft.Colors.with_opacity(0.3, ft.Colors.AMBER_700)),
         content=ft.Row(
-            spacing=4,
+            spacing=5,
             tight=True,
             controls=[
-                ft.Icon(ft.Icons.MONETIZATION_ON_ROUNDED, size=15, color=ft.Colors.AMBER_800),
+                nu_coin_icon(size=16),
                 coins_badge_text,
             ],
         ),
@@ -143,11 +136,18 @@ async def leaderboards_view(
                                             ft.Text(f"{cat} • {created}", size=10, color=ft.Colors.GREY_500),
                                         ],
                                     ),
-                                    ft.Text(
-                                        f"+{amt} 🪙" if is_gain else f"{amt} 🪙",
-                                        size=13,
-                                        weight=ft.FontWeight.W_800,
-                                        color=ft.Colors.GREEN_700 if is_gain else ft.Colors.RED_600,
+                                    ft.Row(
+                                        spacing=4,
+                                        tight=True,
+                                        controls=[
+                                            nu_coin_icon(size=14),
+                                            ft.Text(
+                                                f"+{amt}" if is_gain else f"{amt}",
+                                                size=13,
+                                                weight=ft.FontWeight.W_800,
+                                                color=ft.Colors.GREEN_700 if is_gain else ft.Colors.RED_600,
+                                            ),
+                                        ],
                                     ),
                                 ],
                             ),
@@ -166,7 +166,7 @@ async def leaderboards_view(
                         spacing=8,
                         tight=True,
                         controls=[
-                            ft.Icon(ft.Icons.ACCOUNT_BALANCE_WALLET_ROUNDED, color=ft.Colors.AMBER_800, size=22),
+                            nu_coin_icon(size=22),
                             ft.Text("Nu-Coins Transaction Ledger", size=15, weight=ft.FontWeight.W_800),
                         ],
                     ),
@@ -196,46 +196,10 @@ async def leaderboards_view(
         objectives = res.get("objectives", []) or DEFAULT_PRELIM_OBJECTIVES
         bal = res.get("coins_balance", 0)
         coins_balance_box[0] = bal
-        coins_badge_text.value = f"{bal} 🪙"
+        coins_badge_text.value = f"{bal}"
 
         obj_list = ft.ListView(spacing=8, expand=True, padding=ft.Padding.symmetric(horizontal=16, vertical=8))
 
-        # Overview banner
-        obj_list.controls.append(
-            ft.Container(
-                padding=ft.Padding.symmetric(horizontal=14, vertical=12),
-                border_radius=ft.BorderRadius.all(12),
-                bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.PRIMARY),
-                border=ft.Border.all(1, ft.Colors.with_opacity(0.15, ft.Colors.PRIMARY)),
-                content=ft.Row(
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                    controls=[
-                        ft.Row(
-                            spacing=10,
-                            tight=True,
-                            controls=[
-                                ft.Icon(ft.Icons.AUTO_AWESOME_ROUNDED, color=ft.Colors.PRIMARY, size=20),
-                                ft.Column(
-                                    spacing=2,
-                                    tight=True,
-                                    controls=[
-                                        ft.Text("Platform Learning Objectives", size=13, weight=ft.FontWeight.W_800),
-                                        ft.Text("Hit core study milestones to unlock instant Nu-Coins.", size=11, color=ft.Colors.GREY_600),
-                                    ],
-                                ),
-                            ],
-                        ),
-                        ft.Container(
-                            padding=ft.Padding.symmetric(horizontal=8, vertical=4),
-                            border_radius=ft.BorderRadius.all(8),
-                            bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.AMBER),
-                            content=ft.Text(f"Balance: {bal} 🪙", size=11, weight=ft.FontWeight.W_800, color=ft.Colors.AMBER_900),
-                        ),
-                    ],
-                ),
-            )
-        )
 
         # Category Filter Chips
         categories = [
@@ -339,19 +303,25 @@ async def leaderboards_view(
                         if c_res.get("status") == "success":
                             earned = c_res.get("reward_coins") or c_res.get("coin_reward") or r_coins
                             coins_balance_box[0] += earned
-                            coins_badge_text.value = f"{coins_balance_box[0]} 🪙"
+                            coins_badge_text.value = f"{coins_balance_box[0]}"
                             page.update()
                             show_page_snackbar(page, f"🎉 Claimed +{earned} Nu-Coins!")
                             page.run_task(_render_objectives_tab, False)
                         else:
                             if b_ref[0]:
                                 b_ref[0].disabled = False
-                                b_ref[0].content = ft.Text(f"Claim +{r_coins} 🪙", size=11, weight=ft.FontWeight.W_800)
+                                b_ref[0].content = ft.Row([
+                                    nu_coin_icon(size=14),
+                                    ft.Text(f"Claim +{r_coins}", size=11, weight=ft.FontWeight.W_800),
+                                ], spacing=4, tight=True)
                                 b_ref[0].update()
                             show_page_snackbar(page, c_res.get("message") or c_res.get("error", "Error claiming reward."))
 
                     claim_btn = ft.ElevatedButton(
-                        content=ft.Text(f"Claim +{reward} 🪙", size=11, weight=ft.FontWeight.W_800),
+                        content=ft.Row([
+                            nu_coin_icon(size=14),
+                            ft.Text(f"Claim +{reward}", size=11, weight=ft.FontWeight.W_800),
+                        ], spacing=4, tight=True),
                         bgcolor=ft.Colors.AMBER_800,
                         color=ft.Colors.WHITE,
                         height=30,
@@ -392,7 +362,10 @@ async def leaderboards_view(
                                                     padding=ft.Padding.symmetric(horizontal=6, vertical=2),
                                                     border_radius=ft.BorderRadius.all(6),
                                                     bgcolor=ft.Colors.with_opacity(0.10, ft.Colors.AMBER),
-                                                    content=ft.Text(f"+{reward} 🪙", size=10, weight=ft.FontWeight.W_800, color=ft.Colors.AMBER_900),
+                                                    content=ft.Row([
+                                                        nu_coin_icon(size=12),
+                                                        ft.Text(f"+{reward}", size=10, weight=ft.FontWeight.W_800, color=ft.Colors.AMBER_900),
+                                                    ], spacing=3, tight=True),
                                                 ),
                                             ],
                                         ),
@@ -526,6 +499,11 @@ async def leaderboards_view(
                 my_rk = my_entry.get("rank", 1)
                 podium_medals = {1: "🥇 Gold Leader", 2: "🥈 Silver Runner-up", 3: "🥉 Bronze Finalist"}
                 sub_txt = podium_medals.get(my_rk, f"#{my_rk} on Campus Leaderboard")
+                my_standing_title = [ft.Text(f"Your Standing: #{my_rk} ({m_score})", size=13, weight=ft.FontWeight.W_900)]
+                my_p_badge = my_entry.get("primary_badge")
+                if my_p_badge and isinstance(my_p_badge, dict):
+                    my_standing_title.append(build_glossy_badge_pill(my_p_badge, is_mobile=True, max_width=110))
+
                 board_list.controls.append(
                     ft.Container(
                         padding=ft.Padding.symmetric(horizontal=14, vertical=10),
@@ -545,7 +523,7 @@ async def leaderboards_view(
                                             spacing=2,
                                             tight=True,
                                             controls=[
-                                                ft.Text(f"Your Standing: #{my_rk} ({m_score})", size=13, weight=ft.FontWeight.W_900),
+                                                ft.Row(my_standing_title, spacing=6, tight=True, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                                                 ft.Text(sub_txt, size=11, color=ft.Colors.GREY_600),
                                             ],
                                         ),
@@ -572,7 +550,22 @@ async def leaderboards_view(
                 n2, u2, s2 = _extract_meta(second)
                 n3, u3, s3 = _extract_meta(third) if third else ("", "", "")
 
-                def _podium_card(medal, name, uni, score, is_first=False):
+                b1 = first.get("primary_badge")
+                if not b1:
+                    if filter_type == "duo_streaks":
+                        b1 = {"name": "Duo Kings", "slug": "duo_kings", "icon_name": "military_tech_rounded", "gradient_start": "#F59E0B", "gradient_end": "#D97706", "tier": "gold"}
+                    elif filter_type == "weekly":
+                        b1 = {"name": "#1 Streak", "slug": "streak_master", "icon_name": "bolt_rounded", "gradient_start": "#10B981", "gradient_end": "#059669", "tier": "gold"}
+                    elif filter_type == "today":
+                        b1 = {"name": "#1 Focus", "slug": "study_champion", "icon_name": "emoji_events_rounded", "gradient_start": "#6366F1", "gradient_end": "#4F46E5", "tier": "gold"}
+
+                b2 = second.get("primary_badge")
+                b3 = third.get("primary_badge") if third else None
+
+                def _podium_card(medal, name, uni, score, is_first=False, badge=None):
+                    badge_ctrl = ft.Container()
+                    if badge and isinstance(badge, dict):
+                        badge_ctrl = build_glossy_badge_pill(badge, is_mobile=True, max_width=95)
                     return ft.Container(
                         width=124 if is_first else 105,
                         padding=ft.Padding.symmetric(horizontal=8, vertical=14 if is_first else 10),
@@ -587,6 +580,7 @@ async def leaderboards_view(
                             controls=[
                                 ft.Text(medal, size=22 if is_first else 18),
                                 ft.Text(name, size=11.5 if is_first else 10.5, weight=ft.FontWeight.W_800, text_align=ft.TextAlign.CENTER, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                                badge_ctrl,
                                 ft.Text(score, size=10.5 if is_first else 9.5, weight=ft.FontWeight.W_700, color=ft.Colors.PRIMARY),
                                 ft.Text(uni, size=9, color=ft.Colors.GREY_500, text_align=ft.TextAlign.CENTER, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                             ],
@@ -594,11 +588,11 @@ async def leaderboards_view(
                     )
 
                 podium_controls = [
-                    _podium_card("🥈", n2, u2, s2, is_first=False),
-                    _podium_card("🥇", n1, u1, s1, is_first=True),
+                    _podium_card("🥈", n2, u2, s2, is_first=False, badge=b2),
+                    _podium_card("🥇", n1, u1, s1, is_first=True, badge=b1),
                 ]
                 if third:
-                    podium_controls.append(_podium_card("🥉", n3, u3, s3, is_first=False))
+                    podium_controls.append(_podium_card("🥉", n3, u3, s3, is_first=False, badge=b3))
 
                 podium_section = ft.Container(
                     padding=ft.Padding.symmetric(vertical=8),
@@ -630,6 +624,21 @@ async def leaderboards_view(
                 name, uni, score_label = _extract_meta(item)
                 is_mine = item.get("is_my_duo", False) or item.get("is_me", False)
 
+                p_badge = item.get("primary_badge")
+                if not p_badge and rk == 1:
+                    if filter_type == "duo_streaks":
+                        p_badge = {"name": "Duo Kings", "slug": "duo_kings", "icon_name": "military_tech_rounded", "gradient_start": "#F59E0B", "gradient_end": "#D97706", "tier": "gold"}
+                    elif filter_type == "weekly":
+                        p_badge = {"name": "#1 Streak", "slug": "streak_master", "icon_name": "bolt_rounded", "gradient_start": "#10B981", "gradient_end": "#059669", "tier": "gold"}
+                    elif filter_type == "today":
+                        p_badge = {"name": "#1 Focus", "slug": "study_champion", "icon_name": "emoji_events_rounded", "gradient_start": "#6366F1", "gradient_end": "#4F46E5", "tier": "gold"}
+
+                name_row_controls = [
+                    ft.Text(name, size=12.5, weight=ft.FontWeight.W_800, color=ft.Colors.PRIMARY if is_mine else ft.Colors.ON_SURFACE)
+                ]
+                if p_badge and isinstance(p_badge, dict):
+                    name_row_controls.append(build_glossy_badge_pill(p_badge, is_mobile=True, max_width=100))
+
                 board_list.controls.append(
                     ft.Container(
                         padding=ft.Padding.symmetric(horizontal=14, vertical=10),
@@ -643,13 +652,14 @@ async def leaderboards_view(
                                 ft.Row(
                                     spacing=10,
                                     tight=True,
+                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
                                     controls=[
                                         ft.Text(rank_str, size=14, weight=ft.FontWeight.W_900),
                                         ft.Column(
                                             spacing=2,
                                             tight=True,
                                             controls=[
-                                                ft.Text(name, size=12.5, weight=ft.FontWeight.W_800, color=ft.Colors.PRIMARY if is_mine else ft.Colors.ON_SURFACE),
+                                                ft.Row(name_row_controls, spacing=6, tight=True, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                                                 ft.Text(uni, size=10, color=ft.Colors.GREY_500),
                                             ],
                                         ),
@@ -881,24 +891,36 @@ async def leaderboards_view(
     def _render_tab_header():
         tab_buttons_row.controls.clear()
         tabs = [
-            ("objectives", "🪙 Objectives"),
+            ("objectives", "Objectives"),
             ("leaderboards", "🏆 Leaderboards"),
             ("history", "⚔️ Duel History"),
         ]
         for t_id, t_lbl in tabs:
             is_active = (t_id == current_tab)
+            if t_id == "objectives":
+                btn_content = ft.Row([
+                    nu_coin_icon(size=13),
+                    ft.Text(
+                        t_lbl,
+                        size=10,
+                        weight=ft.FontWeight.W_800 if is_active else ft.FontWeight.W_600,
+                        color=ft.Colors.WHITE if is_active else ft.Colors.ON_SURFACE,
+                    ),
+                ], spacing=4, tight=True)
+            else:
+                btn_content = ft.Text(
+                    t_lbl,
+                    size=10,
+                    weight=ft.FontWeight.W_800 if is_active else ft.FontWeight.W_600,
+                    color=ft.Colors.WHITE if is_active else ft.Colors.ON_SURFACE,
+                )
             btn = ft.Container(
                 padding=ft.Padding.symmetric(horizontal=14, vertical=8),
                 border_radius=ft.BorderRadius.all(10),
                 bgcolor=ft.Colors.PRIMARY if is_active else ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
                 ink=True,
                 on_click=(lambda tid=t_id: lambda _: _switch_tab(tid))(),
-                content=ft.Text(
-                    t_lbl,
-                    size=10,
-                    weight=ft.FontWeight.W_800 if is_active else ft.FontWeight.W_600,
-                    color=ft.Colors.WHITE if is_active else ft.Colors.ON_SURFACE,
-                ),
+                content=btn_content,
             )
             tab_buttons_row.controls.append(btn)
 
@@ -910,7 +932,7 @@ async def leaderboards_view(
         c_bal = u_obj.get("coins_balance", 0)
         if c_bal is not None:
             coins_balance_box[0] = c_bal
-            coins_badge_text.value = f"{c_bal} 🪙"
+            coins_badge_text.value = f"{c_bal}"
 
         # 2. Fetch live balance from objectives API so it's always accurate right away
         if tok:
@@ -919,7 +941,7 @@ async def leaderboards_view(
                 if res_obj and "coins_balance" in res_obj:
                     live_bal = res_obj.get("coins_balance", 0)
                     coins_balance_box[0] = live_bal
-                    coins_badge_text.value = f"{live_bal} 🪙"
+                    coins_badge_text.value = f"{live_bal}"
             except Exception:
                 pass
 

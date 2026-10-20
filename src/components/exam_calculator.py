@@ -12,7 +12,19 @@ Provides Basic and Scientific calculator modes with an extensive mathematical en
 
 import math
 import re
+from typing import Optional
 import flet as ft
+
+
+def _extract_deltas(e: ft.DragUpdateEvent) -> tuple[float, float]:
+    """Safely extracts dx and dy deltas from Flet 0.86.5 DragUpdateEvent."""
+    if hasattr(e, "local_delta") and e.local_delta:
+        return (getattr(e.local_delta, "x", 0.0) or 0.0, getattr(e.local_delta, "y", 0.0) or 0.0)
+    if hasattr(e, "global_delta") and e.global_delta:
+        return (getattr(e.global_delta, "x", 0.0) or 0.0, getattr(e.global_delta, "y", 0.0) or 0.0)
+    if hasattr(e, "delta_x") or hasattr(e, "delta_y"):
+        return (getattr(e, "delta_x", 0.0) or 0.0, getattr(e, "delta_y", 0.0) or 0.0)
+    return (0.0, 0.0)
 
 
 def _safe_evaluate_expression(expr: str, ans_val: float = 0.0) -> str:
@@ -109,6 +121,7 @@ def build_exam_calculator(
     calculator_type: str = "basic",
     on_close=None,
     on_toggle_mode=None,
+    target_container: Optional[ft.Container] = None,
 ) -> ft.Container:
     """Constructs an extensive, sleek floating calculator overlay card for candidates."""
     is_scientific = (calculator_type == "scientific")
@@ -304,6 +317,42 @@ def build_exam_calculator(
         ], spacing=4)
         calc_width = min(300, max_w)
 
+    # Initialize coordinate anchors if target_container is provided
+    if target_container:
+        if target_container.left is None:
+            r_val = getattr(target_container, "right", None)
+            if r_val is not None:
+                target_container.left = max(16.0, screen_w - calc_width - float(r_val))
+            else:
+                target_container.left = max(16.0, screen_w - calc_width - 24.0)
+        target_container.right = None
+        target_container.bottom = None
+
+    def handle_pan_update(e: ft.DragUpdateEvent):
+        if not target_container:
+            return
+        dx, dy = _extract_deltas(e)
+        s_w = getattr(page, "width", None) or 800
+        s_h = getattr(page, "height", None) or 600
+
+        max_x = max(8.0, s_w - calc_width - 8.0)
+        max_y = max(8.0, s_h - 220.0)
+
+        cur_l = target_container.left if target_container.left is not None else max(16.0, s_w - calc_width - 24.0)
+        cur_t = target_container.top if target_container.top is not None else 60.0
+
+        target_container.left = max(8.0, min(max_x, cur_l + dx))
+        target_container.top = max(8.0, min(max_y, cur_t + dy))
+        target_container.right = None
+        target_container.bottom = None
+        try:
+            target_container.update()
+        except Exception:
+            try:
+                page.update()
+            except Exception:
+                pass
+
     # Header - Universal Candidate Branding
     mode_btn = None
     if on_toggle_mode:
@@ -322,14 +371,46 @@ def build_exam_calculator(
             ),
         )
 
+    drag_pill = ft.Container(
+        width=36,
+        height=4,
+        border_radius=2,
+        bgcolor=ft.Colors.with_opacity(0.35, ft.Colors.ON_SURFACE),
+    )
+
+    drag_title = ft.Row([
+        ft.Icon(ft.Icons.DRAG_INDICATOR_ROUNDED, size=15, color=ft.Colors.with_opacity(0.5, ft.Colors.ON_SURFACE)),
+        ft.Icon(ft.Icons.CALCULATE_ROUNDED, size=16, color=ft.Colors.PRIMARY),
+        ft.Text("Calculator", size=13, weight=ft.FontWeight.BOLD),
+    ], spacing=4, tight=True, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+
+    if target_container:
+        drag_handle_box = ft.GestureDetector(
+            mouse_cursor=ft.MouseCursor.MOVE,
+            drag_interval=10,
+            on_pan_update=handle_pan_update,
+            content=ft.Container(
+                content=ft.Column([
+                    ft.Row([drag_pill], alignment=ft.MainAxisAlignment.CENTER),
+                    drag_title,
+                ], spacing=4, tight=True, horizontal_alignment=ft.CrossAxisAlignment.START),
+                padding=ft.Padding.only(top=0, bottom=2, left=2, right=8),
+                tooltip="Drag to reposition calculator",
+            ),
+        )
+    else:
+        drag_handle_box = ft.Column([
+            ft.Row([drag_pill], alignment=ft.MainAxisAlignment.CENTER),
+            drag_title,
+        ], spacing=4, tight=True, horizontal_alignment=ft.CrossAxisAlignment.START)
+
     header = ft.Row([
+        drag_handle_box,
         ft.Row([
-            ft.Icon(ft.Icons.CALCULATE_ROUNDED, size=16, color=ft.Colors.PRIMARY),
-            ft.Text("Calculator", size=13, weight=ft.FontWeight.BOLD),
             *( [mode_btn] if mode_btn else [] ),
-        ], spacing=6, tight=True, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-        ft.IconButton(ft.Icons.CLOSE_ROUNDED, icon_size=16, tooltip="Close Calculator", on_click=on_close),
-    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+            ft.IconButton(ft.Icons.CLOSE_ROUNDED, icon_size=16, tooltip="Close Calculator", on_click=on_close),
+        ], spacing=4, tight=True, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
     # Full-Width Right-Aligned Display
     display_box = ft.Container(

@@ -502,9 +502,14 @@ async def courses_view(page: ft.Page):
         padding=0,
     )
 
-    section_body = ft.Container(
-        expand=True,
+    section_body = ft.AnimatedSwitcher(
         content=enrolled_section,
+        transition=ft.AnimatedSwitcherTransition.FADE,
+        duration=220,
+        reverse_duration=160,
+        switch_in_curve=ft.AnimationCurve.EASE_OUT,
+        switch_out_curve=ft.AnimationCurve.EASE_IN,
+        expand=True,
     )
 
     playground_section = CodingPlayground(page)

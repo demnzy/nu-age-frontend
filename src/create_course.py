@@ -460,18 +460,32 @@ async def create_courses_view(page: ft.Page, org_id: str = None):
                 }
 
                 new_course = await asyncio.wait_for(
-                    create_course(token, payload), timeout=20
+                    create_course(token, payload), timeout=50
                 )
 
-                if isinstance(new_course, dict):
+                if isinstance(new_course, dict) and "id" in new_course:
                     current_courses.insert(0, new_course)
                     close_modal()
                     refresh_grid()
                 else:
-                    raise ValueError("Unexpected server response.")
+                    err_msg = new_course.get("error", "Failed to create course") if isinstance(new_course, dict) else "Unexpected server response."
+                    status_c = new_course.get("status_code", 0) if isinstance(new_course, dict) else 0
+
+                    if status_c == 409 or "already exists" in str(err_msg).lower():
+                        error_text.value = f"Course already exists:\n{err_msg}\n\nIf it was created moments ago, please close this window and refresh your courses."
+                    elif status_c == 408 or "timed out" in str(err_msg).lower():
+                        error_text.value = f"{err_msg}"
+                    else:
+                        error_text.value = f"Could not create course: {err_msg}"
+
+                    error_text.visible = True
+                    submit_btn.disabled = False
+                    submit_btn.content = ft.Text("Create Course", color=ft.Colors.WHITE,
+                                                 size=13, weight=ft.FontWeight.W_600)
+                    page.update()
 
             except asyncio.TimeoutError:
-                error_text.value   = "Request timed out. Check your connection and try again."
+                error_text.value = "The request timed out. The server may still be creating your course. Please close this window and check your course list before trying again."
                 error_text.visible = True
                 submit_btn.disabled = False
                 submit_btn.content = ft.Text("Create Course", color=ft.Colors.WHITE,
@@ -479,7 +493,7 @@ async def create_courses_view(page: ft.Page, org_id: str = None):
                 page.update()
 
             except Exception as ex:
-                error_text.value   = f"Something went wrong ({type(ex).__name__}). Please try again."
+                error_text.value = f"Error ({type(ex).__name__}): {ex}. Please check your connection or refresh courses."
                 error_text.visible = True
                 submit_btn.disabled = False
                 submit_btn.content = ft.Text("Create Course", color=ft.Colors.WHITE,

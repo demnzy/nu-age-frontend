@@ -282,6 +282,10 @@ class PersistentBottomAppBar:
     def _on_item_navigate(self, route: str):
         import asyncio
         self.set_active_route(route)
+        try:
+            self.bar.update()
+        except Exception:
+            pass
         if getattr(self.page, "route", None) == route:
             # Re-evaluating route if already on it allows users to refresh a stuck or blank view
             on_rc = getattr(self.page, "on_route_change", None)
@@ -291,7 +295,8 @@ class PersistentBottomAppBar:
                 except Exception:
                     ev = None
                 try:
-                    if asyncio.iscoroutinefunction(on_rc):
+                    import inspect
+                    if inspect.iscoroutinefunction(on_rc):
                         self.page.run_task(on_rc, ev)
                     else:
                         on_rc(ev)

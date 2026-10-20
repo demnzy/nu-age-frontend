@@ -8,6 +8,7 @@ Provides:
 
 from datetime import datetime, timezone
 import flet as ft
+from src.components.nu_coin_icon import nu_coin_icon
 
 # In-memory store for session notifications
 _NOTIFICATIONS_STORE = []
@@ -485,7 +486,7 @@ def open_notifications_drawer(page: ft.Page):
                     is_claimed = bool(n.get("is_claimed", False) or n_data.get("is_claimed", False))
                     claim_spinner = ft.ProgressRing(width=12, height=12, stroke_width=2, color=ft.Colors.WHITE, visible=False)
                     claim_text = ft.Text("Claim Reward", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE)
-                    claim_icon = ft.Icon(ft.Icons.MONETIZATION_ON_ROUNDED, size=13, color=ft.Colors.WHITE)
+                    claim_icon = nu_coin_icon(size=14)
 
                     claim_btn = ft.ElevatedButton(
                         content=ft.Row([claim_spinner, claim_icon, claim_text], tight=True, spacing=4),

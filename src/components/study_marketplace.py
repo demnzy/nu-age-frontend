@@ -18,6 +18,7 @@ from src.requests.marketplace import (
 )
 from src.components.study_pack_card import StudyPackCard, CATEGORY_PRESETS
 from src.components.study_bundle_card import StudyBundleCard
+from src.components.nu_coin_icon import nu_coin_icon
 from src.utils.file_opener import show_page_snackbar
 
 # ── THEME PRESETS ─────────────────────────────────────────────────────────────
@@ -88,8 +89,22 @@ class StudyMarketplaceView:
         # UI Slots
         self.category_row: Optional[ft.Row] = None
         # No expand=True here: it sits inside a ListView (unbounded height)
-        self.content_container = ft.Container()
-        self.main_body_container = ft.Container()
+        self.content_container = ft.AnimatedSwitcher(
+            content=self._build_loading_indicator(),
+            transition=ft.AnimatedSwitcherTransition.FADE,
+            duration=220,
+            reverse_duration=160,
+            switch_in_curve=ft.AnimationCurve.EASE_OUT,
+            switch_out_curve=ft.AnimationCurve.EASE_IN,
+        )
+        self.main_body_container = ft.AnimatedSwitcher(
+            content=ft.Container(padding=ft.Padding.only(left=20, right=20, top=16, bottom=24)),
+            transition=ft.AnimatedSwitcherTransition.FADE,
+            duration=220,
+            reverse_duration=160,
+            switch_in_curve=ft.AnimationCurve.EASE_OUT,
+            switch_out_curve=ft.AnimationCurve.EASE_IN,
+        )
         self.subnav_bar_container = ft.Container()
         self.coins_badge_text = ft.Text(" ... Coins", size=12, weight=ft.FontWeight.W_700, color=ft.Colors.AMBER_400)
         self.header_actions_row = ft.Row(
@@ -227,7 +242,7 @@ class StudyMarketplaceView:
         self.subnav_bar_container = ft.Container(
             content=self._build_subnav_tabs_content()
         )
-        self.main_body_container = ft.Container(
+        self.main_body_container.content = ft.Container(
             padding=ft.Padding.only(left=20, right=20, top=16, bottom=24),
             content=ft.Column(
                 spacing=18,
@@ -483,7 +498,7 @@ class StudyMarketplaceView:
                     spacing=6,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     controls=[
-                        ft.Icon(ft.Icons.MONETIZATION_ON_ROUNDED, size=16, color="#D97706"),
+                        nu_coin_icon(size=16),
                         ft.Text(self.coins_badge_text.value, size=12, weight=ft.FontWeight.W_800, color="#92400E"),
                     ],
                 ),
@@ -702,15 +717,17 @@ class StudyMarketplaceView:
             self.subnav_bar_container.content = self._build_subnav_tabs_content()
 
         if self.active_tab == "my_submissions":
-            if self.is_loading_submissions:
-                self.main_body_container.content = self._build_submissions_loading()
-            else:
-                self.main_body_container.content = self._build_my_submissions_view()
+            sub_content = self._build_submissions_loading() if self.is_loading_submissions else self._build_my_submissions_view()
+            self.main_body_container.content = ft.Container(
+                padding=ft.Padding.only(left=20, right=20, top=16, bottom=24),
+                content=sub_content,
+            )
         elif self.active_tab == "bundles":
-            if self.is_loading_bundles and not self.bundles:
-                self.main_body_container.content = self._build_bundles_loading()
-            else:
-                self.main_body_container.content = self._build_bundles_view()
+            bundle_content = self._build_bundles_loading() if (self.is_loading_bundles and not self.bundles) else self._build_bundles_view()
+            self.main_body_container.content = ft.Container(
+                padding=ft.Padding.only(left=20, right=20, top=16, bottom=24),
+                content=bundle_content,
+            )
         else:
             if self.is_loading:
                 self.content_container.content = self._build_loading_indicator()
@@ -722,13 +739,16 @@ class StudyMarketplaceView:
                     run_spacing=16,
                     controls=[self._build_pack_card(p) for p in self.packs],
                 )
-            self.main_body_container.content = ft.Column(
-                spacing=18,
-                controls=[
-                    self._build_hero_spotlight(),
-                    self._build_search_and_filters_bar(),
-                    self.content_container,
-                ],
+            self.main_body_container.content = ft.Container(
+                padding=ft.Padding.only(left=20, right=20, top=16, bottom=24),
+                content=ft.Column(
+                    spacing=18,
+                    controls=[
+                        self._build_hero_spotlight(),
+                        self._build_search_and_filters_bar(),
+                        self.content_container,
+                    ],
+                ),
             )
 
         self._update_header_actions()
@@ -1393,7 +1413,7 @@ class StudyMarketplaceView:
                             padding=ft.Padding.all(10),
                             border_radius=ft.BorderRadius.all(10),
                             bgcolor=icon_bg,
-                            content=ft.Icon(icon, size=20, color=icon_color),
+                            content=icon if isinstance(icon, ft.Control) else ft.Icon(icon, size=20, color=icon_color),
                         ),
                         ft.Column(
                             tight=True,
@@ -1414,7 +1434,7 @@ class StudyMarketplaceView:
                 _stat_card({"sm": 6, "md": 3}, ft.Icons.INVENTORY_2_ROUNDED, "Total Submitted", str(total_count), "#2563EB", "#EFF6FF"),
                 _stat_card({"sm": 6, "md": 3}, ft.Icons.CHECK_CIRCLE_ROUNDED, "Live in Store", str(approved_count), "#059669", "#ECFDF5"),
                 _stat_card({"sm": 6, "md": 3}, ft.Icons.HOURGLASS_TOP_ROUNDED, "Under Review", str(pending_count), "#D97706", "#FFFBEB"),
-                _stat_card({"sm": 6, "md": 3}, ft.Icons.MONETIZATION_ON_ROUNDED, "Nu-Coins Earned", f"+{total_coins}", "#B45309", "#FEF3C7"),
+                _stat_card({"sm": 6, "md": 3}, nu_coin_icon(size=22), "Nu-Coins Earned", f"+{total_coins}", "#B45309", "#FEF3C7"),
             ],
         )
 
@@ -1485,7 +1505,7 @@ class StudyMarketplaceView:
                                     bgcolor="#FEF3C7",
                                     border=ft.Border.all(1, "#FDE68A"),
                                     content=ft.Row([
-                                        ft.Icon(ft.Icons.MONETIZATION_ON_ROUNDED, size=14, color="#B45309"),
+                                        nu_coin_icon(size=14),
                                         ft.Text("3. Earn 50 Nu-Coins", size=11.5, weight=ft.FontWeight.W_800, color="#92400E"),
                                     ], spacing=6, tight=True),
                                 ),
@@ -1593,7 +1613,7 @@ class StudyMarketplaceView:
                 bgcolor="#FEF3C7",
                 border=ft.Border.all(1, "#F59E0B"),
                 content=ft.Row([
-                    ft.Icon(ft.Icons.MONETIZATION_ON_ROUNDED, size=14, color="#B45309"),
+                    nu_coin_icon(size=14),
                     ft.Text(f"+{reward_coins} Nu-Coins Earned 🎉", size=11, weight=ft.FontWeight.W_800, color="#92400E"),
                 ], spacing=6, tight=True),
             )
@@ -2184,16 +2204,22 @@ class StudyMarketplaceView:
                             controls=[
                                 ft.Column([
                                     ft.Text("Unlock Cost", size=10.5, color="#78350F"),
-                                    ft.Text(f"{price_coins} Nu-Coins", size=15, weight=ft.FontWeight.W_800, color="#B45309"),
+                                    ft.Row([
+                                        nu_coin_icon(size=15),
+                                        ft.Text(f"{price_coins} Nu-Coins", size=15, weight=ft.FontWeight.W_800, color="#B45309"),
+                                    ], spacing=5, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                                 ], spacing=1, tight=True),
                                 ft.Column([
                                     ft.Text("Your Balance", size=10.5, color="#78350F"),
-                                    ft.Text(
-                                        f"{self.user_coins} Coins",
-                                        size=15,
-                                        weight=ft.FontWeight.W_800,
-                                        color="#059669" if has_enough_coins else "#DC2626",
-                                    ),
+                                    ft.Row([
+                                        nu_coin_icon(size=15),
+                                        ft.Text(
+                                            f"{self.user_coins} Coins",
+                                            size=15,
+                                            weight=ft.FontWeight.W_800,
+                                            color="#059669" if has_enough_coins else "#DC2626",
+                                        ),
+                                    ], spacing=5, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                                 ], spacing=1, tight=True, horizontal_alignment=ft.CrossAxisAlignment.END),
                             ],
                         ),
@@ -2453,7 +2479,7 @@ class StudyMarketplaceView:
             on_click=lambda _: self._close_dialog(submit_dialog),
         )
 
-        def _info_tile(icon: str, heading: str, body: str) -> ft.Container:
+        def _info_tile(icon: Any, heading: str, body: str) -> ft.Container:
             return ft.Container(
                 expand=True,
                 padding=ft.Padding.all(12),
@@ -2464,7 +2490,7 @@ class StudyMarketplaceView:
                     spacing=4,
                     tight=True,
                     controls=[
-                        ft.Icon(icon, size=18, color=ACCENT),
+                        icon if isinstance(icon, ft.Control) else ft.Icon(icon, size=18, color=ACCENT),
                         ft.Text(heading, size=11.5, weight=ft.FontWeight.W_700, color=TEXT_MAIN),
                         ft.Text(body, size=10.5, color=TEXT_MUTED),
                     ],
@@ -2540,7 +2566,7 @@ class StudyMarketplaceView:
                                 "We check quality and add subject tags & descriptive information",
                             ),
                             _info_tile(
-                                ft.Icons.MONETIZATION_ON_ROUNDED,
+                                nu_coin_icon(size=18),
                                 "Earn Nu-Coins",
                                 "Awarded to you once your pack is approved.",
                             ),

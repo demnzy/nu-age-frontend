@@ -29,6 +29,7 @@ from src.components.partner_challenge_modal import (
     start_quickfire_duel_flow,
     show_flashcard_preview_dialog,
 )
+from src.components.nu_coin_icon import nu_coin_icon
 
 
 def build_dashboard_duo_section(
@@ -80,9 +81,9 @@ def build_dashboard_duo_section(
     def _render_tab_headers():
         tab_buttons_row.controls.clear()
         tabs = [
-            ("objectives", "🪙 Prelim Objectives", ft.Icons.TOKEN_ROUNDED),
-            ("leaderboard", "🏆 Campus Leaderboard", ft.Icons.LEADERBOARD_ROUNDED),
-            ("shared_packs", "📚 Duo Shared Packs", ft.Icons.FOLDER_SHARED_ROUNDED),
+            ("objectives", "Prelim Objectives", None),
+            ("leaderboard", "Campus Leaderboard", ft.Icons.LEADERBOARD_ROUNDED),
+            ("shared_packs", "Duo Shared Packs", ft.Icons.FOLDER_SHARED_ROUNDED),
         ]
         for key, label, icon in tabs:
             is_active = (key == current_tab)
@@ -96,7 +97,7 @@ def build_dashboard_duo_section(
                     spacing=6,
                     tight=True,
                     controls=[
-                        ft.Icon(icon, size=15, color=ft.Colors.PRIMARY if is_active else ft.Colors.GREY_500),
+                        nu_coin_icon(size=15) if key == "objectives" else ft.Icon(icon, size=15, color=ft.Colors.PRIMARY if is_active else ft.Colors.GREY_500),
                         ft.Text(
                             label,
                             size=12,
@@ -163,7 +164,14 @@ def build_dashboard_duo_section(
             # - If in progress: clean ratio pill (e.g. 2/5). ZERO GRAY BOXES!
             if can_claim:
                 claim_btn = ft.ElevatedButton(
-                    content=ft.Text(f"Claim +{reward} 🪙", size=11, weight=ft.FontWeight.W_700),
+                    content=ft.Row(
+                        spacing=4,
+                        tight=True,
+                        controls=[
+                            nu_coin_icon(size=14),
+                            ft.Text(f"Claim +{reward}", size=11, weight=ft.FontWeight.W_700),
+                        ],
+                    ),
                     bgcolor=ft.Colors.PRIMARY,
                     color=ft.Colors.WHITE,
                     height=30,
@@ -232,7 +240,14 @@ def build_dashboard_duo_section(
                                             padding=ft.Padding.symmetric(horizontal=6, vertical=1.5),
                                             border_radius=ft.BorderRadius.all(6),
                                             bgcolor=ft.Colors.with_opacity(0.10, ft.Colors.AMBER),
-                                            content=ft.Text(f"+{reward}🪙", size=9.5, weight=ft.FontWeight.W_800, color=ft.Colors.AMBER_900),
+                                            content=ft.Row(
+                                                spacing=3,
+                                                tight=True,
+                                                controls=[
+                                                    nu_coin_icon(size=12),
+                                                    ft.Text(f"+{reward}", size=9.5, weight=ft.FontWeight.W_800, color=ft.Colors.AMBER_900),
+                                                ],
+                                            ),
                                         ),
                                     ],
                                 ),
@@ -549,7 +564,20 @@ def build_dashboard_duo_section(
                     duel_btn.on_click = (lambda pid=pack_id, pt=title: lambda _: page.run_task(_start_pack_duel, pid, pt))()
                     action_controls.append(duel_btn)
 
-                async def _preview_pack(pid=pack_id, p_title=title):
+                async def _preview_pack(pid=pack_id, p_title=title, pack_item=sp):
+                    fcs = pack_item.get("flashcards") if isinstance(pack_item, dict) else None
+                    if fcs and isinstance(fcs, list):
+                        show_flashcard_preview_dialog(
+                            page=page,
+                            token=token,
+                            partnership_id=partnership_id,
+                            pack_id=pid,
+                            pack_title=p_title,
+                            partner_name=p_name,
+                            flashcards=fcs,
+                            on_duel_start=on_coins_changed,
+                        )
+                        return
                     p_res = await preview_shared_study_pack_api(token, partnership_id, pid)
                     if p_res and not p_res.get("error"):
                         fcs = p_res.get("flashcards", [])
@@ -577,7 +605,7 @@ def build_dashboard_duo_section(
                     ),
                     height=30,
                     style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
-                    on_click=(lambda pid=pack_id, pt=title: lambda _: page.run_task(_preview_pack, pid, pt))(),
+                    on_click=(lambda pid=pack_id, pt=title, item=sp: lambda _: page.run_task(_preview_pack, pid, pt, item))(),
                 )
                 action_controls.append(preview_btn)
 

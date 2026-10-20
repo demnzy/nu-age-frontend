@@ -101,7 +101,7 @@ async def course_stats_view(page: ft.Page, course_id: str) -> ft.View:
         rank_text = f" (Ranked #{rank}) " if rank else " "
         speed_text = f" Completed faster than {int(faster)}% of learners! ⚡\n\n" if faster > 0 else "\n\n"
         message = (
-            f'🎓 I just completed "{title}"{rank_text}on Nu-Age!\n'
+            f'🎓 I just completed "{title}"{rank_text}on Nu Age!\n'
             f"{speed_text}"
             f"Finished the complete curriculum with verified modules, flashcards, and exam mastery!\n\n"
             f"Check it out 👉 : nu-age.com.ng"
@@ -340,7 +340,7 @@ async def course_stats_view(page: ft.Page, course_id: str) -> ft.View:
                                                 ],
                                             ),
                                             ft.Text(
-                                                "Your official credential is authenticated and verifiable across the Nu-Age network.",
+                                                "Your official credential is authenticated and verifiable across the Nu Age network.",
                                                 size=11 if is_mobile else 12,
                                                 color=ON_SURFACE_VARIANT,
                                             ),

@@ -364,6 +364,7 @@ def open_cbt_setup_modal(
                     bgcolor=ui.tint(ft.Colors.PRIMARY, 0.16) if is_all_selected else ui.tint(ft.Colors.ON_SURFACE, 0.05),
                     border=ft.Border.all(1.2 if is_all_selected else 1, ft.Colors.PRIMARY if is_all_selected else ui.hairline(0.12)),
                     ink=True,
+                    animate=ft.Animation(160, ft.AnimationCurve.EASE_OUT),
                     on_click=lambda _: _toggle_all_topics(),
                     content=ft.Row(
                         spacing=5,
@@ -412,6 +413,7 @@ def open_cbt_setup_modal(
                         bgcolor=ui.tint(ft.Colors.PRIMARY, 0.14) if is_sel else ui.tint(ft.Colors.ON_SURFACE, 0.03),
                         border=ft.Border.all(1.2 if is_sel else 1, ft.Colors.PRIMARY if is_sel else ui.hairline(0.10)),
                         ink=True,
+                        animate=ft.Animation(160, ft.AnimationCurve.EASE_OUT),
                         on_click=lambda _, name=cname: _toggle_topic(name),
                         content=ft.Row(
                             spacing=5,

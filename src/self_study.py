@@ -9,6 +9,7 @@ from src.components.deck_inspector import open_deck_inspector
 from src.components.study_marketplace import StudyMarketplaceView
 from src.components.study_partner_cockpit import build_study_partner_cockpit
 from src.components.dashboard_duo_section import build_dashboard_duo_section
+from src.components.nu_coin_icon import nu_coin_icon
 
 
 from src.requests.study import (
@@ -455,13 +456,14 @@ async def self_study_view(page: ft.Page):
     # ─────────────────────────────────────────────────────────────────────────
     # MAIN CONTENT SOCKET (Fixed Single-Tree Layout)
     # ─────────────────────────────────────────────────────────────────────────
-    content_socket = ft.Container(
-        expand=True,
+    content_socket = ft.AnimatedSwitcher(
         content=_loading("Loading Study Hub…"),
-        opacity=1,
-        offset=ft.Offset(0, 0),
-        animate_opacity=ft.Animation(350, ft.AnimationCurve.DECELERATE),
-        animate_offset=ft.Animation(350, ft.AnimationCurve.DECELERATE),
+        transition=ft.AnimatedSwitcherTransition.FADE,
+        duration=240,
+        reverse_duration=180,
+        switch_in_curve=ft.AnimationCurve.EASE_OUT,
+        switch_out_curve=ft.AnimationCurve.EASE_IN,
+        expand=True,
     )
 
     def _set_loading(label="Loading…"):
@@ -566,7 +568,7 @@ async def self_study_view(page: ft.Page):
                         ft.Text("₦2,500/mo", size=11, weight=ft.FontWeight.W_800, color=ft.Colors.ORANGE_800),
                     ],
                 ),
-                ft.Text("45 materials · 100 AI decks · 40 mock exams / month", size=10, color=ft.Colors.GREY_500),
+                ft.Text("45 materials · 100 AI generations · 40 mock exams / month", size=10, color=ft.Colors.GREY_500),
                 ft.ElevatedButton(
                     content=ft.Row(
                         tight=True, spacing=6,
@@ -1076,9 +1078,7 @@ async def self_study_view(page: ft.Page):
             bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
             border=ft.Border.all(1, ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)),
             padding=ft.Padding.all(14),
-            ink=not at_mat_lim,
-            disabled=at_mat_lim,
-            opacity=0.45 if at_mat_lim else 1.0,
+            ink=True,
             on_click=_launch_upload,
             content=ft.Column(
                 spacing=8,
@@ -1114,9 +1114,7 @@ async def self_study_view(page: ft.Page):
             bgcolor=ft.Colors.with_opacity(0.07, ft.Colors.PRIMARY),
             border=ft.Border.all(1, ft.Colors.with_opacity(0.24, ft.Colors.PRIMARY)),
             padding=ft.Padding.all(14),
-            ink=not at_gen_lim,
-            disabled=at_gen_lim,
-            opacity=0.45 if at_gen_lim else 1.0,
+            ink=True,
             on_click=_launch_generate,
             content=ft.Column(
                 spacing=8,
@@ -1219,6 +1217,7 @@ async def self_study_view(page: ft.Page):
                     tight=True,
                     scroll=ft.ScrollMode.AUTO,
                     spacing=16,
+                    horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
                     controls=[
                         # ── Subscription plan card ──
                         ft.Container(
@@ -1292,106 +1291,94 @@ async def self_study_view(page: ft.Page):
                             ],
                         ),
 
-                        # ── Actions ──
-                        ft.Row(
-                            spacing=10,
-                            controls=[
-                                ft.FilledButton(
-                                    content=ft.Row(
-                                        tight=True,
-                                        spacing=6,
-                                        alignment=ft.MainAxisAlignment.CENTER,
-                                        controls=[
-                                            ft.Icon(ft.Icons.BOLT_ROUNDED, size=15, color=ft.Colors.AMBER_400),
-                                            ft.Text("Top Up", size=11.5, color=ft.Colors.ON_PRIMARY, weight=ft.FontWeight.W_700),
-                                        ],
-                                    ),
-                                    height=40,
-                                    disabled=True,
-                                    opacity=0.45,
-                                    tooltip="Coming soon",
-                                    expand=True,
-                                    style=ft.ButtonStyle(
-                                        bgcolor=ft.Colors.with_opacity(0.14, ft.Colors.AMBER),
-                                        side=ft.BorderSide(1, ft.Colors.with_opacity(0.35, ft.Colors.AMBER_400)),
-                                        shape=ft.RoundedRectangleBorder(radius=20),
-                                        elevation=0,
-                                    ),
-                                    on_click=lambda _: (_close_studio(None), page.go("/store?tab=boosters")),
-                                ),
-                                ft.FilledButton(
-                                    content=ft.Row(
-                                        tight=True,
-                                        spacing=6,
-                                        alignment=ft.MainAxisAlignment.CENTER,
-                                        controls=[
-                                            ft.Icon(ft.Icons.STOREFRONT_ROUNDED, size=15, color=ft.Colors.ON_PRIMARY),
-                                            ft.Text("Open Store", size=11.5, color=ft.Colors.ON_PRIMARY, weight=ft.FontWeight.W_800),
-                                        ],
-                                    ),
-                                    height=40,
-                                    disabled=True,
-                                    opacity=0.45,
-                                    tooltip="Coming soon",
-                                    expand=True,
-                                    style=ft.ButtonStyle(
-                                        bgcolor=ft.Colors.PRIMARY,
-                                        shape=ft.RoundedRectangleBorder(radius=20),
-                                        elevation=0,
-                                    ),
-                                    on_click=lambda _: (_close_studio(None), page.go("/store?tab=plans")),
-                                ),
-                            ],
-                        ),
-
-                        # ── Pro upsell ──
+                        # ── Unified Store & Pro Upgrade Hub ──
                         ft.Container(
                             border_radius=ft.BorderRadius.all(16),
-                            padding=ft.Padding.all(14),
+                            padding=ft.Padding.all(16),
                             gradient=ft.LinearGradient(
                                 colors=[
-                                    ft.Colors.with_opacity(0.16, ft.Colors.ORANGE_500),
-                                    ft.Colors.with_opacity(0.05, ft.Colors.ORANGE_500),
+                                    ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY),
+                                    ft.Colors.with_opacity(0.04, ft.Colors.SURFACE),
                                 ],
                                 begin=ft.Alignment.TOP_LEFT,
                                 end=ft.Alignment.BOTTOM_RIGHT,
                             ),
-                            border=ft.Border.all(1, ft.Colors.with_opacity(0.35, ft.Colors.ORANGE_500)),
+                            border=ft.Border.all(1, ft.Colors.with_opacity(0.20, ft.Colors.PRIMARY)),
                             content=ft.Column(
-                                spacing=10,
+                                spacing=12,
                                 tight=True,
+                                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
                                 controls=[
                                     ft.Row(
                                         spacing=10,
                                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                                         controls=[
                                             ft.Container(
-                                                width=32,
-                                                height=32,
+                                                width=34,
+                                                height=34,
                                                 border_radius=ft.BorderRadius.all(10),
-                                                bgcolor=ft.Colors.with_opacity(0.18, ft.Colors.ORANGE_500),
+                                                bgcolor=ft.Colors.with_opacity(0.18, ft.Colors.PRIMARY),
                                                 alignment=ft.Alignment.CENTER,
-                                                content=ft.Icon(ft.Icons.WORKSPACE_PREMIUM_ROUNDED, size=17, color=ft.Colors.ORANGE_400),
+                                                content=ft.Icon(ft.Icons.STOREFRONT_ROUNDED, size=18, color=ft.Colors.PRIMARY),
                                             ),
-                                            ft.Text("Unlock Pro Scholar Quotas", size=13, weight=ft.FontWeight.W_800, color=ft.Colors.ORANGE_400),
+                                            ft.Column(
+                                                spacing=2,
+                                                tight=True,
+                                                expand=True,
+                                                controls=[
+                                                    ft.Text("Nu Age Store & Plan Upgrades", size=13.5, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
+                                                    ft.Text("Unlock higher quotas or exchange coins for bonus decks", size=11, color=ft.Colors.GREY_500),
+                                                ],
+                                            ),
                                         ],
                                     ),
-                                    _benefit_row("45 material slots"),
-                                    _benefit_row("100 AI synthesis decks per month"),
+                                    # Benefits bullets
                                     ft.Container(
-                                        padding=ft.Padding.symmetric(vertical=9),
+                                        padding=ft.Padding.symmetric(horizontal=12, vertical=8),
                                         border_radius=ft.BorderRadius.all(10),
-                                        bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
-                                        alignment=ft.Alignment.CENTER,
-                                        content=ft.Row(
-                                            tight=True,
+                                        bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
+                                        content=ft.Column(
                                             spacing=6,
-                                            alignment=ft.MainAxisAlignment.CENTER,
+                                            tight=True,
                                             controls=[
-                                                ft.Icon(ft.Icons.HOURGLASS_EMPTY_ROUNDED, size=13, color=ft.Colors.GREY_500),
-                                                ft.Text("Upgrade plans coming soon", size=11, weight=ft.FontWeight.W_600, color=ft.Colors.GREY_500),
+                                                _benefit_row("Pro Scholar: 45 material slots & 100 AI decks/mo"),
+                                                _benefit_row("Nu-Coins Exchange: Convert streak & duel coins to AI credits"),
+                                                _benefit_row("Booster Packs: Permanent non-expiring generation bundles"),
                                             ],
                                         ),
+                                    ),
+                                    # Full-width Primary CTA Button
+                                    ft.ElevatedButton(
+                                        content=ft.Row(
+                                            tight=True,
+                                            spacing=8,
+                                            alignment=ft.MainAxisAlignment.CENTER,
+                                            controls=[
+                                                ft.Icon(ft.Icons.SHOPPING_BAG_ROUNDED, size=16, color=ft.Colors.WHITE),
+                                                ft.Text("Explore Plans & Store", size=13, color=ft.Colors.WHITE, weight=ft.FontWeight.W_800),
+                                                ft.Icon(ft.Icons.ARROW_FORWARD_ROUNDED, size=15, color=ft.Colors.WHITE),
+                                            ],
+                                        ),
+                                        height=44,
+                                        style=ft.ButtonStyle(
+                                            bgcolor=ft.Colors.PRIMARY,
+                                            shape=ft.RoundedRectangleBorder(radius=12),
+                                            elevation=0,
+                                        ),
+                                        on_click=lambda _: (_close_studio(None), page.go("/store?back=/self-study")),
+                                    ),
+                                    # Secondary direct link to Coin Exchange
+                                    ft.Row(
+                                        alignment=ft.MainAxisAlignment.CENTER,
+                                        controls=[
+                                            ft.TextButton(
+                                                content=ft.Row([
+                                                    nu_coin_icon(size=14),
+                                                    ft.Text("Have Nu-Coins? Jump straight to Coin Exchange →", size=11.5, weight=ft.FontWeight.W_600, color=ft.Colors.PRIMARY),
+                                                ], spacing=5, tight=True),
+                                                on_click=lambda _: (_close_studio(None), page.go("/store?tab=exchange&back=/self-study")),
+                                            ),
+                                        ],
                                     ),
                                 ],
                             ),
@@ -2340,13 +2327,7 @@ async def self_study_view(page: ft.Page):
             else:
                 target_ui = _build_hub(due_cards or [], materials or [])
 
-            content_socket.opacity = 0
-            content_socket.offset = ft.Offset(0, 0.03)
-            page.update()
-            await asyncio.sleep(0.04)
             content_socket.content = target_ui
-            content_socket.opacity = 1
-            content_socket.offset = ft.Offset(0, 0)
         except Exception as ex:
             import traceback
             print(f"[_load_hub: build view failed]: {ex}")
@@ -3446,7 +3427,7 @@ async def self_study_view(page: ft.Page):
                 human_stage_text.value = format_human_stage(stage)
                 pct_badge_text.value = f"{pct}%"
 
-                hero_sub_text.value = "Nu-Age AI is analyzing your course material and generating active-recall cards & scenarios."
+                hero_sub_text.value = "Nu Age AI is analyzing your course material and generating active-recall cards & scenarios."
                 hero_cta_btn.content = _get_cta_content(True)
                 hero_cta_btn.disabled = True
                 hero_cta_btn.style.bgcolor = ft.Colors.with_opacity(0.65, ft.Colors.PRIMARY)
@@ -5296,7 +5277,7 @@ async def self_study_view(page: ft.Page):
                     page.update()
                     res = await share_study_pack_api(token, partner_id, str(pack_id))
                     if res.get("status") == "success":
-                        show_page_snackbar(page, f"Shared '{pack_title[:22]}' with {partner_name}! 🎉 +20🪙 on accept")
+                        show_page_snackbar(page, f"Shared '{pack_title[:22]}' with {partner_name}! 🎉 Ready for study duels.")
                         _close_dlg()
                     else:
                         show_page_snackbar(page, res.get("error", "Failed to share study pack."))
@@ -6268,14 +6249,15 @@ async def self_study_view(page: ft.Page):
                             ),
                         ],
                     ),
-                    ft.TextButton(
-                        "Visit Store",
-                        visible=False,
-                        style=ft.ButtonStyle(
-                            color=ft.Colors.RED_700,
-                            padding=ft.Padding.symmetric(horizontal=6, vertical=0),
-                        ),
-                        on_click=lambda _: ((setattr(modal, "open", False), page.update()) if 'modal' in locals() else None, page.go("/store?tab=boosters")),
+                    ft.ElevatedButton(
+                        content=ft.Row([
+                            ft.Icon(ft.Icons.STOREFRONT_ROUNDED, size=14, color=ft.Colors.WHITE),
+                            ft.Text("Upgrade Plan", size=11, weight=ft.FontWeight.W_800, color=ft.Colors.WHITE),
+                        ], spacing=6, tight=True),
+                        bgcolor=ft.Colors.RED_700,
+                        height=32,
+                        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), elevation=0),
+                        on_click=lambda _: ((setattr(modal, "open", False), page.update()) if 'modal' in locals() else None, page.go("/store?tab=plans&back=/self-study")),
                     ),
                 ],
             ),
@@ -7058,15 +7040,37 @@ async def self_study_view(page: ft.Page):
             border=ft.Border.all(1, ft.Colors.with_opacity(0.2, ft.Colors.RED_400)),
             padding=ft.Padding.symmetric(horizontal=12, vertical=10),
             content=ft.Row(
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                wrap=True,
                 spacing=8,
-                tight=True,
                 controls=[
-                    ft.Icon(ft.Icons.INFO_OUTLINE_ROUNDED, color=ft.Colors.RED_400, size=18),
-                    ft.Text(
-                        "Limit Reached! Upgrade your plan to generate more.",
-                        size=11.5,
-                        color=ft.Colors.RED_700,
-                        weight=ft.FontWeight.W_600,
+                    ft.Row(
+                        spacing=8,
+                        tight=True,
+                        controls=[
+                            ft.Icon(ft.Icons.INFO_OUTLINE_ROUNDED, color=ft.Colors.RED_400, size=18),
+                            ft.Text(
+                                "Limit Reached! Upgrade plan to generate more.",
+                                size=11.5,
+                                color=ft.Colors.RED_700,
+                                weight=ft.FontWeight.W_600,
+                            ),
+                        ],
+                    ),
+                    ft.ElevatedButton(
+                        content=ft.Row(
+                            tight=True,
+                            spacing=6,
+                            controls=[
+                                ft.Icon(ft.Icons.STOREFRONT_ROUNDED, size=14, color=ft.Colors.WHITE),
+                                ft.Text("Upgrade Plan", size=11, weight=ft.FontWeight.W_800, color=ft.Colors.WHITE),
+                            ],
+                        ),
+                        bgcolor=ft.Colors.RED_700,
+                        height=32,
+                        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), elevation=0),
+                        on_click=lambda _: (close_generate_modal(None), page.go("/store?tab=plans&back=/self-study")),
                     ),
                 ],
             ),

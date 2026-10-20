@@ -272,3 +272,35 @@ async def exchange_google_token_request(token_payload: dict):
         return 504, {"detail": "Server took too long to respond. Please try again."}
     except httpx.RequestError as e:
         return 503, {"detail": "Could not connect to authentication server. Please check your internet."}
+
+async def upload_avatar_request(token: str, image_b64: str, filename: str = "avatar.jpg"):
+    """POST /users/me/avatar - uploads a new profile picture (base64). Returns (status, user_dict)."""
+    url = f"{api_url}/users/me/avatar"
+    headers = {"Authorization": f"Bearer {token}"}
+    timeout = httpx.Timeout(connect=4.0, read=45.0, write=45.0, pool=5.0)
+    try:
+        async with httpx.AsyncClient(timeout=timeout, verify=ssl_context) as client:
+            response = await client.post(url, headers=headers, json={"image_bytes": image_b64, "image_filename": filename})
+            try:
+                return response.status_code, response.json()
+            except Exception:
+                return response.status_code, {"detail": "Server returned an unexpected response."}
+    except httpx.RequestError as e:
+        print(f"upload_avatar_request error: {e!r}")
+        return 503, {"detail": "Could not connect to the server. Check your internet connection."}
+
+
+async def remove_avatar_request(token: str):
+    """DELETE /users/me/avatar - clears the profile picture. Returns (status, user_dict)."""
+    url = f"{api_url}/users/me/avatar"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(connect=4.0, read=15.0, write=15.0, pool=5.0), verify=ssl_context) as client:
+            response = await client.delete(url, headers=headers)
+            try:
+                return response.status_code, response.json()
+            except Exception:
+                return response.status_code, {"detail": "Server returned an unexpected response."}
+    except httpx.RequestError as e:
+        print(f"remove_avatar_request error: {e!r}")
+        return 503, {"detail": "Could not connect to the server. Check your internet connection."}

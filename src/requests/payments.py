@@ -412,3 +412,21 @@ async def save_admin_org_plan(token: str, payload: dict) -> dict:
         return {"error": str(ex)}
 
 
+async def exchange_coins_api(token: str, package_id: str) -> dict:
+    """
+    Explicitly exchanges user's Nu-Coins for bonus AI Generation credits.
+    """
+    url = f"{api_url}/payments/store/exchange-coins"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
+            resp = await client.post(url, headers=headers, json={"package_id": package_id})
+            if resp.status_code == 200:
+                return resp.json()
+            try:
+                detail = resp.json().get("detail", "Exchange failed.")
+            except Exception:
+                detail = resp.text or "Exchange failed."
+            return {"error": detail}
+    except Exception as ex:
+        return {"error": str(ex)}

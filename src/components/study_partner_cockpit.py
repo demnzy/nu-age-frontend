@@ -10,6 +10,7 @@ and head-to-head CBT / Quiz duel challenges.
 import asyncio
 import flet as ft
 from typing import Optional, Callable
+from src.components.nu_coin_icon import nu_coin_icon
 
 from src.utils.file_opener import show_page_snackbar
 from src.requests.study_partners import (
@@ -522,7 +523,7 @@ def build_study_partner_cockpit(
                                 res = {}
                             if res.get("status") == "success":
                                 _close_share()
-                                show_page_snackbar(page, f"Shared '{pack_title[:24]}' with {p_first}! 🎉 +20🪙 on accept")
+                                show_page_snackbar(page, f"Shared '{pack_title[:24]}' with {p_first}! 🎉 Ready for study duels.")
                                 page.run_task(_load_partner_state)
                             else:
                                 s_btn.content = ft.Text("Share", size=12, weight=ft.FontWeight.W_700, no_wrap=True)
@@ -658,7 +659,7 @@ def build_study_partner_cockpit(
                     spacing=3,
                     tight=True,
                     controls=[
-                        ft.Icon(icon, size=14, color=icon_color),
+                        icon if isinstance(icon, ft.Control) else ft.Icon(icon, size=14, color=icon_color),
                         ft.Text(label, size=11.5, weight=ft.FontWeight.W_700, color=label_color, no_wrap=True),
                     ],
                 ),
@@ -823,7 +824,7 @@ def build_study_partner_cockpit(
                 tight=True,
                 spacing=4,
                 controls=[
-                    ft.Icon(ft.Icons.MONETIZATION_ON_ROUNDED, size=13, color=ft.Colors.AMBER_800),
+                    nu_coin_icon(size=14),
                     ft.Text("Objectives", size=11, weight=ft.FontWeight.W_700, color=ft.Colors.AMBER_900),
                 ],
             ),
@@ -1155,7 +1156,7 @@ def build_study_partner_cockpit(
                                     ],
                                 ),
                             ),
-                            _link_btn(ft.Icons.MONETIZATION_ON_ROUNDED, ft.Colors.AMBER_800, "Objectives", ft.Colors.AMBER_900,
+                            _link_btn(nu_coin_icon(size=14), ft.Colors.AMBER_800, "Objectives", ft.Colors.AMBER_900,
                                       lambda _: page.go("/leaderboards?tab=objectives")),
                             _link_btn(ft.Icons.FOLDER_SHARED_ROUNDED, ft.Colors.PRIMARY, "Packs", ft.Colors.PRIMARY,
                                       lambda _: show_objectives_and_leaderboard_dialog(page, token, p_id, partner, "shared_packs", on_coins_changed=lambda: page.run_task(_load_partner_state))),

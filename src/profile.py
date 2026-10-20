@@ -7,11 +7,23 @@ from src.components.bottom_appbar import get_bottom_appbar, NotificationManager
 from src.requests.auth import logout_request, logout_all_devices_request
 from src.requests.enrollments import get_enrollments
 from src.theme.typography import build_typography_switcher_button
+from src.components.badge_pill import build_glossy_badge_pill
+from src.requests.promo import redeem_promo_code_api, get_my_badges_api, equip_primary_badge_api
+from src.utils.file_opener import show_page_snackbar
+from src.requests.auth import upload_avatar_request, remove_avatar_request
+from src.services.auth_session import AuthSession
+import base64
 
 
 def _is_platform_super_admin(username: str, email: str = "") -> bool:
     """Checks whether the logged in user is the platform super admin (username == 'nu-admin')."""
     return (username or "").strip().lower() == "nu-admin"
+
+
+def _is_dark_mode(page: ft.Page) -> bool:
+    if hasattr(page, "theme_mode") and page.theme_mode is not None:
+        return page.theme_mode != ft.ThemeMode.LIGHT
+    return True
 
 
 def get_profile_palette(is_dark: bool) -> dict:
@@ -32,7 +44,7 @@ def get_profile_palette(is_dark: bool) -> dict:
 
 
 async def profile_view(page: ft.Page):
-    is_dark = getattr(page, "theme_mode", None) == ft.ThemeMode.DARK
+    is_dark = _is_dark_mode(page)
 
     # ── Initial Loading Socket ────────────────────────────────────────────────
     content_socket = ft.Container(
@@ -146,7 +158,7 @@ async def profile_view(page: ft.Page):
                     alignment=ft.Alignment.CENTER,
                     content=ft.Icon(ft.Icons.LOGOUT_ROUNDED, color=ft.Colors.RED_400, size=18)
                 ),
-                ft.Text("Log Out from Nu-Age?", weight=ft.FontWeight.BOLD, size=16, color=p["text_primary"])
+                ft.Text("Log Out from Nu Age?", weight=ft.FontWeight.BOLD, size=16, color=p["text_primary"])
             ], spacing=12),
             content=ft.Text(
                 "You will need to sign back in with your credentials to resume your courses and study streaks.",
@@ -218,7 +230,7 @@ async def profile_view(page: ft.Page):
         nonlocal cached_enrollments
 
         # ── Theme & Palette Determination ─────────────────────────────────────
-        is_dark = page.theme_mode == ft.ThemeMode.DARK
+        is_dark = _is_dark_mode(page)
         palette = get_profile_palette(is_dark)
 
         async def handle_logout_click(e):
@@ -311,6 +323,91 @@ async def profile_view(page: ft.Page):
 
         profile_picture_url = user_data.get("profile_picture_url")
         has_avatar = bool(profile_picture_url and isinstance(profile_picture_url, str) and profile_picture_url.startswith("http"))
+        async def _apply_avatar_result(status, data, ok_msg):
+            if status == 200 and isinstance(data, dict):
+                merged = dict(user_data)
+                merged["profile_picture_url"] = data.get("profile_picture_url")
+                try:
+                    set_session_value(page, "current_user", merged)
+                except Exception:
+                    pass
+                show_page_snackbar(page, ok_msg)
+                await load_profile()
+            else:
+                detail = data.get("detail") if isinstance(data, dict) else None
+                show_page_snackbar(page, detail or "Could not update profile photo.")
+
+        async def _change_avatar(ev=None):
+            sheet.open = False
+            page.update()
+            try:
+                files = await ft.FilePicker().pick_files(
+                    allow_multiple=False,
+                    file_type=ft.FilePickerFileType.IMAGE,
+                    with_data=True,
+                )
+            except Exception:
+                show_page_snackbar(page, "Could not open file picker.")
+                return
+            if not files:
+                return
+            picked = files[0]
+            if not picked.bytes:
+                show_page_snackbar(page, "Failed to read image data. Try another image.")
+                return
+            if len(picked.bytes) > 5 * 1024 * 1024:
+                show_page_snackbar(page, "Image exceeds maximum 5MB limit.")
+                return
+            show_page_snackbar(page, "Uploading photo…")
+            b64 = base64.b64encode(picked.bytes).decode("utf-8")
+            status, data = await upload_avatar_request(token, b64, picked.name or "avatar.jpg")
+            await _apply_avatar_result(status, data, "Profile photo updated.")
+
+        async def _remove_avatar(ev=None):
+            sheet.open = False
+            page.update()
+            status, data = await remove_avatar_request(token)
+            await _apply_avatar_result(status, data, "Profile photo removed.")
+
+        def _go_edit(ev=None):
+            sheet.open = False
+            page.update()
+            page.go("/edit-profile")
+
+        sheet = ft.BottomSheet(
+            content=ft.Container(
+                padding=ft.Padding.symmetric(horizontal=8, vertical=12),
+                content=ft.Column(
+                    tight=True,
+                    spacing=0,
+                    controls=[
+                        ft.ListTile(
+                            leading=ft.Icon(ft.Icons.PHOTO_CAMERA_ROUNDED, color=ft.Colors.PRIMARY),
+                            title=ft.Text("Change photo"),
+                            on_click=lambda ev: page.run_task(_change_avatar, ev),
+                        ),
+                        ft.ListTile(
+                            visible=has_avatar,
+                            leading=ft.Icon(ft.Icons.DELETE_OUTLINE_ROUNDED, color=ft.Colors.ERROR),
+                            title=ft.Text("Remove photo", color=ft.Colors.ERROR),
+                            on_click=lambda ev: page.run_task(_remove_avatar, ev),
+                        ),
+                        ft.ListTile(
+                            leading=ft.Icon(ft.Icons.EDIT_ROUNDED),
+                            title=ft.Text("Edit profile"),
+                            on_click=_go_edit,
+                        ),
+                    ],
+                ),
+            ),
+        )
+
+        def _open_avatar_sheet(ev=None):
+            if sheet not in page.overlay:
+                page.overlay.append(sheet)
+            sheet.open = True
+            page.update()
+
         avatar_monogram = ft.Container(
             width=92, height=92, border_radius=46,
             bgcolor=ft.Colors.WHITE,
@@ -328,8 +425,8 @@ async def profile_view(page: ft.Page):
                 )
             ),
             ink=True,
-            tooltip="Edit Profile & Photo",
-            on_click=lambda _: page.go("/edit-profile"),
+            tooltip="Change or remove photo",
+            on_click=_open_avatar_sheet,
         )
 
         verified_badge = ft.Container(
@@ -361,6 +458,29 @@ async def profile_view(page: ft.Page):
                 ft.Icon(ft.Icons.SCHOOL_ROUNDED, size=13, color=ft.Colors.WHITE),
                 ft.Text(role.title(), size=11, weight=ft.FontWeight.W_600, color=ft.Colors.WHITE)
             ], spacing=6, tight=True)
+        )
+
+        primary_badge = user_data.get("primary_badge")
+        name_badge_container = ft.Container(
+            content=build_glossy_badge_pill(primary_badge, is_mobile=False, max_width=140, max_chars=16)
+            if (primary_badge and isinstance(primary_badge, dict))
+            else None,
+            visible=bool(primary_badge and isinstance(primary_badge, dict)),
+            animate_scale=ft.Animation(320, ft.AnimationCurve.EASE_OUT_BACK),
+            animate_opacity=ft.Animation(260, ft.AnimationCurve.EASE_IN_OUT),
+            scale=1.0,
+            opacity=1.0,
+        )
+
+        name_row = ft.Row(
+            controls=[
+                ft.Text(full_name, size=22, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE, text_align=ft.TextAlign.CENTER),
+                name_badge_container,
+            ],
+            alignment=ft.MainAxisAlignment.CENTER,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=8,
+            tight=True,
         )
 
         meta_chips = [role_chip]
@@ -417,7 +537,7 @@ async def profile_view(page: ft.Page):
                 ft.Column([
                     avatar_stack,
                     ft.Container(height=6),
-                    ft.Text(full_name, size=22, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE, text_align=ft.TextAlign.CENTER),
+                    name_row,
                     ft.Text(f"@{username}" if username != "—" else email, size=12, color=ft.Colors.with_opacity(0.85, ft.Colors.WHITE)),
                     ft.Container(height=6),
                     ft.Row(meta_chips, alignment=ft.MainAxisAlignment.CENTER, wrap=True, spacing=8),
@@ -610,7 +730,7 @@ async def profile_view(page: ft.Page):
         bonus_mats = sub_info.get("bonus_materials", 0)
         
         mat_str = f"{mat_remaining} uploads left" if mat_remaining is not None else "Unlimited uploads"
-        gen_str = f"{gen_remaining} AI decks left" if gen_remaining is not None else "Unlimited AI decks"
+        gen_str = f"{gen_remaining} AI generations left" if gen_remaining is not None else "Unlimited AI generations"
         if bonus_mats:
             mat_str += f" (+{bonus_mats} booster slots)"
 
@@ -726,7 +846,7 @@ async def profile_view(page: ft.Page):
         # ── 6. Refer & Earn CTA ───────────────────────────────────────────────
         async def open_whatsapp(e):
             msg = (
-                "Just found Nu-Age and it's honestly a game changer for studying! "
+                "Just found Nu Age and it's honestly a game changer for studying! "
                 "It has curated courses, an AI tutor and peer study network!\n\n"
                 "Check it out 👉 https://nu-age.name.ng\n\n"
                 "Pro tip: Join and connect with other students to boost your momentum!"
@@ -753,11 +873,306 @@ async def profile_view(page: ft.Page):
                 ),
                 ft.Column([
                     ft.Text("Refer & Earn Study Perks", size=14, weight=ft.FontWeight.W_800, color=ft.Colors.WHITE),
-                    ft.Text("Share Nu-Age with classmates on WhatsApp to unlock perks.", size=11, color=ft.Colors.with_opacity(0.9, ft.Colors.WHITE))
+                    ft.Text("Share Nu Age with classmates on WhatsApp to unlock perks.", size=11, color=ft.Colors.with_opacity(0.9, ft.Colors.WHITE))
                 ], spacing=2, expand=True),
                 ft.Icon(ft.Icons.CHEVRON_RIGHT_ROUNDED, color=ft.Colors.WHITE, size=20)
             ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=14)
         )
+
+        # ── 7. Redeem Promo Code Card & Interactive Modal ─────────────────────
+        promo_title = ft.Text("Redeem Promo Code", size=13, weight=ft.FontWeight.BOLD, color=palette["text_primary"])
+        promo_sub = ft.Text("Enter voucher or campus ambassador codes for study perks & coins.", size=11, color=palette["text_muted"])
+
+        async def _open_redeem_promo_modal(e=None):
+            dlg_box = [None]
+            cur_p = get_profile_palette(_is_dark_mode(page))
+            code_input = ft.TextField(
+                label="Promo Code",
+                hint_text="e.g. WELCOME2026",
+                capitalization=ft.TextCapitalization.CHARACTERS,
+                border_radius=10,
+                focused_border_color=ft.Colors.PRIMARY,
+                color=cur_p["text_primary"],
+                label_style=ft.TextStyle(color=cur_p["text_muted"]),
+                bgcolor=cur_p["card_bg_alt"],
+                autofocus=True,
+            )
+            submit_btn = ft.ElevatedButton(
+                "Redeem",
+                style=ft.ButtonStyle(
+                    bgcolor=ft.Colors.PRIMARY,
+                    color=ft.Colors.WHITE,
+                    shape=ft.RoundedRectangleBorder(radius=10),
+                ),
+            )
+
+            async def _do_redeem(ev=None):
+                clean_c = (code_input.value or "").strip().upper()
+                if not clean_c:
+                    show_page_snackbar(page, "Please enter a promo code.")
+                    return
+
+                submit_btn.disabled = True
+                submit_btn.content = ft.ProgressRing(width=16, height=16, stroke_width=2.5, color=ft.Colors.WHITE)
+                page.update()
+
+                tok = await AuthSession.for_page(page).get_access_token()
+                if not tok and hasattr(page, "shared_preferences") and page.shared_preferences:
+                    tok = await page.shared_preferences.get("auth_token")
+
+                status_c, res_data = await redeem_promo_code_api(tok, clean_c)
+
+                submit_btn.disabled = False
+                submit_btn.content = ft.Text("Redeem")
+
+                if status_c == 200:
+                    if dlg_box[0]:
+                        dlg_box[0].open = False
+                        page.update()
+                    rewards = res_data.get("rewards", {})
+                    coins_g = rewards.get("coins", 0)
+                    trial_g = rewards.get("trial", {}).get("trial_days") if rewards.get("trial") else None
+                    msg_txt = f"🎉 Successfully redeemed {clean_c}!"
+                    if coins_g:
+                        msg_txt += f" (+{coins_g} Nu-Coins)"
+                    if trial_g:
+                        msg_txt += f" (+{trial_g}d Pro Trial)"
+                    badge_info = rewards.get("badge")
+                    if badge_info and isinstance(badge_info, dict):
+                        msg_txt += f" Unlocked '{badge_info.get('name')}' badge!"
+                    show_page_snackbar(page, msg_txt)
+                    # Refresh badges shelf
+                    page.run_task(load_badges)
+                else:
+                    err_msg = res_data.get("detail") if isinstance(res_data, dict) else "Could not redeem code."
+                    show_page_snackbar(page, f"Redemption failed: {err_msg}")
+                page.update()
+
+            submit_btn.on_click = lambda ev: page.run_task(_do_redeem, ev)
+
+            def _close_dlg(ev=None):
+                if dlg_box[0]:
+                    dlg_box[0].open = False
+                    page.update()
+
+            dlg = ft.AlertDialog(
+                bgcolor=cur_p["card_bg"],
+                title=ft.Row([
+                    ft.Icon(ft.Icons.CARD_GIFTCARD_ROUNDED, color=ft.Colors.PRIMARY, size=22),
+                    ft.Text("Redeem Promo Code", size=16, weight=ft.FontWeight.BOLD, color=cur_p["text_primary"]),
+                ], spacing=8),
+                content=ft.Column([
+                    ft.Text("Enter your voucher code or campus ambassador discount code:", size=12, color=cur_p["text_muted"]),
+                    ft.Container(height=6),
+                    code_input,
+                ], tight=True, spacing=6),
+                actions=[
+                    ft.TextButton("Cancel", on_click=_close_dlg),
+                    submit_btn,
+                ],
+                actions_alignment=ft.MainAxisAlignment.END,
+                shape=ft.RoundedRectangleBorder(radius=16),
+            )
+            dlg_box[0] = dlg
+            if dlg not in page.overlay:
+                page.overlay.append(dlg)
+            dlg.open = True
+            page.update()
+
+        promo_redeem_card = ft.Container(
+            ink=True,
+            on_click=lambda e: page.run_task(_open_redeem_promo_modal, e),
+            border_radius=18,
+            border=ft.Border.all(1.2, ft.Colors.with_opacity(0.3, ft.Colors.PRIMARY)),
+            bgcolor=palette["card_bg"],
+            padding=ft.Padding.all(16),
+            shadow=ft.BoxShadow(blur_radius=10, color=ft.Colors.with_opacity(0.04, ft.Colors.BLACK), offset=ft.Offset(0, 3)),
+            content=ft.Row([
+                ft.Container(
+                    width=42, height=42, border_radius=12,
+                    bgcolor=ft.Colors.with_opacity(0.14, ft.Colors.PRIMARY),
+                    alignment=ft.Alignment.CENTER,
+                    content=ft.Icon(ft.Icons.CONFIRMATION_NUMBER_ROUNDED, color=ft.Colors.PRIMARY, size=22)
+                ),
+                ft.Column([
+                    promo_title,
+                    promo_sub,
+                ], spacing=3, expand=True),
+                ft.ElevatedButton(
+                    content=ft.Row([
+                        ft.Text("Redeem", size=11.5, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE),
+                        ft.Icon(ft.Icons.ARROW_FORWARD_ROUNDED, size=13, color=ft.Colors.WHITE),
+                    ], tight=True, spacing=4),
+                    bgcolor=ft.Colors.PRIMARY,
+                    height=34,
+                    style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), elevation=0),
+                    on_click=lambda e: page.run_task(_open_redeem_promo_modal, e),
+                )
+            ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=12)
+        )
+
+        # ── 8. Glossy Badges & Honors Shelf ───────────────────────────────────
+        badges_shelf_col = ft.Column(spacing=8)
+        badges_registry = []
+
+        async def load_badges():
+            badges_registry.clear()
+            cur_p = get_profile_palette(_is_dark_mode(page))
+            tok = await AuthSession.for_page(page).get_access_token()
+            if not tok and hasattr(page, "shared_preferences") and page.shared_preferences:
+                tok = await page.shared_preferences.get("auth_token")
+            if not tok:
+                return
+            st_code, b_list = await get_my_badges_api(tok)
+            if not isinstance(b_list, list) or not b_list:
+                empty_icon = ft.Icon(ft.Icons.MILITARY_TECH_ROUNDED, size=20, color=cur_p["text_muted"])
+                empty_text = ft.Text("Redeem promo codes, complete learning objectives, or hit study streaks to unlock exclusive badges!", size=11.5, color=cur_p["text_muted"], expand=True)
+                empty_box = ft.Container(
+                    padding=ft.Padding.all(14),
+                    border_radius=14,
+                    bgcolor=cur_p["card_bg_alt"],
+                    border=ft.Border.all(1, cur_p["border_clr"]),
+                    content=ft.Row([
+                        empty_icon,
+                        empty_text,
+                    ], spacing=10)
+                )
+                badges_registry.append({
+                    "type": "empty",
+                    "box": empty_box,
+                    "icon": empty_icon,
+                    "text": empty_text,
+                })
+                badges_shelf_col.controls = [empty_box]
+                page.update()
+                return
+
+            badge_tiles = []
+            for b in b_list:
+                b_id = b.get("id")
+                b_name = b.get("name") or "Learner"
+                b_color = b.get("color_hex") or "#4CAF50"
+                b_desc = b.get("description") or ""
+                b_is_pri = b.get("is_primary", False)
+                b_icon_str = str(b.get("icon") or "STAR_ROUNDED").upper()
+                b_icon_data = getattr(ft.Icons, b_icon_str, ft.Icons.STAR_ROUNDED)
+
+                async def _equip_badge(ev=None, badge_target=None, badge_name=None):
+                    if isinstance(badge_target, dict):
+                        target_dict = badge_target
+                    else:
+                        t_id = str(badge_target or b_id)
+                        target_dict = next((item for item in b_list if str(item.get("id")) == t_id), None)
+                        if not target_dict:
+                            target_dict = {"id": t_id, "name": badge_name or b_name, "color_hex": b_color, "icon": b_icon_str}
+
+                    target_id = target_dict.get("id")
+                    target_display_name = target_dict.get("name") or "Badge"
+
+                    tok_now = await AuthSession.for_page(page).get_access_token()
+                    if not tok_now and hasattr(page, "shared_preferences") and page.shared_preferences:
+                        tok_now = await page.shared_preferences.get("auth_token")
+                    st, res = await equip_primary_badge_api(tok_now, target_id)
+                    if st == 200:
+                        show_page_snackbar(page, f"Equipped '{target_display_name}' as your primary badge!")
+
+                        # Instantly animate and swap the badge pill next to the name
+                        if name_badge_container:
+                            try:
+                                # 1. Smoothly pop out / scale down
+                                name_badge_container.scale = 0.25
+                                name_badge_container.opacity = 0.0
+                                name_badge_container.update()
+                                await asyncio.sleep(0.14)
+
+                                # 2. Swap in the newly equipped badge pill
+                                new_badge_dict = dict(target_dict)
+                                new_badge_dict["is_primary"] = True
+                                user_data["primary_badge"] = new_badge_dict
+                                name_badge_container.content = build_glossy_badge_pill(
+                                    new_badge_dict, is_mobile=False, max_width=140, max_chars=16
+                                )
+                                name_badge_container.visible = True
+
+                                # 3. Pop and bounce back in with spring animation
+                                name_badge_container.scale = 1.0
+                                name_badge_container.opacity = 1.0
+                                name_badge_container.update()
+                            except Exception:
+                                pass
+
+                        # Reload badges shelf to reflect new primary status
+                        page.run_task(load_badges)
+                    else:
+                        show_page_snackbar(page, "Failed to equip badge.")
+
+                action_widget = ft.Container(
+                    content=ft.Row([
+                        ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED, size=13, color=ft.Colors.GREEN_400),
+                        ft.Text("EQUIPPED", size=9.5, weight=ft.FontWeight.W_800, color=ft.Colors.GREEN_400)
+                    ], spacing=3, tight=True),
+                    bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.GREEN_400),
+                    border=ft.Border.all(0.8, ft.Colors.with_opacity(0.3, ft.Colors.GREEN_400)),
+                    padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+                    border_radius=6,
+                ) if b_is_pri else ft.TextButton(
+                    "Equip",
+                    style=ft.ButtonStyle(
+                        color=cur_p["text_primary"],
+                        shape=ft.RoundedRectangleBorder(radius=6),
+                    ),
+                    on_click=lambda ev, cur_dict=b: page.run_task(_equip_badge, ev, cur_dict)
+                )
+
+                b_title = ft.Text(b_name, size=12.5, weight=ft.FontWeight.W_800, color=cur_p["text_primary"])
+                b_desc_ctrl = ft.Text(b_desc, size=10.5, color=cur_p["text_muted"], max_lines=1, overflow=ft.TextOverflow.ELLIPSIS)
+
+                card = ft.Container(
+                    padding=ft.Padding.symmetric(horizontal=14, vertical=10),
+                    border_radius=14,
+                    bgcolor=cur_p["card_bg"],
+                    border=ft.Border.all(1.2, ft.Colors.with_opacity(0.4 if b_is_pri else 0.15, b_color)),
+                    shadow=ft.BoxShadow(blur_radius=6, color=ft.Colors.with_opacity(0.12 if b_is_pri else 0.04, b_color), offset=ft.Offset(0, 2)),
+                    content=ft.Row([
+                        ft.Container(
+                            width=36, height=36, border_radius=10,
+                            bgcolor=ft.Colors.with_opacity(0.14, b_color),
+                            border=ft.Border.all(0.8, ft.Colors.with_opacity(0.3, b_color)),
+                            alignment=ft.Alignment.CENTER,
+                            content=ft.Icon(b_icon_data, size=18, color=b_color),
+                        ),
+                        ft.Column([
+                            ft.Row([
+                                b_title,
+                                ft.Container(
+                                    content=ft.Text("BADGE", size=8.5, weight=ft.FontWeight.W_800, color=b_color),
+                                    bgcolor=ft.Colors.with_opacity(0.12, b_color),
+                                    padding=ft.Padding.symmetric(horizontal=5, vertical=1.5),
+                                    border_radius=4,
+                                ),
+                            ], spacing=6, tight=True),
+                            b_desc_ctrl,
+                        ], spacing=2, expand=True),
+                        action_widget,
+                    ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=10)
+                )
+                badges_registry.append({
+                    "type": "card",
+                    "box": card,
+                    "title": b_title,
+                    "desc": b_desc_ctrl,
+                    "action": action_widget,
+                })
+                badge_tiles.append(card)
+
+            badges_shelf_col.controls = badge_tiles
+            page.update()
+
+        badges_shelf_card = ft.Container(
+            content=badges_shelf_col,
+            padding=ft.Padding.only(bottom=4),
+        )
+        page.run_task(load_badges)
 
         # ── Section Heading Helper ────────────────────────────────────────────
         heading_registry = []
@@ -830,6 +1245,29 @@ async def profile_view(page: ft.Page):
             store_billing_card.bgcolor = p["card_bg"]
             store_title.color = p["text_primary"]
             store_sub.color = p["text_muted"]
+
+            # 9. Update Promo Redeem Card
+            promo_redeem_card.bgcolor = p["card_bg"]
+            promo_title.color = p["text_primary"]
+            promo_sub.color = p["text_muted"]
+
+            # 10. Update Badges Shelf
+            for b_item in badges_registry:
+                if b_item.get("type") == "card":
+                    b_item["box"].bgcolor = p["card_bg"]
+                    b_item["title"].color = p["text_primary"]
+                    b_item["desc"].color = p["text_muted"]
+                    act = b_item.get("action")
+                    if isinstance(act, ft.TextButton) and hasattr(act, "style") and act.style:
+                        act.style = ft.ButtonStyle(
+                            color=p["text_primary"],
+                            shape=ft.RoundedRectangleBorder(radius=6),
+                        )
+                elif b_item.get("type") == "empty":
+                    b_item["box"].bgcolor = p["card_bg_alt"]
+                    b_item["box"].border = ft.Border.all(1, p["border_clr"])
+                    b_item["icon"].color = p["text_muted"]
+                    b_item["text"].color = p["text_muted"]
 
         # Super Admin Control Plane Access Card (Locked by default, verified via credentials)
         admin_title = ft.Text("Platform Super Admin Panel", size=13, weight=ft.FontWeight.BOLD, color=palette["text_primary"])
@@ -904,6 +1342,10 @@ async def profile_view(page: ft.Page):
 
         content_items = [
             referral_card,
+            ft.Container(height=4),
+            promo_redeem_card,
+            ft.Container(height=4),
+            ft.Column([section_heading("Honors & Badges", ft.Icons.MILITARY_TECH_ROUNDED), badges_shelf_card], spacing=10),
             ft.Container(height=4),
             ft.Column([section_heading("Learning Momentum", ft.Icons.QUERY_STATS_ROUNDED), stats_layout], spacing=10),
             ft.Container(height=4),

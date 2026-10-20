@@ -1,6 +1,7 @@
 import re
 import flet as ft
 from typing import Dict, Any, Callable, Optional
+from src.components.nu_coin_icon import nu_coin_icon
 
 
 # ── CURATED SUBJECT THEME PRESETS ──
@@ -138,6 +139,8 @@ class StudyPackCard(ft.Container):
             padding=ft.Padding.symmetric(horizontal=18, vertical=16),
             clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
             ink=True,
+            animate=ft.Animation(180, ft.AnimationCurve.EASE_OUT),
+            animate_scale=ft.Animation(140, ft.AnimationCurve.EASE_OUT),
             on_click=self._handle_card_click,
             content=self._build_card_content(preset),
         )
@@ -300,9 +303,9 @@ class StudyPackCard(ft.Container):
                 border_radius=ft.BorderRadius.all(8),
                 bgcolor=ft.Colors.with_opacity(0.25, ft.Colors.BLACK),
                 content=ft.Row([
-                    ft.Icon(ft.Icons.MONETIZATION_ON_ROUNDED, size=11, color="#FDE68A"),
+                    nu_coin_icon(size=12),
                     ft.Text(f"{price_coins} COINS", size=9.5, weight=ft.FontWeight.W_800, color="#FDE68A"),
-                ], spacing=3, tight=True),
+                ], spacing=4, tight=True),
             )
             btn_text = f"{price_coins} Coins"
             btn_icon = ft.Icons.LOCK_OPEN_ROUNDED

@@ -9,6 +9,7 @@ and compute live bundle economics and discount tiers.
 import flet as ft
 from typing import List, Dict, Any, Callable, Optional
 from src.components import study_ui as ui
+from src.components.nu_coin_icon import nu_coin_icon
 from src.utils.file_opener import show_page_snackbar
 
 _THEMES = [
@@ -289,9 +290,9 @@ def show_bundle_builder_dialog(
                             ], spacing=2, expand=True),
                             ft.Container(
                                 content=ft.Row([
-                                    ft.Icon(ft.Icons.MONETIZATION_ON_ROUNDED, size=12, color=ui.C_WARN),
+                                    nu_coin_icon(size=12),
                                     ft.Text(f"{price}", size=11, weight=ft.FontWeight.BOLD, color=ui.C_WARN),
-                                ], spacing=2, tight=True),
+                                ], spacing=3, tight=True),
                                 bgcolor=ui.tint(ui.C_WARN, 0.12),
                                 padding=ft.Padding.symmetric(horizontal=8, vertical=4),
                                 border_radius=6,

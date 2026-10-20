@@ -18,6 +18,7 @@ Mobile notes
 import asyncio
 import flet as ft
 from typing import Optional, Callable
+from src.components.nu_coin_icon import nu_coin_icon
 
 from src.utils.file_opener import show_page_snackbar
 from src.requests.objectives import (
@@ -157,7 +158,7 @@ def show_objectives_and_leaderboard_dialog(
     def _rebuild_tabs():
         tab_header.controls.clear()
         tabs = [
-            ("objectives", "Objectives" if phone else "🪙 Objectives & Coins", ft.Icons.TOKEN_ROUNDED),
+            ("objectives", "Objectives" if phone else "Objectives & Coins", None),
             ("shared_packs", "Packs" if phone else "📚 Shared Packs", ft.Icons.FOLDER_SHARED_ROUNDED),
             ("leaderboard", "Ranks" if phone else "🏆 Leaderboards", ft.Icons.LEADERBOARD_ROUNDED),
         ]
@@ -174,7 +175,7 @@ def show_objectives_and_leaderboard_dialog(
                         spacing=6,
                         tight=True,
                         controls=[
-                            ft.Icon(icon, size=15, color=ft.Colors.PRIMARY if is_active else ft.Colors.GREY_500),
+                            nu_coin_icon(size=15) if key == "objectives" else ft.Icon(icon, size=15, color=ft.Colors.PRIMARY if is_active else ft.Colors.GREY_500),
                             ft.Text(
                                 label,
                                 size=11.5,
@@ -233,7 +234,7 @@ def show_objectives_and_leaderboard_dialog(
                                 spacing=6,
                                 tight=True,
                                 controls=[
-                                    ft.Icon(ft.Icons.MONETIZATION_ON_ROUNDED, color=ft.Colors.WHITE, size=24),
+                                    nu_coin_icon(size=24),
                                     ft.Text(f"{coins_bal} Coins", size=22, weight=ft.FontWeight.W_900, color=ft.Colors.WHITE, no_wrap=True),
                                 ],
                             ),
@@ -269,7 +270,10 @@ def show_objectives_and_leaderboard_dialog(
                     _notify(f"Reward claimed! +{earned} Nu-Coins! 🎉", error=False)
                 else:
                     btn.disabled = False
-                    btn.content = ft.Text(f"Claim +{r_coins} 🪙", size=11.5, weight=ft.FontWeight.W_700, no_wrap=True)
+                    btn.content = ft.Row([
+                        nu_coin_icon(size=14),
+                        ft.Text(f"Claim +{r_coins}", size=11.5, weight=ft.FontWeight.W_700, no_wrap=True),
+                    ], spacing=4, tight=True)
                     btn.update()
                     _notify(res.get("message") or "Error claiming reward.")
             return _on_claim
@@ -292,7 +296,10 @@ def show_objectives_and_leaderboard_dialog(
 
                 if can_claim:
                     claim_btn = ft.ElevatedButton(
-                        content=ft.Text(f"Claim +{reward} 🪙", size=11.5, weight=ft.FontWeight.W_700, no_wrap=True),
+                        content=ft.Row([
+                            nu_coin_icon(size=14),
+                            ft.Text(f"Claim +{reward}", size=11.5, weight=ft.FontWeight.W_700, no_wrap=True),
+                        ], spacing=4, tight=True),
                         bgcolor=ft.Colors.AMBER_800,
                         color=ft.Colors.WHITE,
                         height=btn_h,
@@ -342,7 +349,10 @@ def show_objectives_and_leaderboard_dialog(
                                     padding=ft.Padding.symmetric(horizontal=6, vertical=1.5),
                                     border_radius=ft.BorderRadius.all(6),
                                     bgcolor=ft.Colors.with_opacity(0.10, ft.Colors.AMBER),
-                                    content=ft.Text(f"+{reward}🪙", size=9.5, weight=ft.FontWeight.W_800, color=ft.Colors.AMBER_900, no_wrap=True),
+                                    content=ft.Row([
+                                        nu_coin_icon(size=12),
+                                        ft.Text(f"+{reward}", size=9.5, weight=ft.FontWeight.W_800, color=ft.Colors.AMBER_900, no_wrap=True),
+                                    ], spacing=3, tight=True),
                                 ),
                             ],
                         ),
@@ -469,13 +479,27 @@ def show_objectives_and_leaderboard_dialog(
                     show_page_snackbar(page, res.get("error") or "Error preparing pack duel.")
             return _on_duel
 
-        def _make_preview(pid, p_title):
+        def _make_preview(pid, p_title, pack_item=None):
             async def _on_preview(e=None):
-                _close()
+                fcs = (pack_item or {}).get("flashcards") if isinstance(pack_item, dict) else None
+                if fcs and isinstance(fcs, list):
+                    _close()
+                    show_flashcard_preview_dialog(
+                        page=page,
+                        token=token,
+                        partnership_id=partnership_id,
+                        pack_id=pid,
+                        pack_title=p_title,
+                        partner_name=p_name,
+                        flashcards=fcs,
+                        on_duel_start=on_coins_changed,
+                    )
+                    return
                 try:
                     p_res = _as_dict(await preview_shared_study_pack_api(token, partnership_id, pid))
                 except Exception as ex:
                     p_res = {"error": str(ex)}
+                _close()
                 if p_res and not p_res.get("error"):
                     show_flashcard_preview_dialog(
                         page=page,
@@ -546,7 +570,7 @@ def show_objectives_and_leaderboard_dialog(
                         height=btn_h,
                         style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), padding=ft.Padding.symmetric(horizontal=12)),
                     )
-                    preview_btn.on_click = _make_preview(pack_id, title)
+                    preview_btn.on_click = _make_preview(pack_id, title, s)
 
                     duel_btn = ft.ElevatedButton(
                         content=ft.Row(
@@ -700,7 +724,7 @@ def show_objectives_and_leaderboard_dialog(
                     duo_name = u_name
                 else:
                     u_name = f"{item.get('first_name', '')} {item.get('last_name', '')}".strip() or item.get("username", "Learner")
-                    metric_str = f"🔥 {item.get('streak', 0)}d Streak • 🪙 {item.get('coins_balance', 0)} coins"
+                    metric_str = f"🔥 {item.get('streak', 0)}d Streak • {item.get('coins_balance', 0)} Nu-Coins"
                     duo_name = u_name
 
                 name_row_controls = [

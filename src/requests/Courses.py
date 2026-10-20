@@ -34,31 +34,44 @@ async def get_courses(token: str, params: dict | None = None):
         return {"error": "Connection failed"}
 
 
+COURSE_CREATE_TIMEOUT = httpx.Timeout(connect=10.0, read=45.0, write=45.0, pool=10.0)
+
+
 async def create_course(token: str, payload):
     url = f"{api_url}/courses/create"
     headers = {"Authorization": f"Bearer {token}"}
     payload = {**payload}
     try:
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
+        async with httpx.AsyncClient(timeout=COURSE_CREATE_TIMEOUT, verify=ssl_context) as client:
             response = await client.post(url, headers=headers, json=payload)
             if response.status_code == 200:
                 return response.json()
-
             elif response.status_code == 401:
                 print("Unauthorized access. Please log in again.")
-                return {"error": "unauthorized"}
+                return {"error": "Unauthorized access. Please log in again.", "status_code": 401}
             else:
-                print(f"Error {response.status_code}: {response.text}")
-                return {"error": "server_fail"}
+                try:
+                    err_json = response.json()
+                    detail = err_json.get("detail") or str(err_json)
+                except Exception:
+                    detail = response.text or "Server error"
+                print(f"Error {response.status_code} in create_course: {detail}")
+                return {"error": detail, "status_code": response.status_code}
     except httpx.TimeoutException:
         print("create_course timed out.")
-        return {"error": "Connection failed"}
+        return {
+            "error": "The server took too long to reply. Your course may have been created in the background. Please close and refresh your course list before trying again.",
+            "status_code": 408
+        }
     except httpx.RequestError as e:
-        print(f"Request Error: {e}")
-        return {"error": "Connection failed"}
+        print(f"Request Error in create_course: {e}")
+        return {
+            "error": f"Connection issue ({e.__class__.__name__}). Your course may have been created; please refresh to check.",
+            "status_code": 0
+        }
     except Exception as e:
-        print(f"Unexpected Error: {e}")
-        return {"error": "Connection failed"}
+        print(f"Unexpected Error in create_course: {e}")
+        return {"error": str(e), "status_code": 0}
 
 
 async def get_categories(token: str, params: dict | None = None):
