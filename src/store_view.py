@@ -8,7 +8,6 @@ from src.requests.payments import (
     verify_payment,
     get_payment_history,
     exchange_coins_api,
-    DEFAULT_STORE_CATALOG,
 )
 from src.requests.subscription import get_subscription_status
 from src.utils.file_opener import show_page_snackbar, safe_set_clipboard
@@ -46,7 +45,7 @@ async def store_view(page: ft.Page, initial_tab: str = "plans", back_target: str
 
     # ── STATE ────────────────────────────────────────────────────────────────
     state = {
-        "catalog": DEFAULT_STORE_CATALOG,
+        "catalog": None,
         "selected_tab": mapped_tab,  # "plans", "boosters", "exchange", "history"
         "is_loading": True,
         "is_checking_out": False,
@@ -1870,11 +1869,47 @@ async def store_view(page: ft.Page, initial_tab: str = "plans", back_target: str
                 content=sub_banner_content,
             )
 
-        catalog = state.get("catalog", {})
+        catalog = state.get("catalog")
         cur_tab = state.get("selected_tab", "plans")
 
+        if not catalog and not state.get("is_loading"):
+            if cur_tab not in ("exchange", "history"):
+                content_area.controls.append(
+                    ft.Container(
+                        alignment=ft.Alignment.CENTER,
+                        padding=ft.Padding.all(40),
+                        content=ft.Column(
+                            tight=True,
+                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            spacing=12,
+                            controls=[
+                                ft.Icon(ft.Icons.STOREFRONT_OUTLINED, size=48, color=ft.Colors.ON_SURFACE_VARIANT),
+                                ft.Text("Store Catalog Unavailable", size=16, weight=ft.FontWeight.W_700, color=ft.Colors.ON_SURFACE),
+                                ft.Text("Unable to load store products from the server. Check your connection.", size=12, color=ft.Colors.ON_SURFACE_VARIANT),
+                                ft.Container(height=8),
+                                ft.ElevatedButton(
+                                    content=ft.Row([
+                                        ft.Icon(ft.Icons.REFRESH_ROUNDED, size=16, color=ft.Colors.WHITE),
+                                        ft.Text("Retry", size=12, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE),
+                                    ], spacing=6, tight=True),
+                                    bgcolor=ft.Colors.PRIMARY,
+                                    on_click=lambda _: page.run_task(_fetch_catalog_and_sub, True),
+                                ),
+                            ],
+                        ),
+                    )
+                )
+                if page:
+                    try:
+                        page.update()
+                    except Exception:
+                        pass
+                return
+
+        catalog_data = catalog or {}
+
         if cur_tab in ("plans", "org_plans", "org_seats", "org"):
-            plans = catalog.get("plans", [])
+            plans = catalog_data.get("plans", [])
 
             sub_banner = _render_subscription_status_banner()
             if sub_banner:
@@ -1891,8 +1926,8 @@ async def store_view(page: ft.Page, initial_tab: str = "plans", back_target: str
             content_area.controls.append(grid)
 
         elif cur_tab in ("boosters", "coins"):
-            packs = catalog.get("packs", [])
-            coin_packs = catalog.get("coins", [])
+            packs = catalog_data.get("packs", [])
+            coin_packs = catalog_data.get("coins", [])
 
             # Nu-Coins Exchange Teaser Banner in Boosters & Coins tab
             u_data_b = page.session.store.get("current_user") or {} if hasattr(page, "session") and hasattr(page.session, "store") else {}
@@ -2044,26 +2079,20 @@ async def store_view(page: ft.Page, initial_tab: str = "plans", back_target: str
                     get_subscription_status(token),
                     return_exceptions=True,
                 )
-                if not isinstance(cat_res, Exception) and cat_res:
+                if not isinstance(cat_res, Exception) and isinstance(cat_res, dict) and cat_res:
                     state["catalog"] = cat_res
-                elif not state.get("catalog"):
-                    state["catalog"] = DEFAULT_STORE_CATALOG
 
                 if not isinstance(sub_res, Exception) and isinstance(sub_res, dict) and "plan_id" in sub_res:
                     state["user_sub"] = sub_res
             else:
                 cat_res = await get_store_catalog()
-                if cat_res:
+                if isinstance(cat_res, dict) and cat_res:
                     state["catalog"] = cat_res
-                elif not state.get("catalog"):
-                    state["catalog"] = DEFAULT_STORE_CATALOG
         except asyncio.CancelledError:
             # Task cancelled by timeout; do not clear is_loading so spinner remains active
             raise
         except Exception as ex:
             print(f"[STORE] Failed to fetch catalog and subscription: {ex}")
-            if not state.get("catalog"):
-                state["catalog"] = DEFAULT_STORE_CATALOG
             state["is_loading"] = False
             _render_view()
         else:

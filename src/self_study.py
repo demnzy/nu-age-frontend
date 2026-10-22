@@ -1,6 +1,7 @@
 import asyncio
 import time
 import re
+import json
 import flet as ft
 from src.components.study_flashcards import build_flashcard_session
 from src.components.study_quiz import build_quiz
@@ -8,7 +9,6 @@ from src.components.study_exam import build_exam
 from src.components.deck_inspector import open_deck_inspector
 from src.components.study_marketplace import StudyMarketplaceView
 from src.components.study_partner_cockpit import build_study_partner_cockpit
-from src.components.dashboard_duo_section import build_dashboard_duo_section
 from src.components.nu_coin_icon import nu_coin_icon
 
 
@@ -1164,230 +1164,246 @@ async def self_study_view(page: ft.Page):
                 ],
             )
 
+        _pw = page.width or 460
+        _ph = page.height or 800
+        _mobile = _pw < 600
+        _margin = 12 if _mobile else 40
+        _pad = 16 if _mobile else 22
+        dialog_w = max(260, min(460, _pw - _margin * 2))        # never wider than the screen
+        _content_w = dialog_w - _pad * 2
+        _max_h = max(240, _ph - (170 if _mobile else 220))      # content scrolls instead of bleeding
+        _hub_inner_w = _content_w - 28                          # store hub inner width (14px padding each side)
+        _hub_text_w = _hub_inner_w - 34 - 10                    # minus icon chip (34) and gap (10)
+
         studio_dlg = ft.AlertDialog(
-            modal=True,
-            shape=ft.RoundedRectangleBorder(radius=22),
-            bgcolor=ft.Colors.SURFACE,
-            title_padding=ft.Padding.only(left=22, right=12, top=18, bottom=0),
-            content_padding=ft.Padding.only(left=22, right=22, top=14, bottom=22),
-            title=ft.Row(
-                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                controls=[
-                    ft.Row(
-                        spacing=12,
-                        expand=True,
+    modal=True,
+    shape=ft.RoundedRectangleBorder(radius=22),
+    bgcolor=ft.Colors.SURFACE,
+    inset_padding=ft.Padding.symmetric(horizontal=_margin, vertical=16 if _mobile else 24),
+    title_padding=ft.Padding.only(left=_pad, right=6, top=14, bottom=0),
+    content_padding=ft.Padding.only(left=_pad, right=_pad, top=12, bottom=_pad),
+    title=ft.Container(
+        width=dialog_w - _pad - 6,
+        content=ft.Row(
+            spacing=8,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                ft.Container(
+                    width=40,
+                    height=40,
+                    border_radius=ft.BorderRadius.all(13),
+                    alignment=ft.Alignment.CENTER,
+                    gradient=ft.LinearGradient(
+                        colors=[ft.Colors.PRIMARY, ft.Colors.with_opacity(0.65, ft.Colors.PRIMARY)],
+                        begin=ft.Alignment.TOP_LEFT,
+                        end=ft.Alignment.BOTTOM_RIGHT,
+                    ),
+                    content=ft.Icon(ft.Icons.WORKSPACE_PREMIUM_ROUNDED, color=ft.Colors.ON_PRIMARY, size=20),
+                ),
+                ft.Column(
+                    spacing=1,
+                    expand=True,
+                    tight=True,
+                    controls=[
+                        ft.Text("Studio & Quotas", size=16, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                        ft.Text("Uploads, AI generation & limits", size=11, color=ft.Colors.GREY_500, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                    ],
+                ),
+                ft.IconButton(
+                    icon=ft.Icons.CLOSE_ROUNDED,
+                    icon_size=20,
+                    icon_color=ft.Colors.GREY_400,
+                    tooltip="Close",
+                    on_click=_close_studio,
+                ),
+            ],
+        ),
+    ),
+    content=ft.Container(
+        width=_content_w,
+        height=_max_h,
+        content=ft.Column(
+            tight=True,
+            scroll=ft.ScrollMode.AUTO,
+            spacing=14,
+            horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+            controls=[
+                # ── Subscription plan card ──
+                ft.Container(
+                    padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+                    border_radius=ft.BorderRadius.all(14),
+                    bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.PRIMARY),
+                    border=ft.Border.all(1, ft.Colors.with_opacity(0.25, ft.Colors.PRIMARY)),
+                    content=ft.Row(
+                        spacing=10,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         controls=[
                             ft.Container(
-                                width=40,
-                                height=40,
-                                border_radius=ft.BorderRadius.all(13),
+                                width=32,
+                                height=32,
+                                border_radius=ft.BorderRadius.all(10),
+                                bgcolor=ft.Colors.with_opacity(0.15, ft.Colors.PRIMARY),
                                 alignment=ft.Alignment.CENTER,
-                                gradient=ft.LinearGradient(
-                                    colors=[ft.Colors.PRIMARY, ft.Colors.with_opacity(0.65, ft.Colors.PRIMARY)],
-                                    begin=ft.Alignment.TOP_LEFT,
-                                    end=ft.Alignment.BOTTOM_RIGHT,
-                                ),
-                                content=ft.Icon(ft.Icons.WORKSPACE_PREMIUM_ROUNDED, color=ft.Colors.ON_PRIMARY, size=20),
+                                content=ft.Icon(ft.Icons.CARD_MEMBERSHIP_ROUNDED, size=17, color=ft.Colors.PRIMARY),
                             ),
                             ft.Column(
                                 spacing=1,
-                                expand=True,
                                 tight=True,
+                                expand=True,
                                 controls=[
-                                    ft.Text("Studio & Quotas", size=16, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
-                                    ft.Text("Uploads, AI generation & limits", size=11, color=ft.Colors.GREY_500, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                                    ft.Text("Subscription plan", size=12.5, weight=ft.FontWeight.W_700, color=ft.Colors.ON_SURFACE, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                                    ft.Text("Your current tier", size=10.5, color=ft.Colors.GREY_500, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                                 ],
                             ),
+                            modal_plan_badge,
                         ],
                     ),
-                    ft.IconButton(
-                        icon=ft.Icons.CLOSE_ROUNDED,
-                        icon_size=18,
-                        icon_color=ft.Colors.GREY_400,
-                        tooltip="Close",
-                        on_click=_close_studio,
-                    ),
-                ],
-            ),
-            content=ft.Container(
-                width=dialog_w,
-                content=ft.Column(
+                ),
+
+                # ── Creative studio ──
+                ft.Column(
+                    spacing=8,
                     tight=True,
-                    scroll=ft.ScrollMode.AUTO,
-                    spacing=16,
-                    horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
                     controls=[
-                        # ── Subscription plan card ──
-                        ft.Container(
-                            padding=ft.Padding.symmetric(horizontal=14, vertical=12),
-                            border_radius=ft.BorderRadius.all(14),
-                            bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.PRIMARY),
-                            border=ft.Border.all(1, ft.Colors.with_opacity(0.25, ft.Colors.PRIMARY)),
-                            content=ft.Row(
-                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                controls=[
-                                    ft.Row(
-                                        spacing=10,
-                                        expand=True,
-                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                        controls=[
-                                            ft.Container(
-                                                width=32,
-                                                height=32,
-                                                border_radius=ft.BorderRadius.all(10),
-                                                bgcolor=ft.Colors.with_opacity(0.15, ft.Colors.PRIMARY),
-                                                alignment=ft.Alignment.CENTER,
-                                                content=ft.Icon(ft.Icons.CARD_MEMBERSHIP_ROUNDED, size=17, color=ft.Colors.PRIMARY),
-                                            ),
-                                            ft.Column(
-                                                spacing=1,
-                                                tight=True,
-                                                expand=True,
-                                                controls=[
-                                                    ft.Text("Subscription plan", size=12.5, weight=ft.FontWeight.W_700, color=ft.Colors.ON_SURFACE, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
-                                                    ft.Text("Your current tier", size=10.5, color=ft.Colors.GREY_500, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
-                                                ],
-                                            ),
-                                        ],
-                                    ),
-                                    ft.Container(width=8),
-                                    modal_plan_badge,
-                                ],
-                            ),
-                        ),
-
-                        # ── Creative studio ──
-                        ft.Column(
-                            spacing=8,
-                            tight=True,
+                        _section_label("CREATIVE STUDIO"),
+                        ft.Row(
+                            spacing=10,
+                            vertical_alignment=ft.CrossAxisAlignment.START,
                             controls=[
-                                _section_label("CREATIVE STUDIO"),
-                                ft.Row(
-                                    spacing=10,
-                                    controls=[
-                                        studio_upload_tile,
-                                        studio_gen_tile,
-                                    ],
-                                ),
+                                ft.Container(content=studio_upload_tile, expand=1),
+                                ft.Container(content=studio_gen_tile, expand=1),
                             ],
-                        ),
-
-                        # ── Quotas & usage ──
-                        ft.Column(
-                            spacing=8,
-                            tight=True,
-                            controls=[
-                                _section_label("PLAN QUOTAS & USAGE"),
-                                ft.Container(
-                                    padding=ft.Padding.all(14),
-                                    border_radius=ft.BorderRadius.all(14),
-                                    bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
-                                    border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
-                                    content=bars_col,
-                                ),
-                            ],
-                        ),
-
-                        # ── Unified Store & Pro Upgrade Hub ──
-                        ft.Container(
-                            border_radius=ft.BorderRadius.all(16),
-                            padding=ft.Padding.all(16),
-                            gradient=ft.LinearGradient(
-                                colors=[
-                                    ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY),
-                                    ft.Colors.with_opacity(0.04, ft.Colors.SURFACE),
-                                ],
-                                begin=ft.Alignment.TOP_LEFT,
-                                end=ft.Alignment.BOTTOM_RIGHT,
-                            ),
-                            border=ft.Border.all(1, ft.Colors.with_opacity(0.20, ft.Colors.PRIMARY)),
-                            content=ft.Column(
-                                spacing=12,
-                                tight=True,
-                                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
-                                controls=[
-                                    ft.Row(
-                                        spacing=10,
-                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                        controls=[
-                                            ft.Container(
-                                                width=34,
-                                                height=34,
-                                                border_radius=ft.BorderRadius.all(10),
-                                                bgcolor=ft.Colors.with_opacity(0.18, ft.Colors.PRIMARY),
-                                                alignment=ft.Alignment.CENTER,
-                                                content=ft.Icon(ft.Icons.STOREFRONT_ROUNDED, size=18, color=ft.Colors.PRIMARY),
-                                            ),
-                                            ft.Column(
-                                                spacing=2,
-                                                tight=True,
-                                                expand=True,
-                                                controls=[
-                                                    ft.Text("Nu Age Store & Plan Upgrades", size=13.5, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
-                                                    ft.Text("Unlock higher quotas or exchange coins for bonus decks", size=11, color=ft.Colors.GREY_500),
-                                                ],
-                                            ),
-                                        ],
-                                    ),
-                                    # Benefits bullets
-                                    ft.Container(
-                                        padding=ft.Padding.symmetric(horizontal=12, vertical=8),
-                                        border_radius=ft.BorderRadius.all(10),
-                                        bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
-                                        content=ft.Column(
-                                            spacing=6,
-                                            tight=True,
-                                            controls=[
-                                                _benefit_row("Pro Scholar: 45 material slots & 100 AI decks/mo"),
-                                                _benefit_row("Nu-Coins Exchange: Convert streak & duel coins to AI credits"),
-                                                _benefit_row("Booster Packs: Permanent non-expiring generation bundles"),
-                                            ],
-                                        ),
-                                    ),
-                                    # Full-width Primary CTA Button
-                                    ft.ElevatedButton(
-                                        content=ft.Row(
-                                            tight=True,
-                                            spacing=8,
-                                            alignment=ft.MainAxisAlignment.CENTER,
-                                            controls=[
-                                                ft.Icon(ft.Icons.SHOPPING_BAG_ROUNDED, size=16, color=ft.Colors.WHITE),
-                                                ft.Text("Explore Plans & Store", size=13, color=ft.Colors.WHITE, weight=ft.FontWeight.W_800),
-                                                ft.Icon(ft.Icons.ARROW_FORWARD_ROUNDED, size=15, color=ft.Colors.WHITE),
-                                            ],
-                                        ),
-                                        height=44,
-                                        style=ft.ButtonStyle(
-                                            bgcolor=ft.Colors.PRIMARY,
-                                            shape=ft.RoundedRectangleBorder(radius=12),
-                                            elevation=0,
-                                        ),
-                                        on_click=lambda _: (_close_studio(None), page.go("/store?back=/self-study")),
-                                    ),
-                                    # Secondary direct link to Coin Exchange
-                                    ft.Row(
-                                        alignment=ft.MainAxisAlignment.CENTER,
-                                        controls=[
-                                            ft.TextButton(
-                                                content=ft.Row([
-                                                    nu_coin_icon(size=14),
-                                                    ft.Text("Have Nu-Coins? Jump straight to Coin Exchange →", size=11.5, weight=ft.FontWeight.W_600, color=ft.Colors.PRIMARY),
-                                                ], spacing=5, tight=True),
-                                                on_click=lambda _: (_close_studio(None), page.go("/store?tab=exchange&back=/self-study")),
-                                            ),
-                                        ],
-                                    ),
-                                ],
-                            ),
                         ),
                     ],
                 ),
-            ),
-            actions=[],
-        )
+
+                # ── Quotas & usage ──
+                ft.Column(
+                    spacing=8,
+                    tight=True,
+                    controls=[
+                        _section_label("PLAN QUOTAS & USAGE"),
+                        ft.Container(
+                            padding=ft.Padding.all(12),
+                            border_radius=ft.BorderRadius.all(14),
+                            bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
+                            border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                            content=bars_col,
+                        ),
+                    ],
+                ),
+
+                # ── Unified Store & Pro Upgrade Hub ──
+                ft.Container(
+                    border_radius=ft.BorderRadius.all(16),
+                    padding=ft.Padding.all(14),
+                    gradient=ft.LinearGradient(
+                        colors=[
+                            ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY),
+                            ft.Colors.with_opacity(0.04, ft.Colors.SURFACE),
+                        ],
+                        begin=ft.Alignment.TOP_LEFT,
+                        end=ft.Alignment.BOTTOM_RIGHT,
+                    ),
+                    border=ft.Border.all(1, ft.Colors.with_opacity(0.20, ft.Colors.PRIMARY)),
+                    content=ft.Column(
+                        spacing=12,
+                        tight=True,
+                        horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+                        controls=[
+                            ft.Row(
+                                spacing=10,
+                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                controls=[
+                                    ft.Container(
+                                        width=34,
+                                        height=34,
+                                        border_radius=ft.BorderRadius.all(10),
+                                        bgcolor=ft.Colors.with_opacity(0.18, ft.Colors.PRIMARY),
+                                        alignment=ft.Alignment.CENTER,
+                                        content=ft.Icon(ft.Icons.STOREFRONT_ROUNDED, size=18, color=ft.Colors.PRIMARY),
+                                    ),
+                                    ft.Container(
+                                        width=_hub_text_w,
+                                        content=ft.Column(
+                                            spacing=2,
+                                            tight=True,
+                                            controls=[
+                                                ft.Text("Nu Age Store & Plan Upgrades", size=13.5, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE, no_wrap=False, width=_hub_text_w),
+                                                ft.Text("Unlock higher quotas or exchange coins for bonus decks", size=11, color=ft.Colors.GREY_500, no_wrap=False, width=_hub_text_w),
+                                            ],
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            # Benefits bullets
+                            ft.Container(
+                                padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+                                border_radius=ft.BorderRadius.all(10),
+                                bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
+                                content=ft.Column(
+                                    spacing=8,
+                                    tight=True,
+                                    controls=[
+                                        _benefit_row("Pro Scholar: Increased Limits"),
+                                        _benefit_row("Nu-Coins Exchange"),
+                                        _benefit_row("Booster Packs"),
+                                    ],
+                                ),
+                            ),
+                            # Full-width Primary CTA Button
+                            ft.ElevatedButton(
+                                content=ft.Row(
+                                    tight=True,
+                                    spacing=8,
+                                    alignment=ft.MainAxisAlignment.CENTER,
+                                    controls=[
+                                        ft.Icon(ft.Icons.SHOPPING_BAG_ROUNDED, size=16, color=ft.Colors.WHITE),
+                                        ft.Text("Explore Plans & Store", size=13, color=ft.Colors.WHITE, weight=ft.FontWeight.W_800),
+                                        ft.Icon(ft.Icons.ARROW_FORWARD_ROUNDED, size=15, color=ft.Colors.WHITE),
+                                    ],
+                                ),
+                                height=48,
+                                style=ft.ButtonStyle(
+                                    bgcolor=ft.Colors.PRIMARY,
+                                    shape=ft.RoundedRectangleBorder(radius=12),
+                                    elevation=0,
+                                ),
+                                on_click=lambda _: (_close_studio(None), page.go("/store?back=/self-study")),
+                            ),
+                            # Secondary direct link to Coin Exchange
+                            ft.Container(
+                                width=_hub_inner_w,
+                                ink=True,
+                                border_radius=ft.BorderRadius.all(10),
+                                padding=ft.Padding.symmetric(horizontal=6, vertical=8),
+                                on_click=lambda _: (_close_studio(None), page.go("/store?tab=exchange&back=/self-study")),
+                                content=ft.Row(
+                                    spacing=6,
+                                    alignment=ft.MainAxisAlignment.CENTER,
+                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                    controls=[
+                                        nu_coin_icon(size=14),
+                                        ft.Text(
+                                            "Have Nu-Coins? Open Coin Exchange",
+                                            size=11.5,
+                                            weight=ft.FontWeight.W_600,
+                                            color=ft.Colors.PRIMARY,
+                                            text_align=ft.TextAlign.CENTER,
+                                            no_wrap=False,
+                                            width=_hub_inner_w - 12 - 14 - 6,
+                                        ),
+                                    ],
+                                ),
+                            ),
+                        ],
+                    ),
+                ),
+            ],
+        ),
+    ),
+    actions=[],
+)
         page.overlay.append(studio_dlg)
         studio_dlg.open = True
         page.update()
@@ -3109,7 +3125,7 @@ async def self_study_view(page: ft.Page):
             if current_status[0] in ("processing", "queued", "pending", "in_progress"):
                 return
             if is_cbt_bundle:
-                page.run_task(_launch_bundle_sequential_sitting)
+                _prompt_cbt_exam_setup(item_ids if item_ids else [mid], display_title)
             elif is_cbt_pack:
                 _prompt_cbt_exam_setup([mid], display_title)
             else:

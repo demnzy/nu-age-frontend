@@ -17,6 +17,7 @@ from src.requests.networks import (
     send_request, accept_request, decline_request, cancel_outgoing_request, remove_friend
 )
 from src.utils.file_opener import show_page_snackbar
+from src.utils.session_utils import get_session_user
 from src.requests.study_partners import (
     get_active_partnership,
     get_partner_recommendations,
@@ -1435,24 +1436,24 @@ async def network_view(page: ft.Page):
                                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                                     controls=[
                                         ft.Row(
-                                            spacing=12,
-                                            tight=True,
+                                            spacing=10,
+                                            expand=True,
                                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
                                             controls=[
                                                 _avatar(partner, radius=24),
                                                 ft.Column(
                                                     spacing=2,
-                                                    tight=True,
+                                                    expand=True,
                                                     controls=[
                                                         ft.Row([
-                                                            ft.Text(p_name, size=15, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
+                                                            ft.Text(p_name, size=14.5, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, expand=True),
                                                             ft.Container(
                                                                 width=7,
                                                                 height=7,
                                                                 border_radius=4,
                                                                 bgcolor=ft.Colors.GREEN if partner_done else ft.Colors.GREY_400,
                                                             ),
-                                                        ], spacing=5, tight=True),
+                                                        ], spacing=5, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                                                         *(
                                                             [ft.Text(f"@{p_username} • {p_uni}", size=11, color=ft.Colors.GREY_500, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS)]
                                                             if p_username else
@@ -1462,31 +1463,35 @@ async def network_view(page: ft.Page):
                                                 ),
                                             ],
                                         ),
-                                        ft.Row(
-                                            spacing=6,
-                                            tight=True,
-                                            controls=[
-                                                ft.Container(
-                                                    padding=ft.Padding.symmetric(horizontal=10, vertical=4),
-                                                    border_radius=ft.BorderRadius.all(12),
-                                                    gradient=ft.LinearGradient(
-                                                        colors=[ft.Colors.AMBER_600, ft.Colors.ORANGE_600],
-                                                        begin=ft.Alignment.TOP_LEFT,
-                                                        end=ft.Alignment.BOTTOM_RIGHT,
+                                        ft.Container(
+                                            padding=ft.Padding.only(left=8),
+                                            content=ft.Row(
+                                                spacing=4,
+                                                tight=True,
+                                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                                controls=[
+                                                    ft.Container(
+                                                        padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+                                                        border_radius=ft.BorderRadius.all(12),
+                                                        gradient=ft.LinearGradient(
+                                                            colors=[ft.Colors.AMBER_600, ft.Colors.ORANGE_600],
+                                                            begin=ft.Alignment.TOP_LEFT,
+                                                            end=ft.Alignment.BOTTOM_RIGHT,
+                                                        ),
+                                                        content=ft.Row([
+                                                            ft.Icon(ft.Icons.LOCAL_FIRE_DEPARTMENT_ROUNDED, size=13, color=ft.Colors.WHITE),
+                                                            ft.Text(f"{duo_streak}d Streak", size=10, weight=ft.FontWeight.W_800, color=ft.Colors.WHITE, no_wrap=True),
+                                                        ], spacing=3, tight=True),
                                                     ),
-                                                    content=ft.Row([
-                                                        ft.Icon(ft.Icons.LOCAL_FIRE_DEPARTMENT_ROUNDED, size=14, color=ft.Colors.WHITE),
-                                                        ft.Text(f"{duo_streak}d Streak", size=10, weight=ft.FontWeight.W_800, color=ft.Colors.WHITE),
-                                                    ], spacing=3, tight=True),
-                                                ),
-                                                ft.IconButton(
-                                                    icon=ft.Icons.MORE_VERT_ROUNDED,
-                                                    icon_size=18,
-                                                    icon_color=ft.Colors.GREY_500,
-                                                    tooltip="Partnership options",
-                                                    on_click=lambda _: _confirm_end_partnership(),
-                                                ),
-                                            ],
+                                                    ft.IconButton(
+                                                        icon=ft.Icons.MORE_VERT_ROUNDED,
+                                                        icon_size=18,
+                                                        icon_color=ft.Colors.GREY_500,
+                                                        tooltip="Partnership options",
+                                                        on_click=lambda _: _confirm_end_partnership(),
+                                                    ),
+                                                ],
+                                            ),
                                         ),
                                     ],
                                 ),
@@ -1602,7 +1607,7 @@ async def network_view(page: ft.Page):
                                             ], spacing=8, tight=True),
                                             ft.TextButton(
                                                 "View Result",
-                                                on_click=lambda _, c=ch: show_duel_results_dialog(page=page, challenge=c, current_user_id="", token=token, partnership_id=p_id),
+                                                on_click=lambda _, c=ch: show_duel_results_dialog(page=page, challenge=c, current_user_id=str((get_session_user(page) or {}).get("id") or ""), token=token, partnership_id=p_id),
                                             ),
                                         ],
                                     ),

@@ -32,10 +32,10 @@ from src.components.badge_pill import build_glossy_badge_pill
 
 async def leaderboards_view(
     page: ft.Page,
-    initial_tab: str = "objectives",
+    initial_tab: str = "leaderboards",
     back_target: str = "/dashboard"
 ) -> ft.View:
-    current_tab = initial_tab or "objectives"
+    current_tab = initial_tab or "leaderboards"
     token_box = [None]
     partnership_id_box = [None]
     partner_box = [{}]
@@ -355,25 +355,25 @@ async def leaderboards_view(
                                     controls=[
                                         ft.Row(
                                             spacing=6,
-                                            tight=True,
+                                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
                                             controls=[
-                                                ft.Text(title, size=13, weight=ft.FontWeight.W_800),
+                                                ft.Text(title, size=13, weight=ft.FontWeight.W_800, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, expand=True),
                                                 ft.Container(
                                                     padding=ft.Padding.symmetric(horizontal=6, vertical=2),
                                                     border_radius=ft.BorderRadius.all(6),
                                                     bgcolor=ft.Colors.with_opacity(0.10, ft.Colors.AMBER),
                                                     content=ft.Row([
                                                         nu_coin_icon(size=12),
-                                                        ft.Text(f"+{reward}", size=10, weight=ft.FontWeight.W_800, color=ft.Colors.AMBER_900),
+                                                        ft.Text(f"+{reward}", size=10, weight=ft.FontWeight.W_800, color=ft.Colors.AMBER_900, no_wrap=True),
                                                     ], spacing=3, tight=True),
                                                 ),
                                             ],
                                         ),
-                                        ft.Text(desc, size=11, color=ft.Colors.GREY_600),
-                                        ft.Container(width=220, content=prog_bar),
+                                        ft.Text(desc, size=11, color=ft.Colors.GREY_600, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
+                                        ft.Container(content=prog_bar),
                                     ],
                                 ),
-                                right_ctrl,
+                                ft.Container(content=right_ctrl, padding=ft.Padding.only(left=8)),
                             ],
                         ),
                     )
@@ -384,7 +384,7 @@ async def leaderboards_view(
     # ─────────────────────────────────────────────────────────────────────────
     # 2. TAB: CAMPUS LEADERBOARDS
     # ─────────────────────────────────────────────────────────────────────────
-    async def _render_leaderboards_tab(filter_type: str = "duo_streaks", is_initial: bool = False):
+    async def _render_leaderboards_tab(filter_type: str = "weekly", is_initial: bool = False):
         if not is_initial:
             content_area.content = ft.Container(
                 padding=40,
@@ -418,9 +418,9 @@ async def leaderboards_view(
                 pass
 
         filters = [
+            ("weekly", "⚡ Solo Streaks"),
             ("duo_streaks", "🔥 Duo Streaks"),
             ("today", "⏱ Today's Focus"),
-            ("weekly", "⚡ Solo Streaks"),
         ]
 
         filter_row = ft.Row(
@@ -499,10 +499,12 @@ async def leaderboards_view(
                 my_rk = my_entry.get("rank", 1)
                 podium_medals = {1: "🥇 Gold Leader", 2: "🥈 Silver Runner-up", 3: "🥉 Bronze Finalist"}
                 sub_txt = podium_medals.get(my_rk, f"#{my_rk} on Campus Leaderboard")
-                my_standing_title = [ft.Text(f"Your Standing: #{my_rk} ({m_score})", size=13, weight=ft.FontWeight.W_900)]
+                my_standing_title = [
+                    ft.Text(f"Your Standing: #{my_rk} ({m_score})", size=13, weight=ft.FontWeight.W_900, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, expand=True)
+                ]
                 my_p_badge = my_entry.get("primary_badge")
                 if my_p_badge and isinstance(my_p_badge, dict):
-                    my_standing_title.append(build_glossy_badge_pill(my_p_badge, is_mobile=True, max_width=110))
+                    my_standing_title.append(build_glossy_badge_pill(my_p_badge, is_mobile=True, max_width=90))
 
                 board_list.controls.append(
                     ft.Container(
@@ -516,15 +518,16 @@ async def leaderboards_view(
                             controls=[
                                 ft.Row(
                                     spacing=10,
-                                    tight=True,
+                                    expand=True,
+                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
                                     controls=[
                                         ft.Icon(ft.Icons.WORKSPACE_PREMIUM_ROUNDED, color=ft.Colors.PRIMARY, size=24),
                                         ft.Column(
                                             spacing=2,
-                                            tight=True,
+                                            expand=True,
                                             controls=[
-                                                ft.Row(my_standing_title, spacing=6, tight=True, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                                                ft.Text(sub_txt, size=11, color=ft.Colors.GREY_600),
+                                                ft.Row(my_standing_title, spacing=6, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                                                ft.Text(sub_txt, size=11, color=ft.Colors.GREY_600, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                                             ],
                                         ),
                                     ],
@@ -533,7 +536,8 @@ async def leaderboards_view(
                                     padding=ft.Padding.symmetric(horizontal=8, vertical=4),
                                     border_radius=ft.BorderRadius.all(6),
                                     bgcolor=ft.Colors.PRIMARY,
-                                    content=ft.Text("YOU", size=10, weight=ft.FontWeight.W_800, color=ft.Colors.WHITE),
+                                    margin=ft.Padding.only(left=8),
+                                    content=ft.Text("YOU", size=10, weight=ft.FontWeight.W_800, color=ft.Colors.WHITE, no_wrap=True),
                                 ),
                             ],
                         ),
@@ -565,10 +569,10 @@ async def leaderboards_view(
                 def _podium_card(medal, name, uni, score, is_first=False, badge=None):
                     badge_ctrl = ft.Container()
                     if badge and isinstance(badge, dict):
-                        badge_ctrl = build_glossy_badge_pill(badge, is_mobile=True, max_width=95)
+                        badge_ctrl = build_glossy_badge_pill(badge, is_mobile=True, max_width=85)
                     return ft.Container(
                         width=124 if is_first else 105,
-                        padding=ft.Padding.symmetric(horizontal=8, vertical=14 if is_first else 10),
+                        padding=ft.Padding.symmetric(horizontal=6, vertical=14 if is_first else 10),
                         border_radius=ft.BorderRadius.all(14),
                         bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.AMBER) if is_first else ft.Colors.with_opacity(0.05, ft.Colors.ON_SURFACE),
                         border=ft.Border.all(1.5 if is_first else 1, ft.Colors.with_opacity(0.5, ft.Colors.AMBER) if is_first else ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)),
@@ -581,7 +585,7 @@ async def leaderboards_view(
                                 ft.Text(medal, size=22 if is_first else 18),
                                 ft.Text(name, size=11.5 if is_first else 10.5, weight=ft.FontWeight.W_800, text_align=ft.TextAlign.CENTER, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                                 badge_ctrl,
-                                ft.Text(score, size=10.5 if is_first else 9.5, weight=ft.FontWeight.W_700, color=ft.Colors.PRIMARY),
+                                ft.Text(score, size=10.5 if is_first else 9.5, weight=ft.FontWeight.W_700, color=ft.Colors.PRIMARY, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                                 ft.Text(uni, size=9, color=ft.Colors.GREY_500, text_align=ft.TextAlign.CENTER, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                             ],
                         ),
@@ -634,10 +638,18 @@ async def leaderboards_view(
                         p_badge = {"name": "#1 Focus", "slug": "study_champion", "icon_name": "emoji_events_rounded", "gradient_start": "#6366F1", "gradient_end": "#4F46E5", "tier": "gold"}
 
                 name_row_controls = [
-                    ft.Text(name, size=12.5, weight=ft.FontWeight.W_800, color=ft.Colors.PRIMARY if is_mine else ft.Colors.ON_SURFACE)
+                    ft.Text(
+                        name,
+                        size=12.5,
+                        weight=ft.FontWeight.W_800,
+                        color=ft.Colors.PRIMARY if is_mine else ft.Colors.ON_SURFACE,
+                        max_lines=1,
+                        overflow=ft.TextOverflow.ELLIPSIS,
+                        expand=True,
+                    )
                 ]
                 if p_badge and isinstance(p_badge, dict):
-                    name_row_controls.append(build_glossy_badge_pill(p_badge, is_mobile=True, max_width=100))
+                    name_row_controls.append(build_glossy_badge_pill(p_badge, is_mobile=True, max_width=90))
 
                 board_list.controls.append(
                     ft.Container(
@@ -651,21 +663,24 @@ async def leaderboards_view(
                             controls=[
                                 ft.Row(
                                     spacing=10,
-                                    tight=True,
+                                    expand=True,
                                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                                     controls=[
                                         ft.Text(rank_str, size=14, weight=ft.FontWeight.W_900),
                                         ft.Column(
                                             spacing=2,
-                                            tight=True,
+                                            expand=True,
                                             controls=[
-                                                ft.Row(name_row_controls, spacing=6, tight=True, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                                                ft.Text(uni, size=10, color=ft.Colors.GREY_500),
+                                                ft.Row(name_row_controls, spacing=6, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                                                ft.Text(uni, size=10, color=ft.Colors.GREY_500, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                                             ],
                                         ),
                                     ],
                                 ),
-                                ft.Text(score_label, size=12, weight=ft.FontWeight.W_800, color=ft.Colors.PRIMARY),
+                                ft.Container(
+                                    padding=ft.Padding.only(left=8),
+                                    content=ft.Text(score_label, size=12, weight=ft.FontWeight.W_800, color=ft.Colors.PRIMARY, no_wrap=True),
+                                ),
                             ],
                         ),
                     )
@@ -820,39 +835,42 @@ async def leaderboards_view(
                             controls=[
                                 ft.Column(
                                     spacing=3,
-                                    tight=True,
+                                    expand=True,
                                     controls=[
                                         ft.Row(
                                             spacing=6,
-                                            tight=True,
+                                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
                                             controls=[
-                                                ft.Text(title, size=13, weight=ft.FontWeight.W_800),
+                                                ft.Text(title, size=13, weight=ft.FontWeight.W_800, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, expand=True),
                                                 ft.Container(
                                                     padding=ft.Padding.symmetric(horizontal=6, vertical=2),
                                                     border_radius=ft.BorderRadius.all(6),
                                                     bgcolor=badge_bg,
-                                                    content=ft.Text(badge_label, size=10, weight=ft.FontWeight.W_800, color=badge_color),
+                                                    content=ft.Text(badge_label, size=10, weight=ft.FontWeight.W_800, color=badge_color, no_wrap=True),
                                                 ),
                                             ],
                                         ),
-                                        ft.Text(f"vs {p_name} • {comp_at}", size=11, color=ft.Colors.GREY_500),
+                                        ft.Text(f"vs {p_name} • {comp_at}", size=11, color=ft.Colors.GREY_500, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                                     ],
                                 ),
-                                ft.Row(
-                                    spacing=8,
-                                    tight=True,
-                                    controls=[
-                                        ft.Column(
-                                            spacing=1,
-                                            horizontal_alignment=ft.CrossAxisAlignment.END,
-                                            tight=True,
-                                            controls=[
-                                                ft.Text(my_score_str, size=12, weight=ft.FontWeight.W_800, color=ft.Colors.PRIMARY),
-                                                ft.Text(partner_score_str, size=11, color=ft.Colors.GREY_600),
-                                            ],
-                                        ),
-                                        ft.Icon(ft.Icons.CHEVRON_RIGHT_ROUNDED, size=16, color=ft.Colors.GREY_400),
-                                    ],
+                                ft.Container(
+                                    padding=ft.Padding.only(left=8),
+                                    content=ft.Row(
+                                        spacing=8,
+                                        tight=True,
+                                        controls=[
+                                            ft.Column(
+                                                spacing=1,
+                                                horizontal_alignment=ft.CrossAxisAlignment.END,
+                                                tight=True,
+                                                controls=[
+                                                    ft.Text(my_score_str, size=12, weight=ft.FontWeight.W_800, color=ft.Colors.PRIMARY, no_wrap=True),
+                                                    ft.Text(partner_score_str, size=11, color=ft.Colors.GREY_600, no_wrap=True),
+                                                ],
+                                            ),
+                                            ft.Icon(ft.Icons.CHEVRON_RIGHT_ROUNDED, size=16, color=ft.Colors.GREY_400),
+                                        ],
+                                    ),
                                 ),
                             ],
                         ),
@@ -881,18 +899,18 @@ async def leaderboards_view(
             ),
         )
         page.update()
-        if tab_name == "objectives":
+        if tab_name == "leaderboards":
+            page.run_task(_render_leaderboards_tab, "weekly", False)
+        elif tab_name == "objectives":
             page.run_task(_render_objectives_tab, False)
-        elif tab_name == "leaderboards":
-            page.run_task(_render_leaderboards_tab, "duo_streaks", False)
         elif tab_name == "history":
             page.run_task(_render_duel_history_tab, False)
 
     def _render_tab_header():
         tab_buttons_row.controls.clear()
         tabs = [
-            ("objectives", "Objectives"),
             ("leaderboards", "🏆 Leaderboards"),
+            ("objectives", "Objectives"),
             ("history", "⚔️ Duel History"),
         ]
         for t_id, t_lbl in tabs:
@@ -955,10 +973,10 @@ async def leaderboards_view(
                 pass
         
         # Render initial tab directly before view is returned
-        if current_tab == "objectives":
+        if current_tab == "leaderboards":
+            await _render_leaderboards_tab(filter_type="weekly", is_initial=True)
+        elif current_tab == "objectives":
             await _render_objectives_tab(is_initial=True)
-        elif current_tab == "leaderboards":
-            await _render_leaderboards_tab(filter_type="duo_streaks", is_initial=True)
         elif current_tab == "history":
             await _render_duel_history_tab(is_initial=True)
 

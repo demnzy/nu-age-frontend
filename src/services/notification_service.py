@@ -119,8 +119,10 @@ async def sync_learner_notifications(page: ft.Page, force: bool = False):
                         ic = ft.Icons.FORUM_ROUNDED
                     elif cat == "streak_warning":
                         ic = ft.Icons.LOCAL_FIRE_DEPARTMENT_ROUNDED
-                    elif cat == "duo_nudge":
+                    elif cat in ("duo_nudge", "study_partner_accepted"):
                         ic = ft.Icons.HANDSHAKE_ROUNDED
+                    elif cat in ("network", "network_accepted", "network_request", "connection_accepted"):
+                        ic = ft.Icons.PEOPLE_ROUNDED
                     elif cat in ("reengagement", "daytime_nudge"):
                         ic = ft.Icons.AUTO_AWESOME_ROUNDED
                     else:
@@ -152,8 +154,10 @@ async def sync_learner_notifications(page: ft.Page, force: bool = False):
                     elif action_route:
                         if cat in ("streak_warning", "daytime_nudge", "reengagement"):
                             act_label = "Practice Now 🔥"
-                        elif cat == "duo_nudge":
+                        elif cat in ("duo_nudge", "study_partner_accepted"):
                             act_label = "View Partner 🤝"
+                        elif cat in ("network", "network_accepted", "network_request", "connection_accepted"):
+                            act_label = "View Network 🤝"
                         elif cat == "course_progress":
                             act_label = "Continue Lesson 🎓"
                         else:

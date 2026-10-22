@@ -431,6 +431,8 @@ def open_notifications_drawer(page: ft.Page):
                     cat_color = ft.Colors.ORANGE_600
                 elif cat == "duo_nudge":
                     cat_color = ft.Colors.CYAN_700
+                elif cat in ("network", "network_accepted", "network_request", "connection_accepted", "study_partner_accepted"):
+                    cat_color = ft.Colors.TEAL_600
                 elif cat in ("reengagement", "daytime_nudge"):
                     cat_color = ft.Colors.GREEN_600
                 elif cat == "chat":

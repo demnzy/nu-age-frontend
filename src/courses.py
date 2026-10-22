@@ -73,14 +73,47 @@ async def courses_view(page: ft.Page):
             e.control.content = ft.Text("Enroll")
             page.update()
 
+    def _extract_category_name(c: dict) -> str | None:
+        cat = c.get("category")
+        if isinstance(cat, dict):
+            name = cat.get("name")
+            return str(name).strip() if name else None
+        elif isinstance(cat, str) and cat.strip():
+            return cat.strip()
+        return None
+
+    def _extract_instructor_name(c: dict) -> str | None:
+        admin = c.get("admin")
+        if isinstance(admin, dict):
+            fn = (admin.get("first_name") or "").strip()
+            ln = (admin.get("last_name") or "").strip()
+            full = f"{fn} {ln}".strip()
+            if full:
+                return full
+        teacher = c.get("teacher")
+        if isinstance(teacher, dict):
+            fn = (teacher.get("first_name") or "").strip()
+            ln = (teacher.get("last_name") or "").strip()
+            full = f"{fn} {ln}".strip()
+            if full:
+                return full
+        return None
+
+    def _extract_org_name(c: dict) -> str | None:
+        org = c.get("organisation") or c.get("org")
+        if isinstance(org, dict):
+            name = org.get("name")
+            return str(name).strip() if name else None
+        elif isinstance(org, str) and org.strip():
+            return org.strip()
+        return None
+
     def build_course_card(course):
         course_name = course.get("name", "Untitled Course")
         image_url = course.get("image_url", None)
         course_id = course.get("id")
-        first_name = course.get("admin", {}).get("first_name", "Unknown")
-        last_name = course.get("admin", {}).get("last_name", "Instructor")
-        full_name = f"{first_name} {last_name}".strip()
-        category = course.get("category", {}).get("name")
+        full_name = _extract_instructor_name(course) or "Instructor"
+        category = _extract_category_name(course) or "General"
         created_at = course.get("created_at", "")
         if created_at:
             try:
@@ -103,74 +136,88 @@ async def courses_view(page: ft.Page):
     def filter_courses(e=None):
         nonlocal current_search_query
         if e and getattr(e.control, "value", None) is not None:
-            current_search_query = e.control.value.lower()
+            current_search_query = str(e.control.value).lower().strip()
         else:
             try:
-                current_search_query = search_tf_input.value.lower() if search_tf_input.value else ""
+                current_search_query = str(search_tf_input.value).lower().strip() if search_tf_input.value else ""
             except NameError:
                 current_search_query = ""
 
         course_cards.clear()
         for course in all_available_courses:
+            c_name = str(course.get("name") or "").lower()
+            c_desc = str(course.get("description") or "").lower()
+            c_cat = _extract_category_name(course)
+            c_inst = _extract_instructor_name(course)
+            c_org = _extract_org_name(course)
+
             # 1. Search Query
-            c_name = course.get("name", "").lower()
-            if current_search_query and current_search_query not in c_name:
-                continue
+            if current_search_query:
+                q = current_search_query
+                match_name = q in c_name
+                match_desc = q in c_desc
+                match_cat = bool(c_cat and q in c_cat.lower())
+                match_inst = bool(c_inst and q in c_inst.lower())
+                if not (match_name or match_desc or match_cat or match_inst):
+                    continue
 
             # 2. Category
-            c_cat = course.get("category", {}).get("name")
-            if current_category_filter and c_cat != current_category_filter:
-                continue
+            if current_category_filter:
+                if not c_cat or c_cat.strip().lower() != str(current_category_filter).strip().lower():
+                    continue
 
             # 3. Instructor
-            c_first = course.get("admin", {}).get("first_name", "")
-            c_last = course.get("admin", {}).get("last_name", "")
-            c_instructor = f"{c_first} {c_last}".strip()
-            if current_instructor_filter and c_instructor != current_instructor_filter:
-                continue
+            if current_instructor_filter:
+                if not c_inst or c_inst.strip().lower() != str(current_instructor_filter).strip().lower():
+                    continue
 
             # 4. Org
-            c_org = course.get("organisation", {}).get("name")
-            if current_org_filter and c_org != current_org_filter:
-                continue
+            if current_org_filter:
+                if not c_org or c_org.strip().lower() != str(current_org_filter).strip().lower():
+                    continue
 
             course_cards.append(build_course_card(course))
 
         if course_cards:
-            course_container.content.controls = course_cards
+            course_container.content = ft.ResponsiveRow(
+                spacing=16,
+                run_spacing=16,
+                controls=course_cards,
+            )
         else:
-            course_container.content.controls = [
-                ft.Container(
-                    padding=40,
-                    alignment=ft.Alignment.CENTER,
-                    content=ft.Column(
-                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                        spacing=12,
-                        controls=[
-                            ft.Icon(ft.Icons.SEARCH_OFF_ROUNDED, size=48, color=ft.Colors.ON_SURFACE_VARIANT),
-                            ft.Text(
-                                "No courses found matching your filter.",
-                                size=15,
-                                color=ft.Colors.ON_SURFACE,
-                                weight=ft.FontWeight.W_600,
-                                text_align=ft.TextAlign.CENTER,
-                            ),
-                            ft.Text(
-                                "Try adjusting your search terms or clearing active filters.",
-                                size=13,
-                                color=ft.Colors.ON_SURFACE_VARIANT,
-                                text_align=ft.TextAlign.CENTER,
-                            ),
-                            ft.TextButton(
-                                "Reset Filters",
-                                icon=ft.Icons.REFRESH_ROUNDED,
-                                on_click=lambda _: reset_all_filters(),
-                            ),
-                        ],
-                    ),
-                )
-            ]
-        page.update()
+            course_container.content = ft.Container(
+                padding=40,
+                alignment=ft.Alignment.CENTER,
+                content=ft.Column(
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    spacing=12,
+                    controls=[
+                        ft.Icon(ft.Icons.SEARCH_OFF_ROUNDED, size=48, color=ft.Colors.ON_SURFACE_VARIANT),
+                        ft.Text(
+                            "No courses found matching your filter.",
+                            size=15,
+                            color=ft.Colors.ON_SURFACE,
+                            weight=ft.FontWeight.W_600,
+                            text_align=ft.TextAlign.CENTER,
+                        ),
+                        ft.Text(
+                            "Try adjusting your search terms or clearing active filters.",
+                            size=13,
+                            color=ft.Colors.ON_SURFACE_VARIANT,
+                            text_align=ft.TextAlign.CENTER,
+                        ),
+                        ft.TextButton(
+                            "Reset Filters",
+                            icon=ft.Icons.REFRESH_ROUNDED,
+                            on_click=lambda _: reset_all_filters(),
+                        ),
+                    ],
+                ),
+            )
+        if _is_mounted(course_container):
+            course_container.update()
+        else:
+            page.update()
 
         async def animate_cards():
             import asyncio
@@ -298,7 +345,7 @@ async def courses_view(page: ft.Page):
         )
 
     def open_category_filter():
-        cats = sorted(list(set(c.get("category", {}).get("name") for c in all_available_courses if c.get("category", {}).get("name"))))
+        cats = sorted(list(set(_extract_category_name(c) for c in all_available_courses if _extract_category_name(c))))
         sheet = build_filter_sheet("Filter by Category", cats, current_category_filter, set_category_filter)
         page.show_dialog(sheet)
 
@@ -311,8 +358,7 @@ async def courses_view(page: ft.Page):
         page.update()
 
     def open_instructor_filter():
-        insts = sorted(list(set(f"{c.get('admin', {}).get('first_name', '')} {c.get('admin', {}).get('last_name', '')}".strip() for c in all_available_courses)))
-        insts = [i for i in insts if i]
+        insts = sorted(list(set(_extract_instructor_name(c) for c in all_available_courses if _extract_instructor_name(c))))
         sheet = build_filter_sheet("Filter by Instructor", insts, current_instructor_filter, set_instructor_filter)
         page.show_dialog(sheet)
 
@@ -325,7 +371,7 @@ async def courses_view(page: ft.Page):
         page.update()
 
     def open_org_filter():
-        orgs = sorted(list(set(c.get("organisation", {}).get("name") for c in all_available_courses if c.get("organisation", {}).get("name"))))
+        orgs = sorted(list(set(_extract_org_name(c) for c in all_available_courses if _extract_org_name(c))))
         sheet = build_filter_sheet("Filter by Organisation", orgs, current_org_filter, set_org_filter)
         page.show_dialog(sheet)
 
@@ -754,32 +800,7 @@ async def courses_view(page: ft.Page):
                 ft.ListView(
                     expand=True,
                     scroll=ft.ScrollMode.AUTO,
-                    controls=[
-                        course_container if course_cards else ft.Container(
-                            padding=40,
-                            alignment=ft.Alignment.CENTER,
-                            content=ft.Column(
-                                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                                spacing=12,
-                                controls=[
-                                    ft.Icon(ft.Icons.SEARCH_OFF_ROUNDED, size=48, color=ft.Colors.ON_SURFACE_VARIANT),
-                                    ft.Text(
-                                        "No available courses found",
-                                        size=16,
-                                        color=ft.Colors.ON_SURFACE,
-                                        weight=ft.FontWeight.W_600,
-                                        text_align=ft.TextAlign.CENTER,
-                                    ),
-                                    ft.Text(
-                                        "Try adjusting your filters or check back later for new courses.",
-                                        size=13,
-                                        color=ft.Colors.ON_SURFACE_VARIANT,
-                                        text_align=ft.TextAlign.CENTER,
-                                    ),
-                                ],
-                            ),
-                        ),
-                    ],
+                    controls=[course_container],
                 ),
             ],
         )

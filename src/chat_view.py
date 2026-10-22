@@ -1401,7 +1401,7 @@ async def chat_view(
                 if s_badge and isinstance(s_badge, dict):
                     sender_hdr_controls.append(build_glossy_badge_pill(s_badge, is_mobile=not is_desktop[0], max_width=110))
                 body_controls.append(
-                    ft.Row(sender_hdr_controls, spacing=6, tight=True, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+                    ft.Row(sender_hdr_controls, spacing=6, wrap=True, vertical_alignment=ft.CrossAxisAlignment.CENTER)
                 )
 
         # 2. Interactive Poll Rendering (Clean, lightweight design mirroring reference image)
@@ -2070,7 +2070,8 @@ async def chat_view(
                 color=palette["text"],
                 max_lines=1,
                 overflow=ft.TextOverflow.ELLIPSIS,
-                no_wrap=True
+                no_wrap=True,
+                expand=True,
             )
             if _chat_type == "direct":
                 title_widget = ft.Container(
@@ -2078,7 +2079,8 @@ async def chat_view(
                     ink=True,
                     border_radius=4,
                     on_click=_nav_to_dm_profile,
-                    tooltip=f"View {_chat_name}'s profile"
+                    tooltip=f"View {_chat_name}'s profile",
+                    expand=True,
                 )
             else:
                 title_widget = title_txt
@@ -2098,7 +2100,7 @@ async def chat_view(
                 back_btn,
                 header_avatar,
                 ft.Column([
-                    ft.Row(title_row_controls, spacing=6, tight=True, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                    ft.Row(title_row_controls, spacing=6, expand=True, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                     status_txt
                 ], spacing=1, expand=True),
                 *header_actions

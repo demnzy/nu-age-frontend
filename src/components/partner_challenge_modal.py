@@ -21,6 +21,7 @@ import flet as ft
 from typing import Optional, List, Dict, Any, Callable
 
 from src.utils.file_opener import show_page_snackbar
+from src.utils.session_utils import get_session_user
 from src.requests.study_partners import (
     create_partner_challenge,
     get_partner_challenge,
@@ -200,9 +201,9 @@ def show_duel_results_dialog(
     wager_val = int(challenge.get("wager_amount") or 0)
 
     # Resolve current user cleanly:
-    user_data = page.session.store.get("current_user") or {} if hasattr(page, "session") and hasattr(page.session, "store") else {}
-    session_uid = str(user_data.get("id") or "")
-    my_user_id = session_uid or str(current_user_id or "")
+    user_data = get_session_user(page)
+    session_uid = str(user_data.get("id") or user_data.get("user_id") or "")
+    my_user_id = str(current_user_id or "") or session_uid
 
     challenger_id = str(challenge.get("challenger_id") or challenge.get("challenger", {}).get("id") or "")
     challenged_id = str(challenge.get("challenged_id") or challenge.get("challenged", {}).get("id") or "")
@@ -307,6 +308,24 @@ def show_duel_results_dialog(
         banner_color = ft.Colors.TEAL_700
         banner_tint = ft.Colors.TEAL
 
+    outcome_title_txt = ft.Text(outcome_title, size=16, weight=ft.FontWeight.W_800, color=banner_color)
+    outcome_sub_txt = ft.Text(outcome_subtitle, size=12.5, color=ft.Colors.ON_SURFACE)
+    outcome_banner_container = ft.Container(
+        width = float("inf"),
+        padding=ft.Padding.symmetric(horizontal=16, vertical=14),
+        border_radius=ft.BorderRadius.all(14),
+        bgcolor=_tint(0.10, banner_tint),
+        border=ft.Border.all(1, _tint(0.30, banner_tint)),
+        content=ft.Column(
+            tight=True,
+            spacing=5,
+            controls=[
+                outcome_title_txt,
+                outcome_sub_txt,
+            ],
+        ),
+    )
+
     my_score_text = ft.Text(
         f"{my_score_val}/{total_q}" if my_score_val is not None else "Pending",
         size=30 if my_score_val is not None else 15,
@@ -328,6 +347,89 @@ def show_duel_results_dialog(
         f"⏱ {_format_time(partner_time_val or 0)}" if partner_time_val is not None else "Awaiting run…",
         size=12,
         color=MUTED,
+    )
+
+    def _build_breakdown_card(my_s, p_s, my_t, p_t, tot_q, p_lbl, curr_i_won):
+        my_pct = int((my_s / max(tot_q, 1)) * 100) if my_s is not None else None
+        p_pct = int((p_s / max(tot_q, 1)) * 100) if p_s is not None else None
+        my_speed = f"{round((my_t or 0) / max(tot_q, 1), 1)}s/q" if my_t is not None else "—"
+        p_speed = f"{round((p_t or 0) / max(tot_q, 1), 1)}s/q" if p_t is not None else "—"
+        my_prog = (my_s / max(tot_q, 1)) if my_s is not None else 0.0
+        p_prog = (p_s / max(tot_q, 1)) if p_s is not None else 0.0
+
+        w_rows = []
+        if wager_val > 0:
+            pot_amt = coins_awarded if coins_awarded else int(wager_val * 2 * 0.9)
+            w_rows = [
+                ft.Divider(height=1, color=_tint(0.12, ft.Colors.ON_SURFACE)),
+                ft.Row(
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    controls=[
+                        ft.Row([
+                            nu_coin_icon(size=14),
+                            ft.Text("Wager Stake:", size=11.5, weight=ft.FontWeight.W_600, color=MUTED),
+                        ], spacing=4, tight=True),
+                        ft.Text(f"{wager_val} Nu-Coins each", size=11.5, weight=ft.FontWeight.W_700),
+                    ],
+                ),
+                ft.Row(
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    controls=[
+                        ft.Row([
+                            ft.Icon(ft.Icons.SAVINGS_ROUNDED, size=14, color=ft.Colors.AMBER_700),
+                            ft.Text("Winner Pot:", size=11.5, weight=ft.FontWeight.W_600, color=MUTED),
+                        ], spacing=4, tight=True),
+                        ft.Text(f"+{pot_amt} Nu-Coins", size=12, weight=ft.FontWeight.W_800, color=ft.Colors.GREEN_700 if curr_i_won else ft.Colors.AMBER_900),
+                    ],
+                ),
+            ]
+
+        return ft.Container(
+            padding=ft.Padding.symmetric(horizontal=16, vertical=14),
+            border_radius=ft.BorderRadius.all(14),
+            bgcolor=_tint(0.04, ft.Colors.ON_SURFACE),
+            border=ft.Border.all(1, _tint(0.12, ft.Colors.ON_SURFACE)),
+            content=ft.Column(
+                tight=True,
+                spacing=8,
+                controls=[
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        controls=[
+                            ft.Text("Performance Breakdown", size=12, weight=ft.FontWeight.W_800, color=MUTED),
+                            ft.Text(f"{tot_q} Questions", size=11, weight=ft.FontWeight.W_600, color=MUTED),
+                        ],
+                    ),
+                    ft.Column(
+                        tight=True,
+                        spacing=5,
+                        controls=[
+                            ft.Row(
+                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                controls=[
+                                    ft.Text(f"You ({my_s}/{tot_q} correct)" if my_s is not None else "You (Pending run)", size=12, weight=ft.FontWeight.W_700),
+                                    ft.Text(f"{my_pct}% • {my_speed}" if my_pct is not None else "Pending", size=11, color=ft.Colors.PRIMARY, weight=ft.FontWeight.W_700),
+                                ],
+                            ),
+                            ft.ProgressBar(value=my_prog, color=ft.Colors.PRIMARY, bgcolor=_tint(0.12), height=6, border_radius=ft.BorderRadius.all(3)),
+                            ft.Container(height=2),
+                            ft.Row(
+                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                controls=[
+                                    ft.Text(f"{p_lbl} ({p_s}/{tot_q} correct)" if p_s is not None else f"{p_lbl} (Pending run)", size=12, weight=ft.FontWeight.W_700),
+                                    ft.Text(f"{p_pct}% • {p_speed}" if p_pct is not None else "Pending", size=11, color=ft.Colors.SECONDARY, weight=ft.FontWeight.W_700),
+                                ],
+                            ),
+                            ft.ProgressBar(value=p_prog, color=ft.Colors.SECONDARY, bgcolor=_tint(0.12, ft.Colors.SECONDARY), height=6, border_radius=ft.BorderRadius.all(3)),
+                        ],
+                    ),
+                    *w_rows,
+                ],
+            ),
+        )
+
+    breakdown_slot = ft.Container(
+        content=_build_breakdown_card(my_score_val, partner_score_val, my_time_val, partner_time_val, total_q, partner_label, i_won)
     )
 
     pot_display = coins_awarded if coins_awarded else int(wager_val * 2 * 0.9)
@@ -356,6 +458,15 @@ def show_duel_results_dialog(
             bgcolor=_tint(0.06, ft.Colors.SECONDARY),
         )
 
+    comparison_row = ft.Row(
+        spacing=12,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        controls=[
+            _score_card("You", my_score_text, my_time_text, is_me=True, is_winner=i_won),
+            _score_card(partner_label, partner_score_text, partner_time_text, is_me=False, is_winner=partner_won),
+        ],
+    )
+
     dlg = ft.AlertDialog(
         modal=True,
         shape=ft.RoundedRectangleBorder(radius=24),
@@ -369,32 +480,14 @@ def show_duel_results_dialog(
             width=_content_width(page, 480),
             content=ft.Column(
                 tight=True,
-                spacing=18,
+                spacing=16,
                 controls=[
                     # Outcome banner
-                    ft.Container(
-                        padding=ft.Padding.symmetric(horizontal=16, vertical=14),
-                        border_radius=ft.BorderRadius.all(14),
-                        bgcolor=_tint(0.10, banner_tint),
-                        border=ft.Border.all(1, _tint(0.30, banner_tint)),
-                        content=ft.Column(
-                            tight=True,
-                            spacing=5,
-                            controls=[
-                                ft.Text(outcome_title, size=16, weight=ft.FontWeight.W_800, color=banner_color),
-                                ft.Text(outcome_subtitle, size=12.5, color=ft.Colors.ON_SURFACE),
-                            ],
-                        ),
-                    ),
-                    # Side-by-side score comparison
-                    ft.Row(
-                        spacing=12,
-                        vertical_alignment=ft.CrossAxisAlignment.STRETCH,
-                        controls=[
-                            _score_card("You", my_score_text, my_time_text, is_me=True, is_winner=i_won),
-                            _score_card(partner_label, partner_score_text, partner_time_text, is_me=False, is_winner=partner_won),
-                        ],
-                    ),
+                    outcome_banner_container,
+                    # Side-by-side score comparison (CrossAxisAlignment.CENTER prevents unbounded height conflicts)
+                    comparison_row,
+                    # Detailed diagnostic breakdown
+                    breakdown_slot,
                     # Format badges
                     ft.Row(
                         alignment=ft.MainAxisAlignment.CENTER,
@@ -411,6 +504,103 @@ def show_duel_results_dialog(
         ],
         **_dialog_paddings(),
     )
+
+    def _refresh_from_fresh_data(fresh_c: dict):
+        nonlocal my_score_val, partner_score_val, my_time_val, partner_time_val, i_won, partner_won
+        fresh_status = fresh_c.get("status")
+        fresh_winner = fresh_c.get("winner_id")
+        fresh_coins = fresh_c.get("coins_awarded", coins_awarded)
+
+        ch_id = str(fresh_c.get("challenger_id") or "")
+        cd_id = str(fresh_c.get("challenged_id") or "")
+        fresh_is_challenger = is_challenger
+        if session_uid and ch_id and session_uid == ch_id:
+            fresh_is_challenger = True
+        elif session_uid and cd_id and session_uid == cd_id:
+            fresh_is_challenger = False
+        elif my_user_id and ch_id:
+            fresh_is_challenger = (my_user_id == ch_id)
+
+        c_sc = fresh_c.get("challenger_score")
+        if c_sc is None:
+            c_sc = fresh_c.get("my_score") if fresh_is_challenger else fresh_c.get("partner_score")
+        c_tm = fresh_c.get("challenger_time_seconds")
+        if c_tm is None:
+            c_tm = fresh_c.get("my_time_seconds") if fresh_is_challenger else fresh_c.get("partner_time_seconds")
+
+        d_sc = fresh_c.get("challenged_score")
+        if d_sc is None:
+            d_sc = fresh_c.get("partner_score") if fresh_is_challenger else fresh_c.get("my_score")
+        d_tm = fresh_c.get("challenged_time_seconds")
+        if d_tm is None:
+            d_tm = fresh_c.get("partner_time_seconds") if fresh_is_challenger else fresh_c.get("my_time_seconds")
+
+        if fresh_is_challenger:
+            my_score_val = c_sc
+            my_time_val = c_tm
+            partner_score_val = d_sc
+            partner_time_val = d_tm
+        else:
+            my_score_val = d_sc
+            my_time_val = d_tm
+            partner_score_val = c_sc
+            partner_time_val = c_tm
+
+        i_won = (str(fresh_winner) == my_user_id) if fresh_winner else False
+        partner_won = (fresh_winner and str(fresh_winner) != my_user_id and str(fresh_winner) != "tie")
+
+        if my_score_val is not None:
+            my_score_text.value = f"{my_score_val}/{total_q}"
+            my_score_text.size = 30
+            my_score_text.weight = ft.FontWeight.W_900
+            my_score_text.color = ft.Colors.ON_SURFACE
+        if my_time_val is not None:
+            my_time_text.value = f"⏱ {_format_time(my_time_val or 0)}"
+
+        if partner_score_val is not None:
+            partner_score_text.value = f"{partner_score_val}/{total_q}"
+            partner_score_text.size = 30
+            partner_score_text.weight = ft.FontWeight.W_900
+            partner_score_text.color = ft.Colors.ON_SURFACE
+        if partner_time_val is not None:
+            partner_time_text.value = f"⏱ {_format_time(partner_time_val or 0)}"
+
+        comparison_row.controls = [
+            _score_card("You", my_score_text, my_time_text, is_me=True, is_winner=i_won),
+            _score_card(partner_label, partner_score_text, partner_time_text, is_me=False, is_winner=partner_won),
+        ]
+        breakdown_slot.content = _build_breakdown_card(my_score_val, partner_score_val, my_time_val, partner_time_val, total_q, partner_label, i_won)
+
+        if fresh_status == "completed" or fresh_winner:
+            if not fresh_winner or fresh_winner == "tie":
+                outcome_title_txt.value = "🤝 It's a Tie!"
+                outcome_title_txt.color = ft.Colors.AMBER_800
+                outcome_sub_txt.value = "Both learners scored equally! Outstanding academic effort."
+                outcome_banner_container.bgcolor = _tint(0.10, ft.Colors.AMBER)
+                outcome_banner_container.border = ft.Border.all(1, _tint(0.30, ft.Colors.AMBER))
+            elif i_won:
+                outcome_title_txt.value = "🏆 Victory!"
+                outcome_title_txt.color = ft.Colors.GREEN_700
+                outcome_banner_container.bgcolor = _tint(0.10, ft.Colors.GREEN)
+                outcome_banner_container.border = ft.Border.all(1, _tint(0.30, ft.Colors.GREEN))
+            else:
+                outcome_title_txt.value = "⚔️ Good Battle!"
+                outcome_title_txt.color = ft.Colors.BLUE_700
+                outcome_sub_txt.value = f"{partner_label} won this round! Great study practice for upcoming exams."
+                outcome_banner_container.bgcolor = _tint(0.10, ft.Colors.BLUE)
+                outcome_banner_container.border = ft.Border.all(1, _tint(0.30, ft.Colors.BLUE))
+        dlg.update()
+
+    if token and c_id:
+        async def _async_fetch_fresh():
+            try:
+                fresh_data = await get_partner_challenge(token, str(c_id))
+                if fresh_data and not fresh_data.get("error"):
+                    _refresh_from_fresh_data(fresh_data)
+            except Exception as f_err:
+                print(f"[show_duel_results_dialog] fresh fetch failed: {f_err}")
+
+        page.run_task(_async_fetch_fresh)
 
     def _close():
         dlg.open = False
@@ -718,6 +908,109 @@ def start_quickfire_duel_flow(
         opt_container.on_click = lambda _: page.run_task(_on_click)
         return opt_container
 
+    _is_finishing = False
+    async def _finish_duel():
+        nonlocal _is_finishing, active_timer_task
+        if _is_finishing:
+            return
+        _is_finishing = True
+
+        curr_task = _safe_current_task()
+        if active_timer_task and active_timer_task != curr_task and not active_timer_task.done():
+            active_timer_task.cancel()
+
+        if is_accepting_challenge and challenge_id:
+            mark_challenge_completed(str(challenge_id))
+
+        # Immediately trigger on_completed to hide the duel banner from dashboard behind the modal!
+        if on_completed:
+            try:
+                on_completed()
+            except Exception:
+                pass
+
+        # Transition duel dialog to a Submitting state (locks UI and prevents spam tapping dashboard)
+        duel_dlg.title = _title_row(ft.Icons.SPORTS_ESPORTS_ROUNDED, "Submitting Duel...", size=16)
+        duel_dlg.content = ft.Container(
+            width=_content_width(page, 440),
+            padding=ft.Padding.symmetric(vertical=24, horizontal=16),
+            content=ft.Column(
+                tight=True,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                spacing=14,
+                controls=[
+                    ft.ProgressRing(width=36, height=36, stroke_width=3, color=ft.Colors.PRIMARY),
+                    ft.Text(f"Completed {score} of {total_q} questions!", size=15, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
+                    ft.Text("Resolving winner & synchronizing study scores...", size=12.5, color=MUTED, text_align=ft.TextAlign.CENTER),
+                ],
+            ),
+        )
+        duel_dlg.actions = []
+        page.update()
+
+        try:
+            if is_accepting_challenge and challenge_id:
+                # Submitting challenged partner run
+                res = await submit_partner_challenge(
+                    token=token,
+                    challenge_id=challenge_id,
+                    challenged_score=score,
+                    challenged_time_seconds=total_time_taken,
+                    challenged_breakdown={"total_questions": total_q, "correct": score},
+                )
+                _close_duel()
+                if res and not res.get("error"):
+                    show_page_snackbar(page, f"Duel submitted! {res.get('message', 'Completed!')} 🏆")
+                    if on_completed:
+                        try:
+                            on_completed()
+                        except Exception:
+                            pass
+
+                    # Reopen results dialog to display victory slip!
+                    async def _reopen():
+                        updated_ch = await get_partner_challenge(token, challenge_id)
+                        if updated_ch and not updated_ch.get("error"):
+                            u_data = page.session.store.get("current_user") or {} if hasattr(page, "session") and hasattr(page.session, "store") else {}
+                            current_uid = str(u_data.get("id") or "")
+                            show_duel_results_dialog(
+                                page=page,
+                                challenge=updated_ch,
+                                current_user_id=current_uid,
+                                token=token,
+                                partnership_id=partnership_id,
+                                on_duel_updated=on_completed,
+                            )
+                    page.run_task(_reopen)
+                else:
+                    show_page_snackbar(page, res.get("error", "Error submitting challenge."))
+            else:
+                # Creating new challenge as challenger
+                res = await create_partner_challenge(
+                    token=token,
+                    partnership_id=partnership_id,
+                    challenge_type="quickfire_duel",
+                    total_questions=total_q,
+                    question_snapshot=questions,
+                    challenger_score=score,
+                    challenger_time_seconds=total_time_taken,
+                    challenger_breakdown={"total_questions": total_q, "correct": score, "pack_id": pack_id},
+                    wager_amount=wager_amount,
+                )
+                _close_duel()
+                if res and not res.get("error"):
+                    show_page_snackbar(page, f"15-Q Duel submitted! {partner_name} has been notified to match and beat your score 🔥")
+                    if on_completed:
+                        try:
+                            on_completed()
+                        except Exception:
+                            pass
+                else:
+                    show_page_snackbar(page, res.get("error", "Failed to create duel challenge."))
+        except Exception as ex:
+            _close_duel()
+            show_page_snackbar(page, f"Duel error: {ex}")
+
     async def _handle_answer(selected_opt: Optional[str], is_timeout: bool = False):
         nonlocal answered_current, score, current_idx, active_timer_task
         if answered_current:
@@ -782,108 +1075,6 @@ def start_quickfire_duel_flow(
         else:
             await _finish_duel()
 
-        _is_finishing = False
-        async def _finish_duel():
-            nonlocal _is_finishing, active_timer_task
-            if _is_finishing:
-                return
-            _is_finishing = True
-
-            curr_task = _safe_current_task()
-            if active_timer_task and active_timer_task != curr_task and not active_timer_task.done():
-                active_timer_task.cancel()
-
-            if is_accepting_challenge and challenge_id:
-                mark_challenge_completed(str(challenge_id))
-
-            # Immediately trigger on_completed to hide the duel banner from dashboard behind the modal!
-            if on_completed:
-                try:
-                    on_completed()
-                except Exception:
-                    pass
-
-            # Transition duel dialog to a Submitting state (locks UI and prevents spam tapping dashboard)
-            duel_dlg.title = _title_row(ft.Icons.SPORTS_ESPORTS_ROUNDED, "Submitting Duel...", size=16)
-            duel_dlg.content = ft.Container(
-                width=_content_width(page, 440),
-                padding=ft.Padding.symmetric(vertical=24, horizontal=16),
-                content=ft.Column(
-                    tight=True,
-                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                    spacing=14,
-                    controls=[
-                        ft.ProgressRing(width=36, height=36, stroke_width=3, color=ft.Colors.PRIMARY),
-                        ft.Text(f"Completed {score} of {total_q} questions!", size=15, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
-                        ft.Text("Resolving winner & synchronizing study scores...", size=12.5, color=MUTED, text_align=ft.TextAlign.CENTER),
-                    ],
-                ),
-            )
-            duel_dlg.actions = []
-            page.update()
-
-            try:
-                if is_accepting_challenge and challenge_id:
-                    # Submitting challenged partner run
-                    res = await submit_partner_challenge(
-                        token=token,
-                        challenge_id=challenge_id,
-                        challenged_score=score,
-                        challenged_time_seconds=total_time_taken,
-                        challenged_breakdown={"total_questions": total_q, "correct": score},
-                    )
-                    _close_duel()
-                    if res and not res.get("error"):
-                        show_page_snackbar(page, f"Duel submitted! {res.get('message', 'Completed!')} 🏆")
-                        if on_completed:
-                            try:
-                                on_completed()
-                            except Exception:
-                                pass
-
-                        # Reopen results dialog to display victory slip!
-                        async def _reopen():
-                            updated_ch = await get_partner_challenge(token, challenge_id)
-                            if updated_ch and not updated_ch.get("error"):
-                                u_data = page.session.store.get("current_user") or {} if hasattr(page, "session") and hasattr(page.session, "store") else {}
-                                current_uid = str(u_data.get("id") or "")
-                                show_duel_results_dialog(
-                                    page=page,
-                                    challenge=updated_ch,
-                                    current_user_id=current_uid,
-                                    token=token,
-                                    partnership_id=partnership_id,
-                                    on_duel_updated=on_completed,
-                                )
-                        page.run_task(_reopen)
-                    else:
-                        show_page_snackbar(page, res.get("error", "Error submitting challenge."))
-                else:
-                    # Creating new challenge as challenger
-                    res = await create_partner_challenge(
-                        token=token,
-                        partnership_id=partnership_id,
-                        challenge_type="quickfire_duel",
-                        total_questions=total_q,
-                        question_snapshot=questions,
-                        challenger_score=score,
-                        challenger_time_seconds=total_time_taken,
-                        challenger_breakdown={"total_questions": total_q, "correct": score, "pack_id": pack_id},
-                        wager_amount=wager_amount,
-                    )
-                    _close_duel()
-                    if res and not res.get("error"):
-                        show_page_snackbar(page, f"15-Q Duel submitted! {partner_name} has been notified to match and beat your score 🔥")
-                        if on_completed:
-                            try:
-                                on_completed()
-                            except Exception:
-                                pass
-                    else:
-                        show_page_snackbar(page, res.get("error", "Failed to create duel challenge."))
-            except Exception as ex:
-                _close_duel()
-                show_page_snackbar(page, f"Duel error: {ex}")
 
     page.overlay.append(duel_dlg)
     duel_dlg.open = True

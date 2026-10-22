@@ -480,7 +480,7 @@ async def profile_view(page: ft.Page):
             alignment=ft.MainAxisAlignment.CENTER,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
             spacing=8,
-            tight=True,
+            wrap=True,
         )
 
         meta_chips = [role_chip]

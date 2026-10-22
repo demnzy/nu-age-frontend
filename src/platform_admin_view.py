@@ -4544,6 +4544,32 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
             active_color=palette["accent"],
         )
 
+        # --- Scholar Plan Quota Fields ---
+        plan_materials_input = ft.TextField(
+            label="Material Upload Slots Cap",
+            hint_text="e.g. 25 for Free, 45 for Pro",
+            value=str(prod.get("materials_limit", 45)) if (prod and prod.get("materials_limit") is not None) else ("45" if initial_cat == "plan" else ""),
+            border_color=palette["border"],
+            text_style=ft.TextStyle(color=palette["text"]),
+            expand=True,
+        )
+        plan_generations_input = ft.TextField(
+            label="Monthly AI Generations Quota",
+            hint_text="e.g. 40 for Free, 100 for Pro",
+            value=str(prod.get("generations_limit", 100)) if (prod and prod.get("generations_limit") is not None) else ("100" if initial_cat == "plan" else ""),
+            border_color=palette["border"],
+            text_style=ft.TextStyle(color=palette["text"]),
+            expand=True,
+        )
+        plan_exam_input = ft.TextField(
+            label="Practice Exam Simulations Quota",
+            hint_text="e.g. 10 for Free, 40 for Pro",
+            value=str(prod.get("exam_quota", 40)) if (prod and prod.get("exam_quota") is not None) else ("40" if initial_cat == "plan" else ""),
+            border_color=palette["border"],
+            text_style=ft.TextStyle(color=palette["text"]),
+            expand=True,
+        )
+
         # --- Study Booster & Nu-Coins Fields ---
         mats_input = ft.TextField(
             label="+ Bonus Material Slots",
@@ -4678,7 +4704,36 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
 
         def _build_category_content():
             cat = selected_cat[0]
-            if cat == "org_plan":
+            if cat == "plan":
+                return ft.Container(
+                    bgcolor=palette["surface_variant"],
+                    border=ft.Border.all(1, palette["border"]),
+                    border_radius=12,
+                    padding=ft.Padding.all(14),
+                    content=ft.Column(
+                        spacing=12,
+                        controls=[
+                            ft.Row([
+                                ft.Icon(ft.Icons.SCHOOL_ROUNDED, size=18, color=palette["accent"]),
+                                ft.Text("Scholar Plan Entitlement Quotas & Baseline Limits", size=13, weight=ft.FontWeight.BOLD, color=palette["text"]),
+                            ], spacing=8),
+                            ft.Row([plan_materials_input, plan_generations_input], spacing=10),
+                            ft.Row([plan_exam_input], spacing=10),
+                            ft.Text(
+                                "Authoritative baseline limits for active subscribers. Upload slots persist; AI generations & exam simulation quotas reset only when the subscriber pays to renew their billing cycle.",
+                                size=11,
+                                color=palette["text_muted"],
+                            ),
+                            ft.Divider(height=1, color=palette["border"]),
+                            ft.Row([
+                                ft.Icon(ft.Icons.CARD_GIFTCARD_ROUNDED, size=16, color=palette["accent"]),
+                                ft.Text("Optional Plan Sign-up / Renewal Bonus Perks", size=12, weight=ft.FontWeight.BOLD, color=palette["text"]),
+                            ], spacing=6),
+                            ft.Row([mats_input, gens_input, coins_input], spacing=10),
+                        ],
+                    ),
+                )
+            elif cat == "org_plan":
                 return ft.Container(
                     bgcolor=palette["surface_variant"],
                     border=ft.Border.all(1, palette["border"]),
@@ -4922,6 +4977,27 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
                 elif db_res.get("id"):
                     plan_db_id = str(db_res["id"])
 
+            materials_limit_val = None
+            generations_limit_val = None
+            exam_quota_val = None
+
+            if cat_val == "plan":
+                try:
+                    if (plan_materials_input.value or "").strip():
+                        materials_limit_val = int(plan_materials_input.value.strip())
+                except ValueError:
+                    materials_limit_val = None
+                try:
+                    if (plan_generations_input.value or "").strip():
+                        generations_limit_val = int(plan_generations_input.value.strip())
+                except ValueError:
+                    generations_limit_val = None
+                try:
+                    if (plan_exam_input.value or "").strip():
+                        exam_quota_val = int(plan_exam_input.value.strip())
+                except ValueError:
+                    exam_quota_val = None
+
             payload = {
                 "id": (id_input.value or "").strip() or None,
                 "name": name_val,
@@ -4930,6 +5006,9 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
                 "badge": (badge_input.value or "").strip() or None,
                 "description": (desc_input.value or "").strip() or None,
                 "interval": (interval_dd.value or "one-time").strip(),
+                "materials_limit": materials_limit_val,
+                "generations_limit": generations_limit_val,
+                "exam_quota": exam_quota_val,
                 "bonus_materials": int((mats_input.value or "").strip() or 0) if cat_val != "org_plan" else 0,
                 "bonus_generations": int((gens_input.value or "").strip() or 0) if cat_val != "org_plan" else 0,
                 "bonus_coins": int((coins_input.value or "").strip() or 0) if cat_val != "org_plan" else 0,
@@ -4941,7 +5020,7 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
                 "display_order": int((order_input.value or "").strip() or 0),
                 "features": raw_feats,
                 "is_active": active_switch.value,
-                "plan_id": plan_db_id or (prod.get("plan_id") if prod else None),
+                "plan_id": (id_input.value or "").strip() if cat_val == "plan" else (plan_db_id or (prod.get("plan_id") if prod else None)),
             }
 
             if prod:
@@ -5212,6 +5291,13 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
                     await _fetch_store_products()
 
                 perks = []
+                if p.get("category") == "plan":
+                    if p.get("materials_limit") is not None:
+                        perks.append(f"{p['materials_limit']} Upload Slots")
+                    if p.get("generations_limit") is not None:
+                        perks.append(f"{p['generations_limit']} Gens/mo")
+                    if p.get("exam_quota") is not None:
+                        perks.append(f"{p['exam_quota']} Exams/mo")
                 if p.get("bonus_generations"):
                     perks.append(f"+{p['bonus_generations']} AI Gens")
                 if p.get("bonus_materials"):

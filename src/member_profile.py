@@ -189,7 +189,7 @@ async def member_profile_view(page: ft.Page, identifier: str):
             alignment=ft.MainAxisAlignment.CENTER,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
             spacing=8,
-            tight=True,
+            wrap=True,
         )
 
         hero_banner = ft.Container(
