@@ -6,6 +6,7 @@ from src.requests.playlists import (
 )
 from src.requests.organisations import get_organisation_courses
 from src.components.course_card_theme import get_course_module_meta
+from src.components.shimmer_skeletons import build_playlist_builder_skeleton
 
 
 def _get_course_module_count(c: dict) -> int:
@@ -52,11 +53,10 @@ async def playlist_builder_view(page: ft.Page, playlist_id: str):
     org_courses = []
     has_unsaved_changes = [False]
 
-    # Loading Socket
+    # Loading Socket - initialized to high-fidelity 1:1 skeleton
     content_socket = ft.Container(
         expand=True,
-        alignment=ft.Alignment.CENTER,
-        content=ft.ProgressRing(color=ft.Colors.PRIMARY, stroke_width=3, width=36, height=36),
+        content=build_playlist_builder_skeleton(page),
     )
 
     async def load_data():
@@ -634,7 +634,11 @@ async def playlist_builder_view(page: ft.Page, playlist_id: str):
         content_socket.alignment = None
         page.update()
 
-    page.run_task(render_full_view)
+    # Await initial data before view mounts so view is feasibly ready
+    try:
+        await asyncio.wait_for(render_full_view(), timeout=8.0)
+    except Exception:
+        page.run_task(render_full_view)
 
     return ft.View(
         route=f"/playlists/{playlist_id}/build",

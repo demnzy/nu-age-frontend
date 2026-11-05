@@ -284,3 +284,59 @@ async def remove_organisation_member(token: str, org_id: str, user_id: str) -> d
     except Exception as e:
         print(f"remove_organisation_member error: {e}")
         return {"error": str(e)}
+
+
+
+async def get_org_plans(token: str) -> list:
+    url = f"{api_url}/organisations/plans"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
+            response = await client.get(url, headers=headers)
+            if response.status_code == 200:
+                data = response.json()
+                return data if isinstance(data, list) else []
+            else:
+                return []
+    except Exception as e:
+        print(f"get_org_plans error: {e}")
+        return []
+
+
+async def update_organisation(token: str, org_id: str, payload: dict) -> dict:
+    url = f"{api_url}/organisations/{org_id}"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
+            response = await client.patch(url, headers=headers, json=payload)
+            if response.status_code == 200:
+                return response.json()
+            else:
+                try:
+                    error_detail = response.json().get("detail", f"HTTP {response.status_code}")
+                except Exception:
+                    error_detail = f"HTTP {response.status_code}: {response.text}"
+                return {"error": error_detail}
+    except Exception as e:
+        print(f"update_organisation error: {e}")
+        return {"error": str(e)}
+
+
+async def update_org_member_role(token: str, org_id: str, user_id: str, role: str) -> dict:
+    url = f"{api_url}/organisations/{org_id}/members/{user_id}/role"
+    headers = {"Authorization": f"Bearer {token}"}
+    payload = {"role": role}
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
+            response = await client.patch(url, headers=headers, json=payload)
+            if response.status_code == 200:
+                return response.json()
+            else:
+                try:
+                    error_detail = response.json().get("detail", f"HTTP {response.status_code}")
+                except Exception:
+                    error_detail = f"HTTP {response.status_code}: {response.text}"
+                return {"error": error_detail}
+    except Exception as e:
+        print(f"update_org_member_role error: {e}")
+        return {"error": str(e)}

@@ -4,6 +4,7 @@ from src.requests.playlists import get_playlist, get_playlist_analytics
 from src.requests.organisations import get_my_organisation
 from src.requests.chats import start_direct_message
 from src.components.bottom_appbar import get_bottom_appbar
+from src.components.shimmer_skeletons import build_analytics_skeleton
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -64,19 +65,10 @@ async def playlist_analytics_view(page: ft.Page, org_id: str, playlist_id: str):
     learner_search_query = ""
     learner_filter_status = "all"  # "all", "completed", "in_progress", "not_started"
 
-    # Centered loading container (dead-center of the screen, no appbar peeking)
+    # High-Fidelity 1:1 Loading Socket
     content_socket = ft.Container(
         expand=True,
-        alignment=ft.Alignment.CENTER,
-        content=ft.Column(
-            alignment=ft.MainAxisAlignment.CENTER,
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            controls=[
-                ft.ProgressRing(color=ft.Colors.PRIMARY, width=44, height=44, stroke_width=3.5),
-                ft.Container(height=16),
-                ft.Text("Aggregating Learning Path Telemetry…", size=13, weight=ft.FontWeight.W_500, color=ft.Colors.ON_SURFACE_VARIANT),
-            ],
-        ),
+        content=build_analytics_skeleton(page),
     )
 
     def _show_load_error(msg: str):
@@ -851,7 +843,11 @@ async def playlist_analytics_view(page: ft.Page, org_id: str, playlist_id: str):
         except Exception as ex:
             _show_load_error(f"Failed to load pathway analytics: {ex}")
 
-    page.run_task(fetch_analytics_data)
+    # Await initial data before view mounts so view is feasibly ready
+    try:
+        await asyncio.wait_for(fetch_analytics_data(), timeout=8.0)
+    except Exception:
+        page.run_task(fetch_analytics_data)
 
     return ft.View(
         route=f"/organisations/{org_id}/playlists/{playlist_id}/analytics",

@@ -3,12 +3,15 @@ import base64
 
 import flet as ft
 from src.components.bottom_appbar import get_bottom_appbar
+from src.components.course_creation_studio import open_course_creation_studio
+from src.components.standard_create_modal import open_standard_create_modal
 from src.requests.Courses import create_course, get_categories
 from src.requests.organisations import (
     get_my_organisation,
     get_organisation_members,
     get_organisation_courses,
 )
+from src.components.shimmer_skeletons import build_library_grid_skeleton
 
 # The shared "Nu Age" account that every freelance course is filed under.
 # The /courses endpoint now scopes TEACHER-role requests against this org_id
@@ -55,18 +58,10 @@ async def create_courses_view(page: ft.Page, org_id: str = None):
     theme_color              = ft.Colors.PRIMARY
     current_courses:    list = []
 
-    # ── content socket (spinner → real layout) ────────────────────────────────
+    # ── content socket (high-fidelity 1:1 skeleton → real layout) ─────────────
     content_socket = ft.Container(
         expand=True,
-        alignment=ft.Alignment.CENTER,
-        content=ft.Column(
-            alignment=ft.MainAxisAlignment.CENTER,
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            controls=[
-                ft.ProgressRing(color=ft.Colors.PRIMARY, width=36, height=36),
-                ft.Text("Loading courses…", size=13, color=ft.Colors.GREY_500),
-            ],
-        ),
+        content=build_library_grid_skeleton(page),
     )
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -268,310 +263,25 @@ async def create_courses_view(page: ft.Page, org_id: str = None):
             page.update()
 
     # ─────────────────────────────────────────────────────────────────────────
-    # CREATE MODAL
+    # DUAL PATH COURSE CREATION MODALS
     # ─────────────────────────────────────────────────────────────────────────
-    def open_create_modal(e):
-        # ── fields ────────────────────────────────────────────────────────────
-        name_input = ft.TextField(label="Course Title *", **_INPUT)
-        desc_input = ft.TextField(
-            label="Short Description",
-            multiline=True, min_lines=2, max_lines=3,
-            **_INPUT,
-        )
-        category_dropdown = ft.Dropdown(
-            label="Category",
-            options=categories_options,
-            border_color=ft.Colors.with_opacity(0.20, ft.Colors.ON_SURFACE),
-            focused_border_color=ft.Colors.PRIMARY,
-            border_radius=8,
-            dense=True,
-            text_size=13,
-            menu_height=260,
-            menu_style=ft.MenuStyle(
-                bgcolor=ft.Colors.SURFACE,
-                elevation=8,
-                shape=ft.RoundedRectangleBorder(radius=10),
-                side=ft.BorderSide(1, ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)),
-            ),
-            content_padding=ft.Padding.symmetric(horizontal=12, vertical=8),
-        )
-        # Freelance courses have exactly one possible teacher: whoever is
-        # creating it. No dropdown needed, and no one else should be
-        # assignable — hide it entirely rather than just disabling it.
-        teacher_dropdown = ft.Dropdown(
-            label="Assign Teacher (Optional)",
-            options=teachers_options,
-            border_color=ft.Colors.with_opacity(0.20, ft.Colors.ON_SURFACE),
-            focused_border_color=ft.Colors.PRIMARY,
-            border_radius=8,
-            dense=True,
-            text_size=13,
-            menu_height=260,
-            menu_style=ft.MenuStyle(
-                bgcolor=ft.Colors.SURFACE,
-                elevation=8,
-                shape=ft.RoundedRectangleBorder(radius=10),
-                side=ft.BorderSide(1, ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)),
-            ),
-            content_padding=ft.Padding.symmetric(horizontal=12, vertical=8),
-            visible=not is_freelance,
-        )
-        
-        auto_certificate_switch = ft.Switch(
-            label="Issue Certificates Automatically",
-            value=True,
-            active_color=ft.Colors.GREEN_600,
+    def _on_course_created(new_c):
+        current_courses.insert(0, new_c)
+        refresh_grid()
+
+    def open_standard_modal(e=None):
+        open_standard_create_modal(
+            page,
+            org_id=effective_org_id if not is_freelance else None,
+            on_course_created=_on_course_created,
         )
 
-        # ── objectives ────────────────────────────────────────────────────────
-        objectives_list  = []
-        objectives_chips = ft.Row(wrap=True, spacing=6)
-
-        def add_objective(e):
-            val = obj_input.value.strip()
-            if not val or val in objectives_list:
-                return
-            objectives_list.append(val)
-
-            def remove_chip(ev):
-                chip = ev.control
-                objectives_list.remove(chip.data)
-                objectives_chips.controls.remove(chip)
-                page.update()
-
-            objectives_chips.controls.append(
-                ft.Chip(
-                    label=ft.Text(val, size=12),
-                    data=val,
-                    delete_icon=ft.Icon(ft.Icons.CANCEL, size=14),
-                    on_delete=remove_chip,
-                )
-            )
-            obj_input.value = ""
-            page.update()
-
-        obj_input = ft.TextField(
-            label="Type an objective and press Enter",
-            on_submit=add_objective,
-            suffix=ft.IconButton(
-                ft.Icons.ADD_CIRCLE_OUTLINE_ROUNDED,
-                icon_color=ft.Colors.PRIMARY,
-                icon_size=18,
-                on_click=add_objective,
-            ),
-            **_INPUT,
+    def open_studio_modal(e=None):
+        open_course_creation_studio(
+            page,
+            org_id=effective_org_id if not is_freelance else None,
+            on_course_created=_on_course_created,
         )
-
-        # ── logo picker ───────────────────────────────────────────────────────
-        selected_logo_bytes = None
-        selected_logo_name  = None
-        logo_icon = ft.Icon(ft.Icons.CLOUD_UPLOAD_OUTLINED, color=ft.Colors.PRIMARY, size=28)
-        logo_text = ft.Text("Upload Cover Image (Optional)", color=ft.Colors.GREY_500, size=13)
-
-        async def handle_logo_pick(ev):
-            nonlocal selected_logo_bytes, selected_logo_name
-            try:
-                files = await ft.FilePicker().pick_files(
-                    allow_multiple=False,
-                    file_type=ft.FilePickerFileType.IMAGE,
-                    with_data=True,
-                )
-                if files:
-                    selected              = files[0]
-                    selected_logo_bytes   = selected.bytes
-                    selected_logo_name    = selected.name
-                    logo_icon.name        = ft.Icons.CHECK_CIRCLE_ROUNDED
-                    logo_icon.color       = ft.Colors.GREEN_600
-                    logo_text.value       = f"Selected: {selected_logo_name}"
-                    logo_text.color       = ft.Colors.GREEN_600
-                    page.update()
-            except Exception:
-                logo_text.value = "Could not open file picker. Try again."
-                logo_text.color = ft.Colors.RED_700
-                page.update()
-
-        image_picker_container = ft.Container(
-            width=float("inf"),
-            padding=ft.Padding.symmetric(vertical=18),
-            border=ft.Border.all(1, ft.Colors.GREY_300),
-            border_radius=10,
-            ink=True,
-            on_click=handle_logo_pick,
-            content=ft.Column(
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                spacing=6,
-                controls=[logo_icon, logo_text],
-            ),
-        )
-
-        # ── error text ────────────────────────────────────────────────────────
-        error_text = ft.Text("", color=ft.Colors.RED_700, size=12,
-                             visible=False, weight=ft.FontWeight.W_500)
-
-        # ── modal controls ────────────────────────────────────────────────────
-        def close_modal(ev=None):
-            modal.open = False
-            page.update()
-
-        async def submit_course(ev):
-            nonlocal selected_logo_bytes, selected_logo_name
-            if not name_input.value or not name_input.value.strip():
-                error_text.value   = "Course Title is required."
-                error_text.visible = True
-                page.update()
-                return
-
-            if not category_dropdown.value:
-                error_text.value   = "Category is required."
-                error_text.visible = True
-                page.update()
-                return
-
-            error_text.visible = False
-            submit_btn.disabled = True
-            submit_btn.content = ft.Row(
-                alignment=ft.MainAxisAlignment.CENTER,
-                controls=[
-                    ft.ProgressRing(width=14, height=14, color=ft.Colors.WHITE, stroke_width=2),
-                    ft.Text("Creating…", color=ft.Colors.WHITE, size=13, weight=ft.FontWeight.W_600),
-                ],
-            )
-            page.update()
-
-            try:
-                logo_b64 = (
-                    base64.b64encode(selected_logo_bytes).decode("utf-8")
-                    if selected_logo_bytes else None
-                )
-                payload = {
-                    "name":           name_input.value.strip(),
-                    "category_id":    category_dropdown.value,
-                    "description":    desc_input.value or name_input.value,
-                    "public":         "false",
-                    "objectives":     objectives_list,
-                    "image_bytes":    logo_b64,
-                    "image_filename": selected_logo_name,
-                    "org_id":         effective_org_id,
-                    "is_freelance":   is_freelance,
-                    # Freelance: always the current user, ignore/hide the picker.
-                    # Org context: whoever the admin picked (or None = unassigned).
-                    "teacher_id":     current_user_id if is_freelance else (teacher_dropdown.value or None),
-                    "auto_certificate": auto_certificate_switch.value,
-                }
-
-                new_course = await asyncio.wait_for(
-                    create_course(token, payload), timeout=50
-                )
-
-                if isinstance(new_course, dict) and "id" in new_course:
-                    current_courses.insert(0, new_course)
-                    close_modal()
-                    refresh_grid()
-                else:
-                    err_msg = new_course.get("error", "Failed to create course") if isinstance(new_course, dict) else "Unexpected server response."
-                    status_c = new_course.get("status_code", 0) if isinstance(new_course, dict) else 0
-
-                    if status_c == 409 or "already exists" in str(err_msg).lower():
-                        error_text.value = f"Course already exists:\n{err_msg}\n\nIf it was created moments ago, please close this window and refresh your courses."
-                    elif status_c == 408 or "timed out" in str(err_msg).lower():
-                        error_text.value = f"{err_msg}"
-                    else:
-                        error_text.value = f"Could not create course: {err_msg}"
-
-                    error_text.visible = True
-                    submit_btn.disabled = False
-                    submit_btn.content = ft.Text("Create Course", color=ft.Colors.WHITE,
-                                                 size=13, weight=ft.FontWeight.W_600)
-                    page.update()
-
-            except asyncio.TimeoutError:
-                error_text.value = "The request timed out. The server may still be creating your course. Please close this window and check your course list before trying again."
-                error_text.visible = True
-                submit_btn.disabled = False
-                submit_btn.content = ft.Text("Create Course", color=ft.Colors.WHITE,
-                                             size=13, weight=ft.FontWeight.W_600)
-                page.update()
-
-            except Exception as ex:
-                error_text.value = f"Error ({type(ex).__name__}): {ex}. Please check your connection or refresh courses."
-                error_text.visible = True
-                submit_btn.disabled = False
-                submit_btn.content = ft.Text("Create Course", color=ft.Colors.WHITE,
-                                             size=13, weight=ft.FontWeight.W_600)
-                page.update()
-
-        submit_btn = ft.ElevatedButton(
-            content=ft.Text("Create Course", color=ft.Colors.WHITE,
-                            size=13, weight=ft.FontWeight.W_600),
-            bgcolor=ft.Colors.PRIMARY,
-            height=44,
-            expand=True,
-            style=ft.ButtonStyle(
-                shape=ft.RoundedRectangleBorder(radius=10),
-                elevation=0,
-            ),
-            on_click=submit_course,
-        )
-
-        modal = ft.AlertDialog(
-            modal=True,
-            bgcolor=ft.Colors.SURFACE,
-            title=ft.Row(
-                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                controls=[
-                    ft.Text("New Course", size=17, weight=ft.FontWeight.W_700,
-                            color=ft.Colors.ON_SURFACE),
-                    ft.IconButton(
-                        ft.Icons.CLOSE_ROUNDED,
-                        icon_size=18,
-                        icon_color=ft.Colors.GREY_400,
-                        on_click=close_modal,
-                    ),
-                ],
-            ),
-            content=ft.Container(
-                width=520,
-                height=480,
-                content=ft.Column(
-                    scroll=ft.ScrollMode.AUTO,
-                    spacing=14,
-                    horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
-                    controls=[
-                        # ── Course basics ─────────────────────────────────────
-                        _section_label("COURSE DETAILS"),
-                        name_input,
-                        desc_input,
-
-                        # ── Organisation ──────────────────────────────────────
-                        _section_label("CLASSIFICATION"),
-                        category_dropdown,
-                        teacher_dropdown,
-                        
-                        _section_label("SETTINGS"),
-                        auto_certificate_switch,
-
-                        # ── Cover image ───────────────────────────────────────
-                        _section_label("COVER IMAGE"),
-                        image_picker_container,
-
-                        # ── Objectives ────────────────────────────────────────
-                        _section_label("LEARNING OBJECTIVES"),
-                        obj_input,
-                        objectives_chips,
-
-                        ft.Divider(height=1, color=ft.Colors.GREY_100),
-                        error_text,
-                        ft.Row(controls=[submit_btn]),
-                        ft.Container(height=8),
-                    ],
-                ),
-            ),
-            actions=[],          # actions moved into content for layout control
-        )
-
-        page.overlay.append(modal)
-        modal.open = True
-        page.update()
 
     # ─────────────────────────────────────────────────────────────────────────
     # MAIN LAYOUT (built after data loads)
@@ -602,24 +312,42 @@ async def create_courses_view(page: ft.Page, org_id: str = None):
                                             ),
                                         ],
                                     ),
-                                    ft.ElevatedButton(
-                                        content=ft.Row(
-                                            tight=True,
-                                            spacing=6,
-                                            controls=[
-                                                ft.Icon(ft.Icons.ADD_ROUNDED, size=16, color=theme_color),
-                                                ft.Text("New Course", size=13,
-                                                        color=theme_color, weight=ft.FontWeight.W_700),
-                                            ],
+                                    ft.Row([
+                                        ft.ElevatedButton(
+                                            content=ft.Row(
+                                                tight=True,
+                                                spacing=5,
+                                                controls=[
+                                                    ft.Icon(ft.Icons.ADD_ROUNDED, size=15, color=theme_color),
+                                                    ft.Text("Standard Create", size=12.5, color=theme_color, weight=ft.FontWeight.W_700),
+                                                ],
+                                            ),
+                                            bgcolor=ft.Colors.WHITE,
+                                            height=38,
+                                            style=ft.ButtonStyle(
+                                                shape=ft.RoundedRectangleBorder(radius=10),
+                                                elevation=0,
+                                            ),
+                                            on_click=open_standard_modal,
                                         ),
-                                        bgcolor=ft.Colors.WHITE,
-                                        height=40,
-                                        style=ft.ButtonStyle(
-                                            shape=ft.RoundedRectangleBorder(radius=10),
-                                            elevation=0,
+                                        ft.FilledButton(
+                                            content=ft.Row(
+                                                tight=True,
+                                                spacing=5,
+                                                controls=[
+                                                    ft.Icon(ft.Icons.AUTO_AWESOME_ROUNDED, size=15, color=ft.Colors.WHITE),
+                                                    ft.Text("AI Parallel Studio", size=12.5, color=ft.Colors.WHITE, weight=ft.FontWeight.W_700),
+                                                ],
+                                            ),
+                                            bgcolor=ft.Colors.with_opacity(0.22, ft.Colors.WHITE),
+                                            height=38,
+                                            style=ft.ButtonStyle(
+                                                shape=ft.RoundedRectangleBorder(radius=10),
+                                                side=ft.BorderSide(1, ft.Colors.with_opacity(0.35, ft.Colors.WHITE)),
+                                            ),
+                                            on_click=open_studio_modal,
                                         ),
-                                        on_click=open_create_modal,
-                                    ),
+                                    ], spacing=8, wrap=True),
                                 ],
                             ),
                         ],
@@ -731,7 +459,11 @@ async def create_courses_view(page: ft.Page, org_id: str = None):
         )
         page.update()
 
-    page.run_task(fetch_initial_data)
+    # Await initial data before view mounts so view is feasibly ready
+    try:
+        await asyncio.wait_for(fetch_initial_data(), timeout=8.0)
+    except Exception:
+        page.run_task(fetch_initial_data)
 
     # ─────────────────────────────────────────────────────────────────────────
     # VIEW

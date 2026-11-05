@@ -95,16 +95,22 @@ async def edit_profile_view(page: ft.Page) -> ft.View:
     elif str(gender).lower() == "female":
         selected_gender = "Female"
 
-    gender_dropdown = ft.Dropdown(
-        label="Gender",
-        value=selected_gender,
-        options=gender_options,
-        border_color=BORDER_CLR,
-        focused_border_color=ft.Colors.PRIMARY,
+    from src.utils.dropdown_theme import apply_dropdown_theme
+
+    gender_dropdown = apply_dropdown_theme(
+        ft.Dropdown(
+            label="Gender",
+            value=selected_gender,
+            options=gender_options,
+            border_color=BORDER_CLR,
+            focused_border_color=ft.Colors.PRIMARY,
+            border_radius=12,
+            text_size=14,
+            color=TEXT_PRIMARY,
+            label_style=ft.TextStyle(color=TEXT_MUTED, size=13),
+        ),
+        menu_height=220,
         border_radius=12,
-        text_size=14,
-        color=TEXT_PRIMARY,
-        label_style=ft.TextStyle(color=TEXT_MUTED, size=13),
     )
 
     email_display = ft.TextField(

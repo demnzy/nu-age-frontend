@@ -46,8 +46,8 @@ def clean_pack_import_tag(title: str) -> str:
 async def offline_courses_view(page: ft.Page, back_target: str = None) -> ft.View:
     db = get_local_db(page)
 
-    def handle_back(e):
-        page.go("/")
+    def handle_back(e=None):
+        page.go(back_target or "/courses")
 
     # State
     active_tab = ["courses"]  # 'courses' | 'study'
@@ -924,7 +924,7 @@ async def offline_courses_view(page: ft.Page, back_target: str = None) -> ft.Vie
                                 ),
                                 ft.Text("No Downloaded Courses", size=16, weight=ft.FontWeight.BOLD),
                                 ft.Container(
-                                    width=360,
+                                    width=min(360, max(220, int((page.width or 360) - 64))),
                                     content=ft.Text(
                                         "Save enrolled courses while online to continue learning lessons and quizzes offline anytime.",
                                         size=12,
@@ -1006,7 +1006,7 @@ async def offline_courses_view(page: ft.Page, back_target: str = None) -> ft.Vie
                                 ),
                                 ft.Text("No Study Materials Downloaded", size=16, weight=ft.FontWeight.BOLD),
                                 ft.Container(
-                                    width=380,
+                                    width=min(380, max(220, int((page.width or 380) - 64))),
                                     content=ft.Text(
                                         "Save flashcards, lecture notes, or peer study packs for offline spaced repetition reviews and quizzes.",
                                         size=12,
@@ -1069,7 +1069,7 @@ async def offline_courses_view(page: ft.Page, back_target: str = None) -> ft.Vie
             sync_status_subtitle.value = "Will sync automatically when internet is available"
             sync_action_btn.visible = True
             sync_action_btn.disabled = False
-            sync_action_btn.text = "Sync Now"
+            sync_action_btn.content = "Sync Now"
             sync_action_btn.icon = ft.Icons.SYNC_ROUNDED
         else:
             sync_status_icon.name = ft.Icons.CLOUD_DONE_ROUNDED
@@ -1109,7 +1109,7 @@ async def offline_courses_view(page: ft.Page, back_target: str = None) -> ft.Vie
 
     async def handle_sync_click(e):
         sync_action_btn.disabled = True
-        sync_action_btn.text = "Syncing..."
+        sync_action_btn.content = "Syncing..."
         sync_status_title.value = "Syncing progress & reviews..."
         sync_status_title.color = ft.Colors.PRIMARY
         sync_status_subtitle.value = "Connecting to server..."
@@ -1135,7 +1135,7 @@ async def offline_courses_view(page: ft.Page, back_target: str = None) -> ft.Vie
             sync_status_subtitle.value = f"Synced {result.synced} of {result.total} records. Tap to retry remaining."
             sync_action_btn.visible = True
             sync_action_btn.disabled = False
-            sync_action_btn.text = "Retry Sync"
+            sync_action_btn.content = "Retry Sync"
         elif result.status == "nothing_to_sync":
             sync_status_icon.name = ft.Icons.CLOUD_DONE_ROUNDED
             sync_status_icon.color = ft.Colors.GREEN_600
@@ -1151,7 +1151,7 @@ async def offline_courses_view(page: ft.Page, back_target: str = None) -> ft.Vie
             sync_status_subtitle.value = result.error_message or "Unable to reach server"
             sync_action_btn.visible = True
             sync_action_btn.disabled = False
-            sync_action_btn.text = "Retry Sync"
+            sync_action_btn.content = "Retry Sync"
 
         sync_card.content = ft.Row(
             [
@@ -1272,13 +1272,11 @@ async def offline_courses_view(page: ft.Page, back_target: str = None) -> ft.Vie
         ],
     )
 
-    content_list_column.controls.append(
-        ft.Container(
-            padding=40,
-            alignment=ft.Alignment.CENTER,
-            content=ft.ProgressRing(width=28, height=28, stroke_width=3),
-        )
-    )
-    page.run_task(refresh_list)
+    from src.components.shimmer_skeletons import build_offline_skeleton
+    content_list_column.controls.append(build_offline_skeleton(page))
+    try:
+        await asyncio.wait_for(refresh_list(), timeout=6.0)
+    except Exception as _offex:
+        print(f"[offline_courses_view] Initial fetch error or timeout: {_offex}")
 
     return view

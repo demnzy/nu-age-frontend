@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 import flet as ft
 from src.components.bottom_appbar import get_bottom_appbar
+from src.components.shimmer_skeletons import build_settings_skeleton
 from src.requests.organisations import (
     revoke_invitation,
     get_pending_invitations,
@@ -50,8 +51,7 @@ async def invite_members_view(page: ft.Page, org_id: str):
     # ── Initial Loading Socket ────────────────────────────────────────────────
     content_socket = ft.Container(
         expand=True,
-        alignment=ft.Alignment.CENTER,
-        content=ft.ProgressRing(color=ft.Colors.PRIMARY, stroke_width=3, width=36, height=36),
+        content=build_settings_skeleton(page),
     )
 
     # ── Async Data Fetcher & Renderer ─────────────────────────────────────────
@@ -571,7 +571,11 @@ async def invite_members_view(page: ft.Page, org_id: str):
         content_socket.alignment = None
         page.update()
 
-    page.run_task(load_invite_data)
+    # Await initial data before view mounts so view is feasibly ready
+    try:
+        await asyncio.wait_for(load_invite_data(), timeout=8.0)
+    except Exception:
+        page.run_task(load_invite_data)
 
     return ft.View(
         route=f"/organisations/{org_id}/invite-members",

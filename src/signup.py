@@ -4,6 +4,7 @@ from src.requests.auth import signup_request, get_universities, verify_email_req
 from src.components.landing_navbar import get_landing_appbar
 from src.requests.organisations import join_org
 from src.components.google_auth_button import build_google_auth_button
+from src.utils.dropdown_theme import apply_dropdown_theme
 import re
 import uuid
 
@@ -141,26 +142,27 @@ def Signup_view(page: ft.Page):
     )
 
     # University dropdown with search
-    University = ft.Dropdown(
-        enable_search=True,
-        enable_filter=True,
-        editable=True,
-        menu_height=250,
-        label="University (optional)",
-        label_style=ft.TextStyle(size=10.5, color=ft.Colors.GREY_500),
-        hint_text="Select university (optional)",
-        hint_style=ft.TextStyle(size=10, color=ft.Colors.GREY_400),
-        height=40,
-        text_size=13,
-        border_radius=10,
-        border_color=ft.Colors.OUTLINE,
-        focused_border_color=ft.Colors.PRIMARY,
-        content_padding=ft.Padding.symmetric(horizontal=12, vertical=8),
-        expand=True,
-        options=[],
-        disabled=True,
-        menu_style=ft.MenuStyle(bgcolor=ft.Colors.PRIMARY),
-        leading_icon=ft.Icons.SCHOOL_OUTLINED,
+    University = apply_dropdown_theme(
+        ft.Dropdown(
+            enable_search=True,
+            enable_filter=True,
+            editable=True,
+            label="University (optional)",
+            label_style=ft.TextStyle(size=10.5, color=ft.Colors.GREY_500),
+            hint_text="Select university (optional)",
+            hint_style=ft.TextStyle(size=10, color=ft.Colors.GREY_400),
+            height=40,
+            text_size=13,
+            border_radius=10,
+            border_color=ft.Colors.OUTLINE,
+            focused_border_color=ft.Colors.PRIMARY,
+            content_padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+            expand=True,
+            options=[],
+            disabled=True,
+            leading_icon=ft.Icons.SCHOOL_OUTLINED,
+        ),
+        menu_height=260,
     )
 
     async def load_universities():

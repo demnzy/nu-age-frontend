@@ -68,6 +68,8 @@ def build_flashcard_session(
         "Tap to reveal", size=10, weight=ft.FontWeight.W_700, color=ui.muted(0.40)
     )
 
+    is_compact = bool(getattr(page, "width", None) and page.width < 768)
+
     front_face = ft.Column(
         expand=True,
         alignment=ft.MainAxisAlignment.CENTER,
@@ -80,7 +82,7 @@ def build_flashcard_session(
                 alignment=ft.Alignment.CENTER,
                 content=ft.Column(
                     scroll=ft.ScrollMode.AUTO,
-                    alignment=ft.MainAxisAlignment.CENTER,
+                    alignment=ft.MainAxisAlignment.START,
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                     controls=[
                         ft.Container(
@@ -105,7 +107,7 @@ def build_flashcard_session(
                 alignment=ft.Alignment.CENTER,
                 content=ft.Column(
                     scroll=ft.ScrollMode.AUTO,
-                    alignment=ft.MainAxisAlignment.CENTER,
+                    alignment=ft.MainAxisAlignment.START,
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                     controls=[
                         ft.Container(
@@ -131,7 +133,7 @@ def build_flashcard_session(
 
     card_surface = ft.Container(
         expand=True,
-        padding=ft.Padding.symmetric(horizontal=22, vertical=26),
+        padding=ft.Padding.symmetric(horizontal=14, vertical=16) if is_compact else ft.Padding.symmetric(horizontal=22, vertical=26),
         border_radius=ui.RADIUS_LG,
         bgcolor=ft.Colors.SURFACE,
         border=ft.Border.all(1, ui.hairline(0.12)),
@@ -154,18 +156,28 @@ def build_flashcard_session(
         animate_offset=ft.Animation(ui.DUR_BASE, ui.CURVE_OUT),
     )
 
-    def _get_font_size(text: str) -> int:
+    def _get_font_size(text: str) -> float:
         l = len((text or "").strip())
-        if l <= 60:
-            return 22
-        elif l <= 140:
-            return 18
-        elif l <= 280:
-            return 15
+        if is_compact:
+            if l <= 60:
+                return 17
+            elif l <= 140:
+                return 15
+            elif l <= 280:
+                return 13.5
+            else:
+                return 12
         else:
-            return 13.5
+            if l <= 60:
+                return 22
+            elif l <= 140:
+                return 18
+            elif l <= 280:
+                return 15
+            else:
+                return 13.5
 
-    def _make_stylesheet(size: int, is_bold: bool = False):
+    def _make_stylesheet(size: float, is_bold: bool = False):
         return ft.MarkdownStyleSheet(
             text_alignment=ft.TextAlign.CENTER,
             h1_alignment=ft.CrossAxisAlignment.CENTER,
@@ -216,6 +228,8 @@ def build_flashcard_session(
         progress.set_current(state["index"])
         grade_row.visible = False
         flip_row.visible = True
+        prev_btn.disabled = state["index"] <= 0
+        prev_btn.opacity = 1.0 if state["index"] > 0 else 0.35
 
     def _flip(_=None):
         if state["busy"] or state["done"]:
@@ -242,6 +256,26 @@ def build_flashcard_session(
             page.update()
 
         page.run_task(_run)
+
+    async def _go_back(_=None):
+        """Step back to the previous card so learners can re-read or fix a mis-tap."""
+        if state["busy"] or state["done"] or state["index"] <= 0:
+            return
+        state["busy"] = True
+        card_surface.offset = ft.Offset(0.25, 0)
+        card_surface.opacity = 0.0
+        page.update()
+        await asyncio.sleep(ui.DUR_BASE / 1000)
+
+        state["index"] -= 1
+        _render_card()
+        card_surface.offset = ft.Offset(-0.25, 0)
+        page.update()
+        await asyncio.sleep(0.02)
+        card_surface.offset = ft.Offset(0, 0)
+        card_surface.opacity = 1.0
+        state["busy"] = False
+        page.update()
 
     async def _advance():
         """Slide the current card out, bring the next one in."""
@@ -352,12 +386,27 @@ def build_flashcard_session(
         ],
     )
 
+    prev_btn = ft.Container(
+        width=52,
+        height=52,
+        border_radius=ui.RADIUS_MD,
+        bgcolor=ui.tint(ft.Colors.ON_SURFACE, 0.06),
+        border=ft.Border.all(1, ui.hairline(0.16)),
+        alignment=ft.Alignment.CENTER,
+        ink=True,
+        tooltip="Previous card (Left Arrow)",
+        on_click=lambda e: page.run_task(_go_back),
+        content=ft.Icon(ft.Icons.ARROW_BACK_ROUNDED, size=18, color=ft.Colors.ON_SURFACE),
+    )
+
     flip_row = ft.Row(
+        spacing=10,
         controls=[
+            prev_btn,
             ui.primary_button(
                 "Reveal answer", _flip, icon=ft.Icons.VISIBILITY_ROUNDED, expand=True, height=52
-            )
-        ]
+            ),
+        ],
     )
 
     # ── session summary ──────────────────────────────────────────────────
@@ -474,6 +523,13 @@ def build_flashcard_session(
         key = (e.key or "").lower()
         if key in (" ", "space", "enter"):
             _flip()
+        elif key in ("arrow left", "backspace") and state["index"] > 0:
+            page.run_task(_go_back)
+        elif key == "arrow right":
+            if state["flipped"]:
+                page.run_task(_grade, ui.GRADE_GOOD, "good", ui.C_CORRECT_SOFT)
+            else:
+                _flip()
         elif key == "escape":
             on_exit()
         elif state["flipped"] and key in ("1", "2", "3", "4"):

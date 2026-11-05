@@ -11,6 +11,7 @@ from typing import List, Dict, Any, Callable, Optional
 from src.components import study_ui as ui
 from src.components.nu_coin_icon import nu_coin_icon
 from src.utils.file_opener import show_page_snackbar
+from src.utils.dropdown_theme import apply_dropdown_theme
 
 _THEMES = [
     ("purple_indigo", "Purple Indigo", "#6366F1", "#8B5CF6"),
@@ -75,20 +76,26 @@ def show_bundle_builder_dialog(
         border_radius=8,
     )
 
-    category_dropdown = ft.Dropdown(
-        label="Exam Category",
-        dense=True,
-        options=[ft.dropdown.Option(c, c) for c in _CATEGORIES],
-        value=init_cat,
-        expand=True,
+    category_dropdown = apply_dropdown_theme(
+        ft.Dropdown(
+            label="Exam Category",
+            dense=True,
+            options=[ft.dropdown.Option(c, c) for c in _CATEGORIES],
+            value=init_cat,
+            expand=True,
+        ),
+        menu_height=260,
     )
 
-    theme_dropdown = ft.Dropdown(
-        label="Theme Gradient",
-        dense=True,
-        options=[ft.dropdown.Option(k, v) for k, v, _, _ in _THEMES],
-        value=init_theme,
-        expand=True,
+    theme_dropdown = apply_dropdown_theme(
+        ft.Dropdown(
+            label="Theme Gradient",
+            dense=True,
+            options=[ft.dropdown.Option(k, v) for k, v, _, _ in _THEMES],
+            value=init_theme,
+            expand=True,
+        ),
+        menu_height=260,
     )
 
     banner_url_field = ft.TextField(

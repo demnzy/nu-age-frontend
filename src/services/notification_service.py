@@ -115,6 +115,10 @@ async def sync_learner_notifications(page: ft.Page, force: bool = False):
                         ic = ft.Icons.TIMER_ROUNDED
                     elif cat in ("courses", "course_progress"):
                         ic = ft.Icons.SCHOOL_ROUNDED
+                    elif cat in ("course_spaces", "spaces"):
+                        ic = ft.Icons.HUB_ROUNDED
+                    elif cat == "live_session":
+                        ic = ft.Icons.VIDEO_CALL_ROUNDED
                     elif cat in ("discussion", "discussions"):
                         ic = ft.Icons.FORUM_ROUNDED
                     elif cat == "streak_warning":
@@ -160,6 +164,10 @@ async def sync_learner_notifications(page: ft.Page, force: bool = False):
                             act_label = "View Network 🤝"
                         elif cat == "course_progress":
                             act_label = "Continue Lesson 🎓"
+                        elif cat in ("course_spaces", "spaces"):
+                            act_label = "Enter Space 🚀"
+                        elif cat == "live_session":
+                            act_label = "Join Class 🎥"
                         else:
                             act_label = "Open"
 
@@ -243,6 +251,64 @@ async def sync_learner_notifications(page: ft.Page, force: bool = False):
             n_id = n.get("id", "")
             if n_id.startswith("exam_live_") and n_id not in current_live_exam_ids:
                 NotificationManager.remove(n_id)
+
+        # 3. Check active and upcoming Course Space live sessions
+        current_live_session_ids = set()
+        try:
+            from src.requests.course_spaces import get_upcoming_sessions
+            up_res = await get_upcoming_sessions(token)
+            if isinstance(up_res, dict) and up_res.get("sessions"):
+                for s in up_res["sessions"]:
+                    s_id = str(s.get("id"))
+                    s_title = s.get("title", "Live Class")
+                    s_space = s.get("space_name", "Cohort Space")
+                    s_space_id = str(s.get("space_id"))
+                    meeting_link = s.get("meeting_link")
+                    is_live = bool(s.get("is_live"))
+                    mins_until = int(s.get("minutes_until_start") or 0)
+
+                    def _make_session_launcher(mlink=meeting_link, sp_id=s_space_id):
+                        async def _launch():
+                            if mlink:
+                                try:
+                                    await page.launch_url(mlink)
+                                    return
+                                except Exception:
+                                    pass
+                            page.go(f"/spaces/{sp_id}?tab=sessions")
+                        return lambda: page.run_task(_launch)
+
+                    if is_live:
+                        current_live_session_ids.add(f"session_live_{s_id}")
+                        NotificationManager.upsert(
+                            notif_id=f"session_live_{s_id}",
+                            title=f"🔴 Live Class Starting Now: {s_title}",
+                            body=f"Your cohort session in {s_space} is live now. Tap to join meeting.",
+                            category="live_session",
+                            icon=ft.Icons.VIDEO_CALL_ROUNDED,
+                            action_label="Join Class 🎥",
+                            on_action=_make_session_launcher(),
+                        )
+                    elif 0 < mins_until <= 60:
+                        current_live_session_ids.add(f"session_soon_{s_id}")
+                        NotificationManager.upsert(
+                            notif_id=f"session_soon_{s_id}",
+                            title=f"Class in {mins_until}m: {s_title}",
+                            body=f"Your live meeting in {s_space} begins in {mins_until} minutes. Get ready!",
+                            category="live_session",
+                            icon=ft.Icons.ALARM_ROUNDED,
+                            action_label="View Details",
+                            on_action=lambda sp_id=s_space_id: page.go(f"/spaces/{sp_id}?tab=sessions"),
+                        )
+
+            # Prune finished session notifications
+            all_notifs = NotificationManager.get_all()
+            for n in list(all_notifs):
+                n_id = n.get("id", "")
+                if (n_id.startswith("session_live_") or n_id.startswith("session_soon_")) and n_id not in current_live_session_ids:
+                    NotificationManager.remove(n_id)
+        except Exception as e:
+            print(f"sync_learner_notifications upcoming sessions warning: {e}")
 
         # Persist synced notifications to local cache for instant 0ms cold-start display
         try:

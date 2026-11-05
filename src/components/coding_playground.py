@@ -21,7 +21,7 @@ from src.utils.code_runner import (
     execute_html,
     detects_stdin,
 )
-from src.utils.file_opener import show_page_snackbar, open_web_preview_modal
+from src.utils.file_opener import safe_set_clipboard, show_page_snackbar, open_web_preview_modal
 
 # Minimal, clean standard boilerplate per language
 PLAYGROUND_FILES = [
@@ -124,7 +124,7 @@ class CodingPlayground(ft.Container):
     """
 
     def __init__(self, page: ft.Page):
-        super().__init__(expand=True, padding=0)
+        super().__init__(expand=True, padding=ft.Padding.symmetric(horizontal=16, vertical=10))
         self.app_page = page
         self.current_lang = "python"
         self._panel_tab = "terminal"  # "terminal" or "input"
@@ -136,44 +136,23 @@ class CodingPlayground(ft.Container):
         self._init_ui()
 
     def _get_palette(self) -> dict:
-        is_dark = getattr(self.app_page, "theme_mode", None) == ft.ThemeMode.DARK if self.app_page else False
-        if is_dark:
-            return {
-                "editor_bg": "#141418",
-                "terminal_bg": "#101014",
-                "terminal_header_bg": "#18181E",
-                "toolbar_bg": "#18181E",
-                "tabs_bar_bg": "#1B1B20",
-                "active_tab_bg": "#141418",
-                "inactive_tab_bg": "#1B1B20",
-                "status_bar_bg": "#18181E",
-                "card_bg": "#1E1E24",
-                "border": "#2D2D36",
-                "text": "#F3F4F6",
-                "text_muted": "#9CA3AF",
-                "code_text": "#F9FAFB",
-                "input_bg": "#1A1A22",
-                "pill_bg": "#22222A",
-            }
-        else:
-            # Crisp, clean, vibrant Light Mode (No dull murky grey backgrounds!)
-            return {
-                "editor_bg": "#FFFFFF",
-                "terminal_bg": "#FFFFFF",
-                "terminal_header_bg": "#FAFAFA",
-                "toolbar_bg": "#FFFFFF",
-                "tabs_bar_bg": "#FAFAFA",
-                "active_tab_bg": "#FFFFFF",
-                "inactive_tab_bg": "#F1F3F5",
-                "status_bar_bg": "#FFFFFF",
-                "card_bg": "#FFFFFF",
-                "border": "#E2E8F0",
-                "text": "#0F172A",
-                "text_muted": "#64748B",
-                "code_text": "#0F172A",
-                "input_bg": "#FFFFFF",
-                "pill_bg": "#F1F5F9",
-            }
+        return {
+            "editor_bg": ft.Colors.SURFACE,
+            "terminal_bg": ft.Colors.SURFACE,
+            "terminal_header_bg": ft.Colors.with_opacity(0.03, ft.Colors.ON_SURFACE),
+            "toolbar_bg": ft.Colors.SURFACE,
+            "tabs_bar_bg": ft.Colors.with_opacity(0.03, ft.Colors.ON_SURFACE),
+            "active_tab_bg": ft.Colors.SURFACE,
+            "inactive_tab_bg": ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
+            "status_bar_bg": ft.Colors.SURFACE,
+            "card_bg": ft.Colors.SURFACE,
+            "border": ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE),
+            "text": ft.Colors.ON_SURFACE,
+            "text_muted": ft.Colors.ON_SURFACE_VARIANT,
+            "code_text": ft.Colors.ON_SURFACE,
+            "input_bg": ft.Colors.SURFACE,
+            "pill_bg": ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
+        }
 
     def _get_file_info(self, lang_id: str) -> dict:
         for f in PLAYGROUND_FILES:
@@ -426,6 +405,14 @@ class CodingPlayground(ft.Container):
             ],
         )
 
+        self.copy_output_btn = ft.IconButton(
+            icon=ft.Icons.CONTENT_COPY_ROUNDED,
+            icon_size=14,
+            icon_color=palette["text_muted"],
+            tooltip="Copy Terminal Output",
+            on_click=lambda e: self.app_page.run_task(self._copy_terminal_output),
+        )
+
         self.terminal_header = ft.Container(
             padding=ft.Padding.symmetric(horizontal=8, vertical=4),
             bgcolor=palette["terminal_header_bg"],
@@ -439,7 +426,15 @@ class CodingPlayground(ft.Container):
                         content=self.terminal_tabs_row,
                         expand=True,
                     ),
-                    self.status_pill,
+                    ft.Row(
+                        spacing=4,
+                        tight=True,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[
+                            self.status_pill,
+                            self.copy_output_btn,
+                        ],
+                    ),
                 ],
             ),
         )
@@ -462,6 +457,8 @@ class CodingPlayground(ft.Container):
         # Beginner note banner inside terminal if stdin is needed
         self.terminal_stdin_notice = ft.Container(
             visible=False,
+            ink=True,
+            on_click=lambda e: self._switch_panel_tab("input"),
             padding=ft.Padding.symmetric(horizontal=10, vertical=6),
             border_radius=6,
             bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.AMBER_400),
@@ -471,7 +468,7 @@ class CodingPlayground(ft.Container):
                 controls=[
                     ft.Icon(ft.Icons.TIPS_AND_UPDATES_ROUNDED, size=15, color=ft.Colors.AMBER_500),
                     ft.Text(
-                        "Code requests user input! Click 'PROGRAM INPUT (STDIN)' tab above to supply inputs.",
+                        "Code requests user input! Tap here or click 'INPUT (STDIN)' tab above to supply inputs.",
                         size=11,
                         color=ft.Colors.AMBER_600 if not getattr(self.app_page, "theme_mode", None) == ft.ThemeMode.DARK else ft.Colors.AMBER_300,
                         expand=True,
@@ -533,27 +530,29 @@ class CodingPlayground(ft.Container):
             on_change=self._on_stdin_change,
         )
 
+        self.run_stdin_btn = ft.FilledButton(
+            content=ft.Row(
+                spacing=4,
+                tight=True,
+                controls=[
+                    ft.Icon(ft.Icons.PLAY_ARROW_ROUNDED, size=14, color=ft.Colors.WHITE),
+                    ft.Text("Run with Input", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+                ],
+            ),
+            style=ft.ButtonStyle(
+                bgcolor=ft.Colors.GREEN_600,
+                shape=ft.RoundedRectangleBorder(radius=6),
+                padding=ft.Padding.symmetric(horizontal=10, vertical=6),
+            ),
+            on_click=lambda e: self.app_page.run_task(self._execute_code),
+        )
+
         self.stdin_action_row = ft.Row(
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
             controls=[
                 ft.Text("Each answer on a new line", size=11, color=palette["text_muted"]),
-                ft.FilledButton(
-                    content=ft.Row(
-                        spacing=4,
-                        tight=True,
-                        controls=[
-                            ft.Icon(ft.Icons.PLAY_ARROW_ROUNDED, size=14, color=ft.Colors.WHITE),
-                            ft.Text("Run with Input", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
-                        ],
-                    ),
-                    style=ft.ButtonStyle(
-                        bgcolor=ft.Colors.GREEN_600,
-                        shape=ft.RoundedRectangleBorder(radius=6),
-                        padding=ft.Padding.symmetric(horizontal=10, vertical=6),
-                    ),
-                    on_click=lambda e: self.app_page.run_task(self._execute_code),
-                ),
+                self.run_stdin_btn,
             ],
         )
 
@@ -787,26 +786,14 @@ class CodingPlayground(ft.Container):
     async def _copy_code(self, e=None):
         code = self.code_input.value or ""
         if self.app_page:
-            try:
-                if hasattr(self.app_page, "clipboard") and hasattr(self.app_page.clipboard, "set"):
-                    res = self.app_page.clipboard.set(code)
-                    if asyncio.iscoroutine(res):
-                        await res
-                elif hasattr(self.app_page, "set_clipboard"):
-                    res = self.app_page.set_clipboard(code)
-                    if asyncio.iscoroutine(res):
-                        await res
-            except Exception as ex:
-                print(f"Clipboard copy error: {ex}")
+            await safe_set_clipboard(self.app_page, code)
+            show_page_snackbar(self.app_page, "Code copied to clipboard!")
 
-            show_page_snackbar(
-                self.app_page,
-                ft.SnackBar(
-                    content=ft.Text("Code copied to clipboard!", color=ft.Colors.WHITE, size=13),
-                    bgcolor=ft.Colors.PRIMARY,
-                    duration=2000,
-                ),
-            )
+    async def _copy_terminal_output(self, e=None):
+        output = self.console_output.value or ""
+        if self.app_page:
+            await safe_set_clipboard(self.app_page, output)
+            show_page_snackbar(self.app_page, "Terminal output copied to clipboard!")
 
     def _reset_code(self, e=None):
         active_info = self._get_file_info(self.current_lang)
@@ -839,6 +826,7 @@ class CodingPlayground(ft.Container):
 
         palette = self._get_palette()
         self.run_btn.disabled = True
+        self.run_stdin_btn.disabled = True
         self.run_btn_icon.visible = False
         self.run_btn_spinner.visible = True
         self.run_btn_text.value = "Running"
@@ -977,6 +965,7 @@ class CodingPlayground(ft.Container):
 
         finally:
             self.run_btn.disabled = False
+            self.run_stdin_btn.disabled = False
             self.run_btn_icon.visible = True
             self.run_btn_spinner.visible = False
             self.run_btn_text.value = "Run"

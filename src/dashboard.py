@@ -45,45 +45,101 @@ def _card(content, padding=18) -> ft.Container:
 # ─────────────────────────────────────────────────────────────────────────────
 # ONBOARDING — first-login setup wizard
 # ─────────────────────────────────────────────────────────────────────────────
+import json
+import os
 from src.components.onboarding_overlay import build_onboarding_overlay
 
 # DEV MOCK TOGGLE ------------------------------------------------------------
 # Force-show or force-hide the onboarding overlay for testing:
 #   True  -> always show it (handy while designing/testing)
 #   False -> never show it
-#   None  -> use check_is_first_login()'s result (the "real" behavior)
+#   None  -> persistent frontend mechanism (must show on compiled app 1st run, then never again)
 FORCE_SHOW_ONBOARDING = None
 
 
-async def check_is_first_login(page: ft.Page) -> bool:
-    """Check if the user is logging in for the first time."""
+def _get_app_disk_state() -> dict:
     try:
-        has_seen = await page.shared_preferences.get("has_seen_onboarding")
-        if has_seen:
-            return False
+        app_dir = os.path.join(os.environ.get("APPDATA") or os.environ.get("HOME") or os.path.expanduser("~"), ".nu_age")
+        state_file = os.path.join(app_dir, "client_state.json")
+        if os.path.exists(state_file):
+            with open(state_file, "r", encoding="utf-8") as f:
+                return json.load(f)
     except Exception:
         pass
+    return {}
+
+
+def _set_app_disk_state(key: str, val) -> None:
+    try:
+        app_dir = os.path.join(os.environ.get("APPDATA") or os.environ.get("HOME") or os.path.expanduser("~"), ".nu_age")
+        os.makedirs(app_dir, exist_ok=True)
+        state_file = os.path.join(app_dir, "client_state.json")
+        data = _get_app_disk_state()
+        data[key] = val
+        with open(state_file, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+    except Exception as ex:
+        print(f"[Onboarding] Disk state save warning: {ex}")
+
+
+async def check_should_show_onboarding(page: ft.Page) -> bool:
+    """Frontend-first persistence check for compiled app first launch.
+    
+    1. If this compiled installation has NEVER shown the onboarding before,
+       it MUST show on first run (whether the user had an account or not).
+    2. Once it has opened/shown on this app install, it marks a persistent
+       marker and will not show again on subsequent launches.
+    3. Does not block the backend first-login check: if a brand-new account
+       logs in later on this device, the backend first-login check still fires.
+    """
+    disk_data = _get_app_disk_state()
+    disk_shown = disk_data.get("app_onboarding_shown")
+
+    pref_shown = False
+    try:
+        if hasattr(page, "shared_preferences"):
+            pref_shown = await page.shared_preferences.get("app_onboarding_shown_v1")
+    except Exception:
+        pass
+
+    has_client_shown = disk_shown or pref_shown
+
+    if not has_client_shown:
+        # First time opening this compiled app installation:
+        # Must show whether they've had an account or not!
+        return True
+
+    # Not first install launch. Check backend account first-login check (not blocking it)
     from src.utils.session_utils import get_session_user
     user_data = get_session_user(page)
-    if user_data.get("has_seen_onboarding"):
-        return False
-    streak = user_data.get("streak", 0) or 0
-    return streak == 0
+    if user_data:
+        if user_data.get("has_seen_onboarding"):
+            return False
+        streak = user_data.get("streak", 0) or 0
+        return streak == 0
+
+    return False
 
 
 async def mark_onboarding_seen(page: ft.Page, data: dict = None) -> None:
     """Save onboarding completion and user preferences."""
-    await page.shared_preferences.set("has_seen_onboarding", True)
-    if data:
-        try:
-            if "role" in data:
-                await page.shared_preferences.set("user_role", str(data["role"]))
-            if "interests" in data and isinstance(data["interests"], list):
-                await page.shared_preferences.set("user_interests", ",".join(data["interests"]))
-            if "daily_goal" in data:
-                await page.shared_preferences.set("daily_study_goal", str(data["daily_goal"]))
-        except Exception as ex:
-            print(f"[Onboarding] Preferences save warning: {ex}")
+    _set_app_disk_state("app_onboarding_shown", True)
+    try:
+        if hasattr(page, "shared_preferences"):
+            await page.shared_preferences.set("app_onboarding_shown_v1", True)
+            await page.shared_preferences.set("has_seen_onboarding", True)
+            if data:
+                if "goal_minutes" in data:
+                    await page.shared_preferences.set("study_goal_minutes", data["goal_minutes"])
+                if "study_focus" in data:
+                    await page.shared_preferences.set("study_focus", data["study_focus"])
+    except Exception as ex:
+        print(f"[Onboarding] Preferences save warning: {ex}")
+
+    from src.utils.session_utils import get_session_user
+    u = get_session_user(page)
+    if u:
+        u["has_seen_onboarding"] = True
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -92,10 +148,10 @@ async def mark_onboarding_seen(page: ft.Page, data: dict = None) -> None:
 async def dashboard_view(page: ft.Page):
     app_bar = get_bottom_appbar(page)
 
+    from src.components.shimmer_skeletons import build_dashboard_skeleton, shimmer_box
     content_socket = ft.Container(
         expand=True,
-        alignment=ft.Alignment.CENTER,
-        content=ft.ProgressRing(color=ft.Colors.PRIMARY, stroke_width=3)
+        content=build_dashboard_skeleton(page),
     )
 
     # ── onboarding overlay (lives inside the View's body via a Stack, so it
@@ -112,7 +168,8 @@ async def dashboard_view(page: ft.Page):
     )
 
     async def hide_onboarding_async(data=None):
-        # fade + shrink out, then actually remove it once the animation's done
+        # Save completion and user preferences, then fade + shrink out
+        await mark_onboarding_seen(page, data)
         bottom_appbar.opacity = 1
         onboarding_slot.opacity = 0
         onboarding_slot.scale = 0.96
@@ -126,26 +183,27 @@ async def dashboard_view(page: ft.Page):
         page.run_task(hide_onboarding_async, data)
 
     async def maybe_show_onboarding():
-        # FORCE_SHOW_ONBOARDING (defined near ONBOARDING_SLIDES above) wins
-        # when set to True/False, for quick manual testing. Set it to None
-        # to fall back to the real/mock check_is_first_login() result.
-        seen = await page.shared_preferences.get('has_seen_onboarding')
-        print(seen)
         if FORCE_SHOW_ONBOARDING is not None:
             should_show = FORCE_SHOW_ONBOARDING
-        elif not seen:
-            should_show = await check_is_first_login(page) 
         else:
-            return
+            should_show = await check_should_show_onboarding(page)
 
         if not should_show:
             return
+
+        # Mark immediately so even after it opens once, it never shows again on subsequent runs
+        _set_app_disk_state("app_onboarding_shown", True)
+        try:
+            if hasattr(page, "shared_preferences"):
+                await page.shared_preferences.set("app_onboarding_shown_v1", True)
+        except Exception:
+            pass
 
         # let the dashboard render and settle first — this is what makes the
         # overlay feel like it eases in over an already-loaded page instead
         # of slamming in before anything underneath is visible
         await asyncio.sleep(1.5)
-        bottom_appbar.opacity= 0.5
+        bottom_appbar.opacity = 0.5
         page.update()
         onboarding_slot.content = build_onboarding_overlay(
             page, on_dismiss=hide_onboarding
@@ -626,12 +684,13 @@ async def dashboard_view(page: ft.Page):
     activity_holder = ft.Container(
         height=180,
         alignment=ft.Alignment.CENTER,
-        content=ft.Row(
+        content=ft.Column(
             alignment=ft.MainAxisAlignment.CENTER,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             spacing=8,
             controls=[
-                ft.ProgressRing(color=ft.Colors.PRIMARY, width=18, height=18, stroke_width=2.5),
-                ft.Text("Loading activity thread…", size=12.5, color=ft.Colors.GREY_400),
+                shimmer_box(radius=6, height=14, width=180),
+                shimmer_box(radius=8, height=110, width=320),
             ],
         ),
     )
@@ -688,10 +747,14 @@ async def dashboard_view(page: ft.Page):
         alignment=ft.Alignment.CENTER,
         content=ft.Row(
             alignment=ft.MainAxisAlignment.CENTER,
-            spacing=8,
+            spacing=16,
             controls=[
-                ft.ProgressRing(color=ft.Colors.SECONDARY, width=18, height=18, stroke_width=2.5),
-                ft.Text("Analyzing categories…", size=12.5, color=ft.Colors.GREY_400),
+                shimmer_box(radius=999, width=100, height=100),
+                ft.Column([
+                    shimmer_box(radius=4, height=12, width=80),
+                    shimmer_box(radius=4, height=12, width=100),
+                    shimmer_box(radius=4, height=12, width=70),
+                ], spacing=6, tight=True),
             ],
         ),
     )
@@ -1819,7 +1882,10 @@ async def dashboard_view(page: ft.Page):
             
             page.run_task(animate_section, section, idx)
 
-    page.run_task(fetch_dashboard_data)
+    try:
+        await asyncio.wait_for(fetch_dashboard_data(), timeout=8.0)
+    except Exception as _dex:
+        print(f"[dashboard_view] Initial fetch error or timeout: {_dex}")
 
     def on_dashboard_resize(e):
         is_desk = (page.width or 400) >= 800

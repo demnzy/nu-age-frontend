@@ -24,8 +24,15 @@ from src.requests.study import (
     get_youtube_recommendations,
     delete_study_material,
     log_study_session_api,
+    get_journals_api,
+    delete_journal_api,
 )
+from src.components.create_journal_modal import open_create_journal_modal, resolve_journal_color
+from src.components.journal_cockpit import build_journal_cockpit
+from src.components.chat_quota_modal import open_chat_quota_modal
+from src.utils.ai_error_sanitizer import get_user_friendly_ai_error
 from src.requests.chats import ask_ai_tutor_api
+from src.requests.study import get_ai_tutor_quota_api
 from src.requests.study_partners import (
     get_active_partnership,
     share_study_pack_api,
@@ -97,28 +104,13 @@ def _pill(label, bg, fg) -> ft.Container:
 
 
 def _loading(label="Loading…") -> ft.Container:
-    lbl = ft.Text(
-        label,
-        size=13.5,
-        weight=ft.FontWeight.W_600,
-        color=ft.Colors.with_opacity(0.75, ft.Colors.ON_SURFACE),
-    )
+    from src.components.shimmer_skeletons import build_self_study_skeleton
     c = ft.Container(
         expand=True,
-        alignment=ft.Alignment.CENTER,
-        content=ft.Column(
-            alignment=ft.MainAxisAlignment.CENTER,
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            spacing=14,
-            tight=True,
-            controls=[
-                ft.ProgressRing(color=ft.Colors.PRIMARY, width=38, height=38, stroke_width=3),
-                lbl,
-            ],
-        ),
+        content=build_self_study_skeleton(None),
     )
     c._is_loading = True
-    c._lbl_text = lbl
+    c._lbl_text = ft.Text(label, size=13.5, weight=ft.FontWeight.W_600)
     return c
 
 
@@ -307,6 +299,7 @@ async def self_study_view(page: ft.Page):
     state = {
         "user_role":         user_role or "student",
         "materials":         [],
+        "journals":          [],
         "due_cards":         [],
         "all_due_cards":     [],
         "exam_submit_fn":    None,
@@ -327,6 +320,7 @@ async def self_study_view(page: ft.Page):
         "gen_used":          0,
         "gen_lim":           10,
         "active_material":   None,
+        "active_journal":    None,
         "active_material_cards": [],
         "material_ai_chat":  [],
         "is_ai_generating":  False,
@@ -482,12 +476,15 @@ async def self_study_view(page: ft.Page):
         expand=True, 
         content=content_socket,
         padding=0, 
-        margin=0
+        margin=0,
+        animate=ft.Animation(240, ft.AnimationCurve.EASE_OUT_CUBIC),
     )
     
     mobile_overlay = ft.Container(
         left=0, right=0, top=0, bottom=0,
         bgcolor=ft.Colors.with_opacity(0.4, ft.Colors.ON_SURFACE),
+        opacity=0.0,
+        animate_opacity=ft.Animation(200, ft.AnimationCurve.EASE_OUT),
         visible=False,
     )
 
@@ -539,7 +536,27 @@ async def self_study_view(page: ft.Page):
         if state.get("sidebar_open"):
             state["sidebar_open"] = False
             try:
-                update_layout()
+                is_desktop = page.width >= 800 if page.width else True
+                sidebar_toggle.icon = ft.Icons.MENU_ROUNDED
+                if is_desktop:
+                    target_width = 54
+                    sidebar_container.width = target_width
+                    main_content_wrapper.padding = ft.Padding.only(left=target_width)
+                    page.update()
+                else:
+                    mobile_overlay.opacity = 0.0
+                    sidebar_container.offset = ft.Offset(-1.0, 0)
+                    sidebar_container.opacity = 0.0
+                    page.update()
+
+                    async def _finish_collapse():
+                        await asyncio.sleep(0.24)
+                        if not state.get("sidebar_open"):
+                            mobile_overlay.visible = False
+                            sidebar_container.visible = False
+                            page.update()
+
+                    asyncio.create_task(_finish_collapse())
             except Exception:
                 pass
 
@@ -748,6 +765,7 @@ async def self_study_view(page: ft.Page):
     def _refresh_sidebar_materials():
         sidebar_materials_col.controls.clear()
         mats = state["materials"]
+        journals_list = state.get("journals", [])
         query = state.get("search_query", "")
         if query:
             mats = [
@@ -755,8 +773,71 @@ async def self_study_view(page: ft.Page):
                 if query in m.get("title", "").lower()
                 or query in format_material_title(m.get("title", "")).lower()
             ]
+            journals_list = [
+                j for j in journals_list
+                if query in (j.get("title") or "").lower()
+            ]
 
-        if not mats:
+        if journals_list:
+            for j_item in journals_list:
+                j_id = str(j_item.get("id"))
+                j_title = j_item.get("title") or "Course Journal"
+                j_col_token = resolve_journal_color(j_item.get("color"))
+                m_cnt = j_item.get("materials_count", j_item.get("material_count", len(j_item.get("materials", []))))
+                is_j_active = bool(state.get("active_journal") and str(state["active_journal"].get("id")) == j_id)
+
+                j_chip = ft.Container(
+                    border_radius=ft.BorderRadius.all(10),
+                    border=ft.Border.all(1.5, ft.Colors.PRIMARY) if is_j_active else ft.Border.all(1, ft.Colors.with_opacity(0.16, j_col_token)),
+                    bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY) if is_j_active else ft.Colors.with_opacity(0.04, j_col_token),
+                    padding=ft.Padding.symmetric(horizontal=9, vertical=8),
+                    ink=True,
+                    tooltip=f"Open {j_title} (Course Journal)",
+                    on_click=(lambda target_j=j_item: lambda _: (_collapse_sidebar(), _open_journal_cockpit(target_j)))(),
+                    content=ft.Row(
+                        spacing=8,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[
+                            ft.Container(
+                                width=28,
+                                height=28,
+                                border_radius=ft.BorderRadius.all(7),
+                                bgcolor=ft.Colors.with_opacity(0.16, j_col_token),
+                                alignment=ft.Alignment.CENTER,
+                                content=ft.Icon(ft.Icons.AUTO_STORIES_ROUNDED, color=j_col_token, size=15),
+                            ),
+                            ft.Column(
+                                spacing=1,
+                                expand=True,
+                                controls=[
+                                    ft.Text(
+                                        j_title,
+                                        size=11.5,
+                                        weight=ft.FontWeight.W_700,
+                                        color=ft.Colors.PRIMARY if is_j_active else ft.Colors.ON_SURFACE,
+                                        max_lines=1,
+                                        overflow=ft.TextOverflow.ELLIPSIS,
+                                    ),
+                                    ft.Text(
+                                        f"JOURNAL • {m_cnt}/5 Modules",
+                                        size=8.5,
+                                        color=j_col_token,
+                                        weight=ft.FontWeight.W_700,
+                                    ),
+                                ],
+                            ),
+                            ft.Container(
+                                padding=ft.Padding.symmetric(horizontal=7, vertical=3),
+                                border_radius=ft.BorderRadius.all(6),
+                                bgcolor=ft.Colors.PRIMARY,
+                                content=ft.Text("ACTIVE", size=8.5, color=ft.Colors.WHITE, weight=ft.FontWeight.W_800),
+                            ) if is_j_active else ft.Icon(ft.Icons.CHEVRON_RIGHT_ROUNDED, size=16, color=ft.Colors.GREY_400),
+                        ],
+                    ),
+                )
+                sidebar_materials_col.controls.append(j_chip)
+
+        if not mats and not journals_list:
             sidebar_materials_col.controls.append(
                 ft.Container(
                     alignment=ft.Alignment.CENTER,
@@ -1684,6 +1765,12 @@ async def self_study_view(page: ft.Page):
             color=ft.Colors.with_opacity(0.05, ft.Colors.BLACK),
             offset=ft.Offset(2, 0),
         ),
+        clip_behavior=ft.ClipBehavior.HARD_EDGE,
+        animate=ft.Animation(240, ft.AnimationCurve.EASE_OUT_CUBIC),
+        animate_offset=ft.Animation(240, ft.AnimationCurve.EASE_OUT_CUBIC),
+        animate_opacity=ft.Animation(200, ft.AnimationCurve.EASE_OUT),
+        offset=ft.Offset(0, 0),
+        opacity=1.0,
         content=ft.Row(
             spacing=0,
             expand=True,
@@ -1719,10 +1806,13 @@ async def self_study_view(page: ft.Page):
         if is_desktop:
             target_width = 320 if state["sidebar_open"] else 54
             sidebar_container.width = target_width
+            sidebar_container.offset = ft.Offset(0, 0)
+            sidebar_container.opacity = 1.0
             sidebar_container.visible = True
             sidebar_rail.visible = True
-            sidebar_pane.visible = state["sidebar_open"]
+            sidebar_pane.visible = True
             mobile_overlay.visible = False
+            mobile_overlay.opacity = 0.0
             sidebar_container.shadow = None
             
             # Push content right (54px rail or 320px full sidebar)
@@ -1731,13 +1821,22 @@ async def self_study_view(page: ft.Page):
             target_width = min((page.width * 0.88 if page.width else 300), 320)
             sidebar_container.width = target_width
             sidebar_container.shadow = ft.BoxShadow(blur_radius=20, color=ft.Colors.BLACK26)
-            sidebar_container.visible = state["sidebar_open"]
             sidebar_rail.visible = False
             sidebar_pane.visible = True
-            mobile_overlay.visible = state["sidebar_open"]
-            
-            # Content takes full screen; sidebar overlays it
             main_content_wrapper.padding = ft.Padding.only(left=0)
+
+            if state["sidebar_open"]:
+                sidebar_container.visible = True
+                sidebar_container.offset = ft.Offset(0, 0)
+                sidebar_container.opacity = 1.0
+                mobile_overlay.visible = True
+                mobile_overlay.opacity = 1.0
+            else:
+                sidebar_container.visible = False
+                sidebar_container.offset = ft.Offset(-1.0, 0)
+                sidebar_container.opacity = 0.0
+                mobile_overlay.visible = False
+                mobile_overlay.opacity = 0.0
 
         # Dynamically scale hero banner if on hub
         if callable(state.get("update_hero_responsive")):
@@ -1750,7 +1849,60 @@ async def self_study_view(page: ft.Page):
 
     def _toggle_sidebar(e=None):
         state["sidebar_open"] = not state["sidebar_open"]
-        update_layout()
+        is_desktop = page.width >= 800 if page.width else True
+        sidebar_toggle.icon = ft.Icons.MENU_OPEN_ROUNDED if state["sidebar_open"] else ft.Icons.MENU_ROUNDED
+
+        if is_desktop:
+            target_width = 320 if state["sidebar_open"] else 54
+            sidebar_container.width = target_width
+            sidebar_container.offset = ft.Offset(0, 0)
+            sidebar_container.opacity = 1.0
+            sidebar_container.visible = True
+            sidebar_rail.visible = True
+            sidebar_pane.visible = True
+            mobile_overlay.visible = False
+            mobile_overlay.opacity = 0.0
+            sidebar_container.shadow = None
+            main_content_wrapper.padding = ft.Padding.only(left=target_width)
+            page.update()
+        else:
+            target_width = min((page.width * 0.88 if page.width else 300), 320)
+            sidebar_container.width = target_width
+            sidebar_container.shadow = ft.BoxShadow(blur_radius=20, color=ft.Colors.BLACK26)
+            sidebar_rail.visible = False
+            sidebar_pane.visible = True
+            main_content_wrapper.padding = ft.Padding.only(left=0)
+
+            if state["sidebar_open"]:
+                sidebar_container.visible = True
+                sidebar_container.offset = ft.Offset(-1.0, 0)
+                sidebar_container.opacity = 0.0
+                mobile_overlay.visible = True
+                mobile_overlay.opacity = 0.0
+                page.update()
+
+                async def _animate_open_mobile_sidebar():
+                    await asyncio.sleep(0.02)
+                    mobile_overlay.opacity = 1.0
+                    sidebar_container.offset = ft.Offset(0, 0)
+                    sidebar_container.opacity = 1.0
+                    page.update()
+
+                asyncio.create_task(_animate_open_mobile_sidebar())
+            else:
+                mobile_overlay.opacity = 0.0
+                sidebar_container.offset = ft.Offset(-1.0, 0)
+                sidebar_container.opacity = 0.0
+                page.update()
+
+                async def _finish_close_mobile_sidebar():
+                    await asyncio.sleep(0.24)
+                    if not state.get("sidebar_open"):
+                        mobile_overlay.visible = False
+                        sidebar_container.visible = False
+                        page.update()
+
+                asyncio.create_task(_finish_close_mobile_sidebar())
 
     sidebar_toggle.on_click = _toggle_sidebar
     page.on_resize = update_layout
@@ -1797,6 +1949,7 @@ async def self_study_view(page: ft.Page):
         page.route = "/self-study?offline=true" if state.get("is_offline") else "/self-study"
         state["on_hub"] = True
         state["active_material"] = None
+        state["active_journal"] = None
         state["selected_mat_ids"] = set()
         _refresh_sidebar_materials()
         _reset_keyboard()
@@ -1843,7 +1996,11 @@ async def self_study_view(page: ft.Page):
             page.run_task(_report_partner_activity)
 
         active_mat = state.get("active_material")
-        if active_mat:
+        active_j = state.get("active_journal")
+        if active_j:
+            state["on_hub"] = False
+            _open_journal_cockpit(active_j)
+        elif active_mat:
             state["on_hub"] = False
             display_title = format_material_title(active_mat.get("title", ""))
             _set_appbar(display_title, go_hub)
@@ -2156,6 +2313,8 @@ async def self_study_view(page: ft.Page):
 
         exam_title = "CBT Examination"
         active_mat_id = None
+        if state.get("active_journal"):
+            exam_title = state["active_journal"].get("title", exam_title)
         if state.get("active_material"):
             exam_title = state["active_material"].get("title", exam_title)
             active_mat_id = str(state["active_material"].get("id") or "")
@@ -2233,12 +2392,19 @@ async def self_study_view(page: ft.Page):
                     asyncio.wait_for(get_due_cards(token, _current_selected_ids()), timeout=6),
                     asyncio.wait_for(get_materials(token),  timeout=6),
                     asyncio.wait_for(get_subscription_status(token), timeout=6),
+                    asyncio.wait_for(get_journals_api(token), timeout=6),
                     asyncio.sleep(0.35),
                     return_exceptions=True,
                 )
                 due_cards = results[0]
                 materials = results[1]
                 sub_status = results[2]
+                journals = results[3]
+
+                if not isinstance(journals, Exception) and isinstance(journals, list):
+                    state["journals"] = journals
+                else:
+                    state["journals"] = []
 
                 if isinstance(due_cards, Exception) or isinstance(materials, Exception):
                     # Network failure — fallback to offline mode if local materials exist
@@ -2585,20 +2751,20 @@ async def self_study_view(page: ft.Page):
         is_gen = bool(state.get("generating_mats"))
         s_icon = ft.Icon(
             ft.Icons.AUTORENEW_ROUNDED if is_gen else ft.Icons.CHECK_CIRCLE_ROUNDED,
-            color=ft.Colors.BLUE_700 if is_gen else ft.Colors.GREEN_700,
+            color=ft.Colors.BLUE_500 if is_gen else ft.Colors.PRIMARY,
             size=13,
         )
         s_text = ft.Text(
             "AI: Generating..." if is_gen else "AI: Synced",
             size=10.5,
             weight=ft.FontWeight.W_700,
-            color=ft.Colors.BLUE_800 if is_gen else ft.Colors.GREEN_800,
+            color=ft.Colors.BLUE_500 if is_gen else ft.Colors.PRIMARY,
         )
         banner = ft.Container(
             padding=ft.Padding.symmetric(horizontal=10, vertical=4),
-            bgcolor=ft.Colors.BLUE_50 if is_gen else ft.Colors.GREEN_50,
+            bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.BLUE_500 if is_gen else ft.Colors.PRIMARY),
             border_radius=ft.BorderRadius.all(16),
-            border=ft.Border.all(1, ft.Colors.BLUE_300 if is_gen else ft.Colors.GREEN_300),
+            border=ft.Border.all(1, ft.Colors.with_opacity(0.28, ft.Colors.BLUE_500 if is_gen else ft.Colors.PRIMARY)),
             content=ft.Row(
                 spacing=5,
                 tight=True,
@@ -2682,19 +2848,19 @@ async def self_study_view(page: ft.Page):
                 s_text = state.get("gen_status_text")
                 if banner and s_icon and s_text:
                     if is_generating_anything:
-                        banner.bgcolor = ft.Colors.BLUE_50
-                        banner.border = ft.Border.all(1, ft.Colors.BLUE_300)
+                        banner.bgcolor = ft.Colors.with_opacity(0.12, ft.Colors.BLUE_500)
+                        banner.border = ft.Border.all(1, ft.Colors.with_opacity(0.28, ft.Colors.BLUE_500))
                         s_icon.name = ft.Icons.AUTORENEW_ROUNDED
-                        s_icon.color = ft.Colors.BLUE_700
+                        s_icon.color = ft.Colors.BLUE_500
                         s_text.value = "AI: Generating..."
-                        s_text.color = ft.Colors.BLUE_800
+                        s_text.color = ft.Colors.BLUE_500
                     else:
-                        banner.bgcolor = ft.Colors.GREEN_50
-                        banner.border = ft.Border.all(1, ft.Colors.GREEN_300)
+                        banner.bgcolor = ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY)
+                        banner.border = ft.Border.all(1, ft.Colors.with_opacity(0.28, ft.Colors.PRIMARY))
                         s_icon.name = ft.Icons.CHECK_CIRCLE_ROUNDED
-                        s_icon.color = ft.Colors.GREEN_700
+                        s_icon.color = ft.Colors.PRIMARY
                         s_text.value = "AI: Synced"
-                        s_text.color = ft.Colors.GREEN_800
+                        s_text.color = ft.Colors.PRIMARY
                 
                     if banner and getattr(banner, "page", None):
                         try:
@@ -2708,8 +2874,72 @@ async def self_study_view(page: ft.Page):
 
     # ── hub layout ────────────────────────────────────────────────────────────
     # ── Cockpit & Material Focus Transitions ─────────────────────────────────
+    def _sync_journal_in_state(updated_j: dict):
+        if not updated_j or not updated_j.get("id"):
+            return
+        uj_id = str(updated_j["id"])
+        if state.get("active_journal") and str(state["active_journal"].get("id")) == uj_id:
+            state["active_journal"] = updated_j
+            _set_appbar(updated_j.get("title") or "Course Journal", go_hub)
+        replaced = False
+        new_list = []
+        for item in state.get("journals", []):
+            if str(item.get("id")) == uj_id:
+                new_list.append(updated_j)
+                replaced = True
+            else:
+                new_list.append(item)
+        if not replaced:
+            new_list.insert(0, updated_j)
+        state["journals"] = new_list
+        _refresh_sidebar_materials()
+
+    async def _refresh_vault_after_journal(new_j: dict):
+        try:
+            fresh_mats = await get_materials(token)
+            if isinstance(fresh_mats, list):
+                state["materials"] = fresh_mats
+                _refresh_sidebar_materials()
+        except Exception:
+            pass
+        _open_journal_cockpit(new_j)
+
+    def _handle_journal_created(new_j: dict):
+        _sync_journal_in_state(new_j)
+        page.run_task(_refresh_vault_after_journal, new_j)
+
+    def _open_journal_cockpit(journal_item: dict):
+        jid = str(journal_item.get("id"))
+        j_title = journal_item.get("title") or "Course Journal"
+        state["on_hub"] = False
+        state["active_material"] = None
+        state["active_journal"] = journal_item
+        # Scope session restarts (flashcards, quiz, exam) to this journal's constituent modules
+        j_mids = {str(m.get("id")) for m in (journal_item.get("materials") or []) if m.get("id")}
+        if j_mids:
+            state["selected_mat_ids"] = j_mids
+        _set_appbar(j_title, go_hub)
+        _refresh_sidebar_materials()
+        _set_loading(f"Opening {j_title}…")
+        content_socket.content = build_journal_cockpit(
+            page=page,
+            token=token,
+            journal_id=jid,
+            vault_materials=state.get("materials", []),
+            on_back=go_hub,
+            on_start_flashcards=lambda cards: go_flashcards(cards),
+            on_start_quiz=lambda questions: go_quiz(questions),
+            on_start_exam=lambda questions: go_exam(questions, duration_seconds=len(questions) * 60),
+            on_configure_exam=lambda mids, title: _prompt_cbt_exam_setup(mids, title),
+            on_open_material=lambda mat: page.run_task(_open_material_cockpit, mat),
+            on_journal_updated=_sync_journal_in_state,
+            user_plan=state.get("plan_id", "free"),
+        )
+        page.update()
+
     async def _open_material_cockpit(mat: dict, skip_spinner: bool = False, auto_open_generate: bool = False):
         state["active_material"] = mat
+        state["active_journal"] = None
         state["selected_mat_ids"] = {mat["id"]}
         _refresh_sidebar_materials()
         display_title = format_material_title(mat.get("title", ""))
@@ -2851,6 +3081,129 @@ async def self_study_view(page: ft.Page):
         # 1. Streamlined Top Bar (Mobile Optimized with unified More Options popup)
         back_label = "Back" if is_small or (page.width and page.width < 500) else "Back to Study Hub"
 
+        def _open_material_source_reader(e=None):
+            raw_body = (mat.get("content") or mat.get("pasted_text") or mat.get("extracted_text") or "").strip()
+            word_cnt = len(raw_body.split()) if raw_body else 0
+            reader_dlg = [None]
+
+            def _close_reader(ev=None):
+                if reader_dlg[0]:
+                    reader_dlg[0].open = False
+                    page.update()
+
+            async def _copy_notes(ev=None):
+                if not raw_body:
+                    return
+                await safe_set_clipboard(page, raw_body)
+                show_page_snackbar(page, "Study notes copied to clipboard!", ft.Colors.GREEN_700)
+
+            dlg_w = min((page.width or 600) - 32, 680)
+            dlg_h = min((page.height or 760) - 180, 520)
+
+            reader_dlg[0] = ft.AlertDialog(
+                modal=True,
+                shape=ft.RoundedRectangleBorder(radius=18),
+                bgcolor=ft.Colors.SURFACE,
+                title=ft.Row(
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[
+                        ft.Row(
+                            spacing=10,
+                            expand=True,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            controls=[
+                                ft.Container(
+                                    width=34,
+                                    height=34,
+                                    border_radius=ft.BorderRadius.all(9),
+                                    bgcolor=ft.Colors.with_opacity(0.12, fmt_color),
+                                    alignment=ft.Alignment.CENTER,
+                                    content=ft.Icon(fmt_icon, size=18, color=fmt_color),
+                                ),
+                                ft.Column(
+                                    spacing=1,
+                                    tight=True,
+                                    expand=True,
+                                    controls=[
+                                        ft.Text(
+                                            display_title,
+                                            size=14.5,
+                                            weight=ft.FontWeight.W_800,
+                                            color=ft.Colors.ON_SURFACE,
+                                            max_lines=1,
+                                            overflow=ft.TextOverflow.ELLIPSIS,
+                                        ),
+                                        ft.Text(
+                                            f"{fmt_tag} • {word_cnt:,} words extracted" if word_cnt else fmt_tag,
+                                            size=11,
+                                            color=ft.Colors.GREY_500,
+                                        ),
+                                    ],
+                                ),
+                            ],
+                        ),
+                        ft.IconButton(
+                            icon=ft.Icons.CLOSE_ROUNDED,
+                            icon_size=18,
+                            icon_color=ft.Colors.GREY_500,
+                            on_click=_close_reader,
+                        ),
+                    ],
+                ),
+                content=ft.Container(
+                    width=dlg_w,
+                    height=dlg_h,
+                    padding=ft.Padding.all(14),
+                    border_radius=ft.BorderRadius.all(12),
+                    bgcolor=ft.Colors.with_opacity(0.03, ft.Colors.ON_SURFACE),
+                    border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                    content=ft.Column(
+                        scroll=ft.ScrollMode.AUTO,
+                        expand=True,
+                        controls=[
+                            ft.Markdown(
+                                raw_body if raw_body else "_No text content available for this material._",
+                                selectable=True,
+                                extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+                            )
+                        ],
+                    ),
+                ),
+                actions=[
+                    ft.TextButton(
+                        "Copy Text",
+                        icon=ft.Icons.COPY_ROUNDED,
+                        disabled=not bool(raw_body),
+                        on_click=lambda _: page.run_task(_copy_notes),
+                    ),
+                    ft.OutlinedButton(
+                        "Bundle into Journal",
+                        icon=ft.Icons.AUTO_STORIES_ROUNDED,
+                        on_click=lambda _: (
+                            _close_reader(),
+                            open_create_journal_modal(
+                                page,
+                                token,
+                                vault_materials=state.get("materials", []),
+                                preselected_material_ids=[str(mid)],
+                                on_journal_created=_handle_journal_created,
+                            ),
+                        ),
+                    ),
+                    ft.ElevatedButton(
+                        "Done",
+                        bgcolor=ft.Colors.PRIMARY,
+                        color=ft.Colors.ON_PRIMARY,
+                        on_click=_close_reader,
+                    ),
+                ],
+                actions_alignment=ft.MainAxisAlignment.END,
+            )
+            page.overlay.append(reader_dlg[0])
+            reader_dlg[0].open = True
+            page.update()
+
         more_menu_items = [
             ft.PopupMenuItem(
                 content=ft.Row(
@@ -2865,7 +3218,35 @@ async def self_study_view(page: ft.Page):
             ),
         ]
         if not is_cbt_pack:
-            more_menu_items.append(
+            more_menu_items.extend([
+                ft.PopupMenuItem(
+                    content=ft.Row(
+                        spacing=8,
+                        tight=True,
+                        controls=[
+                            ft.Icon(ft.Icons.ARTICLE_OUTLINED, size=15, color=ft.Colors.TEAL_600),
+                            ft.Text("Read Source Notes", size=12.5),
+                        ],
+                    ),
+                    on_click=_open_material_source_reader,
+                ),
+                ft.PopupMenuItem(
+                    content=ft.Row(
+                        spacing=8,
+                        tight=True,
+                        controls=[
+                            ft.Icon(ft.Icons.AUTO_STORIES_ROUNDED, size=15, color=ft.Colors.INDIGO_500),
+                            ft.Text("Bundle into Course Journal...", size=12.5),
+                        ],
+                    ),
+                    on_click=lambda _: open_create_journal_modal(
+                        page,
+                        token,
+                        vault_materials=state.get("materials", []),
+                        preselected_material_ids=[str(mid)],
+                        on_journal_created=_handle_journal_created,
+                    ),
+                ),
                 ft.PopupMenuItem(
                     content=ft.Row(
                         spacing=8,
@@ -2876,8 +3257,8 @@ async def self_study_view(page: ft.Page):
                         ],
                     ),
                     on_click=lambda _: _open_generate_panel(mat),
-                )
-            )
+                ),
+            ])
         more_menu_items.append(
             ft.PopupMenuItem(
                 content=ft.Row(
@@ -2894,6 +3275,25 @@ async def self_study_view(page: ft.Page):
 
         top_bar_right = []
         if not is_cbt_pack:
+            top_bar_right.append(
+                ft.OutlinedButton(
+                    content=ft.Row(
+                        spacing=4,
+                        tight=True,
+                        controls=[
+                            ft.Icon(ft.Icons.ARTICLE_OUTLINED, size=13, color=ft.Colors.ON_SURFACE),
+                            ft.Text("Notes", size=10.5, weight=ft.FontWeight.W_700, color=ft.Colors.ON_SURFACE) if is_small else ft.Text("Read Notes", size=10.5, weight=ft.FontWeight.W_700, color=ft.Colors.ON_SURFACE),
+                        ],
+                    ),
+                    style=ft.ButtonStyle(
+                        padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+                        side=ft.BorderSide(1, ft.Colors.with_opacity(0.20, ft.Colors.ON_SURFACE)),
+                        shape=ft.RoundedRectangleBorder(radius=8),
+                    ),
+                    tooltip="Read extracted study notes and source text",
+                    on_click=_open_material_source_reader,
+                )
+            )
             top_bar_right.append(
                 ft.OutlinedButton(
                     content=ft.Row(
@@ -3626,7 +4026,7 @@ async def self_study_view(page: ft.Page):
             overlay_dlg = ft.AlertDialog(
                 modal=True,
                 shape=ft.RoundedRectangleBorder(radius=18),
-                bgcolor="#0A0C10",
+                bgcolor=ft.Colors.SURFACE,
                 title=ft.Row(
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -3641,7 +4041,7 @@ async def self_study_view(page: ft.Page):
                                     effective_title,
                                     size=14,
                                     weight=ft.FontWeight.W_700,
-                                    color=ft.Colors.WHITE,
+                                    color=ft.Colors.ON_SURFACE,
                                     max_lines=1,
                                     overflow=ft.TextOverflow.ELLIPSIS,
                                     expand=True,
@@ -3808,14 +4208,18 @@ async def self_study_view(page: ft.Page):
                 ),
             )
 
-        def _assistant_bubble(reply_text: str, is_animated: bool = False):
-            yt_links = _extract_youtube_links(reply_text)
+        def _assistant_bubble(reply_text: str, is_animated: bool = False, is_error: bool = False):
+            yt_links = _extract_youtube_links(reply_text) if not is_error else []
             md_control = ft.Markdown(
-                "" if is_animated else reply_text,
+                "" if (is_animated and not is_error) else reply_text,
                 selectable=True,
                 extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
                 on_tap_link=lambda e: page.run_task(_open_link, e.data),
             )
+            hdr_color = ft.Colors.AMBER_600 if is_error else ft.Colors.PRIMARY
+            hdr_title = "Nu-AI Owl • Notice" if is_error else "Nu-AI Owl Tutor"
+            bubble_bg = ft.Colors.with_opacity(0.08, ft.Colors.AMBER_600) if is_error else ft.Colors.with_opacity(0.06, ft.Colors.PRIMARY)
+
             bubble_controls = [
                 ft.Row(
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -3825,7 +4229,7 @@ async def self_study_view(page: ft.Page):
                             tight=True,
                             controls=[
                                 ft.Image(src="study_owl_mascot.png", width=18, height=18, fit=ft.BoxFit.CONTAIN),
-                                ft.Text("Nu-AI Owl Tutor", size=10, weight=ft.FontWeight.W_800, color=ft.Colors.PRIMARY),
+                                ft.Text(hdr_title, size=10, weight=ft.FontWeight.W_800, color=hdr_color),
                             ],
                         ),
                         ft.IconButton(
@@ -3843,7 +4247,7 @@ async def self_study_view(page: ft.Page):
                 bubble_controls.append(_render_youtube_rec_card(item["title"], item["url"]))
 
             bubble_container = ft.Container(
-                bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.PRIMARY),
+                bgcolor=bubble_bg,
                 border_radius=ft.BorderRadius.all(12),
                 padding=ft.Padding.all(12),
                 content=ft.Column(
@@ -3906,10 +4310,100 @@ async def self_study_view(page: ft.Page):
             on_click=lambda _: page.run_task(_clear_tutor_chat),
         )
 
+        quota_status_bar = ft.Container(
+            visible=False,
+            padding=ft.Padding.symmetric(horizontal=4, vertical=2),
+        )
+
+        def _apply_quota_ui(quota: dict):
+            if not quota:
+                return
+            state["quota_info"] = quota
+            is_unlimited = quota.get("is_unlimited", False)
+            used = quota.get("used", 0)
+            limit = quota.get("limit", 15)
+            remaining = quota.get("remaining", max(0, limit - used))
+            is_locked = quota.get("locked", False) or (not is_unlimited and used >= limit)
+
+            if is_unlimited:
+                ai_input_tf.disabled = False
+                ai_send_btn.disabled = False
+                ai_input_tf.hint_text = "Ask a question about this material..."
+                quota_status_bar.content = ft.Row(
+                    spacing=5,
+                    tight=True,
+                    controls=[
+                        ft.Icon(ft.Icons.AUTO_AWESOME_ROUNDED, size=13, color=ft.Colors.PRIMARY),
+                        ft.Text("Pro Scholar · Unlimited AI Tutor Queries", size=11, weight=ft.FontWeight.W_600, color=ft.Colors.PRIMARY),
+                    ],
+                )
+                quota_status_bar.visible = True
+            elif is_locked:
+                ai_input_tf.disabled = True
+                ai_send_btn.disabled = True
+                ai_input_tf.hint_text = "Daily limit reached (15/15). Upgrade to Pro for unlimited queries."
+                quota_status_bar.content = ft.Row(
+                    spacing=6,
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    controls=[
+                        ft.Row(
+                            spacing=6,
+                            controls=[
+                                ft.Icon(ft.Icons.LOCK_ROUNDED, size=13, color=ft.Colors.AMBER_600),
+                                ft.Text(f"Daily limit reached ({limit}/{limit}) · Resets 00:00 UTC", size=11, weight=ft.FontWeight.W_700, color=ft.Colors.AMBER_600),
+                            ],
+                        ),
+                        ft.TextButton(
+                            content=ft.Text("Upgrade to Pro", size=11, weight=ft.FontWeight.W_700, color=ft.Colors.PRIMARY),
+                            style=ft.ButtonStyle(padding=ft.Padding.symmetric(horizontal=8, vertical=2)),
+                            on_click=lambda _: open_chat_quota_modal(page, quota),
+                        ),
+                    ],
+                )
+                quota_status_bar.visible = True
+            else:
+                ai_input_tf.disabled = False
+                ai_send_btn.disabled = False
+                ai_input_tf.hint_text = "Ask a question about this material..."
+                quota_status_bar.content = ft.Row(
+                    spacing=6,
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    controls=[
+                        ft.Row(
+                            spacing=6,
+                            controls=[
+                                ft.Icon(ft.Icons.BOLT_ROUNDED, size=13, color=ft.Colors.GREY_500),
+                                ft.Text(f"⚡ {used}/{limit} free queries used today ({remaining} left · Resets 00:00 UTC)", size=11, color=ft.Colors.GREY_500),
+                            ],
+                        ),
+                        ft.TextButton(
+                            content=ft.Text("Get Unlimited", size=11, weight=ft.FontWeight.W_700, color=ft.Colors.PRIMARY),
+                            style=ft.ButtonStyle(padding=ft.Padding.symmetric(horizontal=8, vertical=2)),
+                            on_click=lambda _: page.go("/store"),
+                        ),
+                    ],
+                )
+                quota_status_bar.visible = True
+            page.update()
+
+        async def _fetch_quota():
+            try:
+                quota = await get_ai_tutor_quota_api(token)
+                _apply_quota_ui(quota)
+            except Exception as q_err:
+                print(f"[self_study] quota check error: {q_err}")
+
+        page.run_task(_fetch_quota)
+
         async def _send_ai_query(query_text: str):
             clean_q = (query_text or "").strip()
             if not clean_q or state.get("is_ai_generating"):
                 return
+
+            if state.get("quota_info", {}).get("locked"):
+                open_chat_quota_modal(page, state.get("quota_info", {}))
+                return
+
             ai_input_tf.value = ""
             state["is_ai_generating"] = True
             ai_send_btn.visible = False
@@ -3944,6 +4438,7 @@ async def self_study_view(page: ft.Page):
                 {"role": m["role"], "content": m["text"]}
                 for m in state.get("material_ai_chat", [])[:-1]
             ]
+            is_error = False
             try:
                 res = await ask_ai_tutor_api(
                     token=token,
@@ -3951,21 +4446,55 @@ async def self_study_view(page: ft.Page):
                     course_title="Self-Study Hub",
                     module_title=display_title,
                     lesson_title=display_title,
-                    lesson_content=str(mat_text)[:6000],
+                    lesson_content=str(mat_text)[:45000],
                     conversation_history=conv_history,
                     is_assessment=False,
                     material_id=str(mid) if mid else None,
                 )
-                reply = res.get("reply") or res.get("message") or "I couldn't process that query. Please try again."
+                if res.get("quota_locked"):
+                    is_error = True
+                    state.setdefault("quota_info", {})
+                    state["quota_info"]["locked"] = True
+                    state["quota_info"]["used"] = 15
+                    state["quota_info"]["remaining"] = 0
+                    _apply_quota_ui(state["quota_info"])
+                    open_chat_quota_modal(page, state["quota_info"])
+                    reply = get_user_friendly_ai_error(is_quota=True)
+                elif res.get("is_ai_error") or res.get("error"):
+                    is_error = True
+                    reply = get_user_friendly_ai_error(res.get("error"))
+                else:
+                    quota_payload = res.get("quota")
+                    if quota_payload:
+                        _apply_quota_ui(quota_payload)
+                    elif not state.get("quota_info", {}).get("is_unlimited", False):
+                        curr_q = state.setdefault("quota_info", {"limit": 15, "used": 0, "remaining": 15, "is_unlimited": False})
+                        curr_q["used"] = curr_q.get("used", 0) + 1
+                        curr_q["remaining"] = max(0, curr_q.get("limit", 15) - curr_q["used"])
+                        curr_q["locked"] = curr_q["used"] >= curr_q.get("limit", 15)
+                        _apply_quota_ui(curr_q)
+                    reply = res.get("reply") or res.get("message")
+                    if not reply:
+                        is_error = True
+                        reply = get_user_friendly_ai_error()
             except Exception as ex:
-                reply = f"Couldn't reach the AI tutor right now: {ex}"
+                is_error = True
+                print(f"[self_study] AI Tutor error: {ex}")
+                reply = get_user_friendly_ai_error(str(ex))
 
-            # Remove typing indicator and append AI response
+            # Remove typing indicator
             if typing_indicator in ai_chat_messages.controls:
                 ai_chat_messages.controls.remove(typing_indicator)
-            state["material_ai_chat"].append({"role": "assistant", "text": reply})
-            await append_material_tutor_message(page, mid, "assistant", reply)
-            asst_bubble = _assistant_bubble(reply, is_animated=True)
+
+            # Safeguard conversation history: NEVER persist error messages into session or DB!
+            if not is_error:
+                state.setdefault("material_ai_chat", []).append({"role": "assistant", "text": reply})
+                await append_material_tutor_message(page, mid, "assistant", reply)
+            else:
+                if state.get("material_ai_chat") and state["material_ai_chat"][-1].get("role") == "user":
+                    state["material_ai_chat"].pop()
+
+            asst_bubble = _assistant_bubble(reply, is_animated=not is_error, is_error=is_error)
             ai_chat_messages.controls.append(asst_bubble)
 
             state["is_ai_generating"] = False
@@ -3973,14 +4502,21 @@ async def self_study_view(page: ft.Page):
             ai_spinner.visible = False
             page.update()
 
-            await stream_typing_animation(
-                target_control=asst_bubble._md_control,
-                full_text=reply,
-                page=page,
-                scroll_container=ai_chat_messages,
-                words_per_chunk=2,
-                chunk_interval_ms=25,
-            )
+            if not is_error:
+                await stream_typing_animation(
+                    target_control=asst_bubble._md_control,
+                    full_text=reply,
+                    page=page,
+                    scroll_container=ai_chat_messages,
+                    words_per_chunk=2,
+                    chunk_interval_ms=25,
+                )
+
+        def _on_chip_click(p_val: str):
+            if state.get("quota_info", {}).get("locked"):
+                open_chat_quota_modal(page, state.get("quota_info", {}))
+                return
+            page.run_task(_send_ai_query, p_val)
 
         ai_send_btn.on_click = lambda _: page.run_task(_send_ai_query, ai_input_tf.value)
         ai_input_tf.on_submit = lambda _: page.run_task(_send_ai_query, ai_input_tf.value)
@@ -4004,7 +4540,7 @@ async def self_study_view(page: ft.Page):
                     bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.PRIMARY),
                     border=ft.Border.all(1, ft.Colors.with_opacity(0.2, ft.Colors.PRIMARY)),
                     ink=True,
-                    on_click=lambda _, prompt=p_val: page.run_task(_send_ai_query, prompt),
+                    on_click=lambda _, prompt=p_val: _on_chip_click(prompt),
                     content=ft.Text(p_lbl, size=11, weight=ft.FontWeight.W_600, color=ft.Colors.PRIMARY),
                 )
                 for p_lbl, p_val in prompt_chips
@@ -4069,6 +4605,7 @@ async def self_study_view(page: ft.Page):
                 controls=[
                     chat_container,
                     chips_row,
+                    quota_status_bar,
                     ft.Container(
                         border_radius=ft.BorderRadius.all(12),
                         border=ft.Border.all(1, ft.Colors.with_opacity(0.15, ft.Colors.ON_SURFACE)),
@@ -4986,6 +5523,21 @@ async def self_study_view(page: ft.Page):
                                 ],
                             ),
                             ft.ListTile(
+                                leading=ft.Icon(ft.Icons.AUTO_STORIES_ROUNDED, color=ft.Colors.PRIMARY),
+                                title=ft.Text("New Course Journal", weight=ft.FontWeight.W_700),
+                                subtitle=ft.Text("Bundle up to 5 modules into a full course notebook (3x slots & credits)"),
+                                on_click=lambda _: (
+                                    setattr(sheet, "open", False),
+                                    page.update(),
+                                    open_create_journal_modal(
+                                        page,
+                                        token,
+                                        vault_materials=materials,
+                                        on_journal_created=_handle_journal_created,
+                                    )
+                                ),
+                            ),
+                            ft.ListTile(
                                 leading=ft.Icon(ft.Icons.BOLT_ROUNDED, color=ft.Colors.TEAL_600),
                                 title=ft.Text("Quick Quiz", weight=ft.FontWeight.W_700),
                                 subtitle=ft.Text("Instant bite-sized comprehension drills (Offline Ready)"),
@@ -5724,6 +6276,19 @@ async def self_study_view(page: ft.Page):
                                     controls=[
                                         offline_btn,
                                         ft.IconButton(
+                                            icon=ft.Icons.AUTO_STORIES_ROUNDED,
+                                            icon_size=16,
+                                            icon_color=ft.Colors.TEAL_600,
+                                            tooltip="Bundle into Course Journal",
+                                            on_click=lambda e, m=mat: open_create_journal_modal(
+                                                page,
+                                                token,
+                                                vault_materials=materials,
+                                                preselected_material_ids=[m.get("id")],
+                                                on_journal_created=_handle_journal_created,
+                                            ),
+                                        ),
+                                        ft.IconButton(
                                             icon=ft.Icons.SHARE_ROUNDED,
                                             icon_size=16,
                                             icon_color=ft.Colors.PRIMARY,
@@ -5766,6 +6331,283 @@ async def self_study_view(page: ft.Page):
                 ),
             )
 
+        def _render_journal_card(journal: dict):
+            j_id = str(journal.get("id"))
+            j_title = journal.get("title") or "Untitled Course Journal"
+            j_desc = journal.get("description") or "Multi-module course notebook for unified study and CBT exam simulation."
+            j_color = resolve_journal_color(journal.get("color"))
+            mat_count = journal.get("materials_count", journal.get("material_count", len(journal.get("materials", []))))
+            is_j_gen = bool(journal.get("is_generating"))
+
+            def _delete_journal_clicked(e=None):
+                del_dlg = [None]
+
+                def _close_del(ev=None):
+                    if del_dlg[0]:
+                        del_dlg[0].open = False
+                        page.update()
+
+                async def _do_delete():
+                    _close_del()
+                    res = await delete_journal_api(token, j_id)
+                    if res.get("success"):
+                        show_page_snackbar(page, "Course Journal removed (materials kept safely in vault).", ft.Colors.GREEN_700)
+                        await _load_hub()
+                    else:
+                        show_page_snackbar(page, res.get("detail") or res.get("error") or "Failed to delete journal", ft.Colors.RED_700)
+
+                del_dlg[0] = ft.AlertDialog(
+                    modal=True,
+                    shape=ft.RoundedRectangleBorder(radius=16),
+                    bgcolor=ft.Colors.SURFACE,
+                    title=ft.Text("Delete Course Journal?", size=15, weight=ft.FontWeight.W_800),
+                    content=ft.Text(
+                        f"Remove '{j_title}'? Its synthesized syllabus and exam questions will be deleted, but your underlying study materials remain safely in your vault.",
+                        size=12,
+                        color=ft.Colors.ON_SURFACE_VARIANT,
+                    ),
+                    actions=[
+                        ft.TextButton("Cancel", on_click=_close_del),
+                        ft.ElevatedButton(
+                            "Delete Journal",
+                            bgcolor=ft.Colors.RED_700,
+                            color=ft.Colors.WHITE,
+                            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
+                            on_click=lambda _: page.run_task(_do_delete),
+                        ),
+                    ],
+                )
+                page.overlay.append(del_dlg[0])
+                del_dlg[0].open = True
+                page.update()
+
+            return ft.Container(
+                col={"xs": 12, "sm": 6, "md": 6, "lg": 4},
+                bgcolor=ft.Colors.SURFACE,
+                border_radius=ft.BorderRadius.all(18),
+                border=ft.Border.all(1.2, ft.Colors.with_opacity(0.20, j_color)),
+                clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                ink=True,
+                on_click=lambda _, j_item=journal: _open_journal_cockpit(j_item),
+                shadow=ft.BoxShadow(
+                    blur_radius=12,
+                    color=ft.Colors.with_opacity(0.04, ft.Colors.BLACK),
+                    offset=ft.Offset(0, 3),
+                ),
+                content=ft.Column(
+                    spacing=0,
+                    tight=True,
+                    controls=[
+                        # Top accent spine representing the journal binder
+                        ft.Container(
+                            height=4,
+                            bgcolor=j_color,
+                        ),
+                        # Main card body
+                        ft.Container(
+                            padding=ft.Padding.symmetric(horizontal=14, vertical=12),
+                            content=ft.Column(
+                                spacing=10,
+                                tight=True,
+                                controls=[
+                                    ft.Row(
+                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                        controls=[
+                                            ft.Row(
+                                                spacing=10,
+                                                tight=True,
+                                                expand=True,
+                                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                                controls=[
+                                                    ft.Container(
+                                                        width=40,
+                                                        height=40,
+                                                        border_radius=ft.BorderRadius.all(11),
+                                                        bgcolor=ft.Colors.with_opacity(0.12, j_color),
+                                                        alignment=ft.Alignment.CENTER,
+                                                        content=ft.Icon(ft.Icons.AUTO_STORIES_ROUNDED, size=20, color=j_color),
+                                                    ),
+                                                    ft.Column(
+                                                        spacing=2,
+                                                        tight=True,
+                                                        expand=True,
+                                                        controls=[
+                                                            ft.Row(
+                                                                spacing=5,
+                                                                tight=True,
+                                                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                                                controls=[
+                                                                    ft.Container(
+                                                                        padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+                                                                        border_radius=ft.BorderRadius.all(5),
+                                                                        bgcolor=ft.Colors.with_opacity(0.10, j_color),
+                                                                        content=ft.Text(
+                                                                            "COURSE NOTEBOOK",
+                                                                            size=8.5,
+                                                                            weight=ft.FontWeight.W_800,
+                                                                            color=j_color,
+                                                                                                                                                    ),
+                                                                    ),
+                                                                    ft.Container(
+                                                                        padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+                                                                        border_radius=ft.BorderRadius.all(5),
+                                                                        bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
+                                                                        content=ft.Row(
+                                                                            spacing=3,
+                                                                            tight=True,
+                                                                            controls=[
+                                                                                ft.Icon(ft.Icons.LAYERS_ROUNDED, size=11, color=ft.Colors.ON_SURFACE_VARIANT),
+                                                                                ft.Text(
+                                                                                    f"{mat_count}/5 Modules",
+                                                                                    size=9.5,
+                                                                                    weight=ft.FontWeight.W_700,
+                                                                                    color=ft.Colors.ON_SURFACE_VARIANT,
+                                                                                ),
+                                                                            ],
+                                                                        ),
+                                                                    ),
+                                                                ],
+                                                            ),
+                                                            ft.Text(
+                                                                j_title,
+                                                                size=14,
+                                                                weight=ft.FontWeight.W_800,
+                                                                color=ft.Colors.ON_SURFACE,
+                                                                max_lines=1,
+                                                                overflow=ft.TextOverflow.ELLIPSIS,
+                                                            ),
+                                                        ],
+                                                    ),
+                                                ],
+                                            ),
+                                            ft.PopupMenuButton(
+                                                icon=ft.Icons.MORE_VERT_ROUNDED,
+                                                icon_size=18,
+                                                icon_color=ft.Colors.GREY_500,
+                                                items=[
+                                                    ft.PopupMenuItem(
+                                                        content=ft.Row([
+                                                            ft.Icon(ft.Icons.OPEN_IN_NEW_ROUNDED, size=16, color=j_color),
+                                                            ft.Text("Open Cockpit", size=12),
+                                                        ]),
+                                                        on_click=lambda _, j_item=journal: _open_journal_cockpit(j_item),
+                                                    ),
+                                                    ft.PopupMenuItem(
+                                                        content=ft.Row([
+                                                            ft.Icon(ft.Icons.DELETE_OUTLINE_ROUNDED, size=16, color=ft.Colors.RED_400),
+                                                            ft.Text("Delete Journal", size=12, color=ft.Colors.RED_400),
+                                                        ]),
+                                                        on_click=lambda e: _delete_journal_clicked(e),
+                                                    ),
+                                                ],
+                                            ),
+                                        ],
+                                    ),
+                                    ft.Text(
+                                        j_desc,
+                                        size=11.5,
+                                        color=ft.Colors.GREY_600,
+                                        max_lines=2,
+                                        overflow=ft.TextOverflow.ELLIPSIS,
+                                    ),
+                                    # Feature capabilities badges (no flashcards counter)
+                                    ft.Row(
+                                        spacing=6,
+                                        tight=True,
+                                        wrap=True,
+                                        controls=[
+                                            ft.Container(
+                                                padding=ft.Padding.symmetric(horizontal=6, vertical=2.5),
+                                                border_radius=ft.BorderRadius.all(6),
+                                                bgcolor=ft.Colors.with_opacity(0.06, j_color),
+                                                content=ft.Row(
+                                                    spacing=3,
+                                                    tight=True,
+                                                    controls=[
+                                                        ft.Icon(ft.Icons.ASSIGNMENT_TURNED_IN_ROUNDED, size=11, color=j_color),
+                                                        ft.Text("CBT Mock Exam", size=9.5, weight=ft.FontWeight.W_700, color=j_color),
+                                                    ],
+                                                ),
+                                            ),
+                                            ft.Container(
+                                                padding=ft.Padding.symmetric(horizontal=6, vertical=2.5),
+                                                border_radius=ft.BorderRadius.all(6),
+                                                bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
+                                                content=ft.Row(
+                                                    spacing=3,
+                                                    tight=True,
+                                                    controls=[
+                                                        ft.Icon(ft.Icons.MENU_BOOK_ROUNDED, size=11, color=ft.Colors.ON_SURFACE_VARIANT),
+                                                        ft.Text("Study Guide", size=9.5, weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE_VARIANT),
+                                                    ],
+                                                ),
+                                            ),
+                                            ft.Container(
+                                                padding=ft.Padding.symmetric(horizontal=6, vertical=2.5),
+                                                border_radius=ft.BorderRadius.all(6),
+                                                bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
+                                                content=ft.Row(
+                                                    spacing=3,
+                                                    tight=True,
+                                                    controls=[
+                                                        ft.Icon(ft.Icons.AUTO_AWESOME_ROUNDED, size=11, color=j_color),
+                                                        ft.Text("AI Tutor", size=9.5, weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE_VARIANT),
+                                                    ],
+                                                ),
+                                            ),
+                                        ],
+                                    ),
+                                    ft.Container(
+                                        height=1,
+                                        bgcolor=ft.Colors.with_opacity(0.07, ft.Colors.ON_SURFACE),
+                                    ),
+                                    ft.Row(
+                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                        controls=[
+                                            ft.Row(
+                                                spacing=4,
+                                                tight=True,
+                                                controls=[
+                                                    ft.ProgressRing(width=11, height=11, stroke_width=1.8, color=j_color)
+                                                    if is_j_gen
+                                                    else ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED, size=12, color=j_color),
+                                                    ft.Text(
+                                                        "Synthesizing..." if is_j_gen else "Ready to study",
+                                                        size=10.5,
+                                                        weight=ft.FontWeight.W_700 if is_j_gen else ft.FontWeight.W_600,
+                                                        color=j_color if is_j_gen else ft.Colors.GREY_500,
+                                                    ),
+                                                ],
+                                            ),
+                                            ft.Container(
+                                                padding=ft.Padding.symmetric(horizontal=8, vertical=3.5),
+                                                border_radius=ft.BorderRadius.all(10),
+                                                bgcolor=ft.Colors.with_opacity(0.10, j_color),
+                                                content=ft.Row(
+                                                    spacing=3,
+                                                    tight=True,
+                                                    controls=[
+                                                        ft.Text(
+                                                            "Open Cockpit",
+                                                            size=10.5,
+                                                            weight=ft.FontWeight.W_700,
+                                                            color=j_color,
+                                                        ),
+                                                        ft.Icon(ft.Icons.ARROW_FORWARD_ROUNDED, size=12, color=j_color),
+                                                    ],
+                                                ),
+                                            ),
+                                        ],
+                                    ),
+                                ],
+                            ),
+                        ),
+                    ],
+                ),
+            )
+
         uploaded_materials = [m for m in materials if (m.get("source_type") or "").lower() != "pack_import"]
         downloaded_packs = [m for m in materials if (m.get("source_type") or "").lower() == "pack_import"]
 
@@ -5782,6 +6624,119 @@ async def self_study_view(page: ft.Page):
             quick_actions_grid,
             pack_hub_banner,
         ]
+
+        journals = state.get("journals", [])
+
+        journal_header = ft.Row(
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                ft.Row(
+                    spacing=8,
+                    tight=True,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[
+                        ft.Icon(ft.Icons.AUTO_STORIES_ROUNDED, size=19, color=ft.Colors.PRIMARY),
+                        ft.Text(
+                            f"Course Journals ({len(journals)})",
+                            size=16 if is_small else 18,
+                            weight=ft.FontWeight.W_800,
+                            color=ft.Colors.ON_SURFACE,
+                        ),
+                    ],
+                ),
+                ft.ElevatedButton(
+                    content=ft.Row(
+                        spacing=5,
+                        tight=True,
+                        controls=[
+                            ft.Icon(ft.Icons.ADD_ROUNDED, size=14, color=ft.Colors.WHITE),
+                            ft.Text("New Journal", size=11.5, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE),
+                            ft.Container(
+                                padding=ft.Padding.symmetric(horizontal=4, vertical=1),
+                                border_radius=ft.BorderRadius.all(6),
+                                bgcolor=ft.Colors.with_opacity(0.25, ft.Colors.BLACK),
+                                content=ft.Text("3x Quota", size=9, weight=ft.FontWeight.W_800, color=ft.Colors.WHITE),
+                            ),
+                        ],
+                    ),
+                    bgcolor=ft.Colors.PRIMARY,
+                    height=32,
+                    style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), elevation=0),
+                    on_click=lambda _: open_create_journal_modal(
+                        page,
+                        token,
+                        vault_materials=materials,
+                        on_journal_created=_handle_journal_created,
+                    ),
+                ),
+            ],
+        )
+
+        if journals:
+            journal_grid = ft.ResponsiveRow(
+                spacing=10,
+                run_spacing=10,
+                controls=[_render_journal_card(j) for j in journals],
+            )
+            sections_controls.extend([
+                journal_header,
+                journal_grid,
+                ft.Container(height=10),
+            ])
+        else:
+            journal_promo_banner = ft.Container(
+                bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.PRIMARY),
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY)),
+                border_radius=ft.BorderRadius.all(14),
+                padding=ft.Padding.symmetric(horizontal=16, vertical=14),
+                content=ft.Row(
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[
+                        ft.Row(
+                            spacing=12,
+                            tight=True,
+                            expand=True,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            controls=[
+                                ft.Container(
+                                    width=38,
+                                    height=38,
+                                    border_radius=ft.BorderRadius.all(10),
+                                    bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY),
+                                    alignment=ft.Alignment.CENTER,
+                                    content=ft.Icon(ft.Icons.AUTO_STORIES_ROUNDED, size=20, color=ft.Colors.PRIMARY),
+                                ),
+                                ft.Column(
+                                    spacing=2,
+                                    tight=True,
+                                    expand=True,
+                                    controls=[
+                                        ft.Text("Course Journals (Notebooks)", size=13.5, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
+                                        ft.Text("Bundle up to 5 modules into a comprehensive course notebook with cross-topic flashcards and AI tutor.", size=11, color=ft.Colors.GREY_600),
+                                    ],
+                                ),
+                            ],
+                        ),
+                        ft.TextButton(
+                            "+ Create",
+                            style=ft.ButtonStyle(color=ft.Colors.PRIMARY),
+                            on_click=lambda _: open_create_journal_modal(
+                                page,
+                                token,
+                                vault_materials=materials,
+                                on_journal_created=_handle_journal_created,
+                            ),
+                        ),
+                    ],
+                ),
+            )
+            sections_controls.extend([
+                journal_header,
+                journal_promo_banner,
+                ft.Container(height=10),
+            ])
 
         if not materials:
             if is_hub_offline:
@@ -6050,6 +7005,8 @@ async def self_study_view(page: ft.Page):
         )
 
         dlg = ft.AlertDialog(
+            modal=True,
+            bgcolor=ft.Colors.SURFACE,
             shape=ft.RoundedRectangleBorder(radius=18),
             title=ft.Row(
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -6161,6 +7118,8 @@ async def self_study_view(page: ft.Page):
                 await _load_hub()
 
         submit_btn.on_click = lambda e: page.run_task(_do_import, e)
+        url_field.on_submit = lambda e: page.run_task(_do_import, e)
+        title_field.on_submit = lambda e: page.run_task(_do_import, e)
         page.overlay.append(dlg)
         dlg.open = True
         page.update()
@@ -6524,6 +7483,18 @@ async def self_study_view(page: ft.Page):
             )
             page.update()
 
+            def _reset_upload_btn():
+                submit_btn.disabled = False
+                submit_btn.content = ft.Row(
+                    alignment=ft.MainAxisAlignment.CENTER,
+                    tight=True,
+                    spacing=6,
+                    controls=[
+                        ft.Icon(ft.Icons.UPLOAD_ROUNDED, size=16, color=ft.Colors.WHITE),
+                        ft.Text("Upload Material", color=ft.Colors.WHITE, size=13, weight=ft.FontWeight.W_700),
+                    ],
+                )
+
             try:
                 is_img_upload = selected_file_name and any(selected_file_name.lower().endswith(ext) for ext in [".png", ".jpg", ".jpeg", ".webp"])
                 result = await asyncio.wait_for(
@@ -6537,13 +7508,35 @@ async def self_study_view(page: ft.Page):
                     ),
                     timeout=60 if is_img_upload else 30,
                 )
+                if isinstance(result, dict) and result.get("error"):
+                    error_text.value = str(result.get("error"))
+                    error_box.visible = True
+                    _reset_upload_btn()
+                    page.update()
+                    return
+
+                from datetime import datetime
+                new_mat_id = str(result.get("material_id") or result.get("id") or f"mat_{len(state['materials'])+1}")
                 new_mat = {
-                    "id": result.get("material_id", f"mat_{len(state['materials'])+1}"),
+                    "id": new_mat_id,
                     "title": title_field.value.strip(),
                     "source_type": "photo" if is_img_upload else ("pdf" if selected_file_bytes else "text"),
-                    "created_at": "2025-08-27",
+                    "content": result.get("content") or (text_field.value or "").strip(),
+                    "created_at": datetime.now().strftime("%Y-%m-%d"),
                 }
-                state["materials"].append(new_mat)
+                # Sync with server materials list if available so extracted PDF/OCR text is included
+                try:
+                    fresh_mats = await get_materials(token)
+                    if isinstance(fresh_mats, list) and fresh_mats:
+                        state["materials"] = fresh_mats
+                        matched = next((m for m in fresh_mats if str(m.get("id")) == new_mat_id), None)
+                        if matched:
+                            new_mat = matched
+                    else:
+                        state["materials"].insert(0, new_mat)
+                except Exception:
+                    state["materials"].insert(0, new_mat)
+
                 state["mat_used"] += 1
                 
                 if state.get("sidebar_vault_text"):
@@ -6572,14 +7565,12 @@ async def self_study_view(page: ft.Page):
             except asyncio.TimeoutError:
                 error_text.value = "Upload timed out. Check your connection."
                 error_box.visible = True
-                submit_btn.disabled = False
-                submit_btn.content = ft.Text("Upload", color=ft.Colors.ON_PRIMARY, size=13, weight=ft.FontWeight.W_600)
+                _reset_upload_btn()
                 page.update()
             except Exception as ex:
                 error_text.value = f"Upload failed ({type(ex).__name__})."
                 error_box.visible = True
-                submit_btn.disabled = False
-                submit_btn.content = ft.Text("Upload", color=ft.Colors.ON_PRIMARY, size=13, weight=ft.FontWeight.W_600)
+                _reset_upload_btn()
                 page.update()
 
         submit_btn = ft.ElevatedButton(
@@ -6894,7 +7885,7 @@ async def self_study_view(page: ft.Page):
             return card_box
 
         out_flashcards = output_type_card(ft.Icons.STYLE_ROUNDED, "Flashcards", "Spaced Repetition Deck", ft.Colors.PURPLE_400, cb_flashcards)
-        out_quiz = output_type_card(ft.Icons.BOLT_ROUNDED, "Quick Quiz", "Targeted Drills.Instant Feedback", ft.Colors.TEAL_500, cb_quiz)
+        out_quiz = output_type_card(ft.Icons.BOLT_ROUNDED, "Quick Quiz", "Targeted Drills · Instant Feedback", ft.Colors.TEAL_500, cb_quiz)
         out_exam = output_type_card(ft.Icons.TIMER_OUTLINED, "Exam Simulator", "Full-Length Timed Test", ft.Colors.ORANGE_500, cb_exam)
 
         gen_btn = ft.ElevatedButton(
@@ -6958,6 +7949,23 @@ async def self_study_view(page: ft.Page):
                     generate_from_materials(token, [t_id], selected_types),
                     timeout=30,
                 )
+                if isinstance(result, dict) and result.get("error"):
+                    gen_error.value = str(result.get("error"))
+                    gen_error_box.visible = True
+                    gen_btn.disabled = False
+                    gen_btn.content = ft.Row(
+                        alignment=ft.MainAxisAlignment.CENTER,
+                        tight=True,
+                        spacing=6,
+                        controls=[
+                            ft.Icon(ft.Icons.AUTO_AWESOME_ROUNDED, size=16, color=ft.Colors.WHITE),
+                            ft.Text("Generate AI Content", color=ft.Colors.WHITE, size=13, weight=ft.FontWeight.W_700),
+                        ],
+                    )
+                    state["generating_mats"].discard(t_id)
+                    page.update()
+                    return
+
                 state["gen_used"] += 1
                 _refresh_plan_ui()
 

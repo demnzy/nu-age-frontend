@@ -2646,6 +2646,599 @@ def build_leaderboards_skeleton(page: ft.Page | None = None) -> ft.Control:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 19. PLATFORM ADMIN SKELETON (/platform-admin)
+# ─────────────────────────────────────────────────────────────────────────────
+def build_platform_admin_skeleton(page: ft.Page | None = None) -> ft.Control:
+    """1-to-1 high-fidelity skeleton for Platform Admin Console."""
+    is_desk = is_desktop_mode(page, 900)
+
+    # Top Control Bar (Title, security badge, live stat chip, action button)
+    top_bar = grey_card(
+        padding=ft.Padding.symmetric(horizontal=16, vertical=12),
+        radius=14,
+        content=ft.Row(
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                ft.Row([
+                    shimmer_box(radius=999, width=32, height=32, darker=True),
+                    ft.Column([
+                        shimmer_box(radius=4, height=16, width=180),
+                        shimmer_box(radius=4, height=10, width=120),
+                    ], spacing=3, tight=True),
+                ], spacing=10, tight=True),
+                ft.Row([
+                    shimmer_box(radius=999, height=28, width=90),
+                    shimmer_box(radius=8, height=34, width=110, darker=True),
+                ], spacing=8, tight=True),
+            ],
+        ),
+    )
+
+    # Admin Navigation Tabs Pill Strip
+    tab_pills = ft.Row(
+        scroll=ft.ScrollMode.AUTO,
+        spacing=8,
+        controls=[
+            shimmer_box(radius=999, height=30, width=80, darker=True),
+            shimmer_box(radius=999, height=30, width=95),
+            shimmer_box(radius=999, height=30, width=110),
+            shimmer_box(radius=999, height=30, width=85),
+            shimmer_box(radius=999, height=30, width=90),
+            shimmer_box(radius=999, height=30, width=120),
+            shimmer_box(radius=999, height=30, width=100),
+        ],
+    )
+
+    # 4 Overview Metric Cards
+    metrics_row = ft.ResponsiveRow(
+        spacing=10,
+        run_spacing=10,
+        controls=[
+            grey_card(
+                col={"xs": 6, "sm": 6, "md": 3},
+                padding=12,
+                radius=12,
+                content=ft.Column([
+                    shimmer_box(radius=4, height=10, width=70),
+                    shimmer_box(radius=6, height=22, width=90, darker=True),
+                    shimmer_box(radius=4, height=9, width=110),
+                ], spacing=5, tight=True),
+            )
+            for _ in range(4)
+        ],
+    )
+
+    # Search & Filter Toolbar
+    filter_bar = grey_card(
+        padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+        radius=10,
+        content=ft.Row(
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            controls=[
+                shimmer_box(radius=8, height=36, width=240),
+                ft.Row([
+                    shimmer_box(radius=8, height=36, width=110),
+                    shimmer_box(radius=8, height=36, width=110),
+                ], spacing=6, tight=True),
+            ],
+        ),
+    )
+
+    # User Roster Table Rows
+    def admin_table_row():
+        return grey_card(
+            padding=ft.Padding.symmetric(horizontal=14, vertical=10),
+            radius=10,
+            content=ft.Row(
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[
+                    ft.Row([
+                        shimmer_box(radius=999, width=34, height=34),
+                        ft.Column([
+                            shimmer_box(radius=4, height=13, width=140),
+                            shimmer_box(radius=4, height=10, width=180),
+                        ], spacing=3, tight=True),
+                    ], spacing=10, tight=True),
+                    ft.Row([
+                        shimmer_box(radius=6, height=20, width=65),
+                        shimmer_box(radius=6, height=20, width=75),
+                        shimmer_box(radius=999, width=28, height=28),
+                        shimmer_box(radius=999, width=28, height=28),
+                    ], spacing=8, tight=True),
+                ],
+            ),
+        )
+
+    return ft.ListView(
+        expand=True,
+        padding=ft.Padding.symmetric(horizontal=16, vertical=12),
+        spacing=10,
+        controls=[
+            top_bar,
+            tab_pills,
+            metrics_row,
+            filter_bar,
+            admin_table_row(),
+            admin_table_row(),
+            admin_table_row(),
+            admin_table_row(),
+            admin_table_row(),
+            ft.Container(height=24),
+        ],
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 20. LEARNING STORE SKELETON (/store)
+# ─────────────────────────────────────────────────────────────────────────────
+def build_store_skeleton(page: ft.Page | None = None) -> ft.Control:
+    """1-to-1 high-fidelity skeleton for Nu-Age Learning Store."""
+    is_desk = is_desktop_mode(page, 800)
+
+    # Top Balance & Status Strip
+    top_strip = grey_card(
+        padding=ft.Padding.symmetric(horizontal=16, vertical=12),
+        radius=14,
+        content=ft.Row(
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                ft.Row([
+                    shimmer_box(radius=999, width=32, height=32, darker=True),
+                    ft.Column([
+                        shimmer_box(radius=4, height=14, width=110),
+                        shimmer_box(radius=4, height=10, width=70),
+                    ], spacing=3, tight=True),
+                ], spacing=8, tight=True),
+                ft.Row([
+                    shimmer_box(radius=999, height=26, width=100),
+                    shimmer_box(radius=999, height=26, width=90, darker=True),
+                ], spacing=8, tight=True),
+            ],
+        ),
+    )
+
+    # Tabs (Plans, AI Credits, Nu-Coin Packs, Receipts)
+    tab_pills = ft.Row(
+        spacing=8,
+        controls=[
+            shimmer_box(radius=999, height=32, width=120, darker=True),
+            shimmer_box(radius=999, height=32, width=95),
+            shimmer_box(radius=999, height=32, width=110),
+            shimmer_box(radius=999, height=32, width=105),
+        ],
+    )
+
+    # Hero Store Banner
+    hero_banner = grey_card(
+        padding=18,
+        radius=16,
+        content=ft.Column([
+            shimmer_box(radius=4, height=10, width=120),
+            shimmer_box(radius=6, height=22, width=280, darker=True),
+            shimmer_box(radius=4, height=12, width=340),
+            ft.Container(height=6),
+            ft.Row([
+                shimmer_box(radius=6, height=14, width=110),
+                shimmer_box(radius=6, height=14, width=130),
+                shimmer_box(radius=6, height=14, width=90),
+            ], spacing=12),
+        ], spacing=8),
+    )
+
+    # Plan Cards (3 Plans Grid)
+    def store_plan_card():
+        return grey_card(
+            col={"xs": 12, "md": 4},
+            padding=16,
+            radius=14,
+            content=ft.Column([
+                ft.Row([
+                    shimmer_box(radius=4, height=16, width=100, darker=True),
+                    shimmer_box(radius=999, height=20, width=60),
+                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                ft.Container(height=4),
+                shimmer_box(radius=6, height=28, width=120, darker=True),
+                shimmer_box(radius=4, height=10, width=80),
+                ft.Container(height=6),
+                shimmer_box(radius=4, height=12, width=180),
+                shimmer_box(radius=4, height=12, width=160),
+                shimmer_box(radius=4, height=12, width=170),
+                shimmer_box(radius=4, height=12, width=150),
+                ft.Container(height=8),
+                shimmer_box(radius=10, height=38, expand=True, darker=True),
+            ], spacing=6),
+        )
+
+    plans_grid = ft.ResponsiveRow(
+        spacing=12,
+        run_spacing=12,
+        controls=[store_plan_card(), store_plan_card(), store_plan_card()],
+    )
+
+    return ft.ListView(
+        expand=True,
+        padding=ft.Padding.symmetric(horizontal=16, vertical=12),
+        spacing=12,
+        controls=[
+            top_strip,
+            tab_pills,
+            hero_banner,
+            shimmer_box(radius=4, height=14, width=140),
+            plans_grid,
+            ft.Container(height=24),
+        ],
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 21. COHORT PAGE SKELETON (/cohorts/:cohort_id)
+# ─────────────────────────────────────────────────────────────────────────────
+def build_cohort_page_skeleton(page: ft.Page | None = None) -> ft.Control:
+    """1-to-1 high-fidelity skeleton for Cohort Workspace."""
+    is_desk = is_desktop_mode(page, 800)
+
+    # Cohort Header Hero
+    header_hero = grey_card(
+        padding=18,
+        radius=16,
+        content=ft.Column([
+            ft.Row([
+                shimmer_box(radius=999, width=44, height=44, darker=True),
+                ft.Column([
+                    shimmer_box(radius=6, height=18, width=200, darker=True),
+                    shimmer_box(radius=4, height=11, width=130),
+                ], spacing=4, tight=True, expand=True),
+                shimmer_box(radius=999, height=32, width=110),
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            ft.Container(height=6),
+            shimmer_box(radius=4, height=12, width=320),
+            ft.Row([
+                shimmer_box(radius=999, height=22, width=90),
+                shimmer_box(radius=999, height=22, width=80),
+                shimmer_box(radius=999, height=22, width=110),
+            ], spacing=6),
+        ], spacing=8),
+    )
+
+    # Tab Strip
+    tabs_row = ft.Row(
+        spacing=8,
+        controls=[
+            shimmer_box(radius=999, height=32, width=110, darker=True),
+            shimmer_box(radius=999, height=32, width=130),
+            shimmer_box(radius=999, height=32, width=115),
+            shimmer_box(radius=999, height=32, width=120),
+        ],
+    )
+
+    # Feed Card
+    def feed_post_skeleton():
+        return grey_card(
+            padding=16,
+            radius=12,
+            content=ft.Column([
+                ft.Row([
+                    shimmer_box(radius=999, width=36, height=36),
+                    ft.Column([
+                        shimmer_box(radius=4, height=13, width=120),
+                        shimmer_box(radius=4, height=9, width=70),
+                    ], spacing=3, tight=True),
+                ], spacing=8, tight=True),
+                ft.Container(height=4),
+                shimmer_box(radius=4, height=13, width=280),
+                shimmer_box(radius=4, height=13, width=240),
+                shimmer_box(radius=4, height=13, width=200),
+                ft.Container(height=4),
+                ft.Row([
+                    shimmer_box(radius=6, height=24, width=60),
+                    shimmer_box(radius=6, height=24, width=70),
+                ], spacing=8),
+            ], spacing=6),
+        )
+
+    return ft.ListView(
+        expand=True,
+        padding=ft.Padding.symmetric(horizontal=16, vertical=12),
+        spacing=12,
+        controls=[
+            header_hero,
+            tabs_row,
+            feed_post_skeleton(),
+            feed_post_skeleton(),
+            ft.Container(height=24),
+        ],
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 22. COHORT EXAM SKELETON (/cohorts/:cohort_id/exams/:exam_id)
+# ─────────────────────────────────────────────────────────────────────────────
+def build_cohort_exam_skeleton(page: ft.Page | None = None) -> ft.Control:
+    """1-to-1 high-fidelity skeleton for Cohort Exam Runner."""
+    is_desk = is_desktop_mode(page, 800)
+
+    # Exam Top Bar (Title, timer box, submit button)
+    exam_top_bar = grey_card(
+        padding=ft.Padding.symmetric(horizontal=16, vertical=10),
+        radius=12,
+        content=ft.Row(
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                ft.Row([
+                    shimmer_box(radius=4, height=14, width=140),
+                    shimmer_box(radius=999, height=22, width=70, darker=True),
+                ], spacing=8, tight=True),
+                ft.Row([
+                    shimmer_box(radius=8, height=32, width=90, darker=True),
+                    shimmer_box(radius=8, height=32, width=110),
+                ], spacing=8, tight=True),
+            ],
+        ),
+    )
+
+    # Palette tracker (numbered question pills)
+    palette_row = ft.Row(
+        scroll=ft.ScrollMode.AUTO,
+        spacing=6,
+        controls=[shimmer_box(radius=6, height=28, width=28, darker=(i == 0)) for i in range(12)],
+    )
+
+    # Question Prompt Box
+    question_card = grey_card(
+        padding=18,
+        radius=14,
+        content=ft.Column([
+            shimmer_box(radius=4, height=10, width=90),
+            shimmer_box(radius=4, height=15, width=320, darker=True),
+            shimmer_box(radius=4, height=15, width=280, darker=True),
+            shimmer_box(radius=4, height=13, width=220),
+        ], spacing=8),
+    )
+
+    # 4 Option Cards
+    def option_card(i: int):
+        return grey_card(
+            padding=ft.Padding.symmetric(horizontal=14, vertical=12),
+            radius=10,
+            content=ft.Row([
+                shimmer_box(radius=999, width=18, height=18),
+                shimmer_box(radius=4, height=13, width=240),
+            ], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+        )
+
+    # Bottom Navigation Controls
+    bottom_actions = ft.Row(
+        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+        controls=[
+            shimmer_box(radius=8, height=38, width=100),
+            shimmer_box(radius=8, height=38, width=120, darker=True),
+            shimmer_box(radius=8, height=38, width=100),
+        ],
+    )
+
+    return ft.ListView(
+        expand=True,
+        padding=ft.Padding.symmetric(horizontal=16, vertical=12),
+        spacing=12,
+        controls=[
+            exam_top_bar,
+            palette_row,
+            question_card,
+            option_card(0),
+            option_card(1),
+            option_card(2),
+            option_card(3),
+            ft.Container(height=8),
+            bottom_actions,
+            ft.Container(height=20),
+        ],
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 23. COURSE SPACES SKELETON (Course Spaces Tab / Directory)
+# ─────────────────────────────────────────────────────────────────────────────
+def build_course_spaces_skeleton(page: ft.Page | None = None) -> ft.Control:
+    """Produces the exact 1-to-1 grey shimmer skeleton for Course Spaces tab and directory."""
+    def _skel_space_card():
+        return grey_card(
+            padding=16,
+            radius=14,
+            col={"xs": 12, "sm": 12, "md": 6, "lg": 4},
+            content=ft.Column(
+                [
+                    ft.Row(
+                        [
+                            ft.Row(
+                                [
+                                    shimmer_box(radius=12, height=44, width=44),
+                                    ft.Column(
+                                        [
+                                            shimmer_box(radius=4, height=15, width=130),
+                                            shimmer_box(radius=4, height=11, width=90),
+                                        ],
+                                        spacing=4,
+                                    ),
+                                ],
+                                spacing=10,
+                                tight=True,
+                            ),
+                            shimmer_box(radius=8, height=22, width=70),
+                        ],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                    ft.Column(
+                        [
+                            shimmer_box(radius=4, height=12, expand=True),
+                            shimmer_box(radius=4, height=12, width=170),
+                        ],
+                        spacing=4,
+                    ),
+                    ft.Row(
+                        [
+                            shimmer_box(radius=6, height=20, width=75),
+                            shimmer_box(radius=6, height=20, width=85),
+                        ],
+                        spacing=6,
+                    ),
+                    ft.Container(height=1, bgcolor=GREY_BOX_COLOR, opacity=0.3),
+                    ft.Row(
+                        [
+                            shimmer_box(radius=4, height=13, width=80),
+                            shimmer_box(radius=10, height=32, width=105),
+                        ],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                ],
+                spacing=12,
+            ),
+        )
+
+    return ft.Column(
+        [
+            # Top sub-tabs & action bar
+            ft.Row(
+                [
+                    ft.Row(
+                        [
+                            shimmer_box(radius=999, height=32, width=110),
+                            shimmer_box(radius=999, height=32, width=140),
+                        ],
+                        spacing=8,
+                    ),
+                    shimmer_box(radius=10, height=34, width=125),
+                ],
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            ),
+            # Filter bar
+            ft.Row(
+                [
+                    shimmer_box(radius=10, height=36, expand=True),
+                    shimmer_box(radius=999, height=28, width=50),
+                    shimmer_box(radius=999, height=28, width=90),
+                    shimmer_box(radius=999, height=28, width=80),
+                ],
+                spacing=8,
+            ),
+            ft.Container(height=4),
+            ft.ResponsiveRow(
+                spacing=14,
+                run_spacing=14,
+                controls=[_skel_space_card() for _ in range(6)],
+            ),
+        ],
+        spacing=12,
+        expand=True,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 24. COURSE SPACE HUB SKELETON (/spaces/:id & /spaces/:id/manage)
+# ─────────────────────────────────────────────────────────────────────────────
+def build_course_space_hub_skeleton(page: ft.Page | None = None) -> ft.Control:
+    """Produces the exact 1-to-1 grey shimmer skeleton for Course Space Hub / Tutor Studio."""
+    def _skel_item_card():
+        return grey_card(
+            padding=16,
+            radius=14,
+            content=ft.Row(
+                [
+                    shimmer_box(radius=12, height=48, width=48),
+                    ft.Column(
+                        [
+                            shimmer_box(radius=4, height=15, width=180),
+                            shimmer_box(radius=4, height=12, width=280),
+                            ft.Row(
+                                [
+                                    shimmer_box(radius=6, height=18, width=70),
+                                    shimmer_box(radius=6, height=18, width=85),
+                                ],
+                                spacing=6,
+                            ),
+                        ],
+                        spacing=6,
+                        expand=True,
+                    ),
+                    shimmer_box(radius=10, height=36, width=110),
+                ],
+                spacing=14,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+        )
+
+    return ft.ListView(
+        expand=True,
+        padding=ft.Padding.symmetric(horizontal=16, vertical=12),
+        controls=[
+            # Header card
+            grey_card(
+                padding=18,
+                radius=16,
+                content=ft.Column(
+                    [
+                        ft.Row(
+                            [
+                                ft.Row(
+                                    [
+                                        shimmer_box(radius=10, height=36, width=36),
+                                        shimmer_box(radius=12, height=44, width=44),
+                                        ft.Column(
+                                            [
+                                                shimmer_box(radius=4, height=18, width=200),
+                                                shimmer_box(radius=4, height=12, width=130),
+                                            ],
+                                            spacing=4,
+                                        ),
+                                    ],
+                                    spacing=10,
+                                ),
+                                ft.Row(
+                                    [
+                                        shimmer_box(radius=8, height=28, width=80),
+                                        shimmer_box(radius=10, height=34, width=110),
+                                    ],
+                                    spacing=8,
+                                ),
+                            ],
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        ),
+                        shimmer_box(radius=4, height=12, width=340),
+                        # Tabs
+                        ft.Row(
+                            [
+                                shimmer_box(radius=999, height=32, width=95),
+                                shimmer_box(radius=999, height=32, width=120),
+                                shimmer_box(radius=999, height=32, width=115),
+                                shimmer_box(radius=999, height=32, width=105),
+                                shimmer_box(radius=999, height=32, width=90),
+                            ],
+                            spacing=8,
+                            wrap=True,
+                        ),
+                    ],
+                    spacing=14,
+                ),
+            ),
+            ft.Container(height=10),
+            # Item rows
+            ft.Column(
+                spacing=12,
+                controls=[_skel_item_card() for _ in range(4)],
+            ),
+        ],
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # ROUTE RESOLVER & SKELETON VIEW FACTORY
 # ─────────────────────────────────────────────────────────────────────────────
 def build_skeleton_view(route: str, page: ft.Page | None = None) -> ft.View:
@@ -2679,11 +3272,17 @@ def build_skeleton_view(route: str, page: ft.Page | None = None) -> ft.View:
         body = build_offline_skeleton(page)
     elif clean_route == "/leaderboards":
         body = build_leaderboards_skeleton(page)
+    elif clean_route == "/platform-admin":
+        body = build_platform_admin_skeleton(page)
+    elif clean_route == "/store":
+        body = build_store_skeleton(page)
 
     # 2. Parametrized route matches (most specific first)
     elif troute.match("/courses/:id/stats"):
         body = build_course_stats_skeleton(page)
-    elif troute.match("/courses/:id/view") or troute.match("/courses/:id/offline"):
+    elif troute.match("/courses/:id/view"):
+        body = build_course_learner_skeleton(page)
+    elif troute.match("/courses/:id/offline"):
         body = build_course_learner_skeleton(page)
     elif troute.match("/courses/:id/manage"):
         body = build_course_builder_skeleton(page)
@@ -2697,7 +3296,9 @@ def build_skeleton_view(route: str, page: ft.Page | None = None) -> ft.View:
         body = build_analytics_skeleton(page)
     elif troute.match("/organisations/:org_id/invite-members"):
         body = build_invite_members_skeleton(page)
-    elif troute.match("/organisations/:org_id/courses") or clean_route == "/create-course":
+    elif troute.match("/organisations/:org_id/courses"):
+        body = build_library_grid_skeleton(page)
+    elif clean_route == "/create-course":
         body = build_library_grid_skeleton(page)
     elif troute.match("/organisations/:org_id/playlists"):
         body = build_library_grid_skeleton(page)
@@ -2711,6 +3312,16 @@ def build_skeleton_view(route: str, page: ft.Page | None = None) -> ft.View:
         body = build_playlist_view_skeleton(page)
     elif troute.match("/member/:id"):
         body = build_profile_skeleton(page, is_member=True)
+    elif troute.match("/cohorts/:id/exams/:exam_id"):
+        body = build_cohort_exam_skeleton(page)
+    elif troute.match("/cohorts/:id"):
+        body = build_cohort_page_skeleton(page)
+    elif troute.match("/spaces/:id/drills/:quiz_id"):
+        body = build_cohort_exam_skeleton(page)
+    elif troute.match("/spaces/:id/manage"):
+        body = build_course_space_hub_skeleton(page)
+    elif troute.match("/spaces/:id"):
+        body = build_course_space_hub_skeleton(page)
     elif troute.match("/courses/:id"):
         body = build_course_details_skeleton(page)
     else:

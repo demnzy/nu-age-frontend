@@ -70,19 +70,12 @@ async def course_settings_view(page: ft.Page, course_id: str, org_id: str = None
     def show_error_toast(message: str):
         show_toast(message, color=ft.Colors.RED_700)
 
-    # ── Centered Loading Socket ───────────────────────────────────────────────
+    from src.components.shimmer_skeletons import build_settings_skeleton
+
+    # ── 1:1 High-Fidelity Settings Skeleton Socket while loading ─────────────
     content_socket = ft.Container(
         expand=True,
-        alignment=ft.Alignment.CENTER,
-        content=ft.Column(
-            alignment=ft.MainAxisAlignment.CENTER,
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            controls=[
-                ft.ProgressRing(color=ft.Colors.PRIMARY, width=44, height=44, stroke_width=3.5),
-                ft.Container(height=16),
-                ft.Text("Loading Course Configuration…", size=13, weight=ft.FontWeight.W_500, color=ft.Colors.ON_SURFACE_VARIANT),
-            ],
-        ),
+        content=build_settings_skeleton(page),
     )
 
     # ── Fetch Initial Data ───────────────────────────────────────────────────
@@ -879,7 +872,11 @@ async def course_settings_view(page: ft.Page, course_id: str, org_id: str = None
             spacing=0,
         )
 
-    page.run_task(load_all_data)
+    # ── await background fetch so view is feasibly ready on transition ─────────
+    try:
+        await asyncio.wait_for(load_all_data(), timeout=8.0)
+    except Exception as _csex:
+        print(f"[course_settings_view] Initial fetch error or timeout: {_csex}")
 
     target_route = f"/organisations/{effective_org_id}/courses/{course_id}/settings" if effective_org_id else f"/courses/{course_id}/settings"
 

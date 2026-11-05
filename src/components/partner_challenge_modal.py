@@ -664,6 +664,72 @@ def show_duel_results_dialog(
             on_click=_start_accept_duel,
         ))
 
+        async def _decline_duel(e=None):
+            from src.requests.study_partners import decline_partner_challenge_api
+            res = await decline_partner_challenge_api(token, str(c_id), partnership_id)
+            if res.get("status") == "success":
+                show_page_snackbar(page, "Duel declined. Challenger stake was refunded.")
+                _close()
+                if on_duel_updated:
+                    if asyncio.iscoroutinefunction(on_duel_updated):
+                        await on_duel_updated()
+                    else:
+                        on_duel_updated()
+            else:
+                show_page_snackbar(page, res.get("error", "Failed to decline duel."))
+
+        decline_btn = ft.OutlinedButton(
+            content=ft.Row(
+                tight=True,
+                spacing=5,
+                controls=[
+                    ft.Icon(ft.Icons.CLOSE_ROUNDED, size=15, color=ft.Colors.ERROR),
+                    ft.Text("Decline", size=13, weight=ft.FontWeight.W_700, color=ft.Colors.ERROR),
+                ],
+            ),
+            style=ft.ButtonStyle(
+                side=ft.BorderSide(1, ft.Colors.ERROR),
+                shape=ft.RoundedRectangleBorder(radius=12),
+            ),
+            height=42,
+            on_click=lambda _: page.run_task(_decline_duel),
+        )
+        dlg.actions.insert(0, decline_btn)
+
+    elif is_challenger and challenge.get("status") == "challenger_done" and token and c_id:
+        async def _cancel_duel(e=None):
+            from src.requests.study_partners import cancel_partner_challenge_api
+            res = await cancel_partner_challenge_api(token, str(c_id), partnership_id)
+            if res.get("status") == "success":
+                msg = res.get("message") or "Challenge cancelled and stake refunded."
+                show_page_snackbar(page, msg)
+                _close()
+                if on_duel_updated:
+                    if asyncio.iscoroutinefunction(on_duel_updated):
+                        await on_duel_updated()
+                    else:
+                        on_duel_updated()
+            else:
+                show_page_snackbar(page, res.get("error", "Failed to cancel challenge."))
+
+        cancel_btn = ft.OutlinedButton(
+            content=ft.Row(
+                tight=True,
+                spacing=5,
+                controls=[
+                    ft.Icon(ft.Icons.CANCEL_OUTLINED, size=15, color=ft.Colors.ERROR),
+                    ft.Text("Cancel Challenge", size=13, weight=ft.FontWeight.W_700, color=ft.Colors.ERROR),
+                ],
+            ),
+            style=ft.ButtonStyle(
+                side=ft.BorderSide(1, ft.Colors.ERROR),
+                shape=ft.RoundedRectangleBorder(radius=12),
+            ),
+            height=42,
+            on_click=lambda _: page.run_task(_cancel_duel),
+        )
+        dlg.actions.insert(0, cancel_btn)
+
     page.overlay.append(dlg)
     dlg.open = True
     page.update()
@@ -971,8 +1037,8 @@ def start_quickfire_duel_flow(
                     async def _reopen():
                         updated_ch = await get_partner_challenge(token, challenge_id)
                         if updated_ch and not updated_ch.get("error"):
-                            u_data = page.session.store.get("current_user") or {} if hasattr(page, "session") and hasattr(page.session, "store") else {}
-                            current_uid = str(u_data.get("id") or "")
+                            u_data = get_session_user(page)
+                            current_uid = str(u_data.get("id") or u_data.get("user_id") or "")
                             show_duel_results_dialog(
                                 page=page,
                                 challenge=updated_ch,
@@ -1116,8 +1182,14 @@ def show_create_duel_dialog(
         )
 
     pack_options = []
+    seen_init_ids = set()
     for m in (available_materials or []):
-        m_id = str(m.get("id") or m.get("pack_id"))
+        if not isinstance(m, dict):
+            continue
+        m_id = str(m.get("id") or m.get("pack_id") or "").strip()
+        if not m_id or m_id in ("None", "general") or m_id in seen_init_ids:
+            continue
+        seen_init_ids.add(m_id)
         m_title = str(m.get("title", "Untitled"))[:38]
         q_count = m.get("questions_count")
         if q_count is None and isinstance(m.get("pack_data"), dict):
@@ -1125,8 +1197,7 @@ def show_create_duel_dialog(
         label_txt = f"{m_title[:32]} ({q_count}Q)" if q_count else m_title
         pack_options.append(_make_option(m_id, m_title, label_txt))
 
-    if not pack_options:
-        pack_options.append(_make_option("general", "General Academic Pack", "General Academic Pack"))
+    has_initial_packs = bool(pack_options)
 
     pack_dd = ft.Dropdown(
         label="Study pack",
@@ -1142,6 +1213,7 @@ def show_create_duel_dialog(
         border_color=_tint(0.25),
         focused_border_color=ft.Colors.PRIMARY,
         menu_height=240,  # compact, scrollable dropdown popup menu
+        visible=has_initial_packs,
         menu_style=ft.MenuStyle(
             bgcolor=ft.Colors.SURFACE,
             shape=ft.RoundedRectangleBorder(radius=12),
@@ -1150,45 +1222,50 @@ def show_create_duel_dialog(
         ),
     )
 
+    empty_notice_box = ft.Container(
+        padding=ft.Padding.symmetric(horizontal=14, vertical=12),
+        border_radius=ft.BorderRadius.all(12),
+        bgcolor=_tint(0.08, ft.Colors.ORANGE),
+        border=ft.Border.all(1, _tint(0.35, ft.Colors.ORANGE)),
+        visible=not has_initial_packs,
+        content=ft.Row(
+            spacing=8,
+            vertical_alignment=ft.CrossAxisAlignment.START,
+            controls=[
+                ft.Icon(ft.Icons.INFO_OUTLINE_ROUNDED, size=18, color=ft.Colors.ORANGE_700),
+                ft.Text(
+                    "No study decks found in your vault or shared in this duo. Upload study materials to your vault or have your partner share a pack to play duels.",
+                    size=12.5,
+                    weight=ft.FontWeight.W_500,
+                    color=ft.Colors.ON_SURFACE,
+                    expand=True,
+                ),
+            ],
+        ),
+    )
+
     async def _fetch_and_populate_packs():
         try:
             from src.requests.study import get_materials
-            from src.requests.marketplace import fetch_my_submissions
             from src.requests.study_partners import get_shared_study_packs_api
-            from src.local_db import get_offline_study_materials
 
             tasks = [
                 get_materials(token) if token else asyncio.sleep(0),
-                fetch_my_submissions(token) if token else asyncio.sleep(0),
                 get_shared_study_packs_api(token, partnership_id) if (token and partnership_id) else asyncio.sleep(0),
             ]
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
-            loaded_items = list(available_materials or [])
+            loaded_items = []
 
-            # 1. Vault materials
+            # 1. Vault materials (owned by user)
             if len(results) > 0 and isinstance(results[0], list):
                 loaded_items.extend(results[0])
 
-            # 2. My published/created study packs
-            if len(results) > 1 and isinstance(results[1], dict):
-                subs_items = results[1].get("items")
-                if isinstance(subs_items, list):
-                    loaded_items.extend(subs_items)
-
-            # 3. Shared packs with duo partner
-            if len(results) > 2 and isinstance(results[2], list):
-                for sp in results[2]:
+            # 2. Shared packs with duo partner
+            if len(results) > 1 and isinstance(results[1], list):
+                for sp in results[1]:
                     if isinstance(sp, dict):
                         loaded_items.append(sp.get("pack") or sp)
-
-            # 4. Local offline materials
-            try:
-                local_mats = get_offline_study_materials(page)
-                if local_mats and isinstance(local_mats, list):
-                    loaded_items.extend(local_mats)
-            except Exception:
-                pass
 
             seen_ids = set()
             new_options = []
@@ -1196,7 +1273,7 @@ def show_create_duel_dialog(
                 if not isinstance(m, dict):
                     continue
                 m_id = str(m.get("id") or m.get("pack_id") or "").strip()
-                if not m_id or m_id in seen_ids or m_id == "None":
+                if not m_id or m_id in seen_ids or m_id in ("None", "general"):
                     continue
                 seen_ids.add(m_id)
 
@@ -1210,19 +1287,23 @@ def show_create_duel_dialog(
 
             if new_options:
                 pack_dd.options = new_options
-                if not pack_dd.value or pack_dd.value not in seen_ids or pack_dd.value == "general":
+                if not pack_dd.value or pack_dd.value not in seen_ids:
                     pack_dd.value = new_options[0].key
-                if dlg.open:
-                    try:
-                        if getattr(pack_dd, "page", None):
-                            pack_dd.update()
-                        else:
-                            page.update()
-                    except Exception:
-                        try:
-                            page.update()
-                        except Exception:
-                            pass
+                pack_dd.visible = True
+                empty_notice_box.visible = False
+                launch_btn.disabled = False
+            else:
+                pack_dd.options = []
+                pack_dd.value = None
+                pack_dd.visible = False
+                empty_notice_box.visible = True
+                launch_btn.disabled = True
+
+            if dlg.open:
+                try:
+                    page.update()
+                except Exception:
+                    pass
         except Exception as ex:
             print(f"[show_create_duel_dialog] _fetch_and_populate_packs error: {ex}")
 
@@ -1321,6 +1402,10 @@ def show_create_duel_dialog(
 
         try:
             chosen_pack_id = pack_dd.value
+            if not chosen_pack_id or chosen_pack_id in ("general", "None"):
+                show_page_snackbar(page, "Please select an available study deck first.")
+                return
+
             chosen_pack_title = "Study Pack"
             for opt in pack_dd.options:
                 if opt.key == chosen_pack_id:
@@ -1332,26 +1417,17 @@ def show_create_duel_dialog(
                 show_page_snackbar(page, f"Insufficient Nu-Coins for {wager_val}-coin stake. Top up in Store.")
                 return
 
-            # Fetch seeded 15 questions from backend
+            # Fetch seeded 15 questions strictly from backend (vault or shared duo pack)
             res = await generate_quickfire_from_pack_api(token, partnership_id, chosen_pack_id)
             if not res or res.get("status") != "success":
-                # Fallback to local question synthesis if pack_id is general
-                from src.requests.study import get_quiz_questions
-                raw_qs = await get_quiz_questions(token, [chosen_pack_id] if chosen_pack_id != "general" else None)
-                if not raw_qs or not isinstance(raw_qs, list):
-                    raw_qs = []
-                while len(raw_qs) < 15:
-                    idx = len(raw_qs) + 1
-                    raw_qs.append({
-                        "id": str(uuid.uuid4()),
-                        "question": f"Question {idx}: What is the primary concept in {chosen_pack_title}?",
-                        "options": ["Fundamental Principles", "Practical Application", "Core Methodology", "Analysis & Synthesis"],
-                        "correct_answer": "Fundamental Principles",
-                        "explanation": "Core review topic."
-                    })
-                questions = raw_qs[:15]
-            else:
-                questions = res.get("questions", [])
+                err = res.get("error") if res else "Failed to generate questions from this study pack."
+                show_page_snackbar(page, err)
+                return
+
+            questions = res.get("questions", [])
+            if not questions:
+                show_page_snackbar(page, "This study pack does not have enough quiz questions to start a duel.")
+                return
 
             _close()
 
@@ -1372,7 +1448,7 @@ def show_create_duel_dialog(
         except Exception as ex:
             show_page_snackbar(page, f"Error launching duel: {ex}")
         finally:
-            launch_btn.disabled = bool(selected_wager[0] > 0 and user_coins_box[0] < selected_wager[0])
+            launch_btn.disabled = bool((selected_wager[0] > 0 and user_coins_box[0] < selected_wager[0]) or not pack_dd.value)
             progress_ring.visible = False
             page.update()
 
@@ -1410,6 +1486,7 @@ def show_create_duel_dialog(
                         ),
                     ),
                     pack_dd,
+                    empty_notice_box,
                     # Wager / Stake Selection Box
                     ft.Container(
                         padding=ft.Padding.symmetric(horizontal=14, vertical=14),
@@ -1511,6 +1588,7 @@ def show_flashcard_preview_dialog(
     )
 
     init_card_val = flashcards[0].get("front", "Empty") if total_cards else "No flashcards in this deck."
+    is_compact = bool(getattr(page, "width", None) and page.width < 600)
     card_md = ft.Markdown(
         value=init_card_val,
         selectable=False,
@@ -1518,7 +1596,7 @@ def show_flashcard_preview_dialog(
         md_style_sheet=ft.MarkdownStyleSheet(
             text_alignment=ft.TextAlign.CENTER,
             p_text_style=ft.TextStyle(
-                size=16,
+                size=14.5 if is_compact else 16,
                 weight=ft.FontWeight.W_600,
                 color=ft.Colors.ON_SURFACE,
                 height=1.45,
@@ -1527,8 +1605,8 @@ def show_flashcard_preview_dialog(
     )
 
     card_box = ft.Container(
-        height=230,
-        padding=ft.Padding.symmetric(horizontal=18, vertical=16),
+        height=220 if is_compact else 240,
+        padding=ft.Padding.symmetric(horizontal=12 if is_compact else 18, vertical=12 if is_compact else 16),
         border_radius=ft.BorderRadius.all(20),
         bgcolor=_tint(0.06),
         border=ft.Border.all(1.5, _tint(0.25)),
@@ -1536,7 +1614,7 @@ def show_flashcard_preview_dialog(
         ink=True,
         content=ft.Column(
             controls=[card_md],
-            alignment=ft.MainAxisAlignment.CENTER,
+            alignment=ft.MainAxisAlignment.START if is_compact else ft.MainAxisAlignment.CENTER,
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             scroll=ft.ScrollMode.AUTO,
         ),

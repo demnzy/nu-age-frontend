@@ -1,3 +1,4 @@
+import asyncio
 import flet as ft
 from src.components.completed_card import get_completed_card
 from src.components.course_card import get_course_card
@@ -10,6 +11,7 @@ from src.requests.enrollments import get_enrollments, enrol_user
 from src.requests.playlists import get_all_playlists
 from datetime import datetime
 from src.components.coding_playground import CodingPlayground
+from src.components.course_spaces_section import build_course_spaces_section
 
 # Section keys/order for navigation
 SECTION_ENROLLED = 0
@@ -18,6 +20,7 @@ SECTION_PLAYGROUND = 2
 SECTION_PLAYLISTS = 3
 SECTION_COMPLETED = 4
 SECTION_ORG = 5
+SECTION_SPACES = 6
 
 
 def _is_mounted(control: ft.Control) -> bool:
@@ -143,6 +146,14 @@ async def courses_view(page: ft.Page):
             except NameError:
                 current_search_query = ""
 
+        try:
+            clear_search_btn.visible = bool(current_search_query)
+            reset_filters_chip.visible = bool(
+                current_category_filter or current_instructor_filter or current_org_filter
+            )
+        except NameError:
+            pass
+
         course_cards.clear()
         for course in all_available_courses:
             c_name = str(course.get("name") or "").lower()
@@ -259,9 +270,18 @@ async def courses_view(page: ft.Page):
         content_padding=ft.Padding.symmetric(vertical=6),
     )
 
-    def on_clear_search(e):
+    def on_clear_search(e=None):
         search_tf_input.value = ""
         filter_courses()
+
+    clear_search_btn = ft.IconButton(
+        icon=ft.Icons.CLEAR_ROUNDED,
+        on_click=on_clear_search,
+        icon_color=ft.Colors.ON_SURFACE_VARIANT,
+        icon_size=18,
+        tooltip="Clear search",
+        visible=False,
+    )
 
     search_tf = ft.Container(
         bgcolor=ft.Colors.TRANSPARENT,
@@ -274,13 +294,7 @@ async def courses_view(page: ft.Page):
             controls=[
                 ft.Icon(ft.Icons.SEARCH_ROUNDED, color=ft.Colors.ON_SURFACE_VARIANT, size=18),
                 search_tf_input,
-                ft.IconButton(
-                    icon=ft.Icons.CLEAR_ROUNDED,
-                    on_click=on_clear_search,
-                    icon_color=ft.Colors.ON_SURFACE_VARIANT,
-                    icon_size=18,
-                    tooltip="Clear search",
-                ),
+                clear_search_btn,
             ],
         ),
     )
@@ -296,34 +310,57 @@ async def courses_view(page: ft.Page):
             page.update()
             filter_courses()
 
-        def handle_reset(e):
+        def handle_reset(e=None):
             on_select(None)
             if sheet:
                 sheet.open = False
             page.update()
             filter_courses()
 
-        rg = ft.RadioGroup(
-            value=active_val,
-            on_change=handle_select,
-            content=ft.Column(
-                [ft.Radio(value=opt, label=opt) for opt in options],
-                scroll=ft.ScrollMode.AUTO,
+        if options:
+            body_ctrl = ft.RadioGroup(
+                value=active_val,
+                on_change=handle_select,
+                content=ft.Column(
+                    [ft.Radio(value=opt, label=opt) for opt in options],
+                    scroll=ft.ScrollMode.AUTO,
+                    expand=True,
+                ),
+            )
+        else:
+            body_ctrl = ft.Container(
+                alignment=ft.Alignment.CENTER,
                 expand=True,
-            ),
-        )
+                content=ft.Text(
+                    "No filter options available right now.",
+                    size=13,
+                    color=ft.Colors.ON_SURFACE_VARIANT,
+                    text_align=ft.TextAlign.CENTER,
+                ),
+            )
 
         sheet = ft.BottomSheet(
             ft.Container(
                 padding=20,
                 bgcolor=ft.Colors.SURFACE,
                 border_radius=ft.BorderRadius.only(top_left=16, top_right=16),
-                height=400,
+                height=380,
                 content=ft.Column([
-                    ft.Text(title, size=18, weight=ft.FontWeight.BOLD),
-                    ft.Divider(),
-                    ft.Container(content=rg, expand=True),
-                    ft.Divider(),
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[
+                            ft.Text(title, size=17, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
+                            ft.IconButton(
+                                icon=ft.Icons.CLOSE_ROUNDED,
+                                icon_size=18,
+                                on_click=lambda _: (setattr(sheet, "open", False), page.update()),
+                            ),
+                        ],
+                    ),
+                    ft.Divider(height=1, color=ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE)),
+                    ft.Container(content=body_ctrl, expand=True),
+                    ft.Divider(height=1, color=ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE)),
                     ft.TextButton("Reset Filter", icon=ft.Icons.REFRESH, on_click=handle_reset),
                 ]),
             )
@@ -387,7 +424,26 @@ async def courses_view(page: ft.Page):
     inst_chip = create_filter_chip("Instructor", lambda e: open_instructor_filter())
     org_chip = create_filter_chip("Organisation", lambda e: open_org_filter())
 
-    filter_row = ft.Row([cat_chip, inst_chip, org_chip], scroll=ft.ScrollMode.HIDDEN, spacing=8)
+    reset_filters_chip = ft.Container(
+        visible=False,
+        padding=ft.Padding(10, 5, 10, 5),
+        border_radius=8,
+        bgcolor=ft.Colors.with_opacity(0.10, ft.Colors.ERROR),
+        border=ft.Border.all(1, ft.Colors.with_opacity(0.25, ft.Colors.ERROR)),
+        ink=True,
+        on_click=lambda _: reset_all_filters(),
+        content=ft.Row(
+            spacing=4,
+            tight=True,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                ft.Icon(ft.Icons.FILTER_ALT_OFF_ROUNDED, size=13, color=ft.Colors.ERROR),
+                ft.Text("Clear Filters", size=11, weight=ft.FontWeight.W_600, color=ft.Colors.ERROR),
+            ],
+        ),
+    )
+
+    filter_row = ft.Row([cat_chip, inst_chip, org_chip, reset_filters_chip], scroll=ft.ScrollMode.HIDDEN, spacing=8)
     App_bar = get_bottom_appbar(page)
 
     # ── Section Subtitles ──────────────────────────────────────────────────────
@@ -398,12 +454,15 @@ async def courses_view(page: ft.Page):
         SECTION_COMPLETED: "Track your completed courses and achievements",
         SECTION_ORG: "Courses exclusive to your organisation",
         SECTION_PLAYGROUND: "Interactive sandbox for Python OOP, SQL, Web & algorithms",
+        SECTION_SPACES: "Async course hubs: Materials vault, live classes & topic drills",
     }
 
     section_subtitle_text = ft.Text(
         value=SECTION_SUBTITLES[SECTION_ENROLLED],
         size=12,
         color=ft.Colors.ON_SURFACE_VARIANT,
+        max_lines=1,
+        overflow=ft.TextOverflow.ELLIPSIS,
     )
 
     course_container = ft.Container(
@@ -439,19 +498,33 @@ async def courses_view(page: ft.Page):
         padding=16,
     )
 
-    # ── Loading Placeholder Helper ─────────────────────────────────────────────
-    def _loading_view(message: str):
+    # ── Loading Placeholder Helper (1:1 Course Card Grid Skeleton) ─────────────
+    from src.components.shimmer_skeletons import shimmer_box, grey_card
+
+    def _loading_view(message: str = ""):
+        def _skel_card():
+            return grey_card(
+                padding=12,
+                radius=14,
+                col={"xs": 12, "sm": 6, "md": 4},
+                content=ft.Column([
+                    shimmer_box(radius=10, height=130, expand=True),
+                    ft.Container(height=4),
+                    shimmer_box(radius=4, height=14, width=160),
+                    shimmer_box(radius=4, height=11, width=220),
+                    ft.Container(height=4),
+                    ft.Row([
+                        shimmer_box(radius=999, height=22, width=70),
+                        shimmer_box(radius=999, height=22, width=90),
+                    ], spacing=6),
+                ], spacing=6),
+            )
         return ft.Container(
-            height=260,
-            alignment=ft.Alignment.CENTER,
-            content=ft.Column(
-                alignment=ft.MainAxisAlignment.CENTER,
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            expand=True,
+            content=ft.ResponsiveRow(
                 spacing=12,
-                controls=[
-                    ft.ProgressRing(width=28, height=28, stroke_width=3, color=ft.Colors.PRIMARY),
-                    ft.Text(message, size=13, color=ft.Colors.ON_SURFACE_VARIANT, weight=ft.FontWeight.W_500),
-                ],
+                run_spacing=12,
+                controls=[_skel_card() for _ in range(6)],
             ),
         )
 
@@ -560,6 +633,17 @@ async def courses_view(page: ft.Page):
 
     playground_section = CodingPlayground(page)
 
+    cur_user = page.session.store.get("current_user") or {} if hasattr(page, "session") and hasattr(page.session, "store") else {}
+    session_token = page.session.store.get("session_auth_token") if hasattr(page, "session") and hasattr(page.session, "store") else None
+    sp_token = await page.shared_preferences.get("auth_token") if hasattr(page, "shared_preferences") else None
+    auth_token = sp_token or session_token or cur_user.get("token", "")
+    spaces_section = build_course_spaces_section(
+        page=page,
+        token=auth_token,
+        user_data=cur_user,
+        on_count_updated=lambda cnt: _set_tab_count(SECTION_SPACES, cnt)
+    )
+
     SECTION_CONTENT = {
         SECTION_ENROLLED: enrolled_section,
         SECTION_AVAILABLE: available_section,
@@ -567,6 +651,7 @@ async def courses_view(page: ft.Page):
         SECTION_PLAYLISTS: playlists_section,
         SECTION_COMPLETED: completed_section,
         SECTION_ORG: org_section,
+        SECTION_SPACES: spaces_section,
     }
 
     # ── Sleek Sectional Quick Tab Bar (Squircle Modern Standard) ─────────────
@@ -577,10 +662,12 @@ async def courses_view(page: ft.Page):
         {"index": SECTION_PLAYLISTS, "label": "Playlists", "icon": ft.Icons.PLAYLIST_PLAY_ROUNDED},
         {"index": SECTION_COMPLETED, "label": "Completed", "icon": ft.Icons.CHECK_CIRCLE_ROUNDED},
         {"index": SECTION_ORG, "label": "Organisation", "icon": ft.Icons.BUSINESS_ROUNDED},
+        {"index": SECTION_SPACES, "label": "Spaces", "icon": ft.Icons.HUB_ROUNDED},
     ]
 
     current_active_tab = SECTION_ENROLLED
     tab_pills = []
+    tab_count_badges = {}
 
     def update_tab_pills(selected_index: int):
         nonlocal current_active_tab
@@ -603,8 +690,23 @@ async def courses_view(page: ft.Page):
             row.controls[0].color = ft.Colors.ON_PRIMARY if is_active else ft.Colors.ON_SURFACE_VARIANT
             row.controls[1].color = ft.Colors.ON_PRIMARY if is_active else ft.Colors.ON_SURFACE_VARIANT
             row.controls[1].weight = ft.FontWeight.W_700 if is_active else ft.FontWeight.W_500
+            if len(row.controls) > 2:
+                badge_box = row.controls[2]
+                badge_box.bgcolor = (
+                    ft.Colors.with_opacity(0.22, ft.Colors.ON_PRIMARY)
+                    if is_active
+                    else ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE)
+                )
+                badge_box.content.color = ft.Colors.ON_PRIMARY if is_active else ft.Colors.ON_SURFACE_VARIANT
         if _is_mounted(tab_bar_scroll_row):
             tab_bar_scroll_row.update()
+
+    def _set_tab_count(idx: int, count: int):
+        badge_box = tab_count_badges.get(idx)
+        if not badge_box:
+            return
+        badge_box.visible = count > 0
+        badge_box.content.value = str(count)
 
     def show_section(index: int):
         section_body.content = SECTION_CONTENT[index]
@@ -616,10 +718,27 @@ async def courses_view(page: ft.Page):
     for item in TABS_DATA:
         idx = item["index"]
         is_active = (idx == current_active_tab)
+        count_badge = ft.Container(
+            visible=False,
+            padding=ft.Padding.symmetric(horizontal=5, vertical=1),
+            border_radius=8,
+            bgcolor=(
+                ft.Colors.with_opacity(0.22, ft.Colors.ON_PRIMARY)
+                if is_active
+                else ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE)
+            ),
+            content=ft.Text(
+                "0",
+                size=10,
+                weight=ft.FontWeight.W_700,
+                color=ft.Colors.ON_PRIMARY if is_active else ft.Colors.ON_SURFACE_VARIANT,
+            ),
+        )
+        tab_count_badges[idx] = count_badge
         pill = ft.Container(
             data=idx,
-            padding=ft.Padding.symmetric(horizontal=6, vertical=4),
-            border_radius=4,
+            padding=ft.Padding.symmetric(horizontal=11, vertical=6),
+            border_radius=8,
             bgcolor=ft.Colors.PRIMARY if is_active else ft.Colors.TRANSPARENT,
             border=ft.Border.all(
                 1,
@@ -636,7 +755,7 @@ async def courses_view(page: ft.Page):
             on_click=lambda e, target_idx=idx: show_section(target_idx),
             visible=(idx != SECTION_ORG),  # Hidden by default until org courses exist
             content=ft.Row(
-                spacing=5,
+                spacing=6,
                 tight=True,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 controls=[
@@ -651,6 +770,7 @@ async def courses_view(page: ft.Page):
                         weight=ft.FontWeight.W_700 if is_active else ft.FontWeight.W_500,
                         color=ft.Colors.ON_PRIMARY if is_active else ft.Colors.ON_SURFACE_VARIANT,
                     ),
+                    count_badge,
                 ],
             ),
         )
@@ -662,6 +782,35 @@ async def courses_view(page: ft.Page):
         controls=tab_pills,
     )
 
+    is_web = getattr(page, "web", False)
+    is_mobile_screen = (page.width or getattr(page.window, "width", None) or 800) < 500
+    offline_txt = ft.Text(
+        "Offline" if is_mobile_screen else "Offline Library",
+        size=11.5,
+        weight=ft.FontWeight.W_700,
+        color=ft.Colors.PRIMARY,
+        no_wrap=True,
+    )
+    offline_lib_btn = ft.Container(
+        visible=not is_web,
+        padding=ft.Padding.symmetric(horizontal=8 if is_mobile_screen else 10, vertical=5 if is_mobile_screen else 6),
+        border_radius=10,
+        bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.PRIMARY),
+        border=ft.Border.all(1, ft.Colors.with_opacity(0.22, ft.Colors.PRIMARY)),
+        ink=True,
+        tooltip="Open Offline Library & Saved Courses",
+        on_click=lambda _: page.go("/offline"),
+        content=ft.Row(
+            spacing=4 if is_mobile_screen else 5,
+            tight=True,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                ft.Icon(ft.Icons.OFFLINE_PIN_ROUNDED, size=14, color=ft.Colors.PRIMARY),
+                offline_txt,
+            ],
+        ),
+    )
+
     # ── Sleek Modern Header Container (No Hamburger, No Profile Avatar, Clean Title & Tabs) ───────
     header_container = ft.Container(
         padding=ft.Padding.only(left=16, right=16, top=14, bottom=12),
@@ -670,17 +819,31 @@ async def courses_view(page: ft.Page):
         content=ft.Column(
             spacing=14,
             controls=[
-                ft.Column(
-                    spacing=2,
-                    controls=[ft.Row(controls=[
-                         ft.Icon(ft.Icons.SCHOOL_SHARP, color= ft.Colors.PRIMARY),
-                        ft.Text(
-                            "Learn",
-                            size=26,
-                            weight=ft.FontWeight.W_800,
-                            color=ft.Colors.ON_SURFACE,
-                        ),]),
-                        section_subtitle_text,
+                ft.Row(
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[
+                        ft.Column(
+                            spacing=2,
+                            expand=True,
+                            controls=[
+                                ft.Row(
+                                    spacing=8,
+                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                    controls=[
+                                        ft.Icon(ft.Icons.SCHOOL_SHARP, color=ft.Colors.PRIMARY),
+                                        ft.Text(
+                                            "Learn",
+                                            size=26,
+                                            weight=ft.FontWeight.W_800,
+                                            color=ft.Colors.ON_SURFACE,
+                                        ),
+                                    ],
+                                ),
+                                section_subtitle_text,
+                            ],
+                        ),
+                        offline_lib_btn,
                     ],
                 ),
                 tab_bar_scroll_row,
@@ -690,12 +853,26 @@ async def courses_view(page: ft.Page):
 
     async def populate_tabs():
         token = await page.shared_preferences.get("auth_token")
-        course_list = await get_courses(token, {"is_public": True})
-        enrolled_list = await get_enrollments(token, None)
-        completed_list = await get_courses(token, {"progress": 100})
+        try:
+            results = await asyncio.gather(
+                get_courses(token, {"is_public": True}),
+                get_enrollments(token, None),
+                get_courses(token, {"progress": 100}),
+                get_all_playlists(token),
+                get_courses(token, {"is_public": "organisation"}),
+                return_exceptions=True,
+            )
+            course_list = results[0] if isinstance(results[0], list) else []
+            enrolled_list = results[1] if isinstance(results[1], list) else []
+            completed_list = results[2] if isinstance(results[2], list) else []
+            playlists = results[3] if isinstance(results[3], list) else []
+            org_list = results[4] if isinstance(results[4], list) else []
+        except Exception as _pex:
+            print(f"[populate_tabs] Error fetching tab data: {_pex}")
+            course_list, enrolled_list, completed_list, playlists, org_list = [], [], [], [], []
+
         enrolled_ids = {course.get("id") for course in enrolled_list} if isinstance(enrolled_list, list) else set()
         completed_ids = {course.get("id") for course in completed_list} if isinstance(completed_list, list) else set()
-        playlists = await get_all_playlists(token)
 
         all_available_courses.clear()
         if isinstance(course_list, list):
@@ -711,15 +888,15 @@ async def courses_view(page: ft.Page):
         enroll_cards.clear()
         if isinstance(enrolled_list, list):
             for course in enrolled_list:
+                if not isinstance(course, dict):
+                    continue
                 course_name = course.get("name", "Untitled Course")
                 image_url = course.get("image_url", "")
                 course_id = course.get("id")
                 if course_id not in completed_ids:
                     progress = course.get("progress", 0.0)
-                    first_name = course.get("admin", {}).get("first_name", "Unknown")
-                    last_name = course.get("admin", {}).get("last_name", "Instructor")
-                    full_name = f"{first_name} {last_name}".strip()
-                    category = course.get("category", {}).get("name")
+                    full_name = _extract_instructor_name(course) or "Unknown Instructor"
+                    category = _extract_category_name(course)
                     rating = course.get("rating", 0.0)
                     card = get_enrolled_card(
                         page=page,
@@ -740,14 +917,13 @@ async def courses_view(page: ft.Page):
         completed_cards.clear()
         if isinstance(completed_list, list):
             for course in completed_list:
+                if not isinstance(course, dict):
+                    continue
                 course_name = course.get("name", "Untitled Course")
                 image_url = course.get("image_url", "")
                 course_id = course.get("id")
-                admin = course.get("admin") or {}
-                first_name = admin.get("first_name", "Unknown") if isinstance(admin, dict) else "Unknown"
-                last_name = admin.get("last_name", "Instructor") if isinstance(admin, dict) else "Instructor"
-                full_name = f"{first_name} {last_name}".strip()
-                category = (course.get("category") or {}).get("name") if isinstance(course.get("category"), dict) else None
+                full_name = _extract_instructor_name(course) or "Unknown Instructor"
+                category = _extract_category_name(course)
                 rating = course.get("rating", 0.0)
                 card = get_completed_card(
                     course_name=course_name,
@@ -768,13 +944,24 @@ async def courses_view(page: ft.Page):
         playlist_cards.clear()
         if isinstance(playlists, list):
             for playlist in playlists:
+                if not isinstance(playlist, dict):
+                    continue
                 p_name = playlist.get("name", "Untitled")
                 p_img = playlist.get("image_url", "")
                 p_id = playlist.get("id")
-                org = playlist.get("Organisation", "Organisation")
+                raw_org = playlist.get("Organisation") or playlist.get("organisation")
+                if isinstance(raw_org, dict):
+                    org = str(raw_org.get("name") or "Nu Age Learning Hub")
+                elif isinstance(raw_org, str) and raw_org.strip():
+                    org = raw_org.strip()
+                else:
+                    org = "Nu Age Learning Hub"
                 created_at = playlist.get("created_at", "")
                 if created_at:
-                    created_at = datetime.fromisoformat(created_at).strftime("%d/%m/%Y")
+                    try:
+                        created_at = datetime.fromisoformat(created_at).strftime("%d/%m/%Y")
+                    except Exception:
+                        pass
                 card = get_playlist_card(
                     p_name,
                     org,
@@ -967,21 +1154,26 @@ async def courses_view(page: ft.Page):
         )
 
         # Organisation courses
-        org_list = await get_courses(token, {"is_public": "organisation"})
+        org_cards.clear()
         org_pill = next((p for p in tab_pills if getattr(p, "data", None) == SECTION_ORG), None)
         if isinstance(org_list, list) and len(org_list) > 0:
             if org_pill:
                 org_pill.visible = True
             for course in org_list:
+                if not isinstance(course, dict):
+                    continue
                 course_name = course.get("name", "Untitled Course")
                 image_url = course.get("image_url", "")
                 course_id = course.get("id")
                 if course_id not in enrolled_ids and course_id not in completed_ids:
-                    category = course.get("category", {}).get("name")
-                    org_name = course.get("organisation", {}).get("name", "Organisation")
+                    category = _extract_category_name(course)
+                    org_name = _extract_org_name(course) or "Organisation"
                     created_at = course.get("created_at", "")
                     if created_at and "T" in created_at:
-                        created_at = datetime.fromisoformat(created_at).strftime("%d/%m/%Y")
+                        try:
+                            created_at = datetime.fromisoformat(created_at).strftime("%d/%m/%Y")
+                        except Exception:
+                            pass
 
                     card = get_org_course_card(
                         course_name=course_name,
@@ -998,6 +1190,13 @@ async def courses_view(page: ft.Page):
         else:
             if org_pill:
                 org_pill.visible = False
+
+        # Update tab count badges
+        _set_tab_count(SECTION_ENROLLED, len(enroll_cards))
+        _set_tab_count(SECTION_AVAILABLE, len(all_available_courses))
+        _set_tab_count(SECTION_PLAYLISTS, len(playlist_cards))
+        _set_tab_count(SECTION_COMPLETED, len(completed_cards))
+        _set_tab_count(SECTION_ORG, len(org_cards))
         if _is_mounted(tab_bar_scroll_row):
             tab_bar_scroll_row.update()
 
@@ -1033,7 +1232,11 @@ async def courses_view(page: ft.Page):
             expand=True,
         )
 
-        page.update()
+        if _is_mounted(section_body):
+            try:
+                page.update()
+            except Exception:
+                pass
 
         async def animate_all_cards():
             import asyncio
@@ -1043,15 +1246,34 @@ async def courses_view(page: ft.Page):
                     for card in card_list:
                         card.opacity = 1
                         card.offset = ft.Offset(0, 0)
-            page.update()
+            if _is_mounted(section_body):
+                try:
+                    page.update()
+                except Exception:
+                    pass
 
         page.run_task(animate_all_cards)
 
-    initial_route = str(getattr(page, "route", "") or "")
-    if "tab=playground" in initial_route.lower() or "/playground" in initial_route.lower():
+    initial_route = str(getattr(page, "route", "") or "").lower()
+    if "tab=playground" in initial_route or "/playground" in initial_route:
         show_section(SECTION_PLAYGROUND)
+    elif "tab=explore" in initial_route or "tab=available" in initial_route:
+        show_section(SECTION_AVAILABLE)
+    elif "tab=playlists" in initial_route:
+        show_section(SECTION_PLAYLISTS)
+    elif "tab=completed" in initial_route:
+        show_section(SECTION_COMPLETED)
+    elif "tab=org" in initial_route:
+        show_section(SECTION_ORG)
+    elif "tab=spaces" in initial_route or "tab=space" in initial_route:
+        show_section(SECTION_SPACES)
 
-    page.run_task(populate_tabs)
+    # ── await background fetch so view is feasibly ready on transition ─────────
+    try:
+        await asyncio.wait_for(populate_tabs(), timeout=4.0)
+    except Exception as _cex:
+        print(f"[courses_view] Initial fetch deferred to background task: {_cex}")
+        page.run_task(populate_tabs)
 
     return ft.View(
         route="/courses",

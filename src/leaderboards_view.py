@@ -386,10 +386,10 @@ async def leaderboards_view(
     # ─────────────────────────────────────────────────────────────────────────
     async def _render_leaderboards_tab(filter_type: str = "weekly", is_initial: bool = False):
         if not is_initial:
+            from src.components.shimmer_skeletons import build_leaderboards_skeleton
             content_area.content = ft.Container(
-                padding=40,
-                alignment=ft.Alignment.CENTER,
-                content=ft.ProgressRing(width=28, height=28, stroke_width=2.5, color=ft.Colors.PRIMARY),
+                expand=True,
+                content=build_leaderboards_skeleton(page),
             )
             page.update()
 
@@ -693,10 +693,10 @@ async def leaderboards_view(
     # ─────────────────────────────────────────────────────────────────────────
     async def _render_duel_history_tab(is_initial: bool = False):
         if not is_initial:
+            from src.components.shimmer_skeletons import build_leaderboards_skeleton
             content_area.content = ft.Container(
-                padding=40,
-                alignment=ft.Alignment.CENTER,
-                content=ft.ProgressRing(width=28, height=28, stroke_width=2.5, color=ft.Colors.PRIMARY),
+                expand=True,
+                content=build_leaderboards_skeleton(page),
             )
             page.update()
 

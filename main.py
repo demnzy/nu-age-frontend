@@ -245,6 +245,8 @@ async def main(page: ft.Page):
             return False
         if clean.startswith("/cohorts/") and "/exams/" in clean:
             return False
+        if clean.startswith("/spaces/") and "/drills/" in clean:
+            return False
         return True
 
 
@@ -841,7 +843,12 @@ async def main(page: ft.Page):
         shimmer_task = None
         skel = None
 
-        coro_task = asyncio.ensure_future(coro)
+        if asyncio.iscoroutine(coro) or isinstance(coro, asyncio.Future):
+            coro_task = asyncio.ensure_future(coro)
+        else:
+            async def _wrap_view():
+                return coro
+            coro_task = asyncio.ensure_future(_wrap_view())
 
         if existing_skeleton is not None:
             skel = existing_skeleton
@@ -1163,9 +1170,9 @@ async def main(page: ft.Page):
             if getattr(page, "web", False):
                 return False
             r = (route or "").split("?")[0]
-            if r in ("/offline", "/self-study"):
+            if r in ("/offline", "/courses/offline", "/self-study"):
                 return True
-            return route == "/offline"
+            return route in ("/offline", "/courses/offline")
 
         async def is_route_for_downloaded_course(route):
             if getattr(page, "web", False):
@@ -1928,13 +1935,13 @@ async def main(page: ft.Page):
                     course_learner_view(page, course_id_param, back_target=back_target),
                     page.route, active_skeleton, active_shimmer_task
                 )
-        elif troute.match("/offline"):
+        elif clean_route in ("/offline", "/courses/offline") or troute.match("/offline"):
             if getattr(page, "web", False):
                 page.go("/courses")
                 return
             while len(page.views) > 1 and page.views[-1] is not shell_view:
                 page.views.pop()
-            valid_back = previous_route if (previous_route and previous_route != "/offline") else "/dashboard"
+            valid_back = previous_route if (previous_route and previous_route not in ("/offline", "/courses/offline")) else "/courses"
             offline_v = await offline_courses_view(page, back_target=valid_back)
             page.views.append(offline_v)
             page.update()
@@ -1993,6 +2000,49 @@ async def main(page: ft.Page):
             target_back = previous_route if (previous_route and not previous_route.endswith("/view") and not previous_route.endswith("/offline")) else "/dashboard"
             await load_view_and_report(
                 cohort_page_view(page, troute.cohort_id, back_target=target_back),
+                page.route, active_skeleton, active_shimmer_task
+            )
+        elif troute.match("/spaces/:space_id/drills/:quiz_id"):
+            from src.space_drill_runner_view import space_drill_runner_view
+            await load_view_and_report(
+                space_drill_runner_view(
+                    page,
+                    troute.space_id,
+                    troute.quiz_id,
+                    target_back=f"/spaces/{troute.space_id}?tab=drills",
+                ),
+                page.route, active_skeleton, active_shimmer_task
+            )
+        elif troute.match("/spaces/:space_id/manage"):
+            from src.course_space_hub import course_space_hub_view
+            await load_view_and_report(
+                course_space_hub_view(
+                    page,
+                    troute.space_id,
+                    target_back="/organisations",
+                    manage_mode=True,
+                ),
+                page.route, active_skeleton, active_shimmer_task
+            )
+        elif troute.match("/spaces/:space_id"):
+            from src.course_space_hub import course_space_hub_view
+            target_back = (
+                previous_route
+                if (
+                    previous_route
+                    and not previous_route.endswith("/view")
+                    and not previous_route.endswith("/offline")
+                    and not previous_route.endswith("/manage")
+                )
+                else "/courses?tab=spaces"
+            )
+            await load_view_and_report(
+                course_space_hub_view(
+                    page,
+                    troute.space_id,
+                    target_back=target_back,
+                    manage_mode=False,
+                ),
                 page.route, active_skeleton, active_shimmer_task
             )
         elif page.route == "/cohorts":

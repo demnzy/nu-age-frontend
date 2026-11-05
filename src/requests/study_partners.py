@@ -276,6 +276,44 @@ async def submit_partner_challenge(
         return {"error": str(e)}
 
 
+async def cancel_partner_challenge_api(token: str, challenge_id: str, partnership_id: Optional[str] = None) -> dict:
+    url = f"{api_url}/study/partnerships/challenges/{challenge_id}/cancel"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
+            resp = await client.post(url, headers=headers)
+            resp.raise_for_status()
+            return resp.json()
+    except httpx.HTTPStatusError as e:
+        detail = "Failed to cancel challenge"
+        try:
+            detail = e.response.json().get("detail", detail)
+        except Exception:
+            pass
+        return {"error": detail}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+async def decline_partner_challenge_api(token: str, challenge_id: str, partnership_id: Optional[str] = None) -> dict:
+    url = f"{api_url}/study/partnerships/challenges/{challenge_id}/decline"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
+            resp = await client.post(url, headers=headers)
+            resp.raise_for_status()
+            return resp.json()
+    except httpx.HTTPStatusError as e:
+        detail = "Failed to decline challenge"
+        try:
+            detail = e.response.json().get("detail", detail)
+        except Exception:
+            pass
+        return {"error": detail}
+    except Exception as e:
+        return {"error": str(e)}
+
+
 async def share_study_pack_api(token: str, partnership_id: str, pack_id: str) -> dict:
     url = f"{api_url}/study/partnerships/{partnership_id}/share-pack"
     headers = {"Authorization": f"Bearer {token}"}

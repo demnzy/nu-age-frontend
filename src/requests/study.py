@@ -278,6 +278,24 @@ async def check_generation_status(token: str, material_id: str) -> dict:
         return {"error": str(e)}
 
 
+async def check_journal_generation_status_api(token: str, journal_id: str) -> dict:
+    url = f"{api_url}/study/journals/{journal_id}/status"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
+            response = await client.get(url, headers=headers)
+            response.raise_for_status()
+            return response.json()
+    except httpx.TimeoutException:
+        return {"error": "The server is taking too long to respond. Please try again."}
+    except httpx.HTTPStatusError as e:
+        return {"error": f"Failed with status {e.response.status_code}"}
+    except httpx.RequestError as e:
+        return {"error": "Please check your internet connection and try again."}
+    except Exception as e:
+        return {"error": str(e)}
+
+
 async def import_youtube_material(
     token: str,
     youtube_url: str,
@@ -402,4 +420,331 @@ async def log_study_session_api(token: str, minutes_spent: int, questions_comple
     except Exception as e:
         print(f"[log_study_session_api] error: {e}")
         return {"status": "error", "message": str(e)}
-
+
+
+# ==========================================
+# COURSE NOTEBOOKS / JOURNALS API
+# ==========================================
+
+async def get_journals_api(token: str) -> list:
+    """Fetches all Course Journals for the current user."""
+    url = f"{api_url}/study/journals"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
+            resp = await client.get(url, headers=headers)
+            if resp.status_code == 200:
+                return resp.json()
+            return []
+    except Exception as e:
+        print(f"[get_journals_api] error: {e}")
+        return []
+
+
+async def create_journal_api(
+    token: str,
+    title: str,
+    description: str = "",
+    color: str = "teal",
+    icon: str = "book",
+    material_ids: list = None
+) -> dict:
+    """Creates a new Course Journal with optional existing vault material IDs."""
+    url = f"{api_url}/study/journals"
+    headers = {"Authorization": f"Bearer {token}"}
+    payload = {
+        "title": title.strip(),
+        "description": description.strip() if description else None,
+        "color": color,
+        "icon": icon,
+        "material_ids": material_ids or [],
+    }
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
+            resp = await client.post(url, headers=headers, json=payload)
+            if resp.status_code in (200, 201):
+                return resp.json()
+            try:
+                err = resp.json()
+                return {"error": err.get("detail", f"Error {resp.status_code}")}
+            except Exception:
+                return {"error": f"Error {resp.status_code}"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+async def create_multi_journal_api(
+    token: str,
+    title: str,
+    description: str = "",
+    color: str = "teal",
+    icon: str = "book",
+    pasted_texts: list = None,
+    pasted_titles: list = None,
+    files_payload: list = None,
+    auto_generate: bool = True,
+    generate_types: list = None,
+) -> dict:
+    """
+    Creates a new Course Journal with up to 5 source materials.
+    Consumes 3 upload slots and 3 generation credits.
+    """
+    url = f"{api_url}/study/journals/create-multi"
+    headers = {"Authorization": f"Bearer {token}"}
+
+    data = {
+        "title": title.strip(),
+        "description": description.strip() if description else "",
+        "color": color,
+        "icon": icon,
+        "auto_generate": "true" if auto_generate else "false",
+    }
+    if generate_types:
+        for t in generate_types:
+            data.setdefault("generate_types", []).append(t)
+
+    outgoing_files = []
+    if files_payload:
+        for item in files_payload:
+            # item is a dict with "name", "bytes", "mime_type"
+            fname = item.get("name", "document.pdf")
+            fbytes = item.get("bytes", b"")
+            fmime = item.get("mime_type", "application/pdf")
+            outgoing_files.append(("files", (fname, fbytes, fmime)))
+
+    if pasted_texts:
+        for txt in pasted_texts:
+            if txt and txt.strip():
+                data.setdefault("pasted_texts", []).append(txt.strip())
+    if pasted_titles:
+        for pt in pasted_titles:
+            data.setdefault("pasted_titles", []).append((pt or "").strip())
+
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(45.0), verify=ssl_context) as client:
+            resp = await client.post(
+                url,
+                headers=headers,
+                data=data,
+                files=outgoing_files if outgoing_files else None
+            )
+            if resp.status_code in (200, 201):
+                return resp.json()
+            try:
+                err = resp.json()
+                detail = err.get("detail")
+                if isinstance(detail, dict):
+                    return {"error": detail.get("message", "Quota error"), "details": detail, "code": resp.status_code}
+                return {"error": str(detail or f"Error {resp.status_code}"), "code": resp.status_code}
+            except Exception:
+                return {"error": f"Error {resp.status_code}", "code": resp.status_code}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+async def get_journal_details_api(token: str, journal_id: str) -> dict:
+    """Fetches details of a specific Course Journal including constituent modules."""
+    url = f"{api_url}/study/journals/{journal_id}"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
+            resp = await client.get(url, headers=headers)
+            if resp.status_code == 200:
+                return resp.json()
+            return {"error": f"Error {resp.status_code}"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+async def update_journal_api(token: str, journal_id: str, payload: dict) -> dict:
+    """Updates journal metadata (title, description, color, icon)."""
+    url = f"{api_url}/study/journals/{journal_id}"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
+            resp = await client.patch(url, headers=headers, json=payload)
+            if resp.status_code == 200:
+                return resp.json()
+            return {"error": f"Error {resp.status_code}"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+async def delete_journal_api(token: str, journal_id: str) -> dict:
+    """Deletes a journal while safely retaining materials in vault."""
+    url = f"{api_url}/study/journals/{journal_id}"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
+            resp = await client.delete(url, headers=headers)
+            if resp.status_code == 200:
+                return resp.json()
+            return {"error": f"Error {resp.status_code}"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+async def add_materials_to_journal_api(token: str, journal_id: str, material_ids: list) -> dict:
+    """Attaches existing vault materials into a journal (capped at 5 total)."""
+    url = f"{api_url}/study/journals/{journal_id}/materials"
+    headers = {"Authorization": f"Bearer {token}"}
+    payload = {"material_ids": material_ids}
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
+            resp = await client.post(url, headers=headers, json=payload)
+            if resp.status_code == 200:
+                return resp.json()
+            try:
+                err = resp.json()
+                return {"error": err.get("detail", f"Error {resp.status_code}")}
+            except Exception:
+                return {"error": f"Error {resp.status_code}"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+async def remove_material_from_journal_api(token: str, journal_id: str, material_id: str) -> dict:
+    """Unlinks a material from a journal without deleting it from the vault."""
+    url = f"{api_url}/study/journals/{journal_id}/materials/{material_id}"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
+            resp = await client.delete(url, headers=headers)
+            if resp.status_code == 200:
+                return resp.json()
+            return {"error": f"Error {resp.status_code}"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+async def generate_journal_content_api(token: str, journal_id: str, types: list = None, replace_existing: bool = False) -> dict:
+    """Triggers AI generation for the journal (3x credits cost)."""
+    url = f"{api_url}/study/journals/{journal_id}/generate"
+    headers = {"Authorization": f"Bearer {token}"}
+    payload = {
+        "types": types or ["exam", "study_guide"],
+        "replace_existing": bool(replace_existing)
+    }
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
+            resp = await client.post(url, headers=headers, json=payload)
+            if resp.status_code in (200, 201):
+                return resp.json()
+            try:
+                err = resp.json()
+                detail = err.get("detail")
+                if isinstance(detail, dict):
+                    return {"error": detail.get("message", "Quota error"), "details": detail, "code": resp.status_code}
+                return {"error": str(detail or f"Error {resp.status_code}"), "code": resp.status_code}
+            except Exception:
+                return {"error": f"Error {resp.status_code}", "code": resp.status_code}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+async def get_ai_tutor_quota_api(token: str) -> dict:
+    """Fetches real-time daily AI tutor quota for the current student."""
+    url = f"{api_url}/study/ai-tutor/quota"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
+            resp = await client.get(url, headers=headers)
+            if resp.status_code == 200:
+                return resp.json()
+    except Exception as e:
+        print(f"[get_ai_tutor_quota_api] error fetching quota endpoint: {e}")
+
+    # Fallback to subscription status to avoid downgrading paid subscribers on transient errors
+    try:
+        from src.requests.subscription import get_subscription_status
+        sub = await get_subscription_status(token)
+        if isinstance(sub, dict) and not sub.get("error"):
+            plan_id = sub.get("plan_id", "free")
+            status = sub.get("status", "active")
+            if plan_id != "free" and status in ("active", "grace_period"):
+                return {
+                    "plan": plan_id,
+                    "plan_name": sub.get("label", "Pro Scholar"),
+                    "is_unlimited": True,
+                    "limit": -1,
+                    "used": 0,
+                    "remaining": -1,
+                    "locked": False,
+                    "reset_at": "00:00 UTC",
+                }
+    except Exception as sub_err:
+        print(f"[get_ai_tutor_quota_api] subscription status fallback error: {sub_err}")
+
+    return {"plan": "free", "plan_name": "Free Tier", "is_unlimited": False, "limit": 15, "used": 0, "remaining": 15, "locked": False, "reset_at": "00:00 UTC"}
+
+
+async def ask_journal_tutor_api(
+    token: str,
+    journal_id: str,
+    query: str,
+    conversation_history: list = None
+) -> dict:
+    """Grounded AI tutor answering queries across the entire journal."""
+    url = f"{api_url}/study/journals/{journal_id}/ai-tutor"
+    headers = {"Authorization": f"Bearer {token}"}
+    payload = {
+        "query": query,
+        "conversation_history": conversation_history or []
+    }
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(45.0), verify=ssl_context) as client:
+            resp = await client.post(url, headers=headers, json=payload)
+            if resp.status_code == 200:
+                return resp.json()
+            if resp.status_code == 403:
+                try:
+                    err_json = resp.json()
+                    detail = err_json.get("detail", "Free daily AI tutor limit reached (15/15). Upgrade to Pro Scholar for unlimited access.")
+                except Exception:
+                    detail = "Free daily AI tutor limit reached (15/15). Upgrade to Pro Scholar for unlimited access."
+                return {"error": detail, "quota_locked": True, "status_code": 403}
+            try:
+                err_json = resp.json()
+                detail = err_json.get("detail")
+            except Exception:
+                detail = None
+            msg = detail or "I ran into a brief hiccup synthesizing your journal notes right now. Please try asking again in a few moments."
+            return {"error": msg, "is_ai_error": True, "status_code": resp.status_code}
+    except httpx.TimeoutException:
+        return {"error": "Synthesizing across journal modules took longer than expected. Please try asking again.", "is_ai_error": True, "is_timeout": True}
+    except Exception as e:
+        print(f"[ask_journal_tutor_api] network exception: {e}")
+        return {"error": "I'm having trouble connecting to the study server. Please verify your internet connection.", "is_ai_error": True}
+
+
+async def get_journal_due_cards_api(token: str, journal_id: str) -> list:
+    """Fetches flashcards for this journal."""
+    url = f"{api_url}/study/journals/{journal_id}/due-cards"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
+            resp = await client.get(url, headers=headers)
+            if resp.status_code == 200:
+                return resp.json()
+            return []
+    except Exception as e:
+        print(f"[get_journal_due_cards_api] error: {e}")
+        return []
+
+
+async def get_journal_questions_api(token: str, journal_id: str, limit: int = 15) -> list:
+    """Fetches quiz/exam questions for this journal."""
+    url = f"{api_url}/study/journals/{journal_id}/questions"
+    headers = {"Authorization": f"Bearer {token}"}
+    params = {"limit": limit}
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
+            resp = await client.get(url, headers=headers, params=params)
+            if resp.status_code == 200:
+                return resp.json()
+            return []
+    except Exception as e:
+        print(f"[get_journal_questions_api] error: {e}")
+        return []
+
+

@@ -16,6 +16,7 @@ from src.utils.file_opener import open_or_download_asset, open_web_preview_modal
 import os
 import tempfile
 import re
+from src.course_page import heal_markdown
 from src.utils.code_runner import (
     execute_python,
     execute_sql,
@@ -379,7 +380,9 @@ def render_preview_notes_block(value, lesson):
     async def handle_link_tap(e):
         await e.page.launch_url(e.data)
 
-    display_value = str(value or "").strip() or "_No notes added yet._"
+    display_value = str(value or "").strip()
+    if not display_value:
+        return ft.Container()
 
     return ft.Container(
         padding=20,
@@ -397,22 +400,49 @@ def render_preview_notes_block(value, lesson):
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
                 ft.Markdown(
-                    display_value,
-                    selectable=True,
-                    extension_set=ft.MarkdownExtensionSet.GITHUB_FLAVORED,
+                    heal_markdown(display_value),
+                    selectable=False,
+                    extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
                     on_tap_link=handle_link_tap,
+                    code_theme="atom-one-dark",
+                    image_error_content=ft.Container(
+                        content=ft.Row([
+                            ft.Icon(ft.Icons.IMAGE_NOT_SUPPORTED_ROUNDED, size=18, color=ft.Colors.ON_SURFACE_VARIANT),
+                            ft.Text("Image preview unavailable", size=12, color=ft.Colors.ON_SURFACE_VARIANT),
+                        ], spacing=6),
+                        padding=8,
+                    ),
                     md_style_sheet=ft.MarkdownStyleSheet(
                         p_text_style=ft.TextStyle(
                             size=14.5,
                             weight=ft.FontWeight.W_400,
                             color=ft.Colors.ON_SURFACE,
-                            height=1.5,
+                            height=1.55,
+                        ),
+                        h1_text_style=ft.TextStyle(
+                            size=20,
+                            weight=ft.FontWeight.BOLD,
+                            color=ft.Colors.ON_SURFACE,
+                        ),
+                        h2_text_style=ft.TextStyle(
+                            size=17,
+                            weight=ft.FontWeight.BOLD,
+                            color=ft.Colors.ON_SURFACE,
+                        ),
+                        h3_text_style=ft.TextStyle(
+                            size=15,
+                            weight=ft.FontWeight.W_600,
+                            color=ft.Colors.ON_SURFACE,
                         ),
                         code_text_style=ft.TextStyle(
                             size=13.5,
                             font_family="Roboto Mono, monospace",
-                            color=ft.Colors.ON_SURFACE,
-                            bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
+                            color=ft.Colors.CYAN_300,
+                        ),
+                        blockquote_text_style=ft.TextStyle(
+                            size=13.5,
+                            color=ft.Colors.BLUE_GREY_900,
+                            height=1.5,
                         ),
                     ),
                 ),
@@ -512,11 +542,12 @@ def render_preview_document_block(value, lesson):
 
 
 def render_preview_text_block(value, lesson):
-    if not str(value or "").strip():
-        return preview_placeholder("No text added yet.", ft.Icons.NOTES_ROUNDED)
-
     async def handle_link_tap(e):
         await e.page.launch_url(e.data)
+
+    display_value = str(value or "").strip()
+    if not display_value:
+        return ft.Container()
 
     return ft.Container(
         padding=28,
@@ -524,26 +555,24 @@ def render_preview_text_block(value, lesson):
         bgcolor=ft.Colors.SURFACE,
         border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
         content=ft.Markdown(
-            value,
-            selectable=True,
+            heal_markdown(display_value),
+            selectable=False,
             extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
-            code_theme=ft.MarkdownCodeTheme.ATELIER_LAKESIDE_DARK,
-            code_style_sheet=ft.MarkdownStyleSheet(
-                code_text_style=ft.TextStyle(font_family="Roboto Mono, monospace", size=14, color="#E2E8F0"),
-                codeblock_decoration=ft.BoxDecoration(
-                    bgcolor="#16191F",
-                    border_radius=ft.BorderRadius.all(8),
-                    border=ft.Border.all(1, ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)),
-                ),
-            ),
+            code_theme="atom-one-dark",
             on_tap_link=handle_link_tap,
+            image_error_content=ft.Container(
+                content=ft.Row([
+                    ft.Icon(ft.Icons.IMAGE_NOT_SUPPORTED_ROUNDED, size=18, color=ft.Colors.ON_SURFACE_VARIANT),
+                    ft.Text("Image preview unavailable", size=12, color=ft.Colors.ON_SURFACE_VARIANT),
+                ], spacing=6),
+                padding=8,
+            ),
             md_style_sheet=ft.MarkdownStyleSheet(
-                text_alignment=ft.TextAlign.START,
                 p_text_style=ft.TextStyle(
                     size=15,
                     weight=ft.FontWeight.W_400,
                     color=ft.Colors.ON_SURFACE,
-                    height=1.6,
+                    height=1.65,
                 ),
                 h1_text_style=ft.TextStyle(
                     size=22,
@@ -563,21 +592,13 @@ def render_preview_text_block(value, lesson):
                 code_text_style=ft.TextStyle(
                     size=13.5,
                     font_family="Roboto Mono, monospace",
-                    color=ft.Colors.ON_SURFACE,
-                    bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
-                ),
-                blockquote_decoration=ft.BoxDecoration(
-                    bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
-                    border=ft.Border.only(left=ft.BorderSide(3.5, ft.Colors.AMBER_500)),
-                    border_radius=ft.BorderRadius.all(6),
+                    color=ft.Colors.CYAN_300,
                 ),
                 blockquote_text_style=ft.TextStyle(
-                    size=14.5,
-                    italic=True,
-                    color=ft.Colors.ON_SURFACE,
+                    size=13.5,
+                    color=ft.Colors.BLUE_GREY_900,
                     height=1.5,
                 ),
-                blockquote_padding=ft.Padding.symmetric(horizontal=16, vertical=10),
             ),
         ),
     )
@@ -872,6 +893,7 @@ def render_preview_cards_block(value, lesson):
 PREVIEW_CONTENT_RENDERERS = {
     "video_url": render_preview_video_block,
     "accompanying_text": render_preview_notes_block,
+    "notes": render_preview_notes_block,
     "document_url": render_preview_document_block,
     "text": render_preview_text_block,
     "audio_path": render_preview_audio_block,
@@ -1171,7 +1193,14 @@ def render_preview_stepper_ui(lesson: dict):
     if title_text:
         header_elements.append(ft.Text(title_text, size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE))
     if intro_text:
-        header_elements.append(ft.Markdown(intro_text, md_style_sheet=ft.MarkdownStyleSheet(p_text_style=ft.TextStyle(size=13, color=ft.Colors.ON_SURFACE_VARIANT))))
+        header_elements.append(
+            ft.Markdown(
+                heal_markdown(intro_text),
+                selectable=False,
+                extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+                md_style_sheet=ft.MarkdownStyleSheet(p_text_style=ft.TextStyle(size=13, color=ft.Colors.ON_SURFACE_VARIANT)),
+            )
+        )
 
     progress_bar = ft.ProgressBar(value=1.0 / len(valid_steps), color=ft.Colors.CYAN_600, bgcolor=ft.Colors.with_opacity(0.1, ft.Colors.ON_SURFACE))
     counter_label = ft.Text(f"Phase 1 of {len(valid_steps)}", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.CYAN_600)
@@ -1184,9 +1213,16 @@ def render_preview_stepper_ui(lesson: dict):
     )
     headline_text = ft.Text(valid_steps[0].get("headline", ""), size=17, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE)
     content_md = ft.Markdown(
-        valid_steps[0].get("content", ""),
+        heal_markdown(valid_steps[0].get("content", "")),
         extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+        selectable=False,
         md_style_sheet=ft.MarkdownStyleSheet(p_text_style=ft.TextStyle(size=14, height=1.5, color=ft.Colors.ON_SURFACE)),
+    )
+    takeaway_md = ft.Markdown(
+        heal_markdown(valid_steps[0].get("takeaway", "")),
+        extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+        selectable=False,
+        md_style_sheet=ft.MarkdownStyleSheet(p_text_style=ft.TextStyle(size=13, color=ft.Colors.ON_SURFACE)),
     )
     takeaway_col = ft.Container(
         padding=14,
@@ -1200,7 +1236,7 @@ def render_preview_stepper_ui(lesson: dict):
                 ft.Column(
                     [
                         ft.Text("Key Takeaway", size=12, weight=ft.FontWeight.BOLD, color=ft.Colors.CYAN_600),
-                        ft.Text(valid_steps[0].get("takeaway", ""), size=13, color=ft.Colors.ON_SURFACE),
+                        takeaway_md,
                     ],
                     spacing=2,
                     expand=True,
@@ -1227,11 +1263,11 @@ def render_preview_stepper_ui(lesson: dict):
         counter_label.value = f"Phase {idx + 1} of {len(valid_steps)}"
         tag_chip.content.value = st.get("tag", f"Step {idx + 1}")
         headline_text.value = st.get("headline", "")
-        content_md.value = st.get("content", "")
+        content_md.value = heal_markdown(st.get("content", ""))
 
         tw = st.get("takeaway", "").strip()
         if tw:
-            takeaway_col.content.controls[1].controls[1].value = tw
+            takeaway_md.value = heal_markdown(tw)
             takeaway_col.visible = True
         else:
             takeaway_col.visible = False
@@ -1306,6 +1342,7 @@ def render_preview_sequencer_ui(lesson: dict):
 
     feedback_banner = ft.Container(visible=False, padding=12, border_radius=8)
     items_column = ft.Column(spacing=8, horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
+    is_animating = [False]
 
     def render_items_list(status_map=None):
         items_column.controls.clear()
@@ -1327,20 +1364,48 @@ def render_preview_sequencer_ui(lesson: dict):
 
             def move_up(i):
                 def handler(e):
-                    if i > 0:
-                        current_items[i], current_items[i - 1] = current_items[i - 1], current_items[i]
-                        render_items_list(None)
-                        feedback_banner.visible = False
-                        lesson["_page"].update()
+                    if is_animating[0] or i <= 0:
+                        return
+                    async def _anim():
+                        is_animating[0] = True
+                        try:
+                            if i < len(items_column.controls) and (i - 1) >= 0:
+                                items_column.controls[i].offset = ft.Offset(0, -1.05)
+                                items_column.controls[i].scale = 1.02
+                                items_column.controls[i - 1].offset = ft.Offset(0, 1.05)
+                                items_column.controls[i - 1].scale = 0.98
+                                lesson["_page"].update()
+                                await asyncio.sleep(0.18)
+                            current_items[i], current_items[i - 1] = current_items[i - 1], current_items[i]
+                            render_items_list(None)
+                            feedback_banner.visible = False
+                            lesson["_page"].update()
+                        finally:
+                            is_animating[0] = False
+                    lesson["_page"].run_task(_anim)
                 return handler
 
             def move_down(i):
                 def handler(e):
-                    if i < len(current_items) - 1:
-                        current_items[i], current_items[i + 1] = current_items[i + 1], current_items[i]
-                        render_items_list(None)
-                        feedback_banner.visible = False
-                        lesson["_page"].update()
+                    if is_animating[0] or i >= len(current_items) - 1:
+                        return
+                    async def _anim():
+                        is_animating[0] = True
+                        try:
+                            if i < len(items_column.controls) and (i + 1) < len(items_column.controls):
+                                items_column.controls[i].offset = ft.Offset(0, 1.05)
+                                items_column.controls[i].scale = 1.02
+                                items_column.controls[i + 1].offset = ft.Offset(0, -1.05)
+                                items_column.controls[i + 1].scale = 0.98
+                                lesson["_page"].update()
+                                await asyncio.sleep(0.18)
+                            current_items[i], current_items[i + 1] = current_items[i + 1], current_items[i]
+                            render_items_list(None)
+                            feedback_banner.visible = False
+                            lesson["_page"].update()
+                        finally:
+                            is_animating[0] = False
+                    lesson["_page"].run_task(_anim)
                 return handler
 
             explanation_ui = ft.Container()
@@ -1357,6 +1422,10 @@ def render_preview_sequencer_ui(lesson: dict):
                 border_radius=10,
                 border=ft.Border.all(1, border_color),
                 bgcolor=bg_color,
+                offset=ft.Offset(0, 0),
+                animate_offset=ft.Animation(180, ft.AnimationCurve.EASE_OUT_CUBIC),
+                scale=1.0,
+                animate_scale=ft.Animation(150, ft.AnimationCurve.EASE_OUT),
                 content=ft.Column(
                     [
                         ft.Row(
@@ -5019,7 +5088,7 @@ async def course_builder_view(page: ft.Page, course_id: str):
                 content=ft.Column(
                     [
                         ft.Text(
-                            "Describe your course topic, target audience, and optional reference files. AI will craft a structured curriculum for you to customize.",
+                            "Describe your course topic, target audience, and optional reference files.",
                             size=13,
                             color=ft.Colors.ON_SURFACE_VARIANT,
                         ),

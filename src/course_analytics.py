@@ -77,19 +77,12 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
     student_search_query = ""
     student_filter_status = "all"  # "all", "completed", "in_progress", "not_started"
 
-    # Clean centered loading container (no appbar, full center)
+    from src.components.shimmer_skeletons import build_analytics_skeleton
+
+    # 1:1 high-fidelity skeleton socket while aggregating telemetry
     content_socket = ft.Container(
         expand=True,
-        alignment=ft.Alignment.CENTER,
-        content=ft.Column(
-            alignment=ft.MainAxisAlignment.CENTER,
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            controls=[
-                ft.ProgressRing(color=ft.Colors.PRIMARY, width=44, height=44, stroke_width=3.5),
-                ft.Container(height=16),
-                ft.Text("Aggregating Course Intelligence…", size=13, weight=ft.FontWeight.W_500, color=ft.Colors.ON_SURFACE_VARIANT),
-            ],
-        ),
+        content=build_analytics_skeleton(page),
     )
 
     def _show_load_error(msg: str):
@@ -1017,7 +1010,11 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
         except Exception as ex:
             _show_load_error(f"Failed to load analytics: {ex}")
 
-    page.run_task(fetch_analytics_data)
+    # ── await background telemetry aggregation so view is feasibly ready on transition ─
+    try:
+        await asyncio.wait_for(fetch_analytics_data(), timeout=8.0)
+    except Exception as _aex:
+        print(f"[course_analytics_view] Initial fetch error or timeout: {_aex}")
 
     return ft.View(
         route=f"/organisations/{org_id}/courses/{course_id}/analytics",

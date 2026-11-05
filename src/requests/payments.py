@@ -116,6 +116,23 @@ async def get_payment_history(token: str) -> list:
         return []
 
 
+async def get_org_payment_history(token: str, org_id: str) -> list:
+    """
+    Fetches workspace payment history, tier upgrade receipts, and transaction records for an organization.
+    """
+    url = f"{api_url}/payments/organisations/{org_id}/history"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
+            resp = await client.get(url, headers=headers)
+            if resp.status_code == 200:
+                return resp.json()
+            return []
+    except Exception as ex:
+        print(f"[STORE] Error fetching organization payment history: {ex}")
+        return []
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # SUPER ADMIN STORE CATALOG STUDIO API CALLS
 # ─────────────────────────────────────────────────────────────────────────────

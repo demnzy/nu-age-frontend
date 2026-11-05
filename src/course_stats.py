@@ -806,33 +806,19 @@ async def course_stats_view(page: ft.Page, course_id: str) -> ft.View:
                 page.update()
 
     # Content Socket (Centralized Loading State)
+    from src.components.shimmer_skeletons import build_course_stats_skeleton
+
     content = ft.Container(
         ref=content_socket,
         expand=True,
-        alignment=ft.Alignment.CENTER,
-        padding=ft.Padding.symmetric(
-            horizontal=12 if (getattr(page, "width", None) or 1080) < 450 else (16 if (getattr(page, "width", None) or 1080) < 650 else 24),
-            vertical=12 if (getattr(page, "width", None) or 1080) < 650 else 18,
-        ),
-        content=ft.Column(
-            alignment=ft.MainAxisAlignment.CENTER,
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            spacing=14,
-            tight=True,
-            controls=[
-                ft.ProgressRing(color=PRIMARY, width=42, height=42, stroke_width=3.5),
-                ft.Text(
-                    "Loading Course Results & Analytics…",
-                    size=13.5,
-                    color=ON_SURFACE_VARIANT,
-                    weight=ft.FontWeight.W_500,
-                ),
-            ],
-        ),
+        content=build_course_stats_skeleton(page),
     )
 
-    # Initial async load task
-    asyncio.create_task(load_data())
+    # ── await background fetch so view is feasibly ready on transition ─────────
+    try:
+        await asyncio.wait_for(load_data(), timeout=8.0)
+    except Exception as _stex:
+        print(f"[course_stats_view] Initial fetch error or timeout: {_stex}")
 
     return ft.View(
         route=f"/courses/{course_id}/stats",

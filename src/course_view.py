@@ -9,20 +9,12 @@ from src.requests.enrollments import get_enrollments, enrol_user, unenrol_from_c
 # VIEW: Modern Sleek Course Details View
 # ─────────────────────────────────────────────────────────────────────────────
 async def course_details_view(page: ft.Page, course_id: str, back_target: str = "/courses"):
-    # ── content socket ────────────────────────────────────────────────────────
+    from src.components.shimmer_skeletons import build_course_details_skeleton
+
+    # ── content socket (1:1 high-fidelity skeleton screen while loading) ───────
     content_socket = ft.Container(
         expand=True,
-        padding=ft.Padding.only(top=32),
-        alignment=ft.Alignment.CENTER,
-        content=ft.Column(
-            alignment=ft.MainAxisAlignment.CENTER,
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            spacing=12,
-            controls=[
-                ft.ProgressRing(color=ft.Colors.PRIMARY, width=36, height=36, stroke_width=3),
-                ft.Text("Loading course details…", size=13, color=ft.Colors.ON_SURFACE_VARIANT, weight=ft.FontWeight.W_500),
-            ],
-        ),
+        content=build_course_details_skeleton(page),
     )
 
     # ── share handler ─────────────────────────────────────────────────────────
@@ -199,8 +191,14 @@ Check it out 👉 : nu-age.com.ng"""
                     page.go("/courses")
                 else:
                     confirm_btn.disabled = False
-                    confirm_btn.content = None
-                    confirm_btn.text = "Leave Course"
+                    confirm_btn.content = ft.Row(
+                        tight=True,
+                        spacing=6,
+                        controls=[
+                            ft.Icon(ft.Icons.LOGOUT_ROUNDED, size=15, color=ft.Colors.ON_ERROR),
+                            ft.Text("Leave Course", color=ft.Colors.ON_ERROR, weight=ft.FontWeight.W_600),
+                        ],
+                    )
                     dlg.open = False
                     page.update()
                     detail = data.get("detail") if isinstance(data, dict) else None
@@ -255,7 +253,7 @@ Check it out 👉 : nu-age.com.ng"""
                 return_exceptions=True,
             )
 
-            if isinstance(course_list, Exception) or not course_list:
+            if not isinstance(course_list, list) or not course_list or not isinstance(course_list[0], dict):
                 _show_error("Course not found or failed to load.")
                 return
 
@@ -621,13 +619,17 @@ Check it out 👉 : nu-age.com.ng"""
                     )
 
                     def make_toggle(container_ctrl, chevron_ctrl):
-                        def toggle_module(e):
+                        def toggle_module(e=None):
                             container_ctrl.visible = not container_ctrl.visible
-                            chevron_ctrl.icon = (
+                            new_icon = (
                                 ft.Icons.KEYBOARD_ARROW_UP_ROUNDED
                                 if container_ctrl.visible
                                 else ft.Icons.KEYBOARD_ARROW_DOWN_ROUNDED
                             )
+                            if hasattr(chevron_ctrl, "name"):
+                                chevron_ctrl.name = new_icon
+                            if hasattr(chevron_ctrl, "icon"):
+                                chevron_ctrl.icon = new_icon
                             page.update()
                         return toggle_module
 
@@ -988,8 +990,11 @@ Check it out 👉 : nu-age.com.ng"""
         )
         page.update()
 
-    # ── trigger ───────────────────────────────────────────────────────────────
-    page.run_task(load_course_info, course_id)
+    # ── await background fetch so view is feasibly ready on transition ─────────
+    try:
+        await asyncio.wait_for(load_course_info(course_id), timeout=8.0)
+    except Exception as _ex:
+        print(f"[course_details_view] Initial fetch error or timeout: {_ex}")
 
     # ── view ──────────────────────────────────────────────────────────────────
     view = ft.View(

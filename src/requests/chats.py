@@ -111,9 +111,25 @@ async def ask_ai_tutor_api(
             resp = await client.post(url, headers=headers, json=payload)
             if resp.status_code == 200:
                 return resp.json()
-            return {"error": f"Server status {resp.status_code}"}
+            if resp.status_code == 403:
+                try:
+                    err_json = resp.json()
+                    detail = err_json.get("detail", "Free daily AI tutor limit reached (15/15). Upgrade to Pro Scholar for unlimited access.")
+                except Exception:
+                    detail = "Free daily AI tutor limit reached (15/15). Upgrade to Pro Scholar for unlimited access."
+                return {"error": detail, "quota_locked": True, "status_code": 403}
+            try:
+                err_json = resp.json()
+                detail = err_json.get("detail")
+            except Exception:
+                detail = None
+            msg = detail or "I ran into a brief hiccup reaching the AI tutor service right now. Please try asking again in a moment."
+            return {"error": msg, "is_ai_error": True, "status_code": resp.status_code}
+    except httpx.TimeoutException:
+        return {"error": "The AI tutor took longer than expected to answer. Please try asking again.", "is_ai_error": True, "is_timeout": True}
     except Exception as ex:
-        return {"error": str(ex)}
+        print(f"[ask_ai_tutor_api] network exception: {ex}")
+        return {"error": "I'm having trouble connecting to the study server. Please verify your internet connection.", "is_ai_error": True}
 
 
 
@@ -220,7 +236,10 @@ class ChatWebSocketClient:
                     continue
 
                 if self.on_message_callback:
-                    self.on_message_callback(message_dict)
+                    try:
+                        self.on_message_callback(message_dict)
+                    except Exception as cb_err:
+                        print(f"[NuChat] Error in on_message_callback: {cb_err}")
 
         except websockets.exceptions.ConnectionClosed:
             print("Disconnected from Nu-Chat Live.")
@@ -366,3 +385,52 @@ async def leave_group_channel(token: str, channel_id: str):
             return {"error": f"Failed with status {response.status_code}"}
     except Exception as e:
         return {"error": str(e)}
+
+
+async def upload_chat_media_api(token: str, channel_id: str, file_bytes: bytes, filename: str, mime_type: str = "image/jpeg"):
+    """Uploads lightweight images or audio notes directly to BunnyCDN via the chat API."""
+    url = f"{api_url}/chat/upload_media"
+    headers = {"Authorization": f"Bearer {token}"}
+    files = {"file": (filename, file_bytes, mime_type)}
+    data = {"channel_id": channel_id}
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(45.0), verify=ssl_context) as client:
+            resp = await client.post(url, headers=headers, data=data, files=files)
+            if resp.status_code == 200:
+                return resp.json()
+            try:
+                err = resp.json().get("detail", f"Upload failed: {resp.status_code}")
+            except Exception:
+                err = resp.text or f"Upload failed: {resp.status_code}"
+            return {"error": err}
+    except Exception as ex:
+        return {"error": str(ex)}
+
+
+async def get_pinned_chat_message(token: str, channel_id: str):
+    """Fetches the active pinned message in a channel."""
+    url = f"{api_url}/chat/channels/{channel_id}/pinned"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
+            resp = await client.get(url, headers=headers)
+            if resp.status_code == 200:
+                return resp.json()
+            return None
+    except Exception:
+        return None
+
+
+async def search_channel_messages_api(token: str, channel_id: str, query: str, limit: int = 30):
+    """Searches messages inside a channel by text content."""
+    url = f"{api_url}/chat/channels/{channel_id}/search"
+    headers = {"Authorization": f"Bearer {token}"}
+    params = {"q": query, "limit": limit}
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
+            resp = await client.get(url, headers=headers, params=params)
+            if resp.status_code == 200:
+                return resp.json()
+            return []
+    except Exception:
+        return []

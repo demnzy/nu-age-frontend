@@ -22,6 +22,7 @@ from src.requests.platform_admin import (
     get_onesignal_diagnostics_admin,
 )
 from src.utils.file_opener import show_page_snackbar
+from src.utils.dropdown_theme import apply_dropdown_theme
 
 
 def _btn_content(label: str, spinner: ft.ProgressRing, color) -> ft.Row:
@@ -287,12 +288,17 @@ class CategoriesPanel:
 # SYSTEM TOOLS (engine + diagnostics)
 # ─────────────────────────────────────────────────────────────────────────────
 _TIER_OPTIONS = [
-    ("", "Auto (best fit)"),
-    ("1", "Tier 1 · Streak saver"),
-    ("2", "Tier 2 · Duo partner"),
-    ("3", "Tier 3 · Daytime nudge"),
-    ("4", "Tier 4 · Inactivity"),
-    ("5", "Tier 5 · Course progress"),
+    ("", "Auto (highest priority / best fit)"),
+    ("1", "Tier 1 · Cohort Exam Imminent / Closing"),
+    ("2", "Tier 2 · Midnight Streak Saver"),
+    ("3", "Tier 3 · Quickfire Duels & Challenges"),
+    ("4", "Tier 4 · Duo Partner Accountability"),
+    ("5", "Tier 5 · Spaced Repetition Flashcards Due"),
+    ("6", "Tier 6 · Lesson Resumption & Progress"),
+    ("7", "Tier 7 · Leaderboard Rank Shifts"),
+    ("8", "Tier 8 · Objective Quests Near-Completion"),
+    ("9", "Tier 9 · Broken Streak Recovery (24h Grace)"),
+    ("10", "Tier 10 · Dormant Comeback & New Course Drop"),
 ]
 
 
@@ -302,9 +308,12 @@ class SystemToolsPanel:
         self.p = palette
         self.get_token = get_token
 
-        self.tier = ft.Dropdown(
-            label="Tier", value="", border_radius=8, text_size=12, bgcolor=palette["surface"], expand=True,
-            options=[ft.dropdown.Option(key=k, text=t) for k, t in _TIER_OPTIONS],
+        self.tier = apply_dropdown_theme(
+            ft.Dropdown(
+                label="Tier", value="", border_radius=8, text_size=12, bgcolor=palette["surface"], expand=True,
+                options=[ft.dropdown.Option(key=k, text=t) for k, t in _TIER_OPTIONS],
+            ),
+            menu_height=260,
         )
         self.category = ft.TextField(label="Category (optional)", hint_text="e.g. course_progress", border_radius=8, text_size=12, expand=True)
         self.target_user = ft.TextField(label="Target user ID (optional)", hint_text="Leave blank for system-wide", border_radius=8, text_size=12)

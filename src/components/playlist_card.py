@@ -101,8 +101,8 @@ def get_playlist_card(
             spacing=4,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
             controls=[
-                ft.Icon(icon, size=12, color=ft.Colors.GREY_400),
-                ft.Text(value, size=11, color=ft.Colors.GREY_500,
+                ft.Icon(icon, size=12, color=ft.Colors.ON_SURFACE_VARIANT),
+                ft.Text(value, size=11, color=ft.Colors.ON_SURFACE_VARIANT,
                         max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
                         expand=True),
             ],
@@ -126,6 +126,7 @@ def get_playlist_card(
     main_card = ft.Container(
         bgcolor=ft.Colors.SURFACE,
         border_radius=12,
+        border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
         margin=ft.Margin.only(top=10),
         shadow=ft.BoxShadow(
             blur_radius=8,
@@ -151,7 +152,7 @@ def get_playlist_card(
                                     ft.Text(
                                         created_at or "",
                                         size=10,
-                                        color=ft.Colors.GREY_400,
+                                        color=ft.Colors.ON_SURFACE_VARIANT,
                                     ),
                                 ],
                             ),
@@ -164,7 +165,7 @@ def get_playlist_card(
                                 overflow=ft.TextOverflow.ELLIPSIS,
                             ),
                             _meta(ft.Icons.BUSINESS_ROUNDED, playlist_author),
-                            ft.Divider(height=1, color=ft.Colors.GREY_100),
+                            ft.Divider(height=1, color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
                             ft.Row(controls=[action_btn]),
                         ],
                     ),

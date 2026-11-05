@@ -9,6 +9,7 @@ from src.utils.file_opener import open_or_download_asset, open_web_preview_modal
 import os
 import tempfile
 import re
+import base64
 from src.utils.code_runner import (
     execute_python,
     execute_sql,
@@ -38,24 +39,140 @@ from src.theme.typography import (
 )
 
 def heal_markdown(text: str) -> str:
-    """Auto-heals legacy markdown anomalies such as truncated Mermaid URLs."""
-    if not isinstance(text, str) or "mermaid.ink" not in text:
-        return text
-    pattern = re.compile(
-        r'!\[([^\]]*)\]\(https://mermaid\.ink/img/([^?]+)\?bgColor=FFFFFF\)\s*\n((?:[ \t]+[^\n]+\n?)+)\s*\)',
-        re.MULTILINE
-    )
-    def _heal(m: re.Match) -> str:
-        alt, b64_part, dangling = m.group(1), m.group(2), m.group(3).strip()
-        try:
-            padded = b64_part + '=' * (-len(b64_part) % 4)
-            prefix = base64.urlsafe_b64decode(padded.encode('utf-8')).decode('utf-8', errors='ignore')
-            full_code = prefix + ')\n  ' + dangling
-            new_b64 = base64.urlsafe_b64encode(full_code.encode('utf-8')).decode('utf-8')
-            return f"![{alt}](https://mermaid.ink/img/{new_b64}?bgColor=FFFFFF)"
-        except Exception:
-            return m.group(0)
-    return pattern.sub(_heal, text)
+    """
+    Auto-heals markdown anomalies and enforces modern GitHub-Flavored Markdown (GFM):
+    1. Heals legacy truncated Mermaid.js base64 diagram URLs.
+    2. Converts informal callout blockquotes to standard GFM alerts (> [!NOTE], > [!TIP], > [!WARNING], > [!IMPORTANT]).
+    3. Normalizes misplaced top-level # H1 to ## H2.
+    4. Enforces blank line padding around headings, blockquotes, code blocks, and tables.
+    5. Auto-closes dangling code fences and escapes currency dollars.
+    """
+    if not isinstance(text, str) or not text.strip():
+        return ""
+
+    # 1. Heal Mermaid.ink URLs if present
+    if "mermaid.ink" in text:
+        pattern = re.compile(
+            r'!\[([^\]]*)\]\(https://mermaid\.ink/img/([^?]+)\?bgColor=FFFFFF\)\s*\n((?:[ \t]+[^\n]+\n?)+)\s*\)',
+            re.MULTILINE
+        )
+        def _heal(m: re.Match) -> str:
+            alt, b64_part, dangling = m.group(1), m.group(2), m.group(3).strip()
+            try:
+                padded = b64_part + '=' * (-len(b64_part) % 4)
+                prefix = base64.urlsafe_b64decode(padded.encode('utf-8')).decode('utf-8', errors='ignore')
+                full_code = prefix + ')\n  ' + dangling
+                new_b64 = base64.urlsafe_b64encode(full_code.encode('utf-8')).decode('utf-8')
+                return f"![{alt}](https://mermaid.ink/img/{new_b64}?bgColor=FFFFFF)"
+            except Exception:
+                return m.group(0)
+        text = pattern.sub(_heal, text)
+
+    # 1b. Heal SVG image references that crash Flutter's Image.network
+    def _heal_svg_image(m: re.Match) -> str:
+        alt = m.group(1).strip()
+        url = m.group(2).strip()
+        if "upload.wikimedia.org" in url and url.lower().endswith(".svg"):
+            parts = url.split("/commons/")
+            if len(parts) == 2:
+                filename = parts[1].split("/")[-1]
+                return f"![{alt}](https://upload.wikimedia.org/wikipedia/commons/thumb/{parts[1]}/1024px-{filename}.png)"
+        caption = alt or "Interactive Diagram"
+        return f"\n\n> 📊 **[{caption}]({url})** *(Interactive Vector Diagram)*\n\n"
+
+    text = re.sub(r"!\[([^\]]*)\]\((https?://[^\s)]+?\.svg(?:\?[^\s)]*)?)\)", _heal_svg_image, text, flags=re.IGNORECASE)
+
+    # 1c. Ensure display math blocks $$...$$ have clean blank line padding for LaTeX rendering
+    def _pad_display_math(m: re.Match) -> str:
+        math_content = m.group(1).strip()
+        return f"\n\n$$\n{math_content}\n$$\n\n"
+
+    text = re.sub(r"(?<!\$)\$\$([^\$\n]+?)\$\$(?!\$)", _pad_display_math, text)
+
+    # 1d. Heal broken LaTeX math dollar escaping (e.g. \$2 \times 2$ -> $2 \times 2$)
+    text = re.sub(r"\\\$(\d+(?:\.\d+)?(?:\s*\\[a-zA-Z]+|\s*[-+*/^_=]|(?:\s+[a-zA-Z]))[^\$\n]*?)\$", r"$\1$", text)
+    text = re.sub(r"\\\$(\d+)\s*\\times\s*(\d+)\$", r"$\1 \\times \2$", text)
+    text = re.sub(r"\\\$(\d+)\s*\\times\s*(\d+)", r"$\1 \\times \2$", text)
+
+    # 1e. Convert GitHub Alert tags [!NOTE], [!TIP], [!IMPORTANT], [!WARNING], [!CAUTION] into
+    # styled standard Markdown blockquotes that flutter_markdown renders natively with zero crashes.
+    alert_headers = {
+        "NOTE": "ℹ️ **NOTE**",
+        "TIP": "💡 **TIP**",
+        "IMPORTANT": "📌 **IMPORTANT**",
+        "WARNING": "⚠️ **WARNING**",
+        "CAUTION": "🛑 **CAUTION**",
+    }
+
+    def _replace_alert(m):
+        atype = m.group(1).upper()
+        header = alert_headers.get(atype, f"**{atype}**")
+        return f"> {header}\n>"
+
+    text = re.sub(r"^>\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*", _replace_alert, text, flags=re.MULTILINE | re.IGNORECASE)
+
+    # 1f. Heal raw LaTeX \begin{bmatrix} ... \end{bmatrix} that lack math delimiters or proper row breaks
+    def _fix_raw_bmatrix(m):
+        content = m.group(1).strip()
+        # Ensure rows separated by \\ (double backslash in LaTeX)
+        content = re.sub(r"(?<!\\)\\(?!\\)", r"\\\\", content)
+        return f"$\\begin{{bmatrix}} {content} \\end{{bmatrix}}$"
+
+    text = re.sub(r"(?<!\$)\\begin\{bmatrix\}(.*?)\\end\{bmatrix\}(?!\$)", _fix_raw_bmatrix, text, flags=re.DOTALL)
+    text = re.sub(r"\$\$begin\{bmatrix\}", r"$\begin{bmatrix}", text)
+    text = text.replace(r"\end{bmatrix}$$", r"\end{bmatrix}$")
+    text = re.sub(r"\$\s+,", "$,", text)
+
+    # 2. Line-by-line modern GFM normalization
+    lines = text.split("\n")
+    cleaned_lines = []
+    in_code_fence = False
+    fence_delimiter = ""
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("```") or stripped.startswith("~~~"):
+            fence_token = stripped[:3]
+            if not in_code_fence:
+                in_code_fence = True
+                fence_delimiter = fence_token
+                cleaned_lines.append(line)
+            elif in_code_fence and stripped.startswith(fence_delimiter):
+                in_code_fence = False
+                fence_delimiter = ""
+                cleaned_lines.append(line)
+            else:
+                cleaned_lines.append(line)
+            continue
+
+        if in_code_fence:
+            cleaned_lines.append(line)
+            continue
+
+        # Convert # H1 to ## H2
+        if re.match(r"^#\s+(?!#)", line):
+            line = re.sub(r"^#\s+", "## ", line)
+
+        # Normalize informal callouts to standard styled blockquotes
+        line = re.sub(r"^>\s*(?:\*\*)?(?:Note|Notice):?(?:\*\*)?\s*", "> ℹ️ **NOTE**\n> ", line, flags=re.IGNORECASE)
+        line = re.sub(r"^>\s*(?:\*\*)?(?:Tip|Pro-tip|Best Practice):?(?:\*\*)?\s*", "> 💡 **TIP**\n> ", line, flags=re.IGNORECASE)
+        line = re.sub(r"^>\s*(?:\*\*)?(?:Important|Key Point|Crucial):?(?:\*\*)?\s*", "> 📌 **IMPORTANT**\n> ", line, flags=re.IGNORECASE)
+        line = re.sub(r"^>\s*(?:\*\*)?(?:Warning|Caution|Pitfall|Gotcha):?(?:\*\*)?\s*", "> ⚠️ **WARNING**\n> ", line, flags=re.IGNORECASE)
+
+        cleaned_lines.append(line)
+
+    if in_code_fence:
+        cleaned_lines.append(fence_delimiter or "```")
+
+    result = "\n".join(cleaned_lines)
+    result = re.sub(r"(?<!\n\n)\n(#{2,6}\s+[^\n]+)", r"\n\n\1", result)
+    result = re.sub(r"(#{2,6}\s+[^\n]+)\n(?!\n)", r"\1\n\n", result)
+    result = re.sub(r"(?<!\n\n)\n(```[a-zA-Z0-9_-]*)", r"\n\n\1", result)
+    result = re.sub(r"(```)\n(?!\n)", r"\1\n\n", result)
+    result = re.sub(r"(?<!\n\n)\n(\|.+?\|\n\|[-:\s|]+?\|)", r"\n\n\1", result)
+    result = re.sub(r"\n{3,}", "\n\n", result)
+
+    return result.strip()
 
 
 async def course_learner_view(
@@ -181,24 +298,12 @@ async def course_learner_view(
                     mod_is_done = False
             mod["is_done"] = mod_is_done
 
-    # --- THE LAZY LOAD SOCKET ---
+    from src.components.shimmer_skeletons import build_course_learner_skeleton
+
+    # --- 1:1 High-Fidelity Learner Skeleton Socket ---
     content_socket = ft.Container(
         expand=True,
-        alignment=ft.Alignment.CENTER,
-        content=ft.Column(
-            [
-                ft.ProgressRing(color=UI_ACCENT, stroke_width=3, width=32, height=32),
-                ft.Container(height=12),
-                ft.Text(
-                    "Loading your course...",
-                    color=ft.Colors.ON_SURFACE_VARIANT,
-                    weight=ft.FontWeight.W_500,
-                    size=14,
-                ),
-            ],
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            alignment=ft.MainAxisAlignment.CENTER,
-        ),
+        content=build_course_learner_skeleton(page),
     )
 
     # =========================================================
@@ -209,6 +314,15 @@ async def course_learner_view(
     lesson_body_scroll = ft.Container(expand=True)
     action_footer_container = ft.Container()
     main_content_area = ft.Container()
+    tab_content_switcher = ft.AnimatedSwitcher(
+        content=ft.Container(expand=True),
+        expand=True,
+        transition=ft.AnimatedSwitcherTransition.FADE,
+        duration=180,
+        reverse_duration=140,
+        switch_in_curve=ft.AnimationCurve.EASE_OUT,
+        switch_out_curve=ft.AnimationCurve.EASE_IN,
+    )
     active_player_tab = 0
     need_help_open = False
     need_help_controller = NeedHelpController()
@@ -218,7 +332,9 @@ async def course_learner_view(
         visible=False,
         expand=False,
         animate=ft.Animation(duration=280, curve=ft.AnimationCurve.EASE_OUT_CUBIC),
+        animate_offset=ft.Animation(duration=260, curve=ft.AnimationCurve.EASE_OUT_CUBIC),
         animate_opacity=ft.Animation(duration=220, curve=ft.AnimationCurve.EASE_IN_OUT),
+        offset=ft.Offset(0, 0),
         opacity=0.0,
     )
     body_host = ft.Container(expand=True)
@@ -228,18 +344,85 @@ async def course_learner_view(
         right=0,
         bottom=0,
         bgcolor=ft.Colors.with_opacity(0.45, ft.Colors.BLACK),
+        animate_opacity=ft.Animation(220, ft.AnimationCurve.EASE_OUT),
+        opacity=0.0,
         visible=False,
     )
 
-    def toggle_sidebar(e=None):
+    def close_sidebar(e=None):
         nonlocal sidebar_visible
-        sidebar_visible = not sidebar_visible
+        if not sidebar_visible:
+            return
+        sidebar_visible = False
         if is_desktop_layout():
-            refresh_layout_shell()
+            sidebar_container.width = 0
+            sidebar_container.opacity = 0.0
+            page.update()
+
+            async def _finish_close_desktop():
+                await asyncio.sleep(0.24)
+                if not sidebar_visible:
+                    sidebar_container.visible = False
+                    refresh_layout_shell()
+                    page.update()
+
+            asyncio.create_task(_finish_close_desktop())
         else:
-            sidebar_backdrop.visible = sidebar_visible
-            sidebar_container.visible = sidebar_visible
-        page.update()
+            sidebar_backdrop.opacity = 0.0
+            sidebar_container.offset = ft.Offset(-1.0, 0)
+            sidebar_container.opacity = 0.0
+            page.update()
+
+            async def _finish_close_mobile():
+                await asyncio.sleep(0.24)
+                if not sidebar_visible:
+                    sidebar_backdrop.visible = False
+                    sidebar_container.visible = False
+                    page.update()
+
+            asyncio.create_task(_finish_close_mobile())
+
+    def open_sidebar(e=None):
+        nonlocal sidebar_visible
+        if sidebar_visible:
+            return
+        sidebar_visible = True
+        if is_desktop_layout():
+            sidebar_container.visible = True
+            sidebar_container.width = 0
+            sidebar_container.opacity = 0.0
+            refresh_layout_shell()
+            page.update()
+
+            async def _finish_open_desktop():
+                await asyncio.sleep(0.02)
+                sidebar_container.width = SIDEBAR_WIDTH
+                sidebar_container.opacity = 1.0
+                page.update()
+
+            asyncio.create_task(_finish_open_desktop())
+        else:
+            sidebar_backdrop.visible = True
+            sidebar_backdrop.opacity = 0.0
+            sidebar_container.visible = True
+            sidebar_container.offset = ft.Offset(-1.0, 0)
+            sidebar_container.opacity = 0.0
+            page.update()
+
+            async def _finish_open_mobile():
+                await asyncio.sleep(0.02)
+                sidebar_backdrop.opacity = 1.0
+                sidebar_container.offset = ft.Offset(0, 0)
+                sidebar_container.opacity = 1.0
+                page.update()
+
+            asyncio.create_task(_finish_open_mobile())
+
+    def toggle_sidebar(e=None):
+        if sidebar_visible:
+            close_sidebar(e)
+        else:
+            open_sidebar(e)
 
     sidebar_backdrop.on_click = toggle_sidebar
 
@@ -329,6 +512,12 @@ async def course_learner_view(
             color=ft.Colors.with_opacity(0.06, ft.Colors.BLACK),
             offset=ft.Offset(2, 0),
         ),
+        animate=ft.Animation(240, ft.AnimationCurve.DECELERATE),
+        animate_offset=ft.Animation(240, ft.AnimationCurve.EASE_OUT_CUBIC),
+        animate_opacity=ft.Animation(200, ft.AnimationCurve.EASE_OUT),
+        offset=ft.Offset(0, 0),
+        opacity=1.0,
+        clip_behavior=ft.ClipBehavior.HARD_EDGE,
         visible=sidebar_visible,
         content=ft.Column(
             spacing=0,
@@ -443,7 +632,7 @@ async def course_learner_view(
             alignment=ft.MainAxisAlignment.CENTER,
         ),
         center_title=False,
-        bgcolor="#FFFFFF" if getattr(page, "theme_mode", None) != ft.ThemeMode.DARK else ft.Colors.SURFACE,
+        bgcolor=ft.Colors.SURFACE,
         elevation=0,
         elevation_on_scroll=0.0,
         shadow_color=ft.Colors.TRANSPARENT,
@@ -652,10 +841,10 @@ async def course_learner_view(
             autoplay=True,
             on_error=_on_error,
             on_load=_on_load,
+            expand=False,
         )
 
         return ft.Container(
-            expand=True,
             alignment=ft.Alignment.CENTER,
             content=ft.Container(width=1000, content=player),
         )
@@ -665,7 +854,11 @@ async def course_learner_view(
         async def handle_link_tap(e):
             await e.page.launch_url(e.data)
 
-        healed_value = heal_markdown(value)
+        display_value = str(value or "").strip()
+        if not display_value:
+            return ft.Container()
+
+        healed_value = heal_markdown(display_value)
 
         return ft.Container(
             padding=20,
@@ -690,9 +883,17 @@ async def course_learner_view(
                     ),
                     ft.Markdown(
                         healed_value,
-                        selectable=True,
-                        extension_set=ft.MarkdownExtensionSet.GITHUB_FLAVORED,
+                        selectable=False,
+                        extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
                         on_tap_link=handle_link_tap,
+                        code_theme="atom-one-dark",
+                        image_error_content=ft.Container(
+                            content=ft.Row([
+                                ft.Icon(ft.Icons.IMAGE_NOT_SUPPORTED_ROUNDED, size=18, color=ft.Colors.ON_SURFACE_VARIANT),
+                                ft.Text("Image preview unavailable", size=12, color=ft.Colors.ON_SURFACE_VARIANT),
+                            ], spacing=6),
+                            padding=8,
+                        ),
                         md_style_sheet=ft.MarkdownStyleSheet(
                             p_text_style=ft.TextStyle(
                                 font_family=get_body_font(page),
@@ -701,11 +902,34 @@ async def course_learner_view(
                                 color=ft.Colors.ON_SURFACE,
                                 height=1.55,
                             ),
-                            code_text_style=ft.TextStyle(
-                                size=13.5,
-                                font_family=get_mono_font(page),
+                            h1_text_style=ft.TextStyle(
+                                font_family=get_heading_font(page),
+                                size=20,
+                                weight=ft.FontWeight.BOLD,
                                 color=ft.Colors.ON_SURFACE,
-                                bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
+                            ),
+                            h2_text_style=ft.TextStyle(
+                                font_family=get_heading_font(page),
+                                size=17,
+                                weight=ft.FontWeight.BOLD,
+                                color=ft.Colors.ON_SURFACE,
+                            ),
+                            h3_text_style=ft.TextStyle(
+                                font_family=get_subheading_font(page),
+                                size=15,
+                                weight=ft.FontWeight.W_600,
+                                color=ft.Colors.ON_SURFACE,
+                            ),
+                            code_text_style=ft.TextStyle(
+                                font_family=get_mono_font(page),
+                                size=13.5,
+                                color=ft.Colors.CYAN_300,
+                            ),
+                            blockquote_text_style=ft.TextStyle(
+                                font_family=get_body_font(page),
+                                size=13.5,
+                                color=ft.Colors.ON_SURFACE,
+                                height=1.5,
                             ),
                         ),
                     ),
@@ -714,6 +938,8 @@ async def course_learner_view(
                 horizontal_alignment=ft.CrossAxisAlignment.START,
             ),
         )
+
+    CONTENT_RENDERERS["notes"] = render_notes_block
         
     @register_content_renderer("document_url")
     def render_document_block(value, lesson):
@@ -784,7 +1010,11 @@ async def course_learner_view(
         async def handle_link_tap(e):
             await e.page.launch_url(e.data)
 
-        healed_value = heal_markdown(value)
+        display_value = str(value or "").strip()
+        if not display_value:
+            return ft.Container()
+
+        healed_value = heal_markdown(display_value)
 
         return ft.Container(
             padding=28,
@@ -793,20 +1023,18 @@ async def course_learner_view(
             border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
             content=ft.Markdown(
                 healed_value,
-                selectable=True,
+                selectable=False,
                 extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
-                code_theme=ft.MarkdownCodeTheme.ATELIER_LAKESIDE_DARK,
-                code_style_sheet=ft.MarkdownStyleSheet(
-                    code_text_style=ft.TextStyle(font_family=get_mono_font(page), size=14, color="#E2E8F0"),
-                    codeblock_decoration=ft.BoxDecoration(
-                        bgcolor="#16191F",
-                        border_radius=ft.BorderRadius.all(8),
-                        border=ft.Border.all(1, ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)),
-                    ),
-                ),
                 on_tap_link=handle_link_tap,
+                code_theme="atom-one-dark",
+                image_error_content=ft.Container(
+                    content=ft.Row([
+                        ft.Icon(ft.Icons.IMAGE_NOT_SUPPORTED_ROUNDED, size=18, color=ft.Colors.ON_SURFACE_VARIANT),
+                        ft.Text("Image preview unavailable", size=12, color=ft.Colors.ON_SURFACE_VARIANT),
+                    ], spacing=6),
+                    padding=8,
+                ),
                 md_style_sheet=ft.MarkdownStyleSheet(
-                    text_alignment=ft.TextAlign.START,
                     p_text_style=ft.TextStyle(
                         font_family=get_body_font(page),
                         size=15,
@@ -833,24 +1061,16 @@ async def course_learner_view(
                         color=ft.Colors.ON_SURFACE,
                     ),
                     code_text_style=ft.TextStyle(
-                        size=13.5,
                         font_family=get_mono_font(page),
-                        color=ft.Colors.ON_SURFACE,
-                        bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
-                    ),
-                    blockquote_decoration=ft.BoxDecoration(
-                        bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
-                        border=ft.Border.only(left=ft.BorderSide(3.5, ft.Colors.AMBER_500)),
-                        border_radius=ft.BorderRadius.all(6),
+                        size=13.5,
+                        color=ft.Colors.CYAN_300,
                     ),
                     blockquote_text_style=ft.TextStyle(
                         font_family=get_body_font(page),
-                        size=14.5,
-                        italic=True,
+                        size=13.5,
                         color=ft.Colors.ON_SURFACE,
                         height=1.5,
                     ),
-                    blockquote_padding=ft.Padding.symmetric(horizontal=16, vertical=10),
                 ),
             ),
         )
@@ -962,24 +1182,32 @@ async def course_learner_view(
             border_radius=ft.BorderRadius.only(bottom_left=6, bottom_right=6),
         )
 
+        is_mobile = bool(page.width and page.width < 768)
+
+        def get_card_font_size(text):
+            length = len((text or "").strip())
+            if is_mobile:
+                return 16 if length <= 60 else (14 if length <= 160 else 12.5)
+            return 18 if length <= 60 else (16 if length <= 160 else 14)
+
         card_md = ft.Markdown(
             value=init_text,
             selectable=False,
-            extension_set=ft.MarkdownExtensionSet.GITHUB_FLAVORED,
+            extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
             md_style_sheet=ft.MarkdownStyleSheet(
                 text_alignment=ft.TextAlign.CENTER,
                 p_text_style=ft.TextStyle(
-                    size=18,
+                    size=get_card_font_size(init_text),
                     weight=ft.FontWeight.W_600,
                     color=ft.Colors.ON_SURFACE,
-                    height=1.5,
+                    height=1.45,
                 ),
             ),
         )
 
         card_surface = ft.Container(
-            padding=ft.Padding.symmetric(horizontal=28, vertical=36),
-            height=260,
+            padding=ft.Padding.symmetric(horizontal=16, vertical=20) if is_mobile else ft.Padding.symmetric(horizontal=28, vertical=32),
+            height=240 if is_mobile else 260,
             border_radius=16,
             bgcolor=ft.Colors.SURFACE,
             border=ft.Border.all(1, ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE)),
@@ -993,8 +1221,9 @@ async def course_learner_view(
                 [
                     card_md,
                 ],
-                alignment=ft.MainAxisAlignment.CENTER,
+                alignment=ft.MainAxisAlignment.START if is_mobile else ft.MainAxisAlignment.CENTER,
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                scroll=ft.ScrollMode.AUTO,
                 expand=True,
             ),
             offset=ft.Offset(0, 0),
@@ -1021,7 +1250,9 @@ async def course_learner_view(
 
             # Phase 2: Update content & advance
             card_idx[0] += 1
-            card_md.value = parse_card(cards_list[card_idx[0]])
+            new_text = parse_card(cards_list[card_idx[0]])
+            card_md.value = new_text
+            card_md.md_style_sheet.p_text_style.size = get_card_font_size(new_text)
             counter_badge.content.value = f"Card {card_idx[0] + 1} of {total_cards}"
             progress_track.value = (card_idx[0] + 1) / max(total_cards, 1)
             prev_btn.disabled = card_idx[0] == 0
@@ -1053,7 +1284,9 @@ async def course_learner_view(
 
             # Phase 2: Update content & decrement
             card_idx[0] -= 1
-            card_md.value = parse_card(cards_list[card_idx[0]])
+            new_text = parse_card(cards_list[card_idx[0]])
+            card_md.value = new_text
+            card_md.md_style_sheet.p_text_style.size = get_card_font_size(new_text)
             counter_badge.content.value = f"Card {card_idx[0] + 1} of {total_cards}"
             progress_track.value = (card_idx[0] + 1) / max(total_cards, 1)
             prev_btn.disabled = card_idx[0] == 0
@@ -1169,7 +1402,7 @@ async def course_learner_view(
                     ft.Markdown(
                         "",
                         selectable=False,
-                        extension_set=ft.MarkdownExtensionSet.GITHUB_FLAVORED,
+                        extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
                         md_style_sheet=ft.MarkdownStyleSheet(
                             p_text_style=ft.TextStyle(color=ft.Colors.ON_SURFACE, size=14, height=1.5),
                             code_text_style=ft.TextStyle(
@@ -1318,7 +1551,7 @@ async def course_learner_view(
             q_text = ft.Markdown(
                 value=q.get("text", ""),
                 selectable=True,
-                extension_set=ft.MarkdownExtensionSet.GITHUB_FLAVORED,
+                extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
                 md_style_sheet=ft.MarkdownStyleSheet(
                     p_text_style=ft.TextStyle(size=15, color=ft.Colors.ON_SURFACE, weight=ft.FontWeight.W_600, height=1.4),
                 ),
@@ -1453,16 +1686,21 @@ async def course_learner_view(
         title_text = content.get("title", "")
         intro_text = content.get("intro", "")
 
+        async def handle_link_tap(e):
+            if hasattr(e, "data") and e.data:
+                await e.page.launch_url(e.data)
+
         header_elements = []
         if title_text:
             header_elements.append(ft.Text(title_text, size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE))
         if intro_text:
             header_elements.append(
                 ft.Markdown(
-                    intro_text,
+                    heal_markdown(intro_text),
                     extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+                    on_tap_link=handle_link_tap,
                     md_style_sheet=ft.MarkdownStyleSheet(
-                        p_text_style=ft.TextStyle(size=14, color=ft.Colors.ON_SURFACE_VARIANT, height=1.5)
+                        p_text_style=ft.TextStyle(font_family=get_body_font(page), size=14, color=ft.Colors.ON_SURFACE_VARIANT, height=1.5)
                     ),
                 )
             )
@@ -1484,12 +1722,35 @@ async def course_learner_view(
         )
         headline_text = ft.Text(valid_steps[0].get("headline", ""), size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE)
         content_md = ft.Markdown(
-            valid_steps[0].get("content", ""),
+            heal_markdown(valid_steps[0].get("content", "")),
             extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
-            selectable=True,
+            selectable=False,
+            on_tap_link=handle_link_tap,
+            code_theme="atom-one-dark",
+            image_error_content=ft.Container(
+                content=ft.Row([
+                    ft.Icon(ft.Icons.IMAGE_NOT_SUPPORTED_ROUNDED, size=18, color=ft.Colors.ON_SURFACE_VARIANT),
+                    ft.Text("Image preview unavailable", size=12, color=ft.Colors.ON_SURFACE_VARIANT),
+                ], spacing=6),
+                padding=8,
+            ),
             md_style_sheet=ft.MarkdownStyleSheet(
-                p_text_style=ft.TextStyle(size=15, height=1.6, color=ft.Colors.ON_SURFACE),
-                code_text_style=ft.TextStyle(font_family="monospace", size=13, color=ft.Colors.CYAN_300),
+                p_text_style=ft.TextStyle(font_family=get_body_font(page), size=15, height=1.6, color=ft.Colors.ON_SURFACE),
+                code_text_style=ft.TextStyle(font_family=get_mono_font(page), size=13, color=ft.Colors.CYAN_300),
+                h1_text_style=ft.TextStyle(size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
+                h2_text_style=ft.TextStyle(size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
+                h3_text_style=ft.TextStyle(size=14, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
+                blockquote_text_style=ft.TextStyle(font_family=get_body_font(page), size=13.5, color=ft.Colors.BLUE_GREY_900, height=1.5),
+            ),
+        )
+        takeaway_md = ft.Markdown(
+            heal_markdown(valid_steps[0].get("takeaway", "")),
+            extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+            selectable=False,
+            on_tap_link=handle_link_tap,
+            md_style_sheet=ft.MarkdownStyleSheet(
+                p_text_style=ft.TextStyle(font_family=get_body_font(page), size=14, color=ft.Colors.ON_SURFACE, height=1.45),
+                code_text_style=ft.TextStyle(font_family=get_mono_font(page), size=12.5, color=ft.Colors.CYAN_300),
             ),
         )
         takeaway_col = ft.Container(
@@ -1504,7 +1765,7 @@ async def course_learner_view(
                     ft.Column(
                         [
                             ft.Text("Key Takeaway", size=13, weight=ft.FontWeight.BOLD, color=ft.Colors.CYAN_600),
-                            ft.Text(valid_steps[0].get("takeaway", ""), size=14, color=ft.Colors.ON_SURFACE),
+                            takeaway_md,
                         ],
                         spacing=4,
                         expand=True,
@@ -1531,11 +1792,11 @@ async def course_learner_view(
             counter_label.value = f"Phase {idx + 1} of {len(valid_steps)}"
             tag_chip.content.value = st.get("tag", f"Step {idx + 1}")
             headline_text.value = st.get("headline", "")
-            content_md.value = st.get("content", "")
+            content_md.value = heal_markdown(st.get("content", ""))
 
             tw = st.get("takeaway", "").strip()
             if tw:
-                takeaway_col.content.controls[1].controls[1].value = tw
+                takeaway_md.value = heal_markdown(tw)
                 takeaway_col.visible = True
             else:
                 takeaway_col.visible = False
@@ -2302,6 +2563,10 @@ async def course_learner_view(
             )
         action_buttons.append(run_btn)
 
+        async def handle_link_tap(e):
+            if hasattr(e, "data") and e.data:
+                await e.page.launch_url(e.data)
+
         return ft.Container(
             padding=24,
             border_radius=14,
@@ -2328,11 +2593,17 @@ async def course_learner_view(
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                     ),
                     ft.Markdown(
-                        instructions or "Write your solution in the code editor below:",
+                        heal_markdown(instructions) if instructions else "Write your solution in the code editor below:",
                         extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
                         selectable=True,
+                        on_tap_link=handle_link_tap,
+                        code_theme="atom-one-dark",
                         md_style_sheet=ft.MarkdownStyleSheet(
-                            p_text_style=ft.TextStyle(size=14, color=ft.Colors.ON_SURFACE, height=1.5)
+                            p_text_style=ft.TextStyle(font_family=get_body_font(page), size=14, color=ft.Colors.ON_SURFACE, height=1.55),
+                            code_text_style=ft.TextStyle(font_family=get_mono_font(page), size=13, color=ft.Colors.CYAN_300),
+                            h1_text_style=ft.TextStyle(size=17, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
+                            h2_text_style=ft.TextStyle(size=15, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
+                            h3_text_style=ft.TextStyle(size=14, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
                         ),
                     ),
                     code_input,
@@ -2353,6 +2624,10 @@ async def course_learner_view(
 
     def render_lesson_ui(lesson: dict):
         content = lesson.get("content", {})
+        if isinstance(content, str):
+            content = {"text": content}
+        elif not isinstance(content, dict):
+            content = {}
         blocks = []
         lesson["_page"] = page
 
@@ -2370,7 +2645,7 @@ async def course_learner_view(
             blocks.append(render_assessment_ui(lesson))
         elif lesson["type"] == "scenario":
             blocks.append(render_scenario_ui(lesson))
-        elif lesson["type"] == "stepper":
+        elif lesson["type"] in ("stepper", "steps"):
             blocks.append(render_stepper_ui(lesson))
         elif lesson["type"] == "sequencer":
             blocks.append(render_sequencer_ui(lesson))
@@ -3005,9 +3280,7 @@ async def course_learner_view(
         sync_expanded_module_state(m_idx)
 
         if not is_desktop_layout():
-            sidebar_visible = False
-            sidebar_backdrop.visible = False
-            sidebar_container.visible = False
+            close_sidebar()
 
         refresh_ui()
 
@@ -3239,7 +3512,8 @@ async def course_learner_view(
                     return
                 
                 action_button.content = ft.Text(next_btn_text, weight=ft.FontWeight.BOLD, size=14)
-                questions = active_les.get("content", {}).get("questions", [])
+                _raw_c = active_les.get("content")
+                questions = _raw_c.get("questions", []) if isinstance(_raw_c, dict) else (active_les.get("questions") or [])
                 total_q = len(questions)
                 correct_count = 0
                 results_breakdown = []
@@ -3627,9 +3901,19 @@ async def course_learner_view(
                     drawer_socket.margin = None
                     cur_h = getattr(page, "height", None) or 700
                     drawer_socket.height = max(280, min(int(cur_h * 0.49), 420))
-                    drawer_socket.opacity = 1.0
+                    drawer_socket.offset = ft.Offset(0, 1.0)
+                    drawer_socket.opacity = 0.0
+                    drawer_socket.visible = True
                     refresh_layout_shell()
                     page.update()
+
+                    async def _animate_open_mobile_socket():
+                        await asyncio.sleep(0.02)
+                        drawer_socket.offset = ft.Offset(0, 0)
+                        drawer_socket.opacity = 1.0
+                        page.update()
+
+                    asyncio.create_task(_animate_open_mobile_socket())
             else:
                 if is_desktop:
                     drawer_socket.width = 0
@@ -3646,9 +3930,18 @@ async def course_learner_view(
 
                     asyncio.create_task(_animate_close())
                 else:
-                    drawer_socket.visible = False
-                    refresh_layout_shell()
+                    drawer_socket.offset = ft.Offset(0, 1.0)
+                    drawer_socket.opacity = 0.0
                     page.update()
+
+                    async def _animate_close_mobile_socket():
+                        await asyncio.sleep(0.28)
+                        if not need_help_open:
+                            drawer_socket.visible = False
+                            refresh_layout_shell()
+                            page.update()
+
+                    asyncio.create_task(_animate_close_mobile_socket())
 
         # If already open during lesson navigation, dynamically update context without closing
         if need_help_open and need_help_controller.update_module_context:
@@ -3757,13 +4050,18 @@ async def course_learner_view(
 
         # Determine if active lesson has narratable text
         les_type = str(active_les.get("type", "")).lower()
-        has_text_content = bool(
-            active_les.get("content", {}).get("text")
-            or active_les.get("content", {}).get("notes")
-            or active_les.get("content", {}).get("steps")
-            or active_les.get("content", {}).get("scenario")
-            or active_les.get("content", {}).get("cards")
-        )
+        _c_val = active_les.get("content")
+        has_text_content = False
+        if isinstance(_c_val, dict):
+            has_text_content = bool(
+                _c_val.get("text")
+                or _c_val.get("notes")
+                or _c_val.get("steps")
+                or _c_val.get("scenario")
+                or _c_val.get("cards")
+            )
+        elif isinstance(_c_val, str):
+            has_text_content = bool(_c_val.strip())
         is_narratable = (les_type in ["text", "stepper", "scenario", "cards", "cloze"] or has_text_content) and les_type not in ["video", "document", "code_lab"]
 
         audio_player_ctrl = None
@@ -3891,13 +4189,14 @@ async def course_learner_view(
                 is_offline=(back_target == "/offline"),
             )
 
+        tab_content_switcher.content = active_view_content
         main_content_area.content = ft.Container(
             expand=True,
             content=ft.Column(
                 [
                     tab_bar,
                     ft.Container(height=10),
-                    active_view_content,
+                    tab_content_switcher,
                 ],
                 expand=True,
                 spacing=0,
@@ -3974,7 +4273,11 @@ async def course_learner_view(
         content_socket.content = body_host
         page.update()
 
-    page.run_task(fetch_initial_data)
+    # ── await background fetch so view is feasibly ready on transition ─────────
+    try:
+        await asyncio.wait_for(fetch_initial_data(), timeout=8.0)
+    except Exception as _clex:
+        print(f"[course_learner_view] Initial fetch error or timeout: {_clex}")
 
     # =========================================================
     # 10. VIEW RETURN (Immediate)

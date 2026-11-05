@@ -60,12 +60,12 @@ def get_continue_learning_card(
         auth_name = (
             auth_obj.get("name")
             or f"{auth_obj.get('first_name', '')} {auth_obj.get('last_name', '')}".strip()
-            or "Nu-age Instructor"
+            or "Nu Age Instructor"
         )
     elif isinstance(auth_obj, str) and auth_obj.strip():
         auth_name = auth_obj.strip()
     else:
-        auth_name = "Nu-age Instructor"
+        auth_name = "Nu Age Instructor"
 
     # Image / Logo (prioritize actual course image returned from API)
     img_src = (
@@ -322,4 +322,4 @@ def get_continue_learning_card(
         card.update()
 
     card.on_hover = _on_hover
-    return card
+    return card

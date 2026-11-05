@@ -1,858 +1,999 @@
-"""
-src/components/need_help_drawer.py
-
-Contextual, floating, draggable, and Socratic AI Study Companion (Nu-AI Tutor).
-Grounds doubts in the currently active lesson/module with:
-- Square-rounded card aesthetics matching modern reference UI.
-- Top model pill badge ([ ✨ Nu-AI Tutor ] / [ 🛡️ Assessment Mode ]).
-- Non-blocking, draggable overlay on desktop via GestureDetector.
-- Adaptive collapsible bottom dock on mobile with 1-tap minimize pill.
-- Session-wide chat history persistence across drawer toggles & navigation.
-- Dynamic real-time module/lesson context switching without reopening.
-- Strict assessment guardrails (anti-cheating hints and guidance).
-- Assistant message action bar (Copy, Regenerate, Thumbs-up).
-- Uncropped input composer with inline rounded send button.
-"""
-
-import asyncio
-import flet as ft
-from typing import Dict, Any, Optional, Callable, List
-from src.requests.chats import ask_ai_tutor_api
-from src.services.ai_tutor_session import (
-    get_course_history,
-    append_course_message,
-    clear_course_history,
-)
-from src.utils.file_opener import show_page_snackbar, safe_set_clipboard
-from src.utils.typing_animator import stream_typing_animation
-
-
-async def _get_auth_token(page: ft.Page) -> Optional[str]:
-    """Retrieve auth token safely without deprecation warnings."""
-    try:
-        if hasattr(page, "session") and hasattr(page.session, "store"):
-            tok = page.session.store.get("token") or page.session.store.get("auth_token")
-            if tok:
-                return str(tok)
-    except Exception:
-        pass
-    try:
-        sp = ft.SharedPreferences()
-        tok = await sp.get("auth_token")
-        if tok:
-            return str(tok)
-    except Exception:
-        pass
-    try:
-        if hasattr(page, "shared_preferences"):
-            tok = await page.shared_preferences.get("auth_token")
-            if tok:
-                return str(tok)
-    except Exception:
-        pass
-    return None
-
-
-class NeedHelpController:
-    """Controller reference to allow external updates (e.g. module switching)."""
-
-    def __init__(self):
-        self.update_module_context: Optional[Callable] = None
-        self.toggle_minimized: Optional[Callable] = None
-        self.adapt_layout: Optional[Callable] = None
-
-
-AI_TUTOR_MOBILE_WIDTH = 400
-
-
-def build_need_help_drawer(
-    page: ft.Page,
-    lesson_data: Dict[str, Any],
-    module_title: str,
-    course_title: str,
-    on_close: Optional[Callable] = None,
-    course_id: Optional[str] = "default",
-    is_assessment: bool = False,
-    controller: Optional[NeedHelpController] = None,
-    target_container: Optional[ft.Container] = None,
-) -> ft.Control:
-    """
-    Constructs the floating, draggable, square-rounded conversational AI Study Assistant.
-    """
-    is_dark = getattr(page, "theme_mode", None) == ft.ThemeMode.DARK
-    card_bg = ft.Colors.SURFACE if is_dark else "#FFFFFF"
-    accent = ft.Colors.PRIMARY
-
-    # Mutable state for active learning context
-    current_context = {
-        "lesson_data": lesson_data or {},
-        "lesson_title": (lesson_data or {}).get("title", "Current Lesson"),
-        "module_title": module_title or "Module",
-        "course_title": course_title or "Course",
-        "is_assessment": is_assessment,
-        "is_generating": False,
-        "is_minimized": False,
-        "is_fullscreen": False,
-    }
-
-    def _get_lesson_content() -> str:
-        ld = current_context["lesson_data"]
-        return str(ld.get("content") or ld.get("description") or "")[:1400]
-
-    # Mobile breakpoint check (matches DESKTOP_BREAKPOINT = 1024)
-    page_w = getattr(page, "width", None) or 1024
-    page_h = getattr(page, "height", None) or 768
-    is_mobile = page_w < 1024
-
-    win_width = min(360, max(280, page_w - 24)) if is_mobile else AI_TUTOR_MOBILE_WIDTH
-    win_height = max(240, min(int(page_h * 0.49), 420)) if is_mobile else 540
-
-    # Genuine scrollable ListView for smooth wheel/touch scrolling
-    messages_col = ft.ListView(
-        spacing=8,
-        auto_scroll=False,
-        expand=True,
-        padding=ft.Padding.symmetric(horizontal=10, vertical=4),
-    )
-
-    # Context subtitle header label (module · lesson with ellipsis truncation)
-    initial_sub = (
-        f"{current_context['module_title']} · {current_context['lesson_title']}"
-        if current_context.get("module_title")
-        else current_context["lesson_title"]
-    )
-    header_subtitle_text = ft.Text(
-        initial_sub,
-        size=11,
-        color=ft.Colors.ON_SURFACE_VARIANT,
-        no_wrap=True,
-        max_lines=1,
-        overflow=ft.TextOverflow.ELLIPSIS,
-        tooltip=initial_sub,
-        expand=True,
-    )
-
-
-    # Copy / feedback helper
-    def _copy_to_clipboard(text: str):
-        async def _do_copy():
-            await safe_set_clipboard(page, text)
-            show_page_snackbar(
-                page,
-                ft.SnackBar(
-                    content=ft.Text("Copied explanation to clipboard!"),
-                    duration=2000,
-                    behavior=ft.SnackBarBehavior.FLOATING,
-                ),
-            )
-        asyncio.create_task(_do_copy())
-
-    def _thumbs_up(btn: ft.IconButton):
-        btn.icon = ft.Icons.THUMB_UP_ROUNDED
-        btn.icon_color = ft.Colors.GREEN_600
-        btn.tooltip = "Thanks for your feedback!"
-        page.update()
-
-    def _get_max_user_bubble_width() -> float:
-        w = getattr(page, "width", None) or 360
-        if is_mobile:
-            return max(180, min(int(w * 0.74), int(w - 64)))
-        return min(300, max(200, int((win_width or 400) * 0.76)))
-
-    # Message bubble renderer matching reference image aesthetics
-    def _bubble(text: str, is_user: bool, can_retry: bool = False, query_for_retry: str = "") -> ft.Control:
-        if is_user:
-            user_text = text.strip()
-            max_w = _get_max_user_bubble_width()
-            if "\n" in user_text:
-                lines = user_text.splitlines()
-                char_len = max(len(l) for l in lines) if lines else len(user_text)
-            else:
-                char_len = len(user_text)
-            bubble_w = min(max_w, max(70, int(char_len * 8.2) + 30))
-            return ft.Row(
-                alignment=ft.MainAxisAlignment.END,
-                controls=[
-                    ft.Container(
-                        padding=ft.Padding.symmetric(horizontal=12, vertical=8),
-                        border_radius=ft.BorderRadius.all(14),
-                        bgcolor=accent,
-                        width=bubble_w,
-                        content=ft.Text(
-                            user_text,
-                            size=12,
-                            color=ft.Colors.WHITE,
-                            selectable=True,
-                            no_wrap=False,
-                        ),
-                    ),
-                ],
-            )
-
-        # Assistant bubble (Panel 1 & Panel 2 from reference image)
-        assistant_card_bg = ft.Colors.SURFACE_CONTAINER_HIGHEST if is_dark else "#F8FAFC"
-        assistant_border = ft.Border.all(1, ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE))
-
-        md_control = ft.Markdown(
-            text,
-            selectable=True,
-            extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
-        )
-
-        bubble_col = ft.Column(
-            spacing=3,
-            tight=True,
-            horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
-            controls=[
-                ft.Container(
-                    padding=ft.Padding.symmetric(horizontal=14, vertical=11),
-                    border_radius=ft.BorderRadius.all(12),
-                    bgcolor=assistant_card_bg,
-                    border=assistant_border,
-                    content=md_control,
-                ),
-                ft.Row(
-                    spacing=4,
-                    tight=True,
-                    controls=[
-                        ft.IconButton(
-                            icon=ft.Icons.CONTENT_COPY_ROUNDED,
-                            icon_size=14,
-                            icon_color=ft.Colors.GREY_500,
-                            tooltip="Copy explanation",
-                            style=ft.ButtonStyle(padding=ft.Padding.all(4)),
-                            on_click=lambda _, t=text: _copy_to_clipboard(getattr(bubble_col, "_full_text", t) or md_control.value or t),
-                        )
-                    ],
-                ),
-            ],
-        )
-        bubble_col._md_control = md_control
-        bubble_col._full_text = text
-        return bubble_col
-
-    def _render_context_switch_pill(label: str) -> ft.Container:
-        return ft.Container(
-            alignment=ft.Alignment.CENTER,
-            padding=ft.Padding.symmetric(vertical=4),
-            content=ft.Container(
-                padding=ft.Padding.symmetric(horizontal=10, vertical=4),
-                border_radius=ft.BorderRadius.all(10),
-                bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
-                content=ft.Text(
-                    f"── {label} ──",
-                    size=10,
-                    color=ft.Colors.GREY_500,
-                    weight=ft.FontWeight.W_600,
-                ),
-            ),
-        )
-
-    # Initialize from Session History or show initial Welcome message
-    session_history = get_course_history(course_id)
-    if session_history:
-        for turn in session_history:
-            is_u = turn.get("role") == "user" or turn.get("is_user", False)
-            content = turn.get("content", "")
-            messages_col.controls.append(_bubble(content, is_user=is_u))
-    else:
-        # Initial Welcome message matching reference
-        welcome_text = (
-            f"👋 Hi! I'm your **Nu-AI Study Companion** for **{current_context['lesson_title']}**.\n\n"
-            f"Stuck on a formula, concept, or practical problem? "
-            f"Ask me anything or tap one of the quick prompts below."
-        )
-        messages_col.controls.append(_bubble(welcome_text, is_user=False))
-
-    # Input composer
-    input_field = ft.TextField(
-        hint_text="Ask a doubt about this lesson...",
-        text_size=12.5,
-        border_radius=ft.BorderRadius.all(20),
-        content_padding=ft.Padding.symmetric(horizontal=14, vertical=10),
-        autofocus=not is_mobile,
-        shift_enter=True,
-        min_lines=1,
-        max_lines=3,
-        filled=False,
-        border_color=ft.Colors.with_opacity(0.18, ft.Colors.ON_SURFACE),
-        focused_border_color=accent,
-        expand=True,
-    )
-
-    typing_indicator = ft.Row(
-        visible=False,
-        spacing=8,
-        controls=[
-            ft.ProgressRing(width=14, height=14, stroke_width=2, color=accent),
-            ft.Text("Nu-AI thinking...", size=11, color=ft.Colors.GREY_500, italic=True),
-        ],
-    )
-
-    # Socratic & standard offline fallback generator
-    def _generate_fallback_response(user_query: str) -> str:
-        les_title = current_context["lesson_title"]
-        mod_title = current_context["module_title"]
-        is_as = current_context["is_assessment"]
-        q_lower = user_query.lower()
-
-        if is_as:
-            # Socratic Assessment Anti-Cheating Response
-            if any(w in q_lower for w in ["answer", "option", "solution", "which one", "a, b, or c"]):
-                return (
-                    f"🛡️ **Assessment Mode Active**:\n\n"
-                    f"I cannot provide the direct answer, option letter, or solution code for graded questions.\n\n"
-                    f"💡 **How to approach this problem in {mod_title}**:\n"
-                    f"1. Break down the core rule or definition introduced in this lesson.\n"
-                    f"2. Eliminate options that contradict fundamental principles.\n"
-                    f"3. Ask yourself: *What is the relationship between the inputs and expected output?*\n\n"
-                    f"Would you like me to explain the theoretical concept behind this question?"
-                )
-            return (
-                f"🧠 ** Concept Hint for {les_title}**:\n\n"
-                f"In this assessment, remember the guiding principle from **{mod_title}**: "
-                f"evaluate each step systematically and verify your constraints before choosing your final response.\n\n"
-                f"👉 *Hint*: Reflect on how edge cases or exceptions are handled in this topic."
-            )
-
-        # Standard study doubt response
-        if "simply" in q_lower or "simple" in q_lower:
-            return (
-                f"💡 **Plain English Explanation of {les_title}**:\n\n"
-                f"Think of this topic as a practical building block in **{mod_title}**. "
-                f"Rather than getting lost in technical jargon, focus on the fundamental objective: "
-                f"it provides a structured method to achieve the goal reliably.\n\n"
-                f"👉 **Rule of thumb**: Identify your inputs, apply the core principle step-by-step, "
-                f"and test your expected outcome against a basic example."
-            )
-        elif "example" in q_lower or "analogy" in q_lower:
-            return (
-                f"🔍 **Real-World Analogy for {les_title}**:\n\n"
-                f"Imagine you are running a kitchen:\n"
-                f"- The input ingredients represent your raw problem data.\n"
-                f"- The recipe represents the step-by-step method shown in **{les_title}**.\n"
-                f"- The final dish is your verified result.\n\n"
-                f"If you skip a step in the recipe, the dish won't turn out right! "
-                f"That's why paying attention to each phase ensures consistent success."
-            )
-        elif "takeaway" in q_lower or "summary" in q_lower:
-            return (
-                f"📝 **Key Takeaways for {les_title}**:\n\n"
-                f"1. **Core Principle**: Essential foundation within **{mod_title}**.\n"
-                f"2. **Application**: Applied directly during assessments and hands-on exercises.\n"
-                f"3. **Pro-Tip**: Review the practice cards linked to this module to reinforce long-term recall."
-            )
-        elif "quiz" in q_lower:
-            return (
-                f"❓ **Quick Concept Check on {les_title}**:\n\n"
-                f"*Question*: What is the primary purpose of this topic inside {mod_title}?\n\n"
-                f"A) To establish fundamental understanding\n"
-                f"B) To bypass all earlier prerequisites\n"
-                f"C) To guess without verification\n\n"
-                f"*(Hint: Think about how this builds upon earlier modules!)*"
-            )
-        else:
-            return (
-                f"🎯 **Concerning '{user_query}' in {les_title}**:\n\n"
-                f"In the context of **{mod_title}**, this concept works by ensuring "
-                f"clarity, correctness, and reliable execution.\n\n"
-                f"Review the accompanying reading notes or test out an exercise in the **Practice** tab to reinforce it!"
-            )
-
-    async def _respond(user_text: str):
-        current_context["is_generating"] = True
-        typing_indicator.visible = True
-        send_btn.disabled = True
-        page.update()
-        try:
-            await messages_col.scroll_to(offset=-1, duration=200)
-        except Exception:
-            pass
-
-        reply = None
-
-        # 1. Attempt OpenAI API pipeline with assessment guardrail
-        try:
-            token = await _get_auth_token(page)
-            if token:
-                conv_history = get_course_history(course_id)
-                api_res = await ask_ai_tutor_api(
-                    token=token,
-                    query=user_text,
-                    course_title=current_context["course_title"],
-                    module_title=current_context["module_title"],
-                    lesson_title=current_context["lesson_title"],
-                    lesson_content=_get_lesson_content(),
-                    conversation_history=conv_history,
-                    is_assessment=current_context["is_assessment"],
-                )
-                if isinstance(api_res, dict) and "reply" in api_res:
-                    reply = api_res["reply"]
-        except Exception as ex:
-            print(f"[AI Tutor API Notice] falling back to local Socratic engine: {ex}")
-
-        # 2. Resilient pedagogical fallback
-        if not reply:
-            await asyncio.sleep(0.35)
-            reply = _generate_fallback_response(user_text)
-
-        # Persist assistant turn to session
-        append_course_message(course_id, "assistant", reply, current_context["lesson_title"])
-
-        typing_indicator.visible = False
-        current_context["is_generating"] = False
-        send_btn.disabled = False
-        # Build assistant bubble starting with cursor and smoothly stream typing
-        asst_bubble = _bubble("", is_user=False, can_retry=True, query_for_retry=user_text)
-        asst_bubble._full_text = reply
-        messages_col.controls.append(asst_bubble)
-        page.update()
-
-        await stream_typing_animation(
-            target_control=asst_bubble._md_control,
-            full_text=reply,
-            page=page,
-            scroll_container=messages_col,
-            words_per_chunk=2,
-            chunk_interval_ms=25,
-        )
-
-    def send_query(text: str):
-        clean_text = text.strip()
-        if not clean_text or current_context["is_generating"]:
-            return
-
-        # Persist user turn to session
-        append_course_message(course_id, "user", clean_text, current_context["lesson_title"])
-        messages_col.controls.append(_bubble(clean_text, is_user=True))
-        input_field.value = ""
-        page.update()
-
-        async def _scroll_down():
-            await asyncio.sleep(0.05)
-            try:
-                await messages_col.scroll_to(offset=-1, duration=250)
-            except Exception:
-                pass
-        asyncio.create_task(_scroll_down())
-
-        page.run_task(_respond, clean_text)
-
-    def on_send_click(e):
-        send_query(input_field.value)
-
-    input_field.on_submit = on_send_click
-
-    send_btn = ft.IconButton(
-        icon=ft.Icons.SEND_ROUNDED,
-        icon_color=accent,
-        icon_size=18,
-        tooltip="Send Question",
-        style=ft.ButtonStyle(padding=ft.Padding.all(6)),
-        on_click=on_send_click,
-    )
-
-    # Suggestion prompt chips container (swaps in assessment mode)
-    chips_col = ft.Column(spacing=6)
-
-    def _refresh_chips():
-        chips_col.controls.clear()
-        is_as = current_context["is_assessment"]
-
-        def make_chip(label: str, query: str):
-            chip_color = ft.Colors.GREEN_700 if not is_dark else accent
-            return ft.Container(
-                padding=ft.Padding.symmetric(horizontal=10, vertical=5),
-                border_radius=ft.BorderRadius.all(12),
-                bgcolor=ft.Colors.with_opacity(0.08, chip_color),
-                border=ft.Border.all(1, ft.Colors.with_opacity(0.20, chip_color)),
-                ink=True,
-                on_click=lambda _: send_query(query),
-                content=ft.Text(label, size=11, weight=ft.FontWeight.W_600, color=chip_color),
-            )
-
-        if is_as:
-            chips_col.controls.extend([
-                ft.Row(
-                    spacing=6,
-                    scroll=ft.ScrollMode.AUTO,
-                    controls=[
-                        make_chip("💡 Explain concept", "Explain the concept behind this assessment question"),
-                        make_chip("🔍 Similar example", "Walk through a similar example illustrating this principle"),
-                    ],
-                ),
-                ft.Row(
-                    spacing=6,
-                    scroll=ft.ScrollMode.AUTO,
-                    controls=[
-                        make_chip("📖 Key rules", "What are the key rules to remember for this question?"),
-                        make_chip("🤔 How to approach?", "How should I structure my reasoning for this problem?"),
-                    ],
-                ),
-            ])
-        else:
-            chips_col.controls.extend([
-                ft.Row(
-                    spacing=6,
-                    scroll=ft.ScrollMode.AUTO,
-                    controls=[
-                        make_chip("💡 Explain simply", "Explain this simply"),
-                        make_chip("🔍 Real-world analogy", "Give me a real-world example"),
-                    ],
-                ),
-                ft.Row(
-                    spacing=6,
-                    scroll=ft.ScrollMode.AUTO,
-                    controls=[
-                        make_chip("📝 Key takeaways", "Summarize key takeaways"),
-                        make_chip("❓ Quiz me", "Quiz me on this lesson"),
-                    ],
-                ),
-            ])
-
-    _refresh_chips()
-
-    def clear_chat(e=None):
-        clear_course_history(course_id)
-        messages_col.controls.clear()
-        welcome_text = (
-            f"✨ Chat history cleared.\n\n"
-            f"How can I help you master **{current_context['lesson_title']}** today?"
-        )
-        messages_col.controls.append(_bubble(welcome_text, is_user=False))
-        page.update()
-
-    # Dynamic Module Context Updater Hook (called when learner switches lessons in course_page)
-    def update_module_context(new_lesson_data: Dict[str, Any], new_module_title: str, new_is_assessment: bool):
-        current_context["lesson_data"] = new_lesson_data or {}
-        new_title = (new_lesson_data or {}).get("title", "Current Lesson")
-        current_context["lesson_title"] = new_title
-        current_context["module_title"] = new_module_title or "Module"
-        current_context["is_assessment"] = new_is_assessment
-
-        sub_title = f"{new_module_title} · {new_title}" if new_module_title else new_title
-        header_subtitle_text.value = sub_title
-        header_subtitle_text.tooltip = sub_title
-        _refresh_chips()
-
-        # Add unobtrusive context switch badge to chat flow
-        mode_str = " (Assessment Mode)" if new_is_assessment else ""
-        messages_col.controls.append(
-            _render_context_switch_pill(f"Context: {new_title}{mode_str}")
-        )
-        page.update()
-
-    if controller:
-        controller.update_module_context = update_module_context
-
-    # Collapsible / Minimized dock state for Mobile
-    minimized_pill = ft.Container(
-        visible=False,
-        bgcolor=accent,
-        border_radius=ft.BorderRadius.all(24),
-        padding=ft.Padding.symmetric(horizontal=16, vertical=10),
-        shadow=ft.BoxShadow(blur_radius=12, color=ft.Colors.with_opacity(0.25, ft.Colors.BLACK), offset=ft.Offset(0, 4)),
-        content=ft.Row(
-            spacing=8,
-            tight=True,
-            controls=[
-                ft.Icon(ft.Icons.AUTO_AWESOME_ROUNDED, size=16, color=ft.Colors.WHITE),
-                ft.Text("Nu-AI Tutor · Tap to expand", size=12, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
-            ],
-        ),
-        ink=True,
-    )
-
-    def current_is_mobile() -> bool:
-        w = getattr(page, "width", None)
-        if w is None and hasattr(page, "window") and page.window:
-            w = getattr(page.window, "width", None)
-        return (w or 1024) < 1024
-
-    def toggle_minimize(e=None):
-        current_context["is_minimized"] = not current_context["is_minimized"]
-        is_mob = current_is_mobile()
-        if is_mob:
-            if current_context["is_minimized"]:
-                container.content = minimized_pill
-                container.height = None
-                container.top = None
-                container.bottom = 10
-                container.left = 10
-                container.right = 10
-                container.bgcolor = ft.Colors.TRANSPARENT
-                container.border = None
-                container.shadow = None
-            else:
-                is_fs = current_context.get("is_fullscreen", False)
-                container.content = main_window_col
-                container.bgcolor = card_bg
-                container.border_radius = ft.BorderRadius.all(16)
-                container.border = ft.Border.all(1.2, ft.Colors.with_opacity(0.18, accent))
-                container.shadow = ft.BoxShadow(
-                    blur_radius=28,
-                    color=ft.Colors.with_opacity(0.25, ft.Colors.BLACK),
-                    offset=ft.Offset(0, 8),
-                )
-                if is_fs:
-                    container.top = 8
-                    container.bottom = 8
-                    container.left = 8
-                    container.right = 8
-                    container.height = None
-                else:
-                    container.top = None
-                    container.bottom = 10
-                    container.left = 10
-                    container.right = 10
-                    container.height = win_height
-        page.update()
-
-    minimized_pill.on_click = toggle_minimize
-
-    fullscreen_btn = ft.IconButton(
-        icon=ft.Icons.FULLSCREEN_ROUNDED,
-        icon_size=18,
-        icon_color=ft.Colors.GREY_600,
-        tooltip="Full Screen",
-        style=ft.ButtonStyle(padding=ft.Padding.all(4)),
-        visible=is_mobile,
-    )
-
-    def toggle_fullscreen(e=None):
-        current_context["is_fullscreen"] = not current_context.get("is_fullscreen", False)
-        is_fs = current_context["is_fullscreen"]
-        fullscreen_btn.icon = ft.Icons.FULLSCREEN_EXIT_ROUNDED if is_fs else ft.Icons.FULLSCREEN_ROUNDED
-        fullscreen_btn.tooltip = "Exit Full Screen" if is_fs else "Full Screen"
-
-        if current_is_mobile():
-            if is_fs:
-                container.top = 8
-                container.bottom = 8
-                container.left = 8
-                container.right = 8
-                container.height = None
-            else:
-                container.top = None
-                container.bottom = 10
-                container.left = 10
-                container.right = 10
-                container.height = win_height
-        page.update()
-
-    fullscreen_btn.on_click = toggle_fullscreen
-
-    def handle_close(e=None):
-        current_context["is_fullscreen"] = False
-        fullscreen_btn.icon = ft.Icons.FULLSCREEN_ROUNDED
-        fullscreen_btn.tooltip = "Full Screen"
-        if current_is_mobile():
-            container.top = None
-            container.bottom = 10
-            container.left = 10
-            container.right = 10
-            container.height = win_height
-        else:
-            container.left = None
-            container.right = None
-            container.top = None
-            container.bottom = None
-            container.height = None
-        if callable(on_close):
-            try:
-                on_close(e)
-            except TypeError:
-                on_close()
-
-    container = target_container if target_container is not None else ft.Container()
-
-    # Header Bar matching reference image
-    header_content = ft.Row(
-        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        controls=[
-            ft.Row(
-                spacing=10,
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                expand=True,
-                controls=[
-                    ft.Container(
-                        padding=ft.Padding.all(6),
-                        border_radius=ft.BorderRadius.all(8),
-                        bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.GREEN),
-                        content=ft.Icon(
-                            ft.Icons.AUTO_AWESOME_ROUNDED,
-                            size=16,
-                            color=ft.Colors.GREEN_700 if not is_dark else ft.Colors.GREEN,
-                        ),
-                    ),
-                    ft.Column(
-                        spacing=2,
-                        tight=True,
-                        expand=True,
-                        controls=[
-                            ft.Row(
-                                spacing=6,
-                                tight=True,
-                                controls=[
-                                    ft.Text(
-                                        "Course AI Assistant",
-                                        size=13.5,
-                                        weight=ft.FontWeight.BOLD,
-                                        color=ft.Colors.ON_SURFACE,
-                                    ),
-                                ],
-                            ),
-                            ft.Row(
-                                controls=[header_subtitle_text],
-                            ),
-                        ],
-                    ),
-                ],
-            ),
-            ft.Row(
-                spacing=2,
-                tight=True,
-                controls=[
-                    fullscreen_btn,
-                    ft.IconButton(
-                        icon=ft.Icons.CLOSE_ROUNDED,
-                        icon_size=18,
-                        icon_color=ft.Colors.GREY_600,
-                        tooltip="Close",
-                        style=ft.ButtonStyle(padding=ft.Padding.all(4)),
-                        on_click=handle_close,
-                    ),
-                ],
-            ),
-        ],
-    )
-
-    main_window_col = ft.Column(
-        spacing=0,
-        expand=True,
-        controls=[
-            # Top header with lesson context matching screenshot
-            ft.Container(
-                padding=ft.Padding.symmetric(horizontal=14, vertical=12),
-                border=ft.Border.only(
-                    bottom=ft.BorderSide(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE))
-                ),
-                content=header_content,
-            ),
-            # Quick prompt chips
-            ft.Container(
-                padding=ft.Padding.symmetric(horizontal=12, vertical=10),
-                content=chips_col,
-            ),
-            # Scrollable Message list
-            ft.Container(
-                expand=True,
-                padding=0,
-                content=messages_col,
-            ),
-            # Typing indicator
-            ft.Container(
-                padding=ft.Padding.symmetric(horizontal=12, vertical=2),
-                content=typing_indicator,
-            ),
-            # Input composer footer
-            ft.Container(
-                padding=ft.Padding.symmetric(horizontal=12, vertical=10),
-                border=ft.Border.only(
-                    top=ft.BorderSide(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE))
-                ),
-                content=ft.Row(
-                    spacing=8,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                    controls=[
-                        input_field,
-                        send_btn,
-                    ],
-                ),
-            ),
-        ],
-    )
-
-    def adapt_layout(is_desktop: bool, page_w: int, page_h: int):
-        nonlocal is_mobile, win_height
-        is_mobile = not is_desktop
-        win_height = max(240, min(int(page_h * 0.49), 420)) if is_mobile else 540
-        fullscreen_btn.visible = is_mobile
-
-        if is_desktop:
-            container.left = None
-            container.right = None
-            container.top = None
-            container.bottom = None
-            container.width = AI_TUTOR_MOBILE_WIDTH
-            container.height = None
-            container.expand = False
-            container.margin = ft.Padding.only(right=12, top=6, bottom=12)
-            container.bgcolor = card_bg
-            container.clip_behavior = ft.ClipBehavior.ANTI_ALIAS
-            container.border_radius = ft.BorderRadius.all(16)
-            container.border = ft.Border.all(
-                1, ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)
-            )
-            container.shadow = ft.BoxShadow(
-                blur_radius=20,
-                spread_radius=0,
-                color=ft.Colors.with_opacity(0.14, ft.Colors.BLACK),
-                offset=ft.Offset(0, 4),
-            )
-            container.content = main_window_col
-        else:
-            container.margin = None
-            container.width = None
-            container.expand = False
-            is_fs = current_context.get("is_fullscreen", False)
-            is_min = current_context.get("is_minimized", False)
-            if is_min:
-                container.content = minimized_pill
-                container.height = None
-                container.left = 10
-                container.right = 10
-                container.bottom = 10
-                container.top = None
-                container.bgcolor = ft.Colors.TRANSPARENT
-                container.border = None
-                container.shadow = None
-            elif is_fs:
-                container.content = main_window_col
-                container.left = 8
-                container.right = 8
-                container.top = 8
-                container.bottom = 8
-                container.height = None
-                container.bgcolor = card_bg
-                container.border_radius = ft.BorderRadius.all(16)
-                container.border = ft.Border.all(1.2, ft.Colors.with_opacity(0.18, accent))
-                container.shadow = ft.BoxShadow(
-                    blur_radius=28,
-                    color=ft.Colors.with_opacity(0.25, ft.Colors.BLACK),
-                    offset=ft.Offset(0, 8),
-                )
-            else:
-                container.content = main_window_col
-                container.left = 10
-                container.right = 10
-                container.bottom = 10
-                container.top = None
-                container.height = win_height
-                container.bgcolor = card_bg
-                container.border_radius = ft.BorderRadius.all(16)
-                container.border = ft.Border.all(1.2, ft.Colors.with_opacity(0.18, accent))
-                container.shadow = ft.BoxShadow(
-                    blur_radius=28,
-                    color=ft.Colors.with_opacity(0.25, ft.Colors.BLACK),
-                    offset=ft.Offset(0, 8),
-                )
-
-    if controller is not None:
-        controller.adapt_layout = adapt_layout
-
-    # Initial layout setup based on current screen width
-    adapt_layout(is_desktop=not is_mobile, page_w=page_w, page_h=page_h)
-
-    return container
+"""
+src/components/need_help_drawer.py
+
+Contextual, floating, draggable, and Socratic AI Study Companion (Nu-AI Tutor).
+Grounds doubts in the currently active lesson/module with:
+- Square-rounded card aesthetics matching modern reference UI.
+- Top model pill badge ([ ✨ Nu-AI Tutor ] / [ 🛡️ Assessment Mode ]).
+- Non-blocking, draggable overlay on desktop via GestureDetector.
+- Adaptive collapsible bottom dock on mobile with 1-tap minimize pill.
+- Session-wide chat history persistence across drawer toggles & navigation.
+- Dynamic real-time module/lesson context switching without reopening.
+- Strict assessment guardrails (anti-cheating hints and guidance).
+- Assistant message action bar (Copy, Regenerate, Thumbs-up).
+- Uncropped input composer with inline rounded send button.
+"""
+
+import asyncio
+import flet as ft
+from typing import Dict, Any, Optional, Callable, List
+from src.components.chat_quota_modal import open_chat_quota_modal
+from src.utils.ai_error_sanitizer import get_user_friendly_ai_error
+from src.requests.chats import ask_ai_tutor_api
+from src.requests.study import get_ai_tutor_quota_api
+from src.services.ai_tutor_session import (
+    get_course_history,
+    append_course_message,
+    clear_course_history,
+)
+from src.utils.file_opener import show_page_snackbar, safe_set_clipboard
+from src.utils.typing_animator import stream_typing_animation
+
+
+async def _get_auth_token(page: ft.Page) -> Optional[str]:
+    """Retrieve auth token safely without deprecation warnings."""
+    try:
+        if hasattr(page, "session") and hasattr(page.session, "store"):
+            tok = page.session.store.get("token") or page.session.store.get("auth_token")
+            if tok:
+                return str(tok)
+    except Exception:
+        pass
+    try:
+        sp = ft.SharedPreferences()
+        tok = await sp.get("auth_token")
+        if tok:
+            return str(tok)
+    except Exception:
+        pass
+    try:
+        if hasattr(page, "shared_preferences"):
+            tok = await page.shared_preferences.get("auth_token")
+            if tok:
+                return str(tok)
+    except Exception:
+        pass
+    return None
+
+
+class NeedHelpController:
+    """Controller reference to allow external updates (e.g. module switching)."""
+
+    def __init__(self):
+        self.update_module_context: Optional[Callable] = None
+        self.toggle_minimized: Optional[Callable] = None
+        self.adapt_layout: Optional[Callable] = None
+
+
+AI_TUTOR_MOBILE_WIDTH = 400
+
+
+def build_need_help_drawer(
+    page: ft.Page,
+    lesson_data: Dict[str, Any],
+    module_title: str,
+    course_title: str,
+    on_close: Optional[Callable] = None,
+    course_id: Optional[str] = "default",
+    is_assessment: bool = False,
+    controller: Optional[NeedHelpController] = None,
+    target_container: Optional[ft.Container] = None,
+) -> ft.Control:
+    """
+    Constructs the floating, draggable, square-rounded conversational AI Study Assistant.
+    """
+    is_dark = getattr(page, "theme_mode", None) == ft.ThemeMode.DARK
+    card_bg = ft.Colors.SURFACE if is_dark else "#FFFFFF"
+    accent = ft.Colors.PRIMARY
+
+    # Mutable state for active learning context
+    current_context = {
+        "lesson_data": lesson_data or {},
+        "lesson_title": (lesson_data or {}).get("title", "Current Lesson"),
+        "module_title": module_title or "Module",
+        "course_title": course_title or "Course",
+        "is_assessment": is_assessment,
+        "is_generating": False,
+        "is_minimized": False,
+        "is_fullscreen": False,
+    }
+
+    def _get_lesson_content() -> str:
+        ld = current_context["lesson_data"]
+        return str(ld.get("content") or ld.get("description") or "")[:1400]
+
+    # Mobile breakpoint check (matches DESKTOP_BREAKPOINT = 1024)
+    page_w = getattr(page, "width", None) or 1024
+    page_h = getattr(page, "height", None) or 768
+    is_mobile = page_w < 1024
+
+    win_width = min(360, max(280, page_w - 24)) if is_mobile else AI_TUTOR_MOBILE_WIDTH
+    win_height = max(240, min(int(page_h * 0.49), 420)) if is_mobile else 540
+
+    # Genuine scrollable ListView for smooth wheel/touch scrolling
+    messages_col = ft.ListView(
+        spacing=8,
+        auto_scroll=False,
+        expand=True,
+        padding=ft.Padding.symmetric(horizontal=10, vertical=4),
+    )
+
+    # Context subtitle header label (module · lesson with ellipsis truncation)
+    initial_sub = (
+        f"{current_context['module_title']} · {current_context['lesson_title']}"
+        if current_context.get("module_title")
+        else current_context["lesson_title"]
+    )
+    header_subtitle_text = ft.Text(
+        initial_sub,
+        size=11,
+        color=ft.Colors.ON_SURFACE_VARIANT,
+        no_wrap=True,
+        max_lines=1,
+        overflow=ft.TextOverflow.ELLIPSIS,
+        tooltip=initial_sub,
+        expand=True,
+    )
+
+
+    # Copy / feedback helper
+    def _copy_to_clipboard(text: str):
+        async def _do_copy():
+            await safe_set_clipboard(page, text)
+            show_page_snackbar(
+                page,
+                ft.SnackBar(
+                    content=ft.Text("Copied explanation to clipboard!"),
+                    duration=2000,
+                    behavior=ft.SnackBarBehavior.FLOATING,
+                ),
+            )
+        asyncio.create_task(_do_copy())
+
+    def _thumbs_up(btn: ft.IconButton):
+        btn.icon = ft.Icons.THUMB_UP_ROUNDED
+        btn.icon_color = ft.Colors.GREEN_600
+        btn.tooltip = "Thanks for your feedback!"
+        page.update()
+
+    def _get_max_user_bubble_width() -> float:
+        w = getattr(page, "width", None) or 360
+        if is_mobile:
+            return max(180, min(int(w * 0.74), int(w - 64)))
+        return min(300, max(200, int((win_width or 400) * 0.76)))
+
+    # Message bubble renderer matching reference image aesthetics
+    def _bubble(text: str, is_user: bool, can_retry: bool = False, query_for_retry: str = "") -> ft.Control:
+        if is_user:
+            user_text = text.strip()
+            max_w = _get_max_user_bubble_width()
+            if "\n" in user_text:
+                lines = user_text.splitlines()
+                char_len = max(len(l) for l in lines) if lines else len(user_text)
+            else:
+                char_len = len(user_text)
+            bubble_w = min(max_w, max(70, int(char_len * 8.2) + 30))
+            return ft.Row(
+                alignment=ft.MainAxisAlignment.END,
+                controls=[
+                    ft.Container(
+                        padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+                        border_radius=ft.BorderRadius.all(14),
+                        bgcolor=accent,
+                        width=bubble_w,
+                        animate_opacity=ft.Animation(180, ft.AnimationCurve.EASE_OUT),
+                        content=ft.Text(
+                            user_text,
+                            size=12,
+                            color=ft.Colors.WHITE,
+                            selectable=True,
+                            no_wrap=False,
+                        ),
+                    ),
+                ],
+            )
+
+        # Assistant bubble (Panel 1 & Panel 2 from reference image)
+        assistant_card_bg = ft.Colors.SURFACE_CONTAINER_HIGHEST if is_dark else "#F8FAFC"
+        assistant_border = ft.Border.all(1, ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE))
+
+        md_control = ft.Markdown(
+            text,
+            selectable=True,
+            extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+        )
+
+        bubble_col = ft.Column(
+            spacing=3,
+            tight=True,
+            horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+            controls=[
+                ft.Container(
+                    padding=ft.Padding.symmetric(horizontal=14, vertical=11),
+                    border_radius=ft.BorderRadius.all(12),
+                    bgcolor=assistant_card_bg,
+                    border=assistant_border,
+                    content=md_control,
+                ),
+                ft.Row(
+                    spacing=4,
+                    tight=True,
+                    controls=[
+                        ft.IconButton(
+                            icon=ft.Icons.CONTENT_COPY_ROUNDED,
+                            icon_size=14,
+                            icon_color=ft.Colors.GREY_500,
+                            tooltip="Copy explanation",
+                            style=ft.ButtonStyle(padding=ft.Padding.all(4)),
+                            on_click=lambda _, t=text: _copy_to_clipboard(getattr(bubble_col, "_full_text", t) or md_control.value or t),
+                        )
+                    ],
+                ),
+            ],
+        )
+        bubble_col._md_control = md_control
+        bubble_col._full_text = text
+        return bubble_col
+
+    def _render_context_switch_pill(label: str) -> ft.Container:
+        return ft.Container(
+            alignment=ft.Alignment.CENTER,
+            padding=ft.Padding.symmetric(vertical=4),
+            content=ft.Container(
+                padding=ft.Padding.symmetric(horizontal=10, vertical=4),
+                border_radius=ft.BorderRadius.all(10),
+                bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
+                content=ft.Text(
+                    f"── {label} ──",
+                    size=10,
+                    color=ft.Colors.GREY_500,
+                    weight=ft.FontWeight.W_600,
+                ),
+            ),
+        )
+
+    # Initialize from Session History or show initial Welcome message
+    session_history = get_course_history(course_id)
+    if session_history:
+        for turn in session_history:
+            is_u = turn.get("role") == "user" or turn.get("is_user", False)
+            content = turn.get("content", "")
+            messages_col.controls.append(_bubble(content, is_user=is_u))
+    else:
+        # Initial Welcome message matching reference
+        welcome_text = (
+            f"👋 Hi! I'm your **Nu-AI Study Companion** for **{current_context['lesson_title']}**.\n\n"
+            f"Stuck on a formula, concept, or practical problem? "
+            f"Ask me anything or tap one of the quick prompts below."
+        )
+        messages_col.controls.append(_bubble(welcome_text, is_user=False))
+
+    # Input composer
+    input_field = ft.TextField(
+        hint_text="Ask a doubt about this lesson...",
+        text_size=12.5,
+        border_radius=ft.BorderRadius.all(20),
+        content_padding=ft.Padding.symmetric(horizontal=14, vertical=10),
+        autofocus=not is_mobile,
+        shift_enter=True,
+        min_lines=1,
+        max_lines=3,
+        filled=False,
+        border_color=ft.Colors.with_opacity(0.18, ft.Colors.ON_SURFACE),
+        focused_border_color=accent,
+        expand=True,
+    )
+
+    typing_indicator = ft.Row(
+        visible=False,
+        spacing=8,
+        controls=[
+            ft.ProgressRing(width=14, height=14, stroke_width=2, color=accent),
+            ft.Text("Nu-AI thinking...", size=11, color=ft.Colors.GREY_500, italic=True),
+        ],
+    )
+
+    # Socratic & standard offline fallback generator
+    def _generate_fallback_response(user_query: str) -> str:
+        les_title = current_context["lesson_title"]
+        mod_title = current_context["module_title"]
+        is_as = current_context["is_assessment"]
+        q_lower = user_query.lower()
+
+        if is_as:
+            # Socratic Assessment Anti-Cheating Response
+            if any(w in q_lower for w in ["answer", "option", "solution", "which one", "a, b, or c"]):
+                return (
+                    f"🛡️ **Assessment Mode Active**:\n\n"
+                    f"I cannot provide the direct answer, option letter, or solution code for graded questions.\n\n"
+                    f"💡 **How to approach this problem in {mod_title}**:\n"
+                    f"1. Break down the core rule or definition introduced in this lesson.\n"
+                    f"2. Eliminate options that contradict fundamental principles.\n"
+                    f"3. Ask yourself: *What is the relationship between the inputs and expected output?*\n\n"
+                    f"Would you like me to explain the theoretical concept behind this question?"
+                )
+            return (
+                f"🧠 ** Concept Hint for {les_title}**:\n\n"
+                f"In this assessment, remember the guiding principle from **{mod_title}**: "
+                f"evaluate each step systematically and verify your constraints before choosing your final response.\n\n"
+                f"👉 *Hint*: Reflect on how edge cases or exceptions are handled in this topic."
+            )
+
+        # Standard study doubt response
+        if "simply" in q_lower or "simple" in q_lower:
+            return (
+                f"💡 **Plain English Explanation of {les_title}**:\n\n"
+                f"Think of this topic as a practical building block in **{mod_title}**. "
+                f"Rather than getting lost in technical jargon, focus on the fundamental objective: "
+                f"it provides a structured method to achieve the goal reliably.\n\n"
+                f"👉 **Rule of thumb**: Identify your inputs, apply the core principle step-by-step, "
+                f"and test your expected outcome against a basic example."
+            )
+        elif "example" in q_lower or "analogy" in q_lower:
+            return (
+                f"🔍 **Real-World Analogy for {les_title}**:\n\n"
+                f"Imagine you are running a kitchen:\n"
+                f"- The input ingredients represent your raw problem data.\n"
+                f"- The recipe represents the step-by-step method shown in **{les_title}**.\n"
+                f"- The final dish is your verified result.\n\n"
+                f"If you skip a step in the recipe, the dish won't turn out right! "
+                f"That's why paying attention to each phase ensures consistent success."
+            )
+        elif "takeaway" in q_lower or "summary" in q_lower:
+            return (
+                f"📝 **Key Takeaways for {les_title}**:\n\n"
+                f"1. **Core Principle**: Essential foundation within **{mod_title}**.\n"
+                f"2. **Application**: Applied directly during assessments and hands-on exercises.\n"
+                f"3. **Pro-Tip**: Review the practice cards linked to this module to reinforce long-term recall."
+            )
+        elif "quiz" in q_lower:
+            return (
+                f"❓ **Quick Concept Check on {les_title}**:\n\n"
+                f"*Question*: What is the primary purpose of this topic inside {mod_title}?\n\n"
+                f"A) To establish fundamental understanding\n"
+                f"B) To bypass all earlier prerequisites\n"
+                f"C) To guess without verification\n\n"
+                f"*(Hint: Think about how this builds upon earlier modules!)*"
+            )
+        else:
+            return (
+                f"🎯 **Concerning '{user_query}' in {les_title}**:\n\n"
+                f"In the context of **{mod_title}**, this concept works by ensuring "
+                f"clarity, correctness, and reliable execution.\n\n"
+                f"Review the accompanying reading notes or test out an exercise in the **Practice** tab to reinforce it!"
+            )
+
+    quota_status_bar = ft.Container(
+        visible=False,
+        padding=ft.Padding.symmetric(horizontal=12, vertical=4),
+    )
+
+    def _apply_quota_ui(quota: dict):
+        if not quota:
+            return
+        current_context["quota_info"] = quota
+        is_unlimited = quota.get("is_unlimited", False)
+        used = quota.get("used", 0)
+        limit = quota.get("limit", 15)
+        remaining = quota.get("remaining", max(0, limit - used))
+        is_locked = quota.get("locked", False) or (not is_unlimited and used >= limit)
+        current_context["quota_locked"] = is_locked
+
+        if is_unlimited:
+            input_field.disabled = False
+            send_btn.disabled = False
+            input_field.hint_text = "Ask a question about this lesson..."
+            quota_status_bar.content = ft.Row(
+                spacing=5,
+                tight=True,
+                controls=[
+                    ft.Icon(ft.Icons.AUTO_AWESOME_ROUNDED, size=12, color=accent),
+                    ft.Text("Pro Scholar · Unlimited AI Tutor Queries", size=10.5, weight=ft.FontWeight.W_600, color=accent),
+                ],
+            )
+            quota_status_bar.visible = True
+        elif is_locked:
+            input_field.disabled = True
+            send_btn.disabled = True
+            input_field.hint_text = "Daily limit reached (15/15). Upgrade for unlimited."
+            quota_status_bar.content = ft.Row(
+                spacing=6,
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                controls=[
+                    ft.Row(
+                        spacing=5,
+                        controls=[
+                            ft.Icon(ft.Icons.LOCK_ROUNDED, size=12, color=ft.Colors.AMBER_600),
+                            ft.Text(f"Daily limit reached ({limit}/{limit}) · Resets 00:00 UTC", size=10.5, weight=ft.FontWeight.W_700, color=ft.Colors.AMBER_600),
+                        ],
+                    ),
+                    ft.TextButton(
+                        content=ft.Text("Upgrade", size=10.5, weight=ft.FontWeight.W_700, color=ft.Colors.PRIMARY),
+                        style=ft.ButtonStyle(padding=ft.Padding.symmetric(horizontal=6, vertical=2)),
+                        on_click=lambda _: open_chat_quota_modal(page, quota),
+                    ),
+                ],
+            )
+            quota_status_bar.visible = True
+        else:
+            input_field.disabled = False
+            send_btn.disabled = False
+            input_field.hint_text = "Ask a question about this lesson..."
+            quota_status_bar.content = ft.Row(
+                spacing=6,
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                controls=[
+                    ft.Row(
+                        spacing=5,
+                        controls=[
+                            ft.Icon(ft.Icons.BOLT_ROUNDED, size=12, color=ft.Colors.GREY_500),
+                            ft.Text(f"⚡ {used}/{limit} queries today ({remaining} left · Resets 00:00 UTC)", size=10.5, color=ft.Colors.GREY_500),
+                        ],
+                    ),
+                    ft.TextButton(
+                        content=ft.Text("Unlimited", size=10.5, weight=ft.FontWeight.W_700, color=accent),
+                        style=ft.ButtonStyle(padding=ft.Padding.symmetric(horizontal=6, vertical=2)),
+                        on_click=lambda _: page.go("/store"),
+                    ),
+                ],
+            )
+            quota_status_bar.visible = True
+        page.update()
+
+    async def _fetch_quota():
+        try:
+            token = await _get_auth_token(page)
+            if token:
+                quota = await get_ai_tutor_quota_api(token)
+                _apply_quota_ui(quota)
+        except Exception as q_err:
+            print(f"[need_help_drawer] quota check error: {q_err}")
+
+    page.run_task(_fetch_quota)
+
+    async def _respond(user_text: str):
+        current_context["is_generating"] = True
+        typing_indicator.visible = True
+        send_btn.disabled = True
+        page.update()
+        try:
+            await messages_col.scroll_to(offset=-1, duration=200)
+        except Exception:
+            pass
+
+        reply = None
+        is_error = False
+
+        # 1. Attempt OpenAI API pipeline with assessment guardrail
+        try:
+            token = await _get_auth_token(page)
+            if token:
+                conv_history = get_course_history(course_id)
+                api_res = await ask_ai_tutor_api(
+                    token=token,
+                    query=user_text,
+                    course_title=current_context["course_title"],
+                    module_title=current_context["module_title"],
+                    lesson_title=current_context["lesson_title"],
+                    lesson_content=_get_lesson_content(),
+                    conversation_history=conv_history,
+                    is_assessment=current_context["is_assessment"],
+                )
+                if isinstance(api_res, dict):
+                    if api_res.get("quota_locked"):
+                        is_error = True
+                        current_context["quota_locked"] = True
+                        current_context["quota_info"] = {"locked": True, "used": 15, "limit": 15, "remaining": 0}
+                        _apply_quota_ui(current_context["quota_info"])
+                        open_chat_quota_modal(page, current_context["quota_info"])
+                        reply = get_user_friendly_ai_error(is_quota=True)
+                    elif api_res.get("is_ai_error") or api_res.get("error"):
+                        if not current_context.get("is_assessment"):
+                            reply = _generate_fallback_response(user_text)
+                        else:
+                            is_error = True
+                            reply = get_user_friendly_ai_error(api_res.get("error"))
+                    else:
+                        quota_payload = api_res.get("quota")
+                        if quota_payload:
+                            _apply_quota_ui(quota_payload)
+                        elif not current_context.get("quota_info", {}).get("is_unlimited", False):
+                            curr_q = current_context.setdefault("quota_info", {"limit": 15, "used": 0, "remaining": 15, "is_unlimited": False})
+                            curr_q["used"] = curr_q.get("used", 0) + 1
+                            curr_q["remaining"] = max(0, curr_q.get("limit", 15) - curr_q["used"])
+                            curr_q["locked"] = curr_q["used"] >= curr_q.get("limit", 15)
+                            _apply_quota_ui(curr_q)
+                        if "reply" in api_res:
+                            reply = api_res["reply"]
+        except Exception as ex:
+            print(f"[AI Tutor API Notice] notice: {ex}")
+            if not current_context.get("is_assessment") and not current_context.get("quota_locked"):
+                reply = _generate_fallback_response(user_text)
+            else:
+                is_error = True
+                reply = get_user_friendly_ai_error(str(ex))
+
+        # 2. Resilient pedagogical fallback (only if not quota locked and not explicit error)
+        if not reply:
+            if not current_context.get("quota_locked") and not current_context.get("is_assessment"):
+                await asyncio.sleep(0.35)
+                reply = _generate_fallback_response(user_text)
+            else:
+                is_error = True
+                reply = get_user_friendly_ai_error()
+
+        # Persist assistant turn to session ONLY if not an error message
+        if reply and not is_error:
+            append_course_message(course_id, "assistant", reply, current_context["lesson_title"])
+
+        typing_indicator.visible = False
+        current_context["is_generating"] = False
+        send_btn.disabled = bool(current_context.get("quota_locked"))
+        # Build assistant bubble starting with cursor and smoothly stream typing
+        if reply:
+            asst_bubble = _bubble("", is_user=False, can_retry=not current_context.get("quota_locked"), query_for_retry=user_text)
+            asst_bubble._full_text = reply
+            messages_col.controls.append(asst_bubble)
+            page.update()
+
+            await stream_typing_animation(
+                target_control=asst_bubble._md_control,
+                full_text=reply,
+                page=page,
+                scroll_container=messages_col,
+                words_per_chunk=2,
+                chunk_interval_ms=25,
+            )
+
+    def send_query(text: str):
+        clean_text = text.strip()
+        if not clean_text or current_context["is_generating"]:
+            return
+
+        if current_context.get("quota_locked"):
+            open_chat_quota_modal(page, current_context.get("quota_info", {}))
+            return
+
+        # Persist user turn to session
+        append_course_message(course_id, "user", clean_text, current_context["lesson_title"])
+        messages_col.controls.append(_bubble(clean_text, is_user=True))
+        input_field.value = ""
+        page.update()
+
+        async def _scroll_down():
+            await asyncio.sleep(0.05)
+            try:
+                await messages_col.scroll_to(offset=-1, duration=250)
+            except Exception:
+                pass
+        asyncio.create_task(_scroll_down())
+
+        page.run_task(_respond, clean_text)
+
+    def on_send_click(e):
+        send_query(input_field.value)
+
+    input_field.on_submit = on_send_click
+
+    send_btn = ft.IconButton(
+        icon=ft.Icons.SEND_ROUNDED,
+        icon_color=accent,
+        icon_size=18,
+        tooltip="Send Question",
+        style=ft.ButtonStyle(padding=ft.Padding.all(6)),
+        on_click=on_send_click,
+    )
+
+    # Suggestion prompt chips container (swaps in assessment mode)
+    chips_col = ft.Column(spacing=6)
+
+    def _refresh_chips():
+        chips_col.controls.clear()
+        is_as = current_context["is_assessment"]
+
+        def make_chip(label: str, query: str):
+            chip_color = ft.Colors.GREEN_700 if not is_dark else accent
+            def _click_chip(e=None):
+                if current_context.get("quota_locked"):
+                    open_chat_quota_modal(page, current_context.get("quota_info", {}))
+                    return
+                send_query(query)
+            return ft.Container(
+                padding=ft.Padding.symmetric(horizontal=10, vertical=5),
+                border_radius=ft.BorderRadius.all(12),
+                bgcolor=ft.Colors.with_opacity(0.08, chip_color),
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.20, chip_color)),
+                ink=True,
+                on_click=_click_chip,
+                content=ft.Text(label, size=11, weight=ft.FontWeight.W_600, color=chip_color),
+            )
+
+        if is_as:
+            chips_col.controls.extend([
+                ft.Row(
+                    spacing=6,
+                    scroll=ft.ScrollMode.AUTO,
+                    controls=[
+                        make_chip("💡 Explain concept", "Explain the concept behind this assessment question"),
+                        make_chip("🔍 Similar example", "Walk through a similar example illustrating this principle"),
+                    ],
+                ),
+                ft.Row(
+                    spacing=6,
+                    scroll=ft.ScrollMode.AUTO,
+                    controls=[
+                        make_chip("📖 Key rules", "What are the key rules to remember for this question?"),
+                        make_chip("🤔 How to approach?", "How should I structure my reasoning for this problem?"),
+                    ],
+                ),
+            ])
+        else:
+            chips_col.controls.extend([
+                ft.Row(
+                    spacing=6,
+                    scroll=ft.ScrollMode.AUTO,
+                    controls=[
+                        make_chip("💡 Explain simply", "Explain this simply"),
+                        make_chip("🔍 Real-world analogy", "Give me a real-world example"),
+                    ],
+                ),
+                ft.Row(
+                    spacing=6,
+                    scroll=ft.ScrollMode.AUTO,
+                    controls=[
+                        make_chip("📝 Key takeaways", "Summarize key takeaways"),
+                        make_chip("❓ Quiz me", "Quiz me on this lesson"),
+                    ],
+                ),
+            ])
+
+    _refresh_chips()
+
+    def clear_chat(e=None):
+        clear_course_history(course_id)
+        messages_col.controls.clear()
+        welcome_text = (
+            f"✨ Chat history cleared.\n\n"
+            f"How can I help you master **{current_context['lesson_title']}** today?"
+        )
+        messages_col.controls.append(_bubble(welcome_text, is_user=False))
+        page.update()
+
+    # Dynamic Module Context Updater Hook (called when learner switches lessons in course_page)
+    def update_module_context(new_lesson_data: Dict[str, Any], new_module_title: str, new_is_assessment: bool):
+        current_context["lesson_data"] = new_lesson_data or {}
+        new_title = (new_lesson_data or {}).get("title", "Current Lesson")
+        current_context["lesson_title"] = new_title
+        current_context["module_title"] = new_module_title or "Module"
+        current_context["is_assessment"] = new_is_assessment
+
+        sub_title = f"{new_module_title} · {new_title}" if new_module_title else new_title
+        header_subtitle_text.value = sub_title
+        header_subtitle_text.tooltip = sub_title
+        _refresh_chips()
+
+        # Add unobtrusive context switch badge to chat flow
+        mode_str = " (Assessment Mode)" if new_is_assessment else ""
+        messages_col.controls.append(
+            _render_context_switch_pill(f"Context: {new_title}{mode_str}")
+        )
+        page.update()
+
+    if controller:
+        controller.update_module_context = update_module_context
+
+    # Collapsible / Minimized dock state for Mobile
+    minimized_pill = ft.Container(
+        visible=False,
+        bgcolor=accent,
+        border_radius=ft.BorderRadius.all(24),
+        padding=ft.Padding.symmetric(horizontal=16, vertical=10),
+        shadow=ft.BoxShadow(blur_radius=12, color=ft.Colors.with_opacity(0.25, ft.Colors.BLACK), offset=ft.Offset(0, 4)),
+        content=ft.Row(
+            spacing=8,
+            tight=True,
+            controls=[
+                ft.Icon(ft.Icons.AUTO_AWESOME_ROUNDED, size=16, color=ft.Colors.WHITE),
+                ft.Text("Nu-AI Tutor · Tap to expand", size=12, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+            ],
+        ),
+        ink=True,
+    )
+
+    def current_is_mobile() -> bool:
+        w = getattr(page, "width", None)
+        if w is None and hasattr(page, "window") and page.window:
+            w = getattr(page.window, "width", None)
+        return (w or 1024) < 1024
+
+    def toggle_minimize(e=None):
+        current_context["is_minimized"] = not current_context["is_minimized"]
+        is_mob = current_is_mobile()
+        if is_mob:
+            if current_context["is_minimized"]:
+                container.content = minimized_pill
+                container.height = None
+                container.top = None
+                container.bottom = 10
+                container.left = 10
+                container.right = 10
+                container.bgcolor = ft.Colors.TRANSPARENT
+                container.border = None
+                container.shadow = None
+            else:
+                is_fs = current_context.get("is_fullscreen", False)
+                container.content = main_window_col
+                container.bgcolor = card_bg
+                container.border_radius = ft.BorderRadius.all(16)
+                container.border = ft.Border.all(1.2, ft.Colors.with_opacity(0.18, accent))
+                container.shadow = ft.BoxShadow(
+                    blur_radius=28,
+                    color=ft.Colors.with_opacity(0.25, ft.Colors.BLACK),
+                    offset=ft.Offset(0, 8),
+                )
+                if is_fs:
+                    container.top = 8
+                    container.bottom = 8
+                    container.left = 8
+                    container.right = 8
+                    container.height = None
+                else:
+                    container.top = None
+                    container.bottom = 10
+                    container.left = 10
+                    container.right = 10
+                    container.height = win_height
+        page.update()
+
+    minimized_pill.on_click = toggle_minimize
+
+    fullscreen_btn = ft.IconButton(
+        icon=ft.Icons.FULLSCREEN_ROUNDED,
+        icon_size=18,
+        icon_color=ft.Colors.GREY_600,
+        tooltip="Full Screen",
+        style=ft.ButtonStyle(padding=ft.Padding.all(4)),
+        visible=is_mobile,
+    )
+
+    def toggle_fullscreen(e=None):
+        current_context["is_fullscreen"] = not current_context.get("is_fullscreen", False)
+        is_fs = current_context["is_fullscreen"]
+        fullscreen_btn.icon = ft.Icons.FULLSCREEN_EXIT_ROUNDED if is_fs else ft.Icons.FULLSCREEN_ROUNDED
+        fullscreen_btn.tooltip = "Exit Full Screen" if is_fs else "Full Screen"
+
+        if current_is_mobile():
+            if is_fs:
+                container.top = 8
+                container.bottom = 8
+                container.left = 8
+                container.right = 8
+                container.height = None
+            else:
+                container.top = None
+                container.bottom = 10
+                container.left = 10
+                container.right = 10
+                container.height = win_height
+        page.update()
+
+    fullscreen_btn.on_click = toggle_fullscreen
+
+    def handle_close(e=None):
+        current_context["is_fullscreen"] = False
+        fullscreen_btn.icon = ft.Icons.FULLSCREEN_ROUNDED
+        fullscreen_btn.tooltip = "Full Screen"
+        if current_is_mobile():
+            container.top = None
+            container.bottom = 10
+            container.left = 10
+            container.right = 10
+            container.height = win_height
+        else:
+            container.left = None
+            container.right = None
+            container.top = None
+            container.bottom = None
+            container.height = None
+        if callable(on_close):
+            try:
+                on_close(e)
+            except TypeError:
+                on_close()
+
+    container = target_container if target_container is not None else ft.Container()
+    container.animate = ft.Animation(280, ft.AnimationCurve.EASE_OUT_CUBIC)
+    container.animate_opacity = ft.Animation(220, ft.AnimationCurve.EASE_OUT)
+
+    # Header Bar matching reference image
+    header_content = ft.Row(
+        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        controls=[
+            ft.Row(
+                spacing=10,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                expand=True,
+                controls=[
+                    ft.Container(
+                        padding=ft.Padding.all(6),
+                        border_radius=ft.BorderRadius.all(8),
+                        bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.GREEN),
+                        content=ft.Icon(
+                            ft.Icons.AUTO_AWESOME_ROUNDED,
+                            size=16,
+                            color=ft.Colors.GREEN_700 if not is_dark else ft.Colors.GREEN,
+                        ),
+                    ),
+                    ft.Column(
+                        spacing=2,
+                        tight=True,
+                        expand=True,
+                        controls=[
+                            ft.Row(
+                                spacing=6,
+                                tight=True,
+                                controls=[
+                                    ft.Text(
+                                        "Course AI Assistant",
+                                        size=13.5,
+                                        weight=ft.FontWeight.BOLD,
+                                        color=ft.Colors.ON_SURFACE,
+                                    ),
+                                ],
+                            ),
+                            ft.Row(
+                                controls=[header_subtitle_text],
+                            ),
+                        ],
+                    ),
+                ],
+            ),
+            ft.Row(
+                spacing=2,
+                tight=True,
+                controls=[
+                    fullscreen_btn,
+                    ft.IconButton(
+                        icon=ft.Icons.CLOSE_ROUNDED,
+                        icon_size=18,
+                        icon_color=ft.Colors.GREY_600,
+                        tooltip="Close",
+                        style=ft.ButtonStyle(padding=ft.Padding.all(4)),
+                        on_click=handle_close,
+                    ),
+                ],
+            ),
+        ],
+    )
+
+    main_window_col = ft.Column(
+        spacing=0,
+        expand=True,
+        controls=[
+            # Top header with lesson context matching screenshot
+            ft.Container(
+                padding=ft.Padding.symmetric(horizontal=14, vertical=12),
+                border=ft.Border.only(
+                    bottom=ft.BorderSide(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE))
+                ),
+                content=header_content,
+            ),
+            # Quick prompt chips
+            ft.Container(
+                padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+                content=chips_col,
+            ),
+            # Scrollable Message list
+            ft.Container(
+                expand=True,
+                padding=0,
+                content=messages_col,
+            ),
+            # Typing indicator
+            ft.Container(
+                padding=ft.Padding.symmetric(horizontal=12, vertical=2),
+                content=typing_indicator,
+            ),
+            # Quota status indicator
+            quota_status_bar,
+            # Input composer footer
+            ft.Container(
+                padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+                border=ft.Border.only(
+                    top=ft.BorderSide(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE))
+                ),
+                content=ft.Row(
+                    spacing=8,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[
+                        input_field,
+                        send_btn,
+                    ],
+                ),
+            ),
+        ],
+    )
+
+    def adapt_layout(is_desktop: bool, page_w: int, page_h: int):
+        nonlocal is_mobile, win_height
+        is_mobile = not is_desktop
+        win_height = max(240, min(int(page_h * 0.49), 420)) if is_mobile else 540
+        fullscreen_btn.visible = is_mobile
+
+        if is_desktop:
+            container.left = None
+            container.right = None
+            container.top = None
+            container.bottom = None
+            container.width = AI_TUTOR_MOBILE_WIDTH
+            container.height = None
+            container.expand = False
+            container.margin = ft.Padding.only(right=12, top=6, bottom=12)
+            container.bgcolor = card_bg
+            container.clip_behavior = ft.ClipBehavior.ANTI_ALIAS
+            container.border_radius = ft.BorderRadius.all(16)
+            container.border = ft.Border.all(
+                1, ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)
+            )
+            container.shadow = ft.BoxShadow(
+                blur_radius=20,
+                spread_radius=0,
+                color=ft.Colors.with_opacity(0.14, ft.Colors.BLACK),
+                offset=ft.Offset(0, 4),
+            )
+            container.content = main_window_col
+        else:
+            container.margin = None
+            container.width = None
+            container.expand = False
+            is_fs = current_context.get("is_fullscreen", False)
+            is_min = current_context.get("is_minimized", False)
+            if is_min:
+                container.content = minimized_pill
+                container.height = None
+                container.left = 10
+                container.right = 10
+                container.bottom = 10
+                container.top = None
+                container.bgcolor = ft.Colors.TRANSPARENT
+                container.border = None
+                container.shadow = None
+            elif is_fs:
+                container.content = main_window_col
+                container.left = 8
+                container.right = 8
+                container.top = 8
+                container.bottom = 8
+                container.height = None
+                container.bgcolor = card_bg
+                container.border_radius = ft.BorderRadius.all(16)
+                container.border = ft.Border.all(1.2, ft.Colors.with_opacity(0.18, accent))
+                container.shadow = ft.BoxShadow(
+                    blur_radius=28,
+                    color=ft.Colors.with_opacity(0.25, ft.Colors.BLACK),
+                    offset=ft.Offset(0, 8),
+                )
+            else:
+                container.content = main_window_col
+                container.left = 10
+                container.right = 10
+                container.bottom = 10
+                container.top = None
+                container.height = win_height
+                container.bgcolor = card_bg
+                container.border_radius = ft.BorderRadius.all(16)
+                container.border = ft.Border.all(1.2, ft.Colors.with_opacity(0.18, accent))
+                container.shadow = ft.BoxShadow(
+                    blur_radius=28,
+                    color=ft.Colors.with_opacity(0.25, ft.Colors.BLACK),
+                    offset=ft.Offset(0, 8),
+                )
+
+    if controller is not None:
+        controller.adapt_layout = adapt_layout
+
+    # Initial layout setup based on current screen width
+    adapt_layout(is_desktop=not is_mobile, page_w=page_w, page_h=page_h)
+
+    return container

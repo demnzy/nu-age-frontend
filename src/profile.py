@@ -10,7 +10,7 @@ from src.theme.typography import build_typography_switcher_button
 from src.components.badge_pill import build_glossy_badge_pill
 from src.requests.promo import redeem_promo_code_api, get_my_badges_api, equip_primary_badge_api
 from src.utils.file_opener import show_page_snackbar
-from src.requests.auth import upload_avatar_request, remove_avatar_request
+from src.requests.auth import upload_avatar_request, remove_avatar_request, set_account_password_request
 from src.services.auth_session import AuthSession
 import base64
 
@@ -46,12 +46,13 @@ def get_profile_palette(is_dark: bool) -> dict:
 async def profile_view(page: ft.Page):
     is_dark = _is_dark_mode(page)
 
-    # ── Initial Loading Socket ────────────────────────────────────────────────
+    from src.components.shimmer_skeletons import build_profile_skeleton
+
+    # ── Initial Loading Socket (1:1 high-fidelity skeleton screen) ────────────
     content_socket = ft.Container(
         expand=True,
         clip_behavior=ft.ClipBehavior.HARD_EDGE,
-        alignment=ft.Alignment.CENTER,
-        content=ft.ProgressRing(color=ft.Colors.PRIMARY, stroke_width=3),
+        content=build_profile_skeleton(page, is_member=False),
     )
 
     # ── Cached Enrollments ───────────────────────────────────────────────────
@@ -1240,6 +1241,10 @@ async def profile_view(page: ft.Page):
             security_card.border = ft.Border.all(1, p["border_clr"])
             security_title.color = p["text_primary"]
             security_sub.color = p["text_muted"]
+            set_password_card.bgcolor = p["card_bg"]
+            set_password_card.border = ft.Border.all(1, p["border_clr"])
+            set_pw_title.color = p["text_primary"]
+            set_pw_sub.color = p["text_muted"]
 
             # 8. Update Store & Billing Card
             store_billing_card.bgcolor = p["card_bg"]
@@ -1303,7 +1308,144 @@ async def profile_view(page: ft.Page):
             ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=14)
         )
 
-        # ── Security & Sessions Card ──────────────────────────────────────────
+        # ── Security & Authentication Cards ───────────────────────────────────
+        async def handle_set_password_click(e=None):
+            cur_p = get_profile_palette(_is_dark_mode(page))
+            dlg_box = [None]
+            new_pw_field = ft.TextField(
+                label="New Password",
+                password=True,
+                can_reveal_password=True,
+                border_radius=10,
+                dense=True,
+                text_size=13,
+                hint_text="At least 6 characters",
+            )
+            confirm_pw_field = ft.TextField(
+                label="Confirm Password",
+                password=True,
+                can_reveal_password=True,
+                border_radius=10,
+                dense=True,
+                text_size=13,
+                hint_text="Repeat your new password",
+            )
+            err_msg = ft.Text("", size=11, color=ft.Colors.RED_400, visible=False)
+            save_btn = ft.ElevatedButton(
+                content=ft.Row([
+                    ft.Text("Save Password", size=12, weight=ft.FontWeight.W_700),
+                    ft.Icon(ft.Icons.CHECK_ROUNDED, size=15),
+                ], tight=True, spacing=6),
+                bgcolor=ft.Colors.PRIMARY,
+                color=ft.Colors.WHITE,
+                height=36,
+                style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), elevation=0),
+            )
+
+            def _close_pw_dlg(ev=None):
+                if dlg_box[0]:
+                    dlg_box[0].open = False
+                    page.update()
+
+            async def _do_save_pw(ev=None):
+                p1 = (new_pw_field.value or "").strip()
+                p2 = (confirm_pw_field.value or "").strip()
+                if len(p1) < 6:
+                    err_msg.value = "Password must be at least 6 characters long."
+                    err_msg.visible = True
+                    page.update()
+                    return
+                if p1 != p2:
+                    err_msg.value = "Passwords do not match."
+                    err_msg.visible = True
+                    page.update()
+                    return
+
+                err_msg.visible = False
+                save_btn.disabled = True
+                save_btn.content = ft.ProgressRing(width=14, height=14, stroke_width=2, color=ft.Colors.WHITE)
+                page.update()
+
+                auth_tok = token or (await page.shared_preferences.get("auth_token"))
+                status, res = await set_account_password_request(auth_tok, p1)
+                if status == 200:
+                    _close_pw_dlg()
+                    show_page_snackbar(page, "Password set successfully! You can now log in using email & password.")
+                else:
+                    detail = res.get("detail", "Failed to set password.") if isinstance(res, dict) else "Failed to set password."
+                    err_msg.value = detail
+                    err_msg.visible = True
+                    save_btn.disabled = False
+                    save_btn.content = ft.Row([
+                        ft.Text("Save Password", size=12, weight=ft.FontWeight.W_700),
+                        ft.Icon(ft.Icons.CHECK_ROUNDED, size=15),
+                    ], tight=True, spacing=6)
+                    page.update()
+
+            save_btn.on_click = lambda ev: page.run_task(_do_save_pw, ev)
+
+            dlg = ft.AlertDialog(
+                bgcolor=cur_p["card_bg"],
+                shape=ft.RoundedRectangleBorder(radius=16),
+                title=ft.Row([
+                    ft.Icon(ft.Icons.LOCK_RESET_ROUNDED, color=ft.Colors.PRIMARY, size=22),
+                    ft.Text("Set Account Password", size=16, weight=ft.FontWeight.BOLD, color=cur_p["text_primary"]),
+                ], spacing=8),
+                content=ft.Container(
+                    width=380,
+                    content=ft.Column([
+                        ft.Text("Set an account password so you can sign in directly using your email and password in addition to Google OAuth.", size=11.5, color=cur_p["text_muted"]),
+                        ft.Container(height=4),
+                        new_pw_field,
+                        confirm_pw_field,
+                        err_msg,
+                    ], tight=True, spacing=10),
+                ),
+                actions=[
+                    ft.TextButton("Cancel", on_click=_close_pw_dlg),
+                    save_btn,
+                ],
+                actions_alignment=ft.MainAxisAlignment.END,
+            )
+            dlg_box[0] = dlg
+            if dlg not in page.overlay:
+                page.overlay.append(dlg)
+            dlg.open = True
+            page.update()
+
+        set_pw_title = ft.Text("Set / Change Password", size=13, weight=ft.FontWeight.BOLD, color=palette["text_primary"])
+        set_pw_sub = ft.Text("Add or update your account password for direct email sign-in.", size=11, color=palette["text_muted"])
+        set_password_card = ft.Container(
+            ink=True,
+            on_click=lambda e: page.run_task(handle_set_password_click, e),
+            border_radius=16,
+            border=ft.Border.all(1, palette["border_clr"]),
+            bgcolor=palette["card_bg"],
+            padding=ft.Padding.symmetric(horizontal=16, vertical=14),
+            shadow=ft.BoxShadow(blur_radius=8, color=ft.Colors.with_opacity(0.03, ft.Colors.BLACK), offset=ft.Offset(0, 2)),
+            content=ft.Row([
+                ft.Container(
+                    width=38, height=38, border_radius=12,
+                    bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY),
+                    alignment=ft.Alignment.CENTER,
+                    content=ft.Icon(ft.Icons.LOCK_ROUNDED, color=ft.Colors.PRIMARY, size=18)
+                ),
+                ft.Column([
+                    set_pw_title,
+                    set_pw_sub
+                ], spacing=2, expand=True),
+                ft.Container(
+                    content=ft.Row([
+                        ft.Text("Set Password", size=11, weight=ft.FontWeight.W_600, color=ft.Colors.PRIMARY),
+                        ft.Icon(ft.Icons.CHEVRON_RIGHT_ROUNDED, color=ft.Colors.PRIMARY, size=14),
+                    ], spacing=2, tight=True),
+                    padding=ft.Padding.symmetric(horizontal=10, vertical=6),
+                    border_radius=8,
+                    bgcolor=ft.Colors.with_opacity(0.10, ft.Colors.PRIMARY),
+                )
+            ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=14)
+        )
+
         security_title = ft.Text("Log Out All Devices", size=13, weight=ft.FontWeight.BOLD, color=palette["text_primary"])
         security_sub = ft.Text("Revoke active sessions and sign out across all browsers and devices.", size=11, color=palette["text_muted"])
         security_card = ft.Container(
@@ -1355,7 +1497,7 @@ async def profile_view(page: ft.Page):
             ft.Container(height=4),
             ft.Column([section_heading("Account & Academic Details", ft.Icons.BADGE_ROUNDED), account_card], spacing=10),
             ft.Container(height=4),
-            ft.Column([section_heading("Security & Sessions", ft.Icons.SECURITY_ROUNDED), security_card], spacing=10),
+            ft.Column([section_heading("Security & Authentication", ft.Icons.SECURITY_ROUNDED), set_password_card, security_card], spacing=10),
         ]
 
         if is_super_admin:
@@ -1418,7 +1560,11 @@ async def profile_view(page: ft.Page):
                 except Exception:
                     pass
 
-    page.run_task(_safe_load_profile)
+    # ── await background fetch so view is feasibly ready on transition ─────────
+    try:
+        await asyncio.wait_for(_safe_load_profile(), timeout=8.0)
+    except Exception as _pex:
+        print(f"[profile_view] Initial fetch error or timeout: {_pex}")
 
     return ft.View(
         route="/profile",

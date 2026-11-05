@@ -12,6 +12,7 @@ from typing import List, Dict, Any, Callable, Optional
 from src.components import study_ui as ui
 from src.utils.file_opener import show_page_snackbar
 from src.requests.marketplace import upload_cbt_diagram_image_api
+from src.utils.dropdown_theme import apply_dropdown_theme
 
 _LETTERS = ["A", "B", "C", "D", "E"]
 _THEMES = [
@@ -35,6 +36,9 @@ def show_question_curator_dialog(
     initial_theme_gradient: str = "emerald_teal",
     initial_description: str = "",
     initial_duration_minutes: int = 60,
+    initial_passing_score: float = 70.0,
+    is_course_space_drill: bool = False,
+    on_upload_image: Optional[Callable[[bytes, str], Any]] = None,
     on_publish: Optional[Callable[[Dict[str, Any]], Any]] = None,
     token: Optional[str] = None,
     save_button_label: str = "Publish Official CBT Pack",
@@ -122,18 +126,28 @@ def show_question_curator_dialog(
         width=120 if is_desktop else None,
     )
     duration_field = ft.TextField(
-        value=str(initial_duration_minutes or 60),
-        label="Duration (Mins)",
+        value=str(initial_duration_minutes if initial_duration_minutes is not None else 60),
+        label="Duration (Mins, 0=Untimed)" if is_course_space_drill else "Duration (Mins)",
+        border_color=ui.hairline(0.18),
+        dense=True,
+        width=165 if is_desktop else None,
+    )
+    passing_score_field = ft.TextField(
+        value=str(int(initial_passing_score or 70)),
+        label="Pass Mark (%)",
         border_color=ui.hairline(0.18),
         dense=True,
         width=130 if is_desktop else None,
     )
-    theme_dropdown = ft.Dropdown(
-        label="Theme Palette",
-        dense=True,
-        width=160 if is_desktop else None,
-        options=[ft.dropdown.Option(k, v) for k, v in _THEMES],
-        value=initial_theme_gradient or "emerald_teal",
+    theme_dropdown = apply_dropdown_theme(
+        ft.Dropdown(
+            label="Theme Palette",
+            dense=True,
+            width=160 if is_desktop else None,
+            options=[ft.dropdown.Option(k, v) for k, v in _THEMES],
+            value=initial_theme_gradient or "emerald_teal",
+        ),
+        menu_height=240,
     )
     desc_field = ft.TextField(
         value=initial_description or (
@@ -166,27 +180,33 @@ def show_question_curator_dialog(
         expand=True,
     )
 
-    difficulty_dropdown = ft.Dropdown(
-        label="Difficulty",
-        dense=True,
-        width=120,
-        options=[
-            ft.dropdown.Option("easy", "Easy"),
-            ft.dropdown.Option("standard", "Standard"),
-            ft.dropdown.Option("hard", "Hard"),
-        ],
-        value="standard",
+    difficulty_dropdown = apply_dropdown_theme(
+        ft.Dropdown(
+            label="Difficulty",
+            dense=True,
+            width=120,
+            options=[
+                ft.dropdown.Option("easy", "Easy"),
+                ft.dropdown.Option("standard", "Standard"),
+                ft.dropdown.Option("hard", "Hard"),
+            ],
+            value="standard",
+        ),
+        menu_height=200,
     )
 
-    num_options_dropdown = ft.Dropdown(
-        label="Options Count",
-        dense=True,
-        width=130,
-        options=[
-            ft.dropdown.Option("4", "4 (A-D)"),
-            ft.dropdown.Option("5", "5 (A-E)"),
-        ],
-        value="4",
+    num_options_dropdown = apply_dropdown_theme(
+        ft.Dropdown(
+            label="Options Count",
+            dense=True,
+            width=130,
+            options=[
+                ft.dropdown.Option("4", "4 (A-D)"),
+                ft.dropdown.Option("5", "5 (A-E)"),
+            ],
+            value="4",
+        ),
+        menu_height=200,
     )
 
     # Inline Image / Diagram Controls
@@ -437,17 +457,23 @@ def show_question_curator_dialog(
                 page.update()
                 return
 
-            active_token = token or page.session.get("token") or page.client_storage.get("token") or ""
+            active_token = token or ""
+            if not active_token and hasattr(page, "session") and hasattr(page.session, "store"):
+                active_token = page.session.store.get("session_auth_token") or ""
 
-            res = await upload_cbt_diagram_image_api(
-                token=active_token,
-                file_name=f.name,
-                file_bytes=file_bytes,
-            )
+            if on_upload_image:
+                res = await on_upload_image(file_bytes, f.name)
+            else:
+                res = await upload_cbt_diagram_image_api(
+                    token=active_token,
+                    file_name=f.name,
+                    file_bytes=file_bytes,
+                )
 
             cdn_url = res.get("url") or res.get("view_url") or ""
-            if res.get("error") or not cdn_url:
-                show_page_snackbar(page, f"CDN Upload failed: {res.get('error', 'Unknown error')}")
+            if res.get("error") or res.get("status") == "error" or not cdn_url:
+                err_msg = res.get("error") or res.get("message") or "Unknown error"
+                show_page_snackbar(page, f"CDN Upload failed: {err_msg}")
             else:
                 image_url_input.value = cdn_url
                 _on_img_change()
@@ -663,19 +689,25 @@ def show_question_curator_dialog(
         p_coins_str = (price_coins_field.value or "").strip()
         pack_coins = int(p_coins_str) if p_coins_str.isdigit() else 0
         dur_str = (duration_field.value or "").strip()
-        dur_mins = int(dur_str) if dur_str.isdigit() else 60
+        dur_mins = int(dur_str) if dur_str.isdigit() else (20 if is_course_space_drill else 60)
+        pass_str = (passing_score_field.value or "").strip()
+        try:
+            pass_pct = float(pass_str) if pass_str else 70.0
+        except ValueError:
+            pass_pct = 70.0
         yr_str = (year_field.value or "").strip()
 
         final_pack_data = {
-            "title": (title_field.value or "").strip() or "CBT Past Questions Pack",
+            "title": (title_field.value or "").strip() or ("Topic Practice Drill" if is_course_space_drill else "CBT Past Questions Pack"),
             "category": (category_field.value or "").strip() or subject,
             "exam_type": (exam_type_field.value or "").strip() or exam_type,
             "exam_year": int(yr_str) if yr_str.isdigit() else exam_year,
             "description": (desc_field.value or "").strip(),
             "price_coins": max(0, pack_coins),
             "theme_gradient": theme_dropdown.value or "emerald_teal",
-            "duration_minutes": max(5, dur_mins),
-            "duration_seconds": max(5, dur_mins) * 60,
+            "duration_minutes": max(0, dur_mins) if is_course_space_drill else max(5, dur_mins),
+            "duration_seconds": (max(0, dur_mins) if is_course_space_drill else max(5, dur_mins)) * 60,
+            "passing_score_percentage": max(1.0, min(100.0, pass_pct)),
             "questions": questions,
             "questions_count": len(questions),
         }
@@ -687,14 +719,45 @@ def show_question_curator_dialog(
     _load_state_to_inputs()
 
     # --- Collapsible Settings Card ---
-    settings_content_card = ui.surface_card(
-        ft.Column(
-            spacing=10,
-            controls=[
+    if is_course_space_drill:
+        settings_rows = (
+            [
+                ft.Row([title_field, category_field, duration_field, passing_score_field], spacing=10),
+                desc_field,
+            ]
+            if is_desktop
+            else [
+                title_field,
+                category_field,
+                duration_field,
+                passing_score_field,
+                desc_field,
+            ]
+        )
+    else:
+        settings_rows = (
+            [
                 ft.Row([title_field, category_field], spacing=10),
                 ft.Row([exam_type_field, year_field, price_coins_field, duration_field, theme_dropdown], spacing=10),
                 desc_field,
-            ],
+            ]
+            if is_desktop
+            else [
+                title_field,
+                category_field,
+                exam_type_field,
+                year_field,
+                price_coins_field,
+                duration_field,
+                theme_dropdown,
+                desc_field,
+            ]
+        )
+
+    settings_content_card = ui.surface_card(
+        ft.Column(
+            spacing=10,
+            controls=settings_rows,
         ),
         padding=12,
     )
@@ -705,7 +768,12 @@ def show_question_curator_dialog(
     )
 
     settings_toggle_icon = ft.Icon(ft.Icons.KEYBOARD_ARROW_DOWN_ROUNDED, size=18, color=ft.Colors.PRIMARY)
-    settings_toggle_label = ft.Text("Pack Settings & Commerce", size=12, weight=ft.FontWeight.W_600, color=ft.Colors.PRIMARY)
+    settings_toggle_label = ft.Text(
+        "Drill Title, Timing & Pass Mark" if is_course_space_drill else "Pack Settings & Commerce",
+        size=12,
+        weight=ft.FontWeight.W_600,
+        color=ft.Colors.PRIMARY,
+    )
 
     def _toggle_settings(e=None):
         settings_open[0] = not settings_open[0]

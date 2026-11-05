@@ -37,10 +37,35 @@ async def get_courses(token: str, params: dict | None = None):
 COURSE_CREATE_TIMEOUT = httpx.Timeout(connect=10.0, read=45.0, write=45.0, pool=10.0)
 
 
+def _sanitize_for_json(data):
+    if isinstance(data, dict):
+        clean = {}
+        for k, v in data.items():
+            k_str = str(k)
+            if k_str.startswith("_"):
+                continue
+            if type(v).__name__ in ("Page", "Control", "Session", "ClientStorage") or "flet" in getattr(type(v), "__module__", ""):
+                continue
+            clean[k_str] = _sanitize_for_json(v)
+        return clean
+    elif isinstance(data, list):
+        return [
+            _sanitize_for_json(item)
+            for item in data
+            if type(item).__name__ not in ("Page", "Control", "Session", "ClientStorage") and "flet" not in getattr(type(item), "__module__", "")
+        ]
+    elif isinstance(data, (str, int, float, bool)) or data is None:
+        return data
+    else:
+        if type(data).__name__ in ("Page", "Control", "Session", "ClientStorage") or "flet" in getattr(type(data), "__module__", ""):
+            return None
+        return str(data)
+
+
 async def create_course(token: str, payload):
     url = f"{api_url}/courses/create"
     headers = {"Authorization": f"Bearer {token}"}
-    payload = {**payload}
+    payload = _sanitize_for_json(payload)
     try:
         async with httpx.AsyncClient(timeout=COURSE_CREATE_TIMEOUT, verify=ssl_context) as client:
             response = await client.post(url, headers=headers, json=payload)
@@ -388,7 +413,7 @@ async def generate_course_certificate(token: str, course_id: str):
         return {"error": "Connection failed"}
 
 
-async def start_course_draft_job(token: str, topic: str, context: str) -> dict:
+async def start_course_draft_job(token: str, topic: str, context: str, images: list = None) -> dict:
     """
     Kicks off generation on the backend. Backend now returns 202 immediately
     with a job_id instead of blocking on the full generation — this is a fast
@@ -397,6 +422,8 @@ async def start_course_draft_job(token: str, topic: str, context: str) -> dict:
     url = f"{api_url}/courses/generate-draft"
     headers = {"Authorization": f"Bearer {token}"}
     payload = {"topic": topic, "context": context}
+    if images and isinstance(images, list):
+        payload["images"] = images
  
     try:
         async with httpx.AsyncClient(timeout=30.0, verify=ssl_context) as client:  # fast call now, no AI wait here
@@ -412,8 +439,12 @@ async def start_course_draft_job(token: str, topic: str, context: str) -> dict:
             return {"error": "forbidden"}
  
         elif response.status_code == 402:
-            print("[AI] Plan gate — org not on a paid plan.")
-            return {"error": "plan_required"}
+            try:
+                err_detail = response.json().get("detail", "plan_required")
+            except Exception:
+                err_detail = "plan_required"
+            print(f"[AI] Plan gate: {err_detail}")
+            return {"error": err_detail if err_detail in ("plan_expired", "plan_required") else "plan_required"}
  
         else:
             print(f"[AI] Failed to queue job: {response.status_code} — {response.text}")
@@ -435,6 +466,7 @@ async def poll_course_draft_job(
     job_id: str,
     interval_seconds: float = 3.0,
     max_wait_seconds: float = 600.0,
+    on_poll = None,
 ) -> dict:
     """
     Polls the job status endpoint until SUCCESS, FAILED, or max_wait_seconds
@@ -469,7 +501,13 @@ async def poll_course_draft_job(
                     print(f"[AI] Job {job_id} failed: {data.get('detail')}")
                     return {"error": "generation_failed", "detail": data.get("detail")}
  
-                # PENDING or RUNNING — keep waiting
+                if on_poll:
+                    try:
+                        p_res = on_poll(elapsed)
+                        if asyncio.iscoroutine(p_res):
+                            await p_res
+                    except Exception:
+                        pass
                 await asyncio.sleep(interval_seconds)
                 elapsed += interval_seconds
  
@@ -481,12 +519,12 @@ async def poll_course_draft_job(
     return {"error": "timeout"}
  
  
-async def generate_course_draft(token: str, topic: str, context: str) -> dict:
+async def generate_course_draft(token: str, topic: str, context: str, images: list = None, on_poll = None) -> dict:
     """
     Drop-in replacement for the old single-call version — same signature,
     same return shape. Internally: start job, then poll until done.
     """
-    start_result = await start_course_draft_job(token, topic, context)
+    start_result = await start_course_draft_job(token, topic, context, images=images)
  
     if "error" in start_result:
         return start_result
@@ -495,7 +533,7 @@ async def generate_course_draft(token: str, topic: str, context: str) -> dict:
     if not job_id:
         return {"error": "server_fail"}
  
-    return await poll_course_draft_job(token, job_id)
+    return await poll_course_draft_job(token, job_id, on_poll=on_poll)
 
 async def get_completion_stats(token: str, course_id: str, params: dict | None = None):
     url = f"{api_url}/courses/{course_id}/completion-stats"

@@ -435,16 +435,16 @@ def open_deck_inspector(
     page.update()
 
     async def _fetch_and_show():
-        if mid:
+        if preloaded_cards is not None:
+            cards_state["all"] = list(preloaded_cards)
+        elif mid:
             try:
                 # Fetch ALL cards for this particular material, regardless of whether they are due
                 fetched = await asyncio.wait_for(get_all_cards(token, [mid]), timeout=15)
                 cards_state["all"] = fetched or []
             except Exception as ex:
                 print(f"[DECK INSPECTOR] Error fetching all cards for material {mid}: {ex}")
-                cards_state["all"] = list(preloaded_cards or [])
-        elif preloaded_cards is not None:
-            cards_state["all"] = list(preloaded_cards)
+                cards_state["all"] = []
 
         cards_state["loading"] = False
         _render_cards()

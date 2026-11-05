@@ -3,6 +3,7 @@ import flet as ft
 from src.components.bottom_appbar import get_bottom_appbar
 from src.requests.playlists import get_playlist, update_playlist
 from src.requests.organisations import get_my_organisation
+from src.components.shimmer_skeletons import build_settings_skeleton
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -66,19 +67,10 @@ async def playlist_settings_view(page: ft.Page, playlist_id: str) -> ft.View:
     def show_error_toast(message: str):
         show_toast(message, color=ft.Colors.RED_700)
 
-    # ── Centered Loading Socket ───────────────────────────────────────────────
+    # ── High-Fidelity 1:1 Loading Socket ──────────────────────────────────────
     content_socket = ft.Container(
         expand=True,
-        alignment=ft.Alignment.CENTER,
-        content=ft.Column(
-            alignment=ft.MainAxisAlignment.CENTER,
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            controls=[
-                ft.ProgressRing(color=ft.Colors.PRIMARY, width=44, height=44, stroke_width=3.5),
-                ft.Container(height=16),
-                ft.Text("Loading Learning Path Configuration…", size=13, weight=ft.FontWeight.W_500, color=ft.Colors.ON_SURFACE_VARIANT),
-            ],
-        ),
+        content=build_settings_skeleton(page),
     )
 
     async def load_all_data():
@@ -488,7 +480,11 @@ async def playlist_settings_view(page: ft.Page, playlist_id: str) -> ft.View:
             spacing=0,
         )
 
-    page.run_task(load_all_data)
+    # Await initial data before view mounts so view is feasibly ready
+    try:
+        await asyncio.wait_for(load_all_data(), timeout=8.0)
+    except Exception:
+        page.run_task(load_all_data)
 
     return ft.View(
         route=f"/playlists/{playlist_id}/settings",

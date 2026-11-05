@@ -20,6 +20,7 @@ from src.components.study_pack_card import StudyPackCard, CATEGORY_PRESETS
 from src.components.study_bundle_card import StudyBundleCard
 from src.components.nu_coin_icon import nu_coin_icon
 from src.utils.file_opener import show_page_snackbar
+from src.utils.dropdown_theme import apply_dropdown_theme
 
 # ── THEME PRESETS ─────────────────────────────────────────────────────────────
 GRADIENT_PRESETS = {
@@ -433,18 +434,18 @@ class StudyMarketplaceView:
         )
 
     def _build_publish_button(self, label: str = "Publish Pack") -> ft.Container:
-        """Sleek pill-shaped emerald button with high-contrast text."""
+        """Sleek pill-shaped primary button with high-contrast text."""
         return ft.Container(
             ink=True,
             on_click=lambda _: self._open_submission_dialog(),
             tooltip="Share your own study pack with the community",
             padding=ft.Padding.symmetric(horizontal=16, vertical=8),
             border_radius=ft.BorderRadius.all(10),
-            bgcolor="#059669",
+            bgcolor=ft.Colors.PRIMARY,
             shadow=ft.BoxShadow(
                 blur_radius=8,
                 spread_radius=0,
-                color=ft.Colors.with_opacity(0.25, "#059669"),
+                color=ft.Colors.with_opacity(0.25, ft.Colors.PRIMARY),
                 offset=ft.Offset(0, 2),
             ),
             content=ft.Row(
@@ -452,8 +453,8 @@ class StudyMarketplaceView:
                 spacing=7,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 controls=[
-                    ft.Icon(ft.Icons.ADD_ROUNDED, size=16, color="#FFFFFF"),
-                    ft.Text(label, size=12.5, weight=ft.FontWeight.W_800, color="#FFFFFF"),
+                    ft.Icon(ft.Icons.ADD_ROUNDED, size=16, color=ft.Colors.ON_PRIMARY),
+                    ft.Text(label, size=12.5, weight=ft.FontWeight.W_800, color=ft.Colors.ON_PRIMARY),
                 ],
             ),
         )
@@ -468,16 +469,16 @@ class StudyMarketplaceView:
                     on_click=lambda _: self.page.go("/platform-admin"),
                     padding=ft.Padding.symmetric(horizontal=12, vertical=6),
                     border_radius=ft.BorderRadius.all(10),
-                    bgcolor="#FEF3C7",
-                    border=ft.Border.all(1, "#FDE68A"),
+                    bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.AMBER),
+                    border=ft.Border.all(1, ft.Colors.with_opacity(0.30, ft.Colors.AMBER_600)),
                     tooltip="Open Platform Super Admin Console: Unified review queue & catalog manager",
                     content=ft.Row(
                         tight=True,
                         spacing=6,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         controls=[
-                            ft.Icon(ft.Icons.ADMIN_PANEL_SETTINGS_ROUNDED, size=16, color="#B45309"),
-                            ft.Text(badge_label, size=12, weight=ft.FontWeight.W_700, color="#92400E"),
+                            ft.Icon(ft.Icons.ADMIN_PANEL_SETTINGS_ROUNDED, size=16, color=ft.Colors.AMBER_700),
+                            ft.Text(badge_label, size=12, weight=ft.FontWeight.W_700, color=ft.Colors.AMBER_700),
                         ],
                     ),
                 )
@@ -490,8 +491,8 @@ class StudyMarketplaceView:
                 on_click=lambda _: self.on_open_coins_modal() if self.on_open_coins_modal else None,
                 padding=ft.Padding.symmetric(horizontal=12, vertical=6),
                 border_radius=ft.BorderRadius.all(10),
-                bgcolor="#FFFBEB",
-                border=ft.Border.all(1.2, "#FCD34D"),
+                bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.AMBER),
+                border=ft.Border.all(1.2, ft.Colors.with_opacity(0.35, ft.Colors.AMBER_600)),
                 tooltip="Your Nu-Coins balance. Tap to view Studio & Top Up",
                 content=ft.Row(
                     tight=True,
@@ -499,7 +500,7 @@ class StudyMarketplaceView:
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     controls=[
                         nu_coin_icon(size=16),
-                        ft.Text(self.coins_badge_text.value, size=12, weight=ft.FontWeight.W_800, color="#92400E"),
+                        ft.Text(self.coins_badge_text.value, size=12, weight=ft.FontWeight.W_800, color=ft.Colors.AMBER_700),
                     ],
                 ),
             ),
@@ -626,19 +627,19 @@ class StudyMarketplaceView:
                     on_click=lambda _, c=cat_name: self._select_category(c),
                     padding=ft.Padding.symmetric(horizontal=14, vertical=7),
                     border_radius=ft.BorderRadius.all(20),
-                    bgcolor=ft.Colors.PRIMARY if is_active else ft.Colors.ON_PRIMARY,
-                    border=None if is_active else ft.Border.all(1, "#374151"),
+                    bgcolor=ft.Colors.PRIMARY if is_active else ft.Colors.with_opacity(0.05, ft.Colors.ON_SURFACE),
+                    border=None if is_active else ft.Border.all(1, ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)),
                     content=ft.Row(
                         tight=True,
                         spacing=6,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         controls=[
-                            ft.Icon(cat_icon, size=13, color="#FFFFFF" if is_active else "#9CA3AF"),
+                            ft.Icon(cat_icon, size=13, color=ft.Colors.ON_PRIMARY if is_active else ft.Colors.ON_SURFACE_VARIANT),
                             ft.Text(
                                 cat_name,
                                 size=11.5,
                                 weight=ft.FontWeight.W_700 if is_active else ft.FontWeight.W_500,
-                                color="#FFFFFF" if is_active else ft.Colors.with_opacity(0.75, ft.Colors.ON_SURFACE),
+                                color=ft.Colors.ON_PRIMARY if is_active else ft.Colors.with_opacity(0.80, ft.Colors.ON_SURFACE),
                             ),
                         ],
                     ),
@@ -648,14 +649,15 @@ class StudyMarketplaceView:
 
     def _build_search_and_filters_bar(self) -> ft.Column:
         search_field = ft.TextField(
+            value=self.search_query,
             hint_text="Search packs by topic, title, subject, or keywords…",
-            hint_style=ft.TextStyle(size=12.5, color="#6B7280"),
+            hint_style=ft.TextStyle(size=12.5, color=ft.Colors.ON_SURFACE_VARIANT),
             text_size=13,
             prefix_icon=ft.Icons.SEARCH_ROUNDED,
             border_radius=ft.BorderRadius.all(12),
-            border_color="#374151",
+            border_color=ft.Colors.with_opacity(0.14, ft.Colors.ON_SURFACE),
             focused_border_color=ft.Colors.PRIMARY,
-            bgcolor=ft.Colors.ON_PRIMARY,
+            bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
             dense=True,
             content_padding=ft.Padding.symmetric(horizontal=12, vertical=10),
             expand=True,
@@ -756,6 +758,51 @@ class StudyMarketplaceView:
             self.page.update()
 
     def _build_empty_state(self) -> ft.Container:
+        has_search = bool((self.search_query or "").strip())
+        is_official_cat = (self.active_category == "Official")
+        is_filtered_cat = (self.active_category not in ("All", "Official"))
+
+        if has_search:
+            empty_icon = ft.Icons.SEARCH_OFF_ROUNDED
+            empty_title = f"No Study Packs Match '{self.search_query}'"
+            empty_sub = "Try searching with broader keywords or browse all categories."
+            action_controls = [
+                ft.OutlinedButton(
+                    content=ft.Row([
+                        ft.Icon(ft.Icons.CLEAR_ROUNDED, size=15),
+                        ft.Text("Clear Search", size=12.5, weight=ft.FontWeight.W_700),
+                    ], spacing=6, tight=True),
+                    on_click=lambda _: self._on_search_submit(""),
+                ),
+            ]
+        elif is_official_cat:
+            empty_icon = ft.Icons.VERIFIED_OUTLINED
+            empty_title = "No Official Study Packs Found"
+            empty_sub = "Official curated packs for this filter are being prepared. Explore community and exam packs across all categories."
+            action_controls = [
+                ft.FilledButton(
+                    content=ft.Text("Browse All Categories", size=12.5, weight=ft.FontWeight.W_700),
+                    style=ft.ButtonStyle(bgcolor=ft.Colors.PRIMARY, shape=ft.RoundedRectangleBorder(radius=10)),
+                    on_click=lambda _: self._select_category("All"),
+                ),
+            ]
+        elif is_filtered_cat:
+            empty_icon = ft.Icons.INVENTORY_2_OUTLINED
+            empty_title = f"No Packs in '{self.active_category}' Yet"
+            empty_sub = f"Be the first to publish a study pack for {self.active_category} and earn 50 Nu-Coins, or browse all categories."
+            action_controls = [
+                ft.OutlinedButton(
+                    content=ft.Text("View All Categories", size=12.5, weight=ft.FontWeight.W_700),
+                    on_click=lambda _: self._select_category("All"),
+                ),
+                self._build_publish_button("Share My Study Pack"),
+            ]
+        else:
+            empty_icon = ft.Icons.INVENTORY_2_OUTLINED
+            empty_title = "No Study Packs Found"
+            empty_sub = "Be the first to publish a study pack for this subject and earn 50 Nu-Coins!"
+            action_controls = [self._build_publish_button("Share My Study Pack")]
+
         return ft.Container(
             padding=ft.Padding.symmetric(vertical=60, horizontal=20),
             alignment=ft.Alignment.CENTER,
@@ -764,16 +811,21 @@ class StudyMarketplaceView:
                 spacing=12,
                 tight=True,
                 controls=[
-                    ft.Icon(ft.Icons.INVENTORY_2_OUTLINED, size=48, color=ft.Colors.GREY_600),
-                    ft.Text("No Study Packs Found", size=16, weight=ft.FontWeight.W_700, color=ft.Colors.ON_SURFACE),
+                    ft.Icon(empty_icon, size=48, color=ft.Colors.GREY_500),
+                    ft.Text(empty_title, size=16, weight=ft.FontWeight.W_700, color=ft.Colors.ON_SURFACE, text_align=ft.TextAlign.CENTER),
                     ft.Text(
-                        "Be the first to publish a study pack for this subject and earn 50 Nu-Coins!",
+                        empty_sub,
                         size=12.5,
                         color=ft.Colors.GREY_500,
                         text_align=ft.TextAlign.CENTER,
                     ),
                     ft.Container(height=6),
-                    self._build_publish_button("Share My Study Pack"),
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.CENTER,
+                        spacing=10,
+                        wrap=True,
+                        controls=action_controls,
+                    ),
                 ],
             ),
         )
@@ -788,8 +840,8 @@ class StudyMarketplaceView:
                 spacing=12,
                 tight=True,
                 controls=[
-                    ft.ProgressRing(color="#6366F1", width=36, height=36, stroke_width=3),
-                    ft.Text("Loading Multi-Subject Exam Bundles…", size=13, weight=ft.FontWeight.W_600, color="#64748B"),
+                    ft.ProgressRing(color=ft.Colors.INDIGO_500, width=36, height=36, stroke_width=3),
+                    ft.Text("Loading Multi-Subject Exam Bundles…", size=13, weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE_VARIANT),
                 ],
             ),
         )
@@ -882,8 +934,8 @@ class StudyMarketplaceView:
             empty_box = ft.Container(
                 padding=ft.Padding.symmetric(vertical=48, horizontal=24),
                 border_radius=ft.BorderRadius.all(16),
-                bgcolor="#FFFFFF",
-                border=ft.Border.all(1, "#E2E8F0"),
+                bgcolor=ft.Colors.SURFACE,
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)),
                 shadow=ft.BoxShadow(
                     blur_radius=10,
                     spread_radius=0,
@@ -900,22 +952,22 @@ class StudyMarketplaceView:
                             width=60,
                             height=60,
                             border_radius=ft.BorderRadius.all(30),
-                            bgcolor="#EEF2FF",
+                            bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY),
                             alignment=ft.Alignment.CENTER,
-                            content=ft.Icon(ft.Icons.AUTO_AWESOME_MOTION_ROUNDED, size=28, color="#6366F1"),
+                            content=ft.Icon(ft.Icons.AUTO_AWESOME_MOTION_ROUNDED, size=28, color=ft.Colors.PRIMARY),
                         ),
-                        ft.Text("No Exam Bundles Available Yet", size=18, weight=ft.FontWeight.W_800, color="#0F172A"),
+                        ft.Text("No Exam Bundles Available Yet", size=18, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
                         ft.Text(
                             "Curators and platform admins are preparing comprehensive multi-subject exam bundles.\nExplore individual study packs in the store meanwhile!",
                             size=13,
-                            color="#64748B",
+                            color=ft.Colors.ON_SURFACE_VARIANT,
                             text_align=ft.TextAlign.CENTER,
                         ),
                         ft.Container(height=6),
                         ft.FilledButton(
-                            content=ft.Text("Browse Single Packs", size=12.5, weight=ft.FontWeight.W_700),
+                            content=ft.Text("Browse Single Packs", size=12.5, weight=ft.FontWeight.W_700, color=ft.Colors.ON_PRIMARY),
                             style=ft.ButtonStyle(
-                                bgcolor="#059669",
+                                bgcolor=ft.Colors.PRIMARY,
                                 shape=ft.RoundedRectangleBorder(radius=10),
                                 padding=ft.Padding.symmetric(horizontal=18, vertical=10),
                             ),
@@ -951,7 +1003,7 @@ class StudyMarketplaceView:
                             f"Available Exam Bundles ({len(self.bundles)})",
                             size=16,
                             weight=ft.FontWeight.W_800,
-                            color="#0F172A",
+                            color=ft.Colors.ON_SURFACE,
                         ),
                     ],
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -987,7 +1039,7 @@ class StudyMarketplaceView:
         confirm_dialog = ft.AlertDialog(
             modal=True,
             shape=ft.RoundedRectangleBorder(radius=24),
-            bgcolor="#FFFFFF",
+            bgcolor=ft.Colors.SURFACE,
             content_padding=ft.Padding.all(0),
         )
 
@@ -1124,19 +1176,19 @@ class StudyMarketplaceView:
                 ft.Container(
                     padding=ft.Padding.symmetric(horizontal=12, vertical=10),
                     border_radius=ft.BorderRadius.all(12),
-                    bgcolor="#F8FAFC",
-                    border=ft.Border.all(1, "#E2E8F0"),
+                    bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
+                    border=ft.Border.all(1, ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE)),
                     content=ft.Row(
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         controls=[
                             ft.Row(
                                 [
-                                    ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED, size=16, color="#059669"),
+                                    ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED, size=16, color=ft.Colors.PRIMARY),
                                     ft.Column(
                                         [
-                                            ft.Text(p_title, size=13, weight=ft.FontWeight.BOLD, color="#0F172A"),
-                                            ft.Text(f"{p_cat} • {p_q} Questions CBT • {p_fc} Flashcards", size=11, color="#64748B"),
+                                            ft.Text(p_title, size=13, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
+                                            ft.Text(f"{p_cat} • {p_q} Questions CBT • {p_fc} Flashcards", size=11, color=ft.Colors.ON_SURFACE_VARIANT),
                                         ],
                                         spacing=2,
                                         tight=True,
@@ -1147,10 +1199,10 @@ class StudyMarketplaceView:
                                 expand=True,
                             ),
                             ft.Container(
-                                content=ft.Text("INCLUDED", size=9.5, weight=ft.FontWeight.BOLD, color="#059669"),
+                                content=ft.Text("INCLUDED", size=9.5, weight=ft.FontWeight.BOLD, color=ft.Colors.PRIMARY),
                                 padding=ft.Padding.symmetric(horizontal=8, vertical=3),
                                 border_radius=ft.BorderRadius.all(8),
-                                bgcolor="#ECFDF5",
+                                bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY),
                             ),
                         ],
                     ),
@@ -1161,31 +1213,31 @@ class StudyMarketplaceView:
         aggregates_row = ft.Container(
             padding=ft.Padding.all(12),
             border_radius=ft.BorderRadius.all(12),
-            bgcolor="#EEF2FF",
-            border=ft.Border.all(1, "#C7D2FE"),
+            bgcolor=ft.Colors.with_opacity(0.10, ft.Colors.INDIGO_500),
+            border=ft.Border.all(1, ft.Colors.with_opacity(0.25, ft.Colors.INDIGO_500)),
             content=ft.Row(
                 alignment=ft.MainAxisAlignment.SPACE_AROUND,
                 controls=[
                     ft.Column(
                         [
-                            ft.Text(f"{len(packs)}", size=15, weight=ft.FontWeight.W_800, color="#3730A3"),
-                            ft.Text("Packs Included", size=10, weight=ft.FontWeight.W_600, color="#6366F1"),
+                            ft.Text(f"{len(packs)}", size=15, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
+                            ft.Text("Packs Included", size=10, weight=ft.FontWeight.W_600, color=ft.Colors.INDIGO_400),
                         ],
                         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                         tight=True,
                     ),
                     ft.Column(
                         [
-                            ft.Text(f"{total_q}", size=15, weight=ft.FontWeight.W_800, color="#3730A3"),
-                            ft.Text("Total CBT Qs", size=10, weight=ft.FontWeight.W_600, color="#6366F1"),
+                            ft.Text(f"{total_q}", size=15, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
+                            ft.Text("Total CBT Qs", size=10, weight=ft.FontWeight.W_600, color=ft.Colors.INDIGO_400),
                         ],
                         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                         tight=True,
                     ),
                     ft.Column(
                         [
-                            ft.Text(f"{price} Coins", size=15, weight=ft.FontWeight.W_800, color="#3730A3"),
-                            ft.Text(f"Save {discount}%", size=10, weight=ft.FontWeight.W_600, color="#059669"),
+                            ft.Text(f"{price} Coins", size=15, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
+                            ft.Text(f"Save {discount}%", size=10, weight=ft.FontWeight.W_600, color=ft.Colors.PRIMARY),
                         ],
                         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                         tight=True,
@@ -1197,13 +1249,13 @@ class StudyMarketplaceView:
         # Actions
         if price == 0:
             btn_label = "Add Entire Bundle to Vault (FREE)"
-            btn_color = "#059669"
+            btn_color = ft.Colors.PRIMARY
         elif has_enough_coins:
             btn_label = f"Get All {len(packs)} Packs for {price} Coins"
-            btn_color = "#4338CA"
+            btn_color = ft.Colors.INDIGO_600
         else:
             btn_label = "Get Coins in Store"
-            btn_color = "#D97706"
+            btn_color = ft.Colors.AMBER_700
 
         def _handle_action_click(e=None):
             if has_enough_coins:
@@ -1217,8 +1269,8 @@ class StudyMarketplaceView:
                 tight=True,
                 spacing=6,
                 controls=[
-                    ft.Icon(ft.Icons.FILE_DOWNLOAD_ROUNDED if has_enough_coins else ft.Icons.STOREFRONT_ROUNDED, size=16, color="#FFFFFF"),
-                    ft.Text(btn_label, size=12.5, weight=ft.FontWeight.W_800, color="#FFFFFF"),
+                    ft.Icon(ft.Icons.FILE_DOWNLOAD_ROUNDED if has_enough_coins else ft.Icons.STOREFRONT_ROUNDED, size=16, color=ft.Colors.WHITE),
+                    ft.Text(btn_label, size=12.5, weight=ft.FontWeight.W_800, color=ft.Colors.WHITE),
                 ],
             ),
             style=ft.ButtonStyle(
@@ -1230,10 +1282,10 @@ class StudyMarketplaceView:
         )
 
         cancel_btn = ft.OutlinedButton(
-            content=ft.Text("Cancel", size=12.5, weight=ft.FontWeight.W_600, color="#475569"),
+            content=ft.Text("Cancel", size=12.5, weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE_VARIANT),
             style=ft.ButtonStyle(
                 shape=ft.RoundedRectangleBorder(radius=10),
-                side=ft.BorderSide(1, "#CBD5E1"),
+                side=ft.BorderSide(1, ft.Colors.with_opacity(0.20, ft.Colors.ON_SURFACE)),
                 padding=ft.Padding.symmetric(horizontal=14, vertical=12),
             ),
             on_click=lambda _: self._close_dialog(confirm_dialog),
@@ -1242,13 +1294,13 @@ class StudyMarketplaceView:
         modal_body = ft.Container(
             padding=ft.Padding.all(20),
             border_radius=ft.BorderRadius.only(bottom_left=24, bottom_right=24),
-            bgcolor="#FFFFFF",
+            bgcolor=ft.Colors.SURFACE,
             content=ft.Column(
                 spacing=14,
                 tight=True,
                 controls=[
                     aggregates_row,
-                    ft.Text("Included Subjects & Past Question Packs:", size=13, weight=ft.FontWeight.BOLD, color="#0F172A"),
+                    ft.Text("Included Subjects & Past Question Packs:", size=13, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
                     ft.Container(
                         height=min(220, max(60, len(pack_items_controls) * 55)),
                         content=ft.Column(
@@ -1294,8 +1346,8 @@ class StudyMarketplaceView:
                 spacing=12,
                 tight=True,
                 controls=[
-                    ft.ProgressRing(color="#059669", width=36, height=36, stroke_width=3),
-                    ft.Text("Retrieving your submissions & moderator review feedback…", size=13, weight=ft.FontWeight.W_600, color="#64748B"),
+                    ft.ProgressRing(color=ft.Colors.PRIMARY, width=36, height=36, stroke_width=3),
+                    ft.Text("Retrieving your submissions & moderator review feedback…", size=13, weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE_VARIANT),
                 ],
             ),
         )
@@ -1308,12 +1360,12 @@ class StudyMarketplaceView:
         rejected_count = sum(1 for p in items if p.get("status") == "rejected")
         total_coins = self.submissions_stats.get("total_coins_earned", 0)
 
-        # 1. Clean, High-Contrast Header Card (No nested green-on-green boxes)
+        # 1. Clean, High-Contrast Header Card
         header_card = ft.Container(
             padding=ft.Padding.symmetric(horizontal=20, vertical=18),
             border_radius=ft.BorderRadius.all(16),
-            bgcolor="#FFFFFF",
-            border=ft.Border.all(1, "#E2E8F0"),
+            bgcolor=ft.Colors.SURFACE,
+            border=ft.Border.all(1, ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE)),
             shadow=ft.BoxShadow(
                 blur_radius=10,
                 spread_radius=0,
@@ -1336,15 +1388,15 @@ class StudyMarketplaceView:
                                 tight=True,
                                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
                                 controls=[
-                                    ft.Icon(ft.Icons.AUTO_AWESOME_ROUNDED, size=15, color="#059669"),
-                                    ft.Text("CREATOR REWARDS & REVIEW HISTORY", size=10.5, weight=ft.FontWeight.W_800, color="#059669"),
+                                    ft.Icon(ft.Icons.AUTO_AWESOME_ROUNDED, size=15, color=ft.Colors.PRIMARY),
+                                    ft.Text("CREATOR REWARDS & REVIEW HISTORY", size=10.5, weight=ft.FontWeight.W_800, color=ft.Colors.PRIMARY),
                                 ],
                             ),
-                            ft.Text("My Study Pack Submissions", size=20, weight=ft.FontWeight.W_800, color="#0F172A"),
+                            ft.Text("My Study Pack Submissions", size=20, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
                             ft.Text(
                                 "Track live approval status, view feedback comments on rejections, and see Nu-Coins earned.",
                                 size=12.5,
-                                color="#64748B",
+                                color=ft.Colors.ON_SURFACE_VARIANT,
                             ),
                         ],
                     ),
@@ -1357,13 +1409,13 @@ class StudyMarketplaceView:
                                     tight=True,
                                     spacing=6,
                                     controls=[
-                                        ft.Icon(ft.Icons.REFRESH_ROUNDED, size=16, color="#475569"),
-                                        ft.Text("Refresh", size=12, weight=ft.FontWeight.W_700, color="#334155"),
+                                        ft.Icon(ft.Icons.REFRESH_ROUNDED, size=16, color=ft.Colors.ON_SURFACE_VARIANT),
+                                        ft.Text("Refresh", size=12, weight=ft.FontWeight.W_700, color=ft.Colors.ON_SURFACE),
                                     ],
                                 ),
                                 style=ft.ButtonStyle(
                                     shape=ft.RoundedRectangleBorder(radius=10),
-                                    side=ft.BorderSide(1, "#CBD5E1"),
+                                    side=ft.BorderSide(1, ft.Colors.with_opacity(0.18, ft.Colors.ON_SURFACE)),
                                     padding=ft.Padding.symmetric(horizontal=12, vertical=8),
                                 ),
                                 on_click=lambda _: self.page.run_task(self._load_submissions_data),
@@ -1373,12 +1425,12 @@ class StudyMarketplaceView:
                                     tight=True,
                                     spacing=6,
                                     controls=[
-                                        ft.Icon(ft.Icons.ADD_ROUNDED, size=16, color="#FFFFFF"),
-                                        ft.Text("Submit New Pack", size=12, weight=ft.FontWeight.W_800, color="#FFFFFF"),
+                                        ft.Icon(ft.Icons.ADD_ROUNDED, size=16, color=ft.Colors.ON_PRIMARY),
+                                        ft.Text("Submit New Pack", size=12, weight=ft.FontWeight.W_800, color=ft.Colors.ON_PRIMARY),
                                     ],
                                 ),
                                 style=ft.ButtonStyle(
-                                    bgcolor="#059669",
+                                    bgcolor=ft.Colors.PRIMARY,
                                     shape=ft.RoundedRectangleBorder(radius=10),
                                     padding=ft.Padding.symmetric(horizontal=14, vertical=8),
                                 ),
@@ -1391,13 +1443,13 @@ class StudyMarketplaceView:
         )
 
         # 2. Key Stats Summary Row (Using col on Container, NO expand=True)
-        def _stat_card(col_span: dict, icon: str, label: str, value: str, icon_color: str, icon_bg: str):
+        def _stat_card(col_span: dict, icon: Any, label: str, value: str, icon_color: str, icon_bg: str):
             return ft.Container(
                 col=col_span,
                 padding=ft.Padding.symmetric(horizontal=16, vertical=16),
                 border_radius=ft.BorderRadius.all(14),
-                bgcolor="#FFFFFF",
-                border=ft.Border.all(1, "#E2E8F0"),
+                bgcolor=ft.Colors.SURFACE,
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE)),
                 shadow=ft.BoxShadow(
                     blur_radius=8,
                     spread_radius=0,
@@ -1419,8 +1471,8 @@ class StudyMarketplaceView:
                             tight=True,
                             spacing=1,
                             controls=[
-                                ft.Text(value, size=20, weight=ft.FontWeight.W_800, color="#0F172A"),
-                                ft.Text(label, size=11.5, weight=ft.FontWeight.W_600, color="#64748B"),
+                                ft.Text(value, size=20, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
+                                ft.Text(label, size=11.5, weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE_VARIANT),
                             ],
                         ),
                     ],
@@ -1431,10 +1483,10 @@ class StudyMarketplaceView:
             spacing=12,
             run_spacing=12,
             controls=[
-                _stat_card({"sm": 6, "md": 3}, ft.Icons.INVENTORY_2_ROUNDED, "Total Submitted", str(total_count), "#2563EB", "#EFF6FF"),
-                _stat_card({"sm": 6, "md": 3}, ft.Icons.CHECK_CIRCLE_ROUNDED, "Live in Store", str(approved_count), "#059669", "#ECFDF5"),
-                _stat_card({"sm": 6, "md": 3}, ft.Icons.HOURGLASS_TOP_ROUNDED, "Under Review", str(pending_count), "#D97706", "#FFFBEB"),
-                _stat_card({"sm": 6, "md": 3}, nu_coin_icon(size=22), "Nu-Coins Earned", f"+{total_coins}", "#B45309", "#FEF3C7"),
+                _stat_card({"sm": 6, "md": 3}, ft.Icons.INVENTORY_2_ROUNDED, "Total Submitted", str(total_count), ft.Colors.BLUE_500, ft.Colors.with_opacity(0.12, ft.Colors.BLUE_500)),
+                _stat_card({"sm": 6, "md": 3}, ft.Icons.CHECK_CIRCLE_ROUNDED, "Live in Store", str(approved_count), ft.Colors.PRIMARY, ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY)),
+                _stat_card({"sm": 6, "md": 3}, ft.Icons.HOURGLASS_TOP_ROUNDED, "Under Review", str(pending_count), ft.Colors.AMBER_600, ft.Colors.with_opacity(0.12, ft.Colors.AMBER_600)),
+                _stat_card({"sm": 6, "md": 3}, nu_coin_icon(size=22), "Nu-Coins Earned", f"+{total_coins}", ft.Colors.AMBER_700, ft.Colors.with_opacity(0.14, ft.Colors.AMBER)),
             ],
         )
 
@@ -1443,8 +1495,8 @@ class StudyMarketplaceView:
             empty_box = ft.Container(
                 padding=ft.Padding.symmetric(vertical=48, horizontal=24),
                 border_radius=ft.BorderRadius.all(16),
-                bgcolor="#FFFFFF",
-                border=ft.Border.all(1, "#E2E8F0"),
+                bgcolor=ft.Colors.SURFACE,
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE)),
                 shadow=ft.BoxShadow(
                     blur_radius=10,
                     spread_radius=0,
@@ -1461,15 +1513,15 @@ class StudyMarketplaceView:
                             width=60,
                             height=60,
                             border_radius=ft.BorderRadius.all(30),
-                            bgcolor="#ECFDF5",
+                            bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY),
                             alignment=ft.Alignment.CENTER,
-                            content=ft.Icon(ft.Icons.OUTBOX_ROUNDED, size=28, color="#059669"),
+                            content=ft.Icon(ft.Icons.OUTBOX_ROUNDED, size=28, color=ft.Colors.PRIMARY),
                         ),
-                        ft.Text("No Study Pack Submissions Yet", size=18, weight=ft.FontWeight.W_800, color="#0F172A"),
+                        ft.Text("No Study Pack Submissions Yet", size=18, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
                         ft.Text(
                             "Turn your study vault flashcards and quizzes into community study packs.\nOnce reviewed and approved by moderators, your pack goes live and you earn 50+ Nu-Coins!",
                             size=13,
-                            color="#64748B",
+                            color=ft.Colors.ON_SURFACE_VARIANT,
                             text_align=ft.TextAlign.CENTER,
                         ),
                         ft.Container(height=6),
@@ -1482,31 +1534,31 @@ class StudyMarketplaceView:
                                 ft.Container(
                                     padding=ft.Padding.symmetric(horizontal=12, vertical=7),
                                     border_radius=ft.BorderRadius.all(10),
-                                    bgcolor="#F8FAFC",
-                                    border=ft.Border.all(1, "#E2E8F0"),
+                                    bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
+                                    border=ft.Border.all(1, ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE)),
                                     content=ft.Row([
-                                        ft.Icon(ft.Icons.FOLDER_ZIP_ROUNDED, size=14, color="#059669"),
-                                        ft.Text("1. Pick Vault Material", size=11.5, weight=ft.FontWeight.W_700, color="#334155"),
+                                        ft.Icon(ft.Icons.FOLDER_ZIP_ROUNDED, size=14, color=ft.Colors.PRIMARY),
+                                        ft.Text("1. Pick Vault Material", size=11.5, weight=ft.FontWeight.W_700, color=ft.Colors.ON_SURFACE),
                                     ], spacing=6, tight=True),
                                 ),
                                 ft.Container(
                                     padding=ft.Padding.symmetric(horizontal=12, vertical=7),
                                     border_radius=ft.BorderRadius.all(10),
-                                    bgcolor="#F8FAFC",
-                                    border=ft.Border.all(1, "#E2E8F0"),
+                                    bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
+                                    border=ft.Border.all(1, ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE)),
                                     content=ft.Row([
-                                        ft.Icon(ft.Icons.RATE_REVIEW_ROUNDED, size=14, color="#2563EB"),
-                                        ft.Text("2. Quick Admin Review", size=11.5, weight=ft.FontWeight.W_700, color="#334155"),
+                                        ft.Icon(ft.Icons.RATE_REVIEW_ROUNDED, size=14, color=ft.Colors.BLUE_500),
+                                        ft.Text("2. Quick Admin Review", size=11.5, weight=ft.FontWeight.W_700, color=ft.Colors.ON_SURFACE),
                                     ], spacing=6, tight=True),
                                 ),
                                 ft.Container(
                                     padding=ft.Padding.symmetric(horizontal=12, vertical=7),
                                     border_radius=ft.BorderRadius.all(10),
-                                    bgcolor="#FEF3C7",
-                                    border=ft.Border.all(1, "#FDE68A"),
+                                    bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.AMBER),
+                                    border=ft.Border.all(1, ft.Colors.with_opacity(0.30, ft.Colors.AMBER_600)),
                                     content=ft.Row([
                                         nu_coin_icon(size=14),
-                                        ft.Text("3. Earn 50 Nu-Coins", size=11.5, weight=ft.FontWeight.W_800, color="#92400E"),
+                                        ft.Text("3. Earn 50 Nu-Coins", size=11.5, weight=ft.FontWeight.W_800, color=ft.Colors.AMBER_700),
                                     ], spacing=6, tight=True),
                                 ),
                             ],
@@ -1517,12 +1569,12 @@ class StudyMarketplaceView:
                                 tight=True,
                                 spacing=6,
                                 controls=[
-                                    ft.Icon(ft.Icons.ADD_ROUNDED, size=16, color="#FFFFFF"),
-                                    ft.Text("Publish Your First Study Pack", size=12.5, weight=ft.FontWeight.W_800, color="#FFFFFF"),
+                                    ft.Icon(ft.Icons.ADD_ROUNDED, size=16, color=ft.Colors.ON_PRIMARY),
+                                    ft.Text("Publish Your First Study Pack", size=12.5, weight=ft.FontWeight.W_800, color=ft.Colors.ON_PRIMARY),
                                 ],
                             ),
                             style=ft.ButtonStyle(
-                                bgcolor="#059669",
+                                bgcolor=ft.Colors.PRIMARY,
                                 shape=ft.RoundedRectangleBorder(radius=10),
                                 padding=ft.Padding.symmetric(horizontal=18, vertical=10),
                             ),
@@ -1545,7 +1597,7 @@ class StudyMarketplaceView:
                 header_card,
                 stats_row,
                 ft.Row([
-                    ft.Text(f"Submissions & Moderation History ({total_count})", size=15, weight=ft.FontWeight.W_800, color="#0F172A"),
+                    ft.Text(f"Submissions & Moderation History ({total_count})", size=15, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                 ft.Column(spacing=14, tight=True, controls=card_controls),
             ],
@@ -1570,27 +1622,27 @@ class StudyMarketplaceView:
 
         # Status badge & style
         if status == "approved":
-            status_color = "#065F46"
-            status_bg = "#ECFDF5"
-            status_border = "#10B981"
+            status_color = ft.Colors.GREEN_600
+            status_bg = ft.Colors.with_opacity(0.12, ft.Colors.GREEN_600)
+            status_border = ft.Colors.with_opacity(0.30, ft.Colors.GREEN_600)
             status_icon = ft.Icons.CHECK_CIRCLE_ROUNDED
             status_text = "ACCEPTED & LIVE IN STORE"
         elif status == "rejected":
-            status_color = "#991B1B"
-            status_bg = "#FEF2F2"
-            status_border = "#EF4444"
+            status_color = ft.Colors.RED_500
+            status_bg = ft.Colors.with_opacity(0.12, ft.Colors.RED_500)
+            status_border = ft.Colors.with_opacity(0.30, ft.Colors.RED_500)
             status_icon = ft.Icons.ERROR_OUTLINE_ROUNDED
             status_text = "NEEDS REVISION / REJECTED"
         elif status == "hidden":
-            status_color = "#92400E"
-            status_bg = "#FFFBEB"
-            status_border = "#F59E0B"
+            status_color = ft.Colors.AMBER_700
+            status_bg = ft.Colors.with_opacity(0.12, ft.Colors.AMBER_600)
+            status_border = ft.Colors.with_opacity(0.30, ft.Colors.AMBER_600)
             status_icon = ft.Icons.VISIBILITY_OFF_ROUNDED
             status_text = "UNLISTED FROM STORE"
         else:
-            status_color = "#1E40AF"
-            status_bg = "#EFF6FF"
-            status_border = "#3B82F6"
+            status_color = ft.Colors.BLUE_500
+            status_bg = ft.Colors.with_opacity(0.12, ft.Colors.BLUE_500)
+            status_border = ft.Colors.with_opacity(0.30, ft.Colors.BLUE_500)
             status_icon = ft.Icons.HOURGLASS_TOP_ROUNDED
             status_text = "UNDER ADMIN REVIEW"
 
@@ -1610,11 +1662,11 @@ class StudyMarketplaceView:
             reward_pill = ft.Container(
                 padding=ft.Padding.symmetric(horizontal=10, vertical=5),
                 border_radius=ft.BorderRadius.all(10),
-                bgcolor="#FEF3C7",
-                border=ft.Border.all(1, "#F59E0B"),
+                bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.AMBER),
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.35, ft.Colors.AMBER_600)),
                 content=ft.Row([
                     nu_coin_icon(size=14),
-                    ft.Text(f"+{reward_coins} Nu-Coins Earned 🎉", size=11, weight=ft.FontWeight.W_800, color="#92400E"),
+                    ft.Text(f"+{reward_coins} Nu-Coins Earned 🎉", size=11, weight=ft.FontWeight.W_800, color=ft.Colors.AMBER_700),
                 ], spacing=6, tight=True),
             )
 
@@ -1624,8 +1676,8 @@ class StudyMarketplaceView:
             feedback_callout = ft.Container(
                 padding=ft.Padding.all(14),
                 border_radius=ft.BorderRadius.all(12),
-                bgcolor="#FEF2F2",
-                border=ft.Border.all(1.2, "#FCA5A5"),
+                bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.RED_500),
+                border=ft.Border.all(1.2, ft.Colors.with_opacity(0.28, ft.Colors.RED_500)),
                 content=ft.Column(
                     spacing=6,
                     tight=True,
@@ -1635,20 +1687,20 @@ class StudyMarketplaceView:
                             spacing=8,
                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
                             controls=[
-                                ft.Icon(ft.Icons.REPORT_PROBLEM_ROUNDED, size=16, color="#DC2626"),
-                                ft.Text("Moderator Rejection Feedback & Notes", size=12, weight=ft.FontWeight.W_800, color="#991B1B"),
+                                ft.Icon(ft.Icons.REPORT_PROBLEM_ROUNDED, size=16, color=ft.Colors.RED_500),
+                                ft.Text("Moderator Rejection Feedback & Notes", size=12, weight=ft.FontWeight.W_800, color=ft.Colors.RED_500),
                             ],
                         ),
                         ft.Text(
                             f'"{notes}"' if notes else "Did not meet marketplace quality guidelines. Please ensure flashcard answers are comprehensive and questions are accurate before resubmitting.",
                             size=12.5,
-                            color="#7F1D1D",
+                            color=ft.Colors.ON_SURFACE,
                             weight=ft.FontWeight.W_600,
                         ),
                         ft.Text(
                             "Tip: You can refine your material in Study Hub and publish an updated revision for approval.",
                             size=11,
-                            color="#991B1B",
+                            color=ft.Colors.ON_SURFACE_VARIANT,
                         ),
                     ],
                 ),
@@ -1657,8 +1709,8 @@ class StudyMarketplaceView:
             feedback_callout = ft.Container(
                 padding=ft.Padding.all(12),
                 border_radius=ft.BorderRadius.all(12),
-                bgcolor="#ECFDF5",
-                border=ft.Border.all(1, "#A7F3D0"),
+                bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.GREEN_600),
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.25, ft.Colors.GREEN_600)),
                 content=ft.Column(
                     spacing=4,
                     tight=True,
@@ -1668,14 +1720,14 @@ class StudyMarketplaceView:
                             spacing=8,
                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
                             controls=[
-                                ft.Icon(ft.Icons.CHECK_CIRCLE_OUTLINE_ROUNDED, size=16, color="#059669"),
-                                ft.Text("Moderator Review Feedback", size=12, weight=ft.FontWeight.W_800, color="#065F46"),
+                                ft.Icon(ft.Icons.CHECK_CIRCLE_OUTLINE_ROUNDED, size=16, color=ft.Colors.GREEN_600),
+                                ft.Text("Moderator Review Feedback", size=12, weight=ft.FontWeight.W_800, color=ft.Colors.GREEN_600),
                             ],
                         ),
                         ft.Text(
                             f'"{notes}"' if notes else "Pack verified and approved for the public marketplace catalog.",
                             size=12.5,
-                            color="#047857",
+                            color=ft.Colors.ON_SURFACE,
                         ),
                     ],
                 ),
@@ -1684,8 +1736,8 @@ class StudyMarketplaceView:
             feedback_callout = ft.Container(
                 padding=ft.Padding.all(12),
                 border_radius=ft.BorderRadius.all(12),
-                bgcolor="#FFFBEB",
-                border=ft.Border.all(1, "#FDE68A"),
+                bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.AMBER_600),
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.25, ft.Colors.AMBER_600)),
                 content=ft.Column(
                     spacing=4,
                     tight=True,
@@ -1695,14 +1747,14 @@ class StudyMarketplaceView:
                             spacing=8,
                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
                             controls=[
-                                ft.Icon(ft.Icons.VISIBILITY_OFF_ROUNDED, size=16, color="#D97706"),
-                                ft.Text("Store Visibility Notice", size=12, weight=ft.FontWeight.W_800, color="#92400E"),
+                                ft.Icon(ft.Icons.VISIBILITY_OFF_ROUNDED, size=16, color=ft.Colors.AMBER_700),
+                                ft.Text("Store Visibility Notice", size=12, weight=ft.FontWeight.W_800, color=ft.Colors.AMBER_700),
                             ],
                         ),
                         ft.Text(
                             notes or "This pack is currently unlisted from the public store catalog by administrators.",
                             size=12,
-                            color="#78350F",
+                            color=ft.Colors.ON_SURFACE,
                         ),
                     ],
                 ),
@@ -1711,8 +1763,8 @@ class StudyMarketplaceView:
             feedback_callout = ft.Container(
                 padding=ft.Padding.all(12),
                 border_radius=ft.BorderRadius.all(12),
-                bgcolor="#EFF6FF",
-                border=ft.Border.all(1, "#BFDBFE"),
+                bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.BLUE_500),
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.25, ft.Colors.BLUE_500)),
                 content=ft.Column(
                     spacing=4,
                     tight=True,
@@ -1722,14 +1774,14 @@ class StudyMarketplaceView:
                             spacing=8,
                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
                             controls=[
-                                ft.Icon(ft.Icons.SCHEDULE_ROUNDED, size=16, color="#2563EB"),
-                                ft.Text("Moderation in Progress", size=12, weight=ft.FontWeight.W_800, color="#1E40AF"),
+                                ft.Icon(ft.Icons.SCHEDULE_ROUNDED, size=16, color=ft.Colors.BLUE_500),
+                                ft.Text("Moderation in Progress", size=12, weight=ft.FontWeight.W_800, color=ft.Colors.BLUE_500),
                             ],
                         ),
                         ft.Text(
                             "Platform admins review submissions daily for quality and clarity. Once approved, Nu-Coins will be awarded automatically.",
                             size=12,
-                            color="#1E3A8A",
+                            color=ft.Colors.ON_SURFACE_VARIANT,
                         ),
                     ],
                 ),
@@ -1740,11 +1792,11 @@ class StudyMarketplaceView:
             return ft.Container(
                 padding=ft.Padding.symmetric(horizontal=9, vertical=4),
                 border_radius=ft.BorderRadius.all(8),
-                bgcolor="#F8FAFC",
-                border=ft.Border.all(1, "#E2E8F0"),
+                bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE)),
                 content=ft.Row([
                     ft.Text(icon_str, size=12),
-                    ft.Text(text_str, size=11.5, weight=ft.FontWeight.W_600, color="#334155"),
+                    ft.Text(text_str, size=11.5, weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE),
                 ], spacing=4, tight=True),
             )
 
@@ -1761,8 +1813,8 @@ class StudyMarketplaceView:
         return ft.Container(
             padding=ft.Padding.all(20),
             border_radius=ft.BorderRadius.all(16),
-            bgcolor="#FFFFFF",
-            border=ft.Border.all(1, "#E2E8F0"),
+            bgcolor=ft.Colors.SURFACE,
+            border=ft.Border.all(1, ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE)),
             shadow=ft.BoxShadow(
                 blur_radius=10,
                 spread_radius=0,
@@ -1785,11 +1837,11 @@ class StudyMarketplaceView:
                                 ft.Container(
                                     padding=ft.Padding.symmetric(horizontal=8, vertical=4),
                                     border_radius=ft.BorderRadius.all(6),
-                                    bgcolor="#ECFDF5",
-                                    border=ft.Border.all(1, "#A7F3D0"),
-                                    content=ft.Text(category.upper(), size=9.5, weight=ft.FontWeight.W_800, color="#059669"),
+                                    bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY),
+                                    border=ft.Border.all(1, ft.Colors.with_opacity(0.25, ft.Colors.PRIMARY)),
+                                    content=ft.Text(category.upper(), size=9.5, weight=ft.FontWeight.W_800, color=ft.Colors.PRIMARY),
                                 ),
-                                ft.Text(f"Submitted on {created_at_fmt}", size=11.5, color="#64748B"),
+                                ft.Text(f"Submitted on {created_at_fmt}", size=11.5, color=ft.Colors.ON_SURFACE_VARIANT),
                             ], spacing=8, tight=True),
                             ft.Row([
                                 *( [reward_pill] if reward_pill else [] ),
@@ -1799,8 +1851,8 @@ class StudyMarketplaceView:
                     ),
                     # Title & Description
                     ft.Column([
-                        ft.Text(title, size=16.5, weight=ft.FontWeight.W_800, color="#0F172A"),
-                        ft.Text(desc, size=13, color="#475569", max_lines=3, overflow=ft.TextOverflow.ELLIPSIS),
+                        ft.Text(title, size=16.5, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
+                        ft.Text(desc, size=13, color=ft.Colors.ON_SURFACE_VARIANT, max_lines=3, overflow=ft.TextOverflow.ELLIPSIS),
                     ], spacing=4, tight=True),
                     # Metrics row
                     ft.Row(controls=metrics_controls, spacing=8, wrap=True),
@@ -1888,7 +1940,7 @@ class StudyMarketplaceView:
         confirm_dialog = ft.AlertDialog(
             modal=True,
             shape=ft.RoundedRectangleBorder(radius=24),
-            bgcolor="#FFFFFF",
+            bgcolor=ft.Colors.SURFACE,
             content_padding=ft.Padding.all(0),
         )
 
@@ -2081,16 +2133,16 @@ class StudyMarketplaceView:
                 col={"xs": 4, "sm": 4},
                 padding=ft.Padding.symmetric(horizontal=8, vertical=12),
                 border_radius=ft.BorderRadius.all(12),
-                bgcolor="#F8FAFC",
-                border=ft.Border.all(1, "#E2E8F0"),
+                bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE)),
                 content=ft.Column(
                     spacing=2,
                     tight=True,
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                     controls=[
                         ft.Icon(tile_icon, size=20, color=tile_color),
-                        ft.Text(value, size=13, weight=ft.FontWeight.W_800, color="#0F172A"),
-                        ft.Text(label, size=10, weight=ft.FontWeight.W_600, color="#64748B"),
+                        ft.Text(value, size=13, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
+                        ft.Text(label, size=10, weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE_VARIANT),
                     ],
                 ),
             )
@@ -2101,9 +2153,9 @@ class StudyMarketplaceView:
                 spacing=8,
                 run_spacing=8,
                 controls=[
-                    _content_tile(ft.Icons.TIMER_ROUNDED, "#D97706", f"{cbt_dur}m", "CBT Time"),
+                    _content_tile(ft.Icons.TIMER_ROUNDED, ft.Colors.AMBER_600, f"{cbt_dur}m", "CBT Time"),
                     _content_tile(ft.Icons.IMAGE_ROUNDED, primary_color, str(diagrams_count), "Diagrams"),
-                    _content_tile(ft.Icons.QUIZ_ROUNDED, "#0284C7", str(q_count), "CBT Questions"),
+                    _content_tile(ft.Icons.QUIZ_ROUNDED, ft.Colors.BLUE_500, str(q_count), "CBT Questions"),
                 ],
             )
         else:
@@ -2112,8 +2164,8 @@ class StudyMarketplaceView:
                 run_spacing=8,
                 controls=[
                     _content_tile(ft.Icons.STYLE_ROUNDED, primary_color, str(fc_count), "Flashcards"),
-                    _content_tile(ft.Icons.QUIZ_ROUNDED, "#0284C7", str(q_count), "MCQ Quiz"),
-                    _content_tile(ft.Icons.TIMER_ROUNDED, "#D97706", "Enabled", "Exam Sim"),
+                    _content_tile(ft.Icons.QUIZ_ROUNDED, ft.Colors.BLUE_500, str(q_count), "MCQ Quiz"),
+                    _content_tile(ft.Icons.TIMER_ROUNDED, ft.Colors.AMBER_600, "Enabled", "Exam Sim"),
                 ],
             )
 
@@ -2121,8 +2173,8 @@ class StudyMarketplaceView:
         desc_box = ft.Container(
             padding=ft.Padding.all(12),
             border_radius=ft.BorderRadius.all(12),
-            bgcolor="#F8FAFC",
-            border=ft.Border.all(1, "#E2E8F0"),
+            bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
+            border=ft.Border.all(1, ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE)),
             content=ft.Column(
                 spacing=6,
                 tight=True,
@@ -2130,7 +2182,7 @@ class StudyMarketplaceView:
                     ft.Text(
                         desc or "Complete CBT exam preparation pack with step-by-step solutions, timer benchmarks, and syllabus questions.",
                         size=12,
-                        color="#475569",
+                        color=ft.Colors.ON_SURFACE_VARIANT,
                         max_lines=3,
                         overflow=ft.TextOverflow.ELLIPSIS,
                     ),
@@ -2147,17 +2199,17 @@ class StudyMarketplaceView:
             sample_q_box = ft.Container(
                 padding=ft.Padding.all(10),
                 border_radius=ft.BorderRadius.all(10),
-                bgcolor="#F1F5F9",
-                border=ft.Border.all(1, "#E2E8F0"),
+                bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)),
                 content=ft.Column(
                     spacing=4,
                     tight=True,
                     controls=[
                         ft.Row([
                             ft.Icon(ft.Icons.PREVIEW_ROUNDED, size=14, color=primary_color),
-                            ft.Text("Sample CBT Question Preview:", size=11, weight=ft.FontWeight.BOLD, color="#1E293B"),
+                            ft.Text("Sample CBT Question Preview:", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
                         ], spacing=4, tight=True),
-                        ft.Text(sq_text, size=11.5, color="#334155", max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
+                        ft.Text(sq_text, size=11.5, color=ft.Colors.ON_SURFACE_VARIANT, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
                         *(
                             [ft.Image(src=sq_img, height=70, fit=ft.BoxFit.CONTAIN, border_radius=ft.BorderRadius.all(6))]
                             if sq_img else []
@@ -2171,18 +2223,18 @@ class StudyMarketplaceView:
             price_status_box = ft.Container(
                 padding=ft.Padding.symmetric(horizontal=14, vertical=10),
                 border_radius=ft.BorderRadius.all(12),
-                bgcolor="#ECFDF5",
-                border=ft.Border.all(1, "#A7F3D0"),
+                bgcolor=ft.Colors.with_opacity(0.10, ft.Colors.GREEN_600),
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.28, ft.Colors.GREEN_600)),
                 content=ft.Row(
                     spacing=8,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     controls=[
-                        ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED, size=18, color="#059669"),
+                        ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED, size=18, color=ft.Colors.GREEN_600),
                         ft.Column(
                             spacing=1,
                             tight=True,
                             controls=[
-                                ft.Text("100% Free Peer Material", size=12, weight=ft.FontWeight.W_800, color="#065F46")
+                                ft.Text("100% Free Peer Material", size=12, weight=ft.FontWeight.W_800, color=ft.Colors.GREEN_600)
                             ],
                         ),
                     ],
@@ -2192,8 +2244,8 @@ class StudyMarketplaceView:
             price_status_box = ft.Container(
                 padding=ft.Padding.symmetric(horizontal=14, vertical=12),
                 border_radius=ft.BorderRadius.all(12),
-                bgcolor="#FFFBEB",
-                border=ft.Border.all(1, "#FDE68A"),
+                bgcolor=ft.Colors.with_opacity(0.10, ft.Colors.AMBER),
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.30, ft.Colors.AMBER_600)),
                 content=ft.Column(
                     spacing=8,
                     tight=True,
@@ -2203,21 +2255,21 @@ class StudyMarketplaceView:
                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
                             controls=[
                                 ft.Column([
-                                    ft.Text("Unlock Cost", size=10.5, color="#78350F"),
+                                    ft.Text("Unlock Cost", size=10.5, color=ft.Colors.ON_SURFACE_VARIANT),
                                     ft.Row([
                                         nu_coin_icon(size=15),
-                                        ft.Text(f"{price_coins} Nu-Coins", size=15, weight=ft.FontWeight.W_800, color="#B45309"),
+                                        ft.Text(f"{price_coins} Nu-Coins", size=15, weight=ft.FontWeight.W_800, color=ft.Colors.AMBER_700),
                                     ], spacing=5, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                                 ], spacing=1, tight=True),
                                 ft.Column([
-                                    ft.Text("Your Balance", size=10.5, color="#78350F"),
+                                    ft.Text("Your Balance", size=10.5, color=ft.Colors.ON_SURFACE_VARIANT),
                                     ft.Row([
                                         nu_coin_icon(size=15),
                                         ft.Text(
                                             f"{self.user_coins} Coins",
                                             size=15,
                                             weight=ft.FontWeight.W_800,
-                                            color="#059669" if has_enough_coins else "#DC2626",
+                                            color=ft.Colors.GREEN_600 if has_enough_coins else ft.Colors.RED_500,
                                         ),
                                     ], spacing=5, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                                 ], spacing=1, tight=True, horizontal_alignment=ft.CrossAxisAlignment.END),
@@ -2228,11 +2280,11 @@ class StudyMarketplaceView:
                                 ft.Container(
                                     padding=ft.Padding.symmetric(horizontal=10, vertical=6),
                                     border_radius=ft.BorderRadius.all(8),
-                                    bgcolor="#FEF2F2",
-                                    border=ft.Border.all(1, "#FCA5A5"),
+                                    bgcolor=ft.Colors.with_opacity(0.10, ft.Colors.RED_500),
+                                    border=ft.Border.all(1, ft.Colors.with_opacity(0.28, ft.Colors.RED_500)),
                                     content=ft.Row([
-                                        ft.Icon(ft.Icons.INFO_OUTLINE_ROUNDED, size=13, color="#DC2626"),
-                                        ft.Text(f"You need {price_coins - self.user_coins} more Nu-Coins to unlock.", size=11, color="#991B1B"),
+                                        ft.Icon(ft.Icons.INFO_OUTLINE_ROUNDED, size=13, color=ft.Colors.RED_500),
+                                        ft.Text(f"You need {price_coins - self.user_coins} more Nu-Coins to unlock.", size=11, color=ft.Colors.RED_500),
                                     ], spacing=6, tight=True),
                                 )
                             ] if not has_enough_coins else []
@@ -2245,7 +2297,7 @@ class StudyMarketplaceView:
         if is_free:
             action_label = "Add to My Vault"
             action_icon = ft.Icons.FILE_DOWNLOAD_ROUNDED
-            action_bg = "#059669"
+            action_bg = ft.Colors.PRIMARY
         elif has_enough_coins:
             action_label = f"Unlock for {price_coins} Coins"
             action_icon = ft.Icons.LOCK_OPEN_ROUNDED
@@ -2253,7 +2305,7 @@ class StudyMarketplaceView:
         else:
             action_label = "Get Coins in Store"
             action_icon = ft.Icons.STOREFRONT_ROUNDED
-            action_bg = "#D97706"
+            action_bg = ft.Colors.AMBER_700
 
         if has_enough_coins:
             action_click = lambda e: self.page.run_task(_confirm_download, e.control)
@@ -2265,8 +2317,8 @@ class StudyMarketplaceView:
                 tight=True,
                 spacing=6,
                 controls=[
-                    ft.Icon(action_icon, size=16, color="#FFFFFF"),
-                    ft.Text(action_label, size=12.5, weight=ft.FontWeight.W_800, color="#FFFFFF"),
+                    ft.Icon(action_icon, size=16, color=ft.Colors.WHITE),
+                    ft.Text(action_label, size=12.5, weight=ft.FontWeight.W_800, color=ft.Colors.WHITE),
                 ],
             ),
             style=ft.ButtonStyle(
@@ -2278,10 +2330,10 @@ class StudyMarketplaceView:
         )
 
         cancel_btn = ft.OutlinedButton(
-            content=ft.Text("Cancel", size=12.5, weight=ft.FontWeight.W_600, color="#475569"),
+            content=ft.Text("Cancel", size=12.5, weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE_VARIANT),
             style=ft.ButtonStyle(
                 shape=ft.RoundedRectangleBorder(radius=10),
-                side=ft.BorderSide(1, "#CBD5E1"),
+                side=ft.BorderSide(1, ft.Colors.with_opacity(0.20, ft.Colors.ON_SURFACE)),
                 padding=ft.Padding.symmetric(horizontal=14, vertical=10),
             ),
             on_click=lambda _: self._close_dialog(confirm_dialog),
@@ -2290,7 +2342,7 @@ class StudyMarketplaceView:
         modal_body = ft.Container(
             padding=ft.Padding.all(20),
             border_radius=ft.BorderRadius.only(bottom_left=24, bottom_right=24),
-            bgcolor="#FFFFFF",
+            bgcolor=ft.Colors.SURFACE,
             content=ft.Column(
                 spacing=14,
                 tight=True,
@@ -2311,7 +2363,7 @@ class StudyMarketplaceView:
         confirm_dialog.content = ft.Container(
             width=dlg_width,
             border_radius=ft.BorderRadius.all(24),
-            bgcolor="#FFFFFF",
+            bgcolor=ft.Colors.SURFACE,
             content=ft.Column(
                 tight=True,
                 spacing=0,
@@ -2336,15 +2388,6 @@ class StudyMarketplaceView:
             show_page_snackbar(self.page, "You need at least one material in your vault to create a study pack.")
             return
 
-        # ── Palette: deep emerald-tinted surfaces so the modal matches the app ──
-        BG = "#0B1A16"
-        FIELD_BG = "#102620"
-        FIELD_BORDER = "#1F4037"
-        ACCENT = "#34D399"
-        TEXT_MAIN = "#ECFDF5"
-        TEXT_MUTED = "#8FB5A8"
-        DARK_ON_ACCENT = "#022C22"
-
         def _short(text: str, limit: int = 34) -> str:
             text = (text or "Untitled").strip()
             return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
@@ -2356,7 +2399,7 @@ class StudyMarketplaceView:
                 content=ft.Text(
                     _short(m.get("title", "Untitled")),
                     size=12.5,
-                    color=TEXT_MAIN,
+                    color=ft.Colors.ON_SURFACE,
                     max_lines=1,
                     overflow=ft.TextOverflow.ELLIPSIS,
                 ),
@@ -2369,28 +2412,39 @@ class StudyMarketplaceView:
 
         def _field_style() -> dict:
             return dict(
-                bgcolor=FIELD_BG,
-                fill_color=FIELD_BG,
+                bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
+                fill_color=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
                 filled=True,
-                border_color=FIELD_BORDER,
-                focused_border_color=ACCENT,
+                border_color=ft.Colors.with_opacity(0.14, ft.Colors.ON_SURFACE),
+                focused_border_color=ft.Colors.PRIMARY,
                 border_radius=12,
                 text_size=13,
                 dense=True,
                 expand=True,
-                color=TEXT_MAIN,
-                label_style=ft.TextStyle(size=12, color=TEXT_MUTED),
-                hint_style=ft.TextStyle(size=12, color="#4F7468"),
+                color=ft.Colors.ON_SURFACE,
+                label_style=ft.TextStyle(size=12, color=ft.Colors.ON_SURFACE_VARIANT),
+                hint_style=ft.TextStyle(size=12, color=ft.Colors.ON_SURFACE_VARIANT),
             )
 
         def _section_label(text: str) -> ft.Text:
-            return ft.Text(text, size=10, weight=ft.FontWeight.W_800, color=ACCENT)
+            return ft.Text(text, size=10, weight=ft.FontWeight.W_800, color=ft.Colors.PRIMARY)
 
         title_input = ft.TextField(
             label="Pack title",
             value=first_title,
             hint_text="e.g., Cellular Respiration & ATP Synthesis",
             **_field_style(),
+        )
+
+        creator_categories = [c[0] for c in CATEGORIES if c[0] not in ("All", "Official")] + ["General"]
+        category_dropdown = apply_dropdown_theme(
+            ft.Dropdown(
+                label="Subject category",
+                options=[ft.dropdown.Option(key=cat, text=cat) for cat in creator_categories],
+                value="General",
+                **_field_style(),
+            ),
+            menu_height=220,
         )
 
         def _on_mat_change(e):
@@ -2401,19 +2455,15 @@ class StudyMarketplaceView:
                     self.page.update()
                     break
 
-        selected_mat_dropdown = ft.Dropdown(
-            label="Material from your vault",
-            options=mat_options,
-            value=mat_options[0].key if mat_options else None,
-            on_select=_on_mat_change,
-            menu_height=180,  # compact, scrollable popup menu
-            menu_style=ft.MenuStyle(
-                bgcolor=FIELD_BG,
-                shape=ft.RoundedRectangleBorder(radius=10),
-                side=ft.BorderSide(1, FIELD_BORDER),
-                elevation=6,
+        selected_mat_dropdown = apply_dropdown_theme(
+            ft.Dropdown(
+                label="Material from your vault",
+                options=mat_options,
+                value=mat_options[0].key if mat_options else None,
+                on_select=_on_mat_change,
+                **_field_style(),
             ),
-            **_field_style(),
+            menu_height=200,
         )
 
         desc_input = ft.TextField(
@@ -2428,7 +2478,7 @@ class StudyMarketplaceView:
         submit_dialog = ft.AlertDialog(
             modal=True,
             shape=ft.RoundedRectangleBorder(radius=22),
-            bgcolor=BG,
+            bgcolor=ft.Colors.SURFACE,
             content_padding=ft.Padding.all(22),
         )
 
@@ -2438,7 +2488,7 @@ class StudyMarketplaceView:
                 return
 
             btn.disabled = True
-            btn.content = ft.ProgressRing(width=16, height=16, stroke_width=2, color=DARK_ON_ACCENT)
+            btn.content = ft.ProgressRing(width=16, height=16, stroke_width=2, color=ft.Colors.ON_PRIMARY)
             self.page.update()
 
             res = await submit_study_pack(
@@ -2446,13 +2496,13 @@ class StudyMarketplaceView:
                 material_id=selected_mat_dropdown.value,
                 title=title_input.value.strip(),
                 description=desc_input.value.strip() if desc_input.value else "",
-                category="General",
+                category=category_dropdown.value or "General",
                 price_coins=0,
             )
 
             if "error" in res:
                 btn.disabled = False
-                btn.content = ft.Text("Submit for Review", size=12.5, weight=ft.FontWeight.W_800, color=DARK_ON_ACCENT)
+                btn.content = ft.Text("Submit for Review", size=12.5, weight=ft.FontWeight.W_800, color=ft.Colors.ON_PRIMARY)
                 show_page_snackbar(self.page, res["error"])
                 self.page.update()
                 return
@@ -2462,10 +2512,10 @@ class StudyMarketplaceView:
             self._switch_tab("my_submissions")
 
         submit_btn = ft.FilledButton(
-            content=ft.Text("Submit for Review", size=12.5, weight=ft.FontWeight.W_800, color=DARK_ON_ACCENT),
+            content=ft.Text("Submit for Review", size=12.5, weight=ft.FontWeight.W_800, color=ft.Colors.ON_PRIMARY),
             height=42,
             style=ft.ButtonStyle(
-                bgcolor=ACCENT,
+                bgcolor=ft.Colors.PRIMARY,
                 shape=ft.RoundedRectangleBorder(radius=21),
                 padding=ft.Padding.symmetric(horizontal=22, vertical=0),
                 elevation=0,
@@ -2474,7 +2524,7 @@ class StudyMarketplaceView:
         )
 
         cancel_btn = ft.TextButton(
-            content=ft.Text("Cancel", size=12.5, weight=ft.FontWeight.W_600, color=TEXT_MUTED),
+            content=ft.Text("Cancel", size=12.5, weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE_VARIANT),
             height=42,
             on_click=lambda _: self._close_dialog(submit_dialog),
         )
@@ -2484,15 +2534,15 @@ class StudyMarketplaceView:
                 expand=True,
                 padding=ft.Padding.all(12),
                 border_radius=ft.BorderRadius.all(12),
-                bgcolor=ft.Colors.with_opacity(0.08, ACCENT),
-                border=ft.Border.all(1, ft.Colors.with_opacity(0.18, ACCENT)),
+                bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.PRIMARY),
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.18, ft.Colors.PRIMARY)),
                 content=ft.Column(
                     spacing=4,
                     tight=True,
                     controls=[
-                        icon if isinstance(icon, ft.Control) else ft.Icon(icon, size=18, color=ACCENT),
-                        ft.Text(heading, size=11.5, weight=ft.FontWeight.W_700, color=TEXT_MAIN),
-                        ft.Text(body, size=10.5, color=TEXT_MUTED),
+                        icon if isinstance(icon, ft.Control) else ft.Icon(icon, size=18, color=ft.Colors.PRIMARY),
+                        ft.Text(heading, size=11.5, weight=ft.FontWeight.W_700, color=ft.Colors.ON_SURFACE),
+                        ft.Text(body, size=10.5, color=ft.Colors.ON_SURFACE_VARIANT),
                     ],
                 ),
             )
@@ -2520,18 +2570,18 @@ class StudyMarketplaceView:
                                         border_radius=ft.BorderRadius.all(14),
                                         alignment=ft.Alignment.CENTER,
                                         gradient=ft.LinearGradient(
-                                            colors=["#34D399", "#059669"],
+                                            colors=[ft.Colors.PRIMARY, ft.Colors.SECONDARY],
                                             begin=ft.Alignment.TOP_LEFT,
                                             end=ft.Alignment.BOTTOM_RIGHT,
                                         ),
-                                        content=ft.Icon(ft.Icons.CLOUD_UPLOAD_ROUNDED, size=22, color=DARK_ON_ACCENT),
+                                        content=ft.Icon(ft.Icons.CLOUD_UPLOAD_ROUNDED, size=22, color=ft.Colors.ON_PRIMARY),
                                     ),
                                     ft.Column(
                                         spacing=1,
                                         tight=True,
                                         controls=[
-                                            ft.Text("Publish a Study Pack", size=16, weight=ft.FontWeight.W_800, color=TEXT_MAIN),
-                                            ft.Text("Share your material", size=10.5, color=TEXT_MUTED),
+                                            ft.Text("Publish a Study Pack", size=16, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
+                                            ft.Text("Share your material with peers", size=10.5, color=ft.Colors.ON_SURFACE_VARIANT),
                                         ],
                                     ),
                                 ],
@@ -2539,12 +2589,12 @@ class StudyMarketplaceView:
                             ft.IconButton(
                                 icon=ft.Icons.CLOSE_ROUNDED,
                                 icon_size=18,
-                                icon_color=TEXT_MUTED,
+                                icon_color=ft.Colors.ON_SURFACE_VARIANT,
                                 on_click=lambda _: self._close_dialog(submit_dialog),
                             ),
                         ],
                     ),
-                    ft.Divider(height=1, color=ft.Colors.with_opacity(0.10, ACCENT)),
+                    ft.Divider(height=1, color=ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE)),
                     # Form
                     ft.Column(
                         spacing=8,
@@ -2554,7 +2604,7 @@ class StudyMarketplaceView:
                     ft.Column(
                         spacing=8,
                         tight=True,
-                        controls=[_section_label("PACK DETAILS"), title_input, desc_input],
+                        controls=[_section_label("PACK DETAILS"), title_input, category_dropdown, desc_input],
                     ),
                     # What happens next
                     ft.Row(

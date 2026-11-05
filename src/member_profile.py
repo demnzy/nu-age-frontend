@@ -5,6 +5,7 @@ from src.components.bottom_appbar import get_bottom_appbar
 from src.requests.auth import get_member_profile
 from src.components.badge_pill import build_glossy_badge_pill
 from src.utils.file_opener import safe_set_clipboard, show_page_snackbar
+from src.components.shimmer_skeletons import build_profile_skeleton
 
 async def member_profile_view(page: ft.Page, identifier: str):
     # ── Theme & Palette Determination ─────────────────────────────────────────
@@ -23,8 +24,7 @@ async def member_profile_view(page: ft.Page, identifier: str):
     content_socket = ft.Container(
         expand=True,
         clip_behavior=ft.ClipBehavior.HARD_EDGE,
-        alignment=ft.Alignment.CENTER,
-        content=ft.ProgressRing(color=ft.Colors.PRIMARY, stroke_width=3)
+        content=build_profile_skeleton(page, is_member=True),
     )
 
     def handle_back(e):
@@ -433,7 +433,11 @@ async def member_profile_view(page: ft.Page, identifier: str):
             card.offset = ft.Offset(0, 0)
             page.update()
 
-    page.run_task(load_profile)
+    # Await initial profile data before view mounts so view is feasibly ready
+    try:
+        await asyncio.wait_for(load_profile(), timeout=8.0)
+    except Exception:
+        page.run_task(load_profile)
 
     return ft.View(
         route=f"/member/{identifier}",

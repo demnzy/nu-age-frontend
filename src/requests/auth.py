@@ -290,6 +290,23 @@ async def upload_avatar_request(token: str, image_b64: str, filename: str = "ava
         return 503, {"detail": "Could not connect to the server. Check your internet connection."}
 
 
+async def set_account_password_request(token: str, new_password: str):
+    """POST /users/auth/set-password - sets account password for authenticated users (e.g. Google OAuth signups)."""
+    url = f"{api_url}/users/auth/set-password"
+    headers = {"Authorization": f"Bearer {token}"}
+    timeout = httpx.Timeout(connect=4.0, read=15.0, write=15.0, pool=5.0)
+    try:
+        async with httpx.AsyncClient(timeout=timeout, verify=ssl_context) as client:
+            response = await client.post(url, headers=headers, json={"new_password": new_password})
+            try:
+                return response.status_code, response.json()
+            except Exception:
+                return response.status_code, {"detail": "Server returned an unexpected response."}
+    except httpx.RequestError as e:
+        print(f"set_account_password_request error: {e!r}")
+        return 503, {"detail": "Could not connect to the server. Check your internet connection."}
+
+
 async def remove_avatar_request(token: str):
     """DELETE /users/me/avatar - clears the profile picture. Returns (status, user_dict)."""
     url = f"{api_url}/users/me/avatar"

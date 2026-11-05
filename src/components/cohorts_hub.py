@@ -38,6 +38,7 @@ from src.requests.Cohorts import (
     get_cohort_health,
     intervene_cohort,
 )
+from src.utils.dropdown_theme import apply_dropdown_theme
 
 _INPUT = {
     "border_color": ft.Colors.with_opacity(0.20, ft.Colors.ON_SURFACE),
@@ -1572,24 +1573,30 @@ def build_cohorts_tab(
                     ], spacing=8),
                 )
 
-                security_dd = ft.Dropdown(
-                    label="Anti-Cheat Security Policy *",
-                    options=[
-                        ft.dropdown.Option("monitored", "🛡️ Monitored Mode (2 Warnings before auto-submit)"),
-                        ft.dropdown.Option("strict", "🔒 Strict Mode (Immediate auto-submit on app/window switch)"),
-                        ft.dropdown.Option("relaxed", "🟢 Relaxed Mode (Practice / no auto-submit)"),
-                    ],
-                    value="monitored",
-                    border_radius=10,
+                security_dd = apply_dropdown_theme(
+                    ft.Dropdown(
+                        label="Anti-Cheat Security Policy *",
+                        options=[
+                            ft.dropdown.Option("monitored", "🛡️ Monitored Mode (2 Warnings before auto-submit)"),
+                            ft.dropdown.Option("strict", "🔒 Strict Mode (Immediate auto-submit on app/window switch)"),
+                            ft.dropdown.Option("relaxed", "🟢 Relaxed Mode (Practice / no auto-submit)"),
+                        ],
+                        value="monitored",
+                        border_radius=10,
+                    ),
+                    menu_height=240,
                 )
-                calc_dd = ft.Dropdown(
-                    label="Permitted In-Exam Calculator *",
-                    options=[
-                        ft.dropdown.Option("none", "🚫 No Calculator (Calculations not permitted)"),
-                        ft.dropdown.Option("basic", "🔢 Basic Calculator (+, −, ×, ÷, %)"),
-                        ft.dropdown.Option("scientific", "🧪 Scientific Calculator (Trig, Sqrt, Powers, Log)"),
-                    ],
-                    value="none",
+                calc_dd = apply_dropdown_theme(
+                    ft.Dropdown(
+                        label="Permitted In-Exam Calculator *",
+                        options=[
+                            ft.dropdown.Option("none", "🚫 No Calculator (Calculations not permitted)"),
+                            ft.dropdown.Option("basic", "🔢 Basic Calculator (+, −, ×, ÷, %)"),
+                            ft.dropdown.Option("scientific", "🧪 Scientific Calculator (Trig, Sqrt, Powers, Log)"),
+                        ],
+                        value="none",
+                    ),
+                    menu_height=240,
                 )
                 review_mode_chk = ft.Checkbox(
                     value=True,
@@ -1779,27 +1786,33 @@ def build_cohorts_tab(
                         ], spacing=6),
                     ], spacing=6),
                 )
-                e_sec_dd = ft.Dropdown(
-                    label="Anti-Cheat Security Mode",
-                    options=[
-                        ft.dropdown.Option("monitored", "Monitored Mode (2 Warnings before auto-submit)"),
-                        ft.dropdown.Option("strict", "Strict Mode (Immediate auto-submit on app switch)"),
-                        ft.dropdown.Option("relaxed", "Relaxed Mode (Practice session / no auto-submit)"),
-                    ],
-                    value=target_ex.get("security_mode") or "monitored",
-                    border_radius=8,
-                    dense=True,
+                e_sec_dd = apply_dropdown_theme(
+                    ft.Dropdown(
+                        label="Anti-Cheat Security Mode",
+                        options=[
+                            ft.dropdown.Option("monitored", "Monitored Mode (2 Warnings before auto-submit)"),
+                            ft.dropdown.Option("strict", "Strict Mode (Immediate auto-submit on app switch)"),
+                            ft.dropdown.Option("relaxed", "Relaxed Mode (Practice session / no auto-submit)"),
+                        ],
+                        value=target_ex.get("security_mode") or "monitored",
+                        border_radius=8,
+                        dense=True,
+                    ),
+                    menu_height=240,
                 )
-                e_calc_dd = ft.Dropdown(
-                    label="Permitted In-Exam Calculator",
-                    options=[
-                        ft.dropdown.Option("none", "Closed Book (No calculator allowed)"),
-                        ft.dropdown.Option("basic", "Basic Calculator (+, −, ×, ÷, %)"),
-                        ft.dropdown.Option("scientific", "Scientific Calculator (Trig, Powers, Logs, Sqrt)"),
-                    ],
-                    value=target_ex.get("calculator_type") or "none",
-                    border_radius=8,
-                    dense=True,
+                e_calc_dd = apply_dropdown_theme(
+                    ft.Dropdown(
+                        label="Permitted In-Exam Calculator",
+                        options=[
+                            ft.dropdown.Option("none", "Closed Book (No calculator allowed)"),
+                            ft.dropdown.Option("basic", "Basic Calculator (+, −, ×, ÷, %)"),
+                            ft.dropdown.Option("scientific", "Scientific Calculator (Trig, Powers, Logs, Sqrt)"),
+                        ],
+                        value=target_ex.get("calculator_type") or "none",
+                        border_radius=8,
+                        dense=True,
+                    ),
+                    menu_height=240,
                 )
                 e_review_mode_chk = ft.Checkbox(
                     value=not target_ex.get("show_immediate_results", False),
@@ -2214,16 +2227,19 @@ def build_cohorts_tab(
                 opt_d_in = ft.TextField(label="Option D (optional)", value=opts[3] if len(opts) > 3 else "", **_INPUT)
 
                 curr_c_idx = str(target_q.get("correct_index", 0))
-                ans_dropdown = ft.Dropdown(
-                    label="Correct Option *",
-                    options=[
-                        ft.dropdown.Option("0", "Option A"),
-                        ft.dropdown.Option("1", "Option B"),
-                        ft.dropdown.Option("2", "Option C"),
-                        ft.dropdown.Option("3", "Option D"),
-                    ],
-                    value=curr_c_idx,
-                    border_radius=10,
+                ans_dropdown = apply_dropdown_theme(
+                    ft.Dropdown(
+                        label="Correct Option *",
+                        options=[
+                            ft.dropdown.Option("0", "Option A"),
+                            ft.dropdown.Option("1", "Option B"),
+                            ft.dropdown.Option("2", "Option C"),
+                            ft.dropdown.Option("3", "Option D"),
+                        ],
+                        value=curr_c_idx,
+                        border_radius=10,
+                    ),
+                    menu_height=200,
                 )
                 points_input = ft.TextField(label="Points", value=str(target_q.get("points", 1.0)), keyboard_type=ft.KeyboardType.NUMBER, **_INPUT)
                 expl_input = ft.TextField(label="Explanation (optional)", value=target_q.get("explanation") or "", multiline=True, **_INPUT)
@@ -2308,12 +2324,15 @@ def build_cohorts_tab(
                 opt_b = ft.TextField(label="Option B *", **_INPUT)
                 opt_c = ft.TextField(label="Option C (optional)", **_INPUT)
                 opt_d = ft.TextField(label="Option D (optional)", **_INPUT)
-                ans_dd = ft.Dropdown(
-                    label="Correct Option *",
-                    options=[ft.dropdown.Option("0", "Option A"), ft.dropdown.Option("1", "Option B"),
-                             ft.dropdown.Option("2", "Option C"), ft.dropdown.Option("3", "Option D")],
-                    value="0",
-                    border_radius=10,
+                ans_dd = apply_dropdown_theme(
+                    ft.Dropdown(
+                        label="Correct Option *",
+                        options=[ft.dropdown.Option("0", "Option A"), ft.dropdown.Option("1", "Option B"),
+                                 ft.dropdown.Option("2", "Option C"), ft.dropdown.Option("3", "Option D")],
+                        value="0",
+                        border_radius=10,
+                    ),
+                    menu_height=200,
                 )
                 points_f = ft.TextField(label="Points", value="1.0", keyboard_type=ft.KeyboardType.NUMBER, **_INPUT)
                 expl_field = ft.TextField(label="Explanation (optional)", multiline=True, **_INPUT)

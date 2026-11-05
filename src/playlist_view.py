@@ -13,6 +13,7 @@ import flet as ft
 from src.requests.playlists import get_playlist, enroll_in_playlist
 from src.requests.enrollments import enrol_user, get_enrollments
 from src.requests.Courses import get_courses
+from src.components.shimmer_skeletons import build_playlist_view_skeleton
 
 UI_ACCENT = ft.Colors.PRIMARY
 
@@ -134,16 +135,8 @@ async def playlist_view(page: ft.Page, playlist_id: str, back_target: str = "/co
     # ── Refresh Trigger ───────────────────────────────────────────────────────
     async def refresh_view():
         if content_socket.current:
-            content_socket.current.alignment = ft.Alignment.CENTER
-            content_socket.current.content = ft.Column(
-                alignment=ft.MainAxisAlignment.CENTER,
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                spacing=12,
-                controls=[
-                    ft.ProgressRing(color=UI_ACCENT, width=36, height=36, stroke_width=3),
-                    ft.Text("Refreshing learning path…", size=13, color=ft.Colors.ON_SURFACE_VARIANT),
-                ],
-            )
+            content_socket.current.alignment = None
+            content_socket.current.content = build_playlist_view_skeleton(page)
             page.update()
 
         await load_data()
@@ -212,10 +205,17 @@ async def playlist_view(page: ft.Page, playlist_id: str, back_target: str = "/co
 
     # ── Single Course Quick Enroll Handler ────────────────────────────────────
     def make_course_enroll_handler(course_id: str, btn_ref):
-        async def handler(e):
+        async def handler(e=None):
             if btn_ref.current:
                 btn_ref.current.disabled = True
-                btn_ref.current.content = "Enrolling…"
+                btn_ref.current.content = ft.Row(
+                    spacing=6,
+                    tight=True,
+                    controls=[
+                        ft.ProgressRing(width=12, height=12, stroke_width=2, color=UI_ACCENT),
+                        ft.Text("Enrolling…", size=12, weight=ft.FontWeight.BOLD, color=UI_ACCENT),
+                    ],
+                )
                 page.update()
 
             try:
@@ -278,7 +278,8 @@ async def playlist_view(page: ft.Page, playlist_id: str, back_target: str = "/co
         name = playlist_data.get("name") or "Untitled Learning Path"
         description = playlist_data.get("description") or "Curated sequential curriculum designed for comprehensive skill mastery."
         image_url = playlist_data.get("image_url")
-        org_name = playlist_data.get("Organisation") or "Nu Age Learning Hub"
+        raw_org = playlist_data.get("Organisation") or playlist_data.get("organisation")
+        org_name = (raw_org.get("name") if isinstance(raw_org, dict) else str(raw_org or "")).strip() or "Nu Age Learning Hub"
         rating = round(float(playlist_data.get("rating") or 4.9), 1)
         is_public = playlist_data.get("is_public", True)
 
@@ -957,7 +958,7 @@ async def playlist_view(page: ft.Page, playlist_id: str, back_target: str = "/co
             ],
         )
 
-    # Content Socket
+    # Content Socket - initialized to high-fidelity 1:1 skeleton
     content = ft.Container(
         ref=content_socket,
         expand=True,
@@ -965,19 +966,17 @@ async def playlist_view(page: ft.Page, playlist_id: str, back_target: str = "/co
             horizontal=16 if (getattr(page, "width", None) or 1080) < 650 else 24,
             vertical=16,
         ),
-        content=ft.Column(
-            alignment=ft.MainAxisAlignment.CENTER,
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            spacing=12,
-            controls=[
-                ft.ProgressRing(color=UI_ACCENT, width=36, height=36, stroke_width=3),
-                ft.Text("Loading Learning Path…", size=13, color=ft.Colors.ON_SURFACE_VARIANT),
-            ],
-        ),
+        content=build_playlist_view_skeleton(page),
     )
 
-    # Initial async load task
-    asyncio.create_task(refresh_view())
+    # Initial data load: await so view mounts feasibly ready
+    try:
+        await asyncio.wait_for(load_data(), timeout=8.0)
+        if playlist_data:
+            content.content = build_main_content()
+    except Exception:
+        # Background fallback if network is slow
+        asyncio.create_task(refresh_view())
 
     return ft.View(
         route=f"/playlists/{playlist_id}",

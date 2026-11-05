@@ -1599,34 +1599,13 @@ async def store_view(page: ft.Page, initial_tab: str = "plans", back_target: str
     def _render_view():
         content_area.controls.clear()
 
-        # If catalog or subscription status is loading, show loading spinner first
-        # so incorrect details never render and cannot trigger accidental wrong upgrades
+        # If catalog or subscription status is loading, render 1:1 skeleton screen
         if state.get("is_loading", True):
+            from src.components.shimmer_skeletons import build_store_skeleton
             content_area.controls.append(
                 ft.Container(
-                    alignment=ft.Alignment.CENTER,
-                    padding=ft.Padding.symmetric(vertical=90),
                     expand=True,
-                    content=ft.Column(
-                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                        alignment=ft.MainAxisAlignment.CENTER,
-                        spacing=16,
-                        tight=True,
-                        controls=[
-                            ft.ProgressRing(width=44, height=44, stroke_width=3.5, color=ft.Colors.PRIMARY),
-                            ft.Text(
-                                "Loading Nu Age Learning Store…",
-                                size=16,
-                                weight=ft.FontWeight.W_800,
-                                color=ft.Colors.ON_SURFACE,
-                            ),
-                            ft.Text(
-                                "Verifying your active plan and checking catalog pricing",
-                                size=12.5,
-                                color=ft.Colors.ON_SURFACE_VARIANT,
-                            ),
-                        ],
-                    ),
+                    content=build_store_skeleton(page),
                 )
             )
             if page:
@@ -2106,7 +2085,7 @@ async def store_view(page: ft.Page, initial_tab: str = "plans", back_target: str
     # the view renders 100% verified and correct without any late visual mutation.
     # If network takes longer, the spinner stays on screen until background task completes.
     try:
-        await asyncio.wait_for(_fetch_catalog_and_sub(show_spinner=False), timeout=2.0)
+        await asyncio.wait_for(_fetch_catalog_and_sub(show_spinner=False), timeout=6.0)
     except (asyncio.TimeoutError, TimeoutError):
         page.run_task(_fetch_catalog_and_sub, False)
     except Exception as ex:

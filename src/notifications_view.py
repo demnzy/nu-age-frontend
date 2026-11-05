@@ -207,7 +207,7 @@ async def notifications_view(page: ft.Page) -> ft.View:
         if tab == "exams":
             filtered = [n for n in items if n.get("category") in ("exams", "cohorts")]
         elif tab == "courses":
-            filtered = [n for n in items if n.get("category") in ("courses", "course_progress")]
+            filtered = [n for n in items if n.get("category") in ("courses", "course_progress", "course_spaces", "spaces", "live_session")]
         elif tab == "chat":
             filtered = [n for n in items if n.get("category") == "chat"]
         else:
@@ -223,7 +223,40 @@ async def notifications_view(page: ft.Page) -> ft.View:
                 page.go(f"/cohorts/{c_id}/exams/{ex_id}?org_id={org_id}")
             return _launch
 
-        # 1. Urgent live exam banner if any
+        # 1a. Urgent live meeting banner if any
+        live_classes = [n for n in items if n.get("category") == "live_session" and "Starting Now" in n.get("title", "")]
+        if live_classes and tab in ("all", "courses"):
+            for lc in live_classes:
+                lc_title = lc.get("title", "Live Class").replace("🔴 Live Class Starting Now: ", "")
+                lc_body = lc.get("body", "")
+                lc_action = lc.get("on_action")
+                lc_banner = ft.Container(
+                    padding=16, border_radius=14,
+                    bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.RED_600),
+                    border=ft.Border.all(1.5, ft.Colors.RED_600),
+                    content=ft.Column([
+                        ft.Row([
+                            ft.Container(
+                                padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+                                border_radius=6, bgcolor=ft.Colors.RED_600,
+                                content=ft.Text("LIVE CLASS IN PROGRESS", size=10, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+                            ),
+                            ft.Icon(ft.Icons.VIDEOCAM_ROUNDED, size=18, color=ft.Colors.RED_600),
+                        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                        ft.Text(lc_title, size=15, weight=ft.FontWeight.BOLD),
+                        ft.Text(lc_body, size=11.5, color=ft.Colors.ON_SURFACE_VARIANT),
+                        ft.Container(height=4),
+                        ft.FilledButton(
+                            "Join Live Meeting Now",
+                            icon=ft.Icons.VIDEO_CALL_ROUNDED,
+                            style=ft.ButtonStyle(bgcolor=ft.Colors.RED_700),
+                            on_click=lambda _, act=lc_action: act() if act else None,
+                        ),
+                    ], spacing=6),
+                )
+                tiles.append(lc_banner)
+
+        # 1b. Urgent live exam banner if any
         if state["active_exams"] and tab in ("all", "exams"):
             for ex in state["active_exams"]:
                 ex_title = ex.get("title", "Assessment")

@@ -5,6 +5,7 @@ import flet as ft
 from src.components.bottom_appbar import get_bottom_appbar
 from src.requests.playlists import create_playlist, get_org_playlists
 from src.requests.organisations import get_my_organisation
+from src.components.shimmer_skeletons import build_library_grid_skeleton
 
 # The shared "Nu Age" account that every freelance course is filed under.
 # The /courses endpoint now scopes TEACHER-role requests against this org_id
@@ -58,18 +59,10 @@ async def create_playlists_view(page: ft.Page, org_id: str = None):
     theme_color              = ft.Colors.PRIMARY
     current_playlists:    list = []
 
-    # ── content socket (spinner → real layout) ────────────────────────────────
+    # ── content socket (high-fidelity 1:1 skeleton → real layout) ─────────────
     content_socket = ft.Container(
         expand=True,
-        alignment=ft.Alignment.CENTER,
-        content=ft.Column(
-            alignment=ft.MainAxisAlignment.CENTER,
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            controls=[
-                ft.ProgressRing(color=ft.Colors.PRIMARY, width=36, height=36),
-                ft.Text("Loading playlists...", size=13, color=ft.Colors.GREY_500),
-            ],
-        ),
+        content=build_library_grid_skeleton(page),
     )
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -588,7 +581,11 @@ async def create_playlists_view(page: ft.Page, org_id: str = None):
         )
         page.update()
 
-    page.run_task(fetch_initial_data)
+    # Await initial data before view mounts so view is feasibly ready
+    try:
+        await asyncio.wait_for(fetch_initial_data(), timeout=8.0)
+    except Exception:
+        page.run_task(fetch_initial_data)
 
     # ─────────────────────────────────────────────────────────────────────────
     # VIEW
