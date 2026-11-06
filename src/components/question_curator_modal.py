@@ -10,7 +10,7 @@ import asyncio
 import flet as ft
 from typing import List, Dict, Any, Callable, Optional
 from src.components import study_ui as ui
-from src.utils.file_opener import show_page_snackbar
+from src.utils.file_opener import show_page_snackbar, safe_open_dialog, safe_close_dialog
 from src.requests.marketplace import upload_cbt_diagram_image_api
 from src.utils.dropdown_theme import apply_dropdown_theme
 
@@ -668,8 +668,7 @@ def show_question_curator_dialog(
 
     def _close_dlg(e=None):
         if dlg_ref[0]:
-            dlg_ref[0].open = False
-            page.update()
+            safe_close_dialog(page, dlg_ref[0])
 
     def _do_publish(e=None):
         _sync_active_to_state()
@@ -972,7 +971,4 @@ def show_question_curator_dialog(
         actions_alignment=ft.MainAxisAlignment.END,
     )
     dlg_ref[0] = dlg
-
-    page.overlay.append(dlg)
-    dlg.open = True
-    page.update()
+    safe_open_dialog(page, dlg, tag="question_curator_modal")

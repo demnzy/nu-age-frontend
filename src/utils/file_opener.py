@@ -6,6 +6,12 @@ import subprocess
 import asyncio
 from typing import Any, Optional, Union
 import flet as ft
+from src.utils.modal_guard import (
+    safe_open_dialog,
+    safe_close_dialog,
+    is_modal_open,
+    debounced_click,
+)
 
 
 _toast_registry = {}  # {page_id: {"container": c, "text": t, "icon": i, "card": k, "dismiss_id": int}}

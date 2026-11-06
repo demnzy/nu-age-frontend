@@ -55,7 +55,13 @@ from src.requests.course_spaces import (
 )
 from src.requests.Courses import get_courses
 from src.components.question_curator_modal import show_question_curator_dialog
-from src.utils.file_opener import safe_set_clipboard, show_page_snackbar, open_or_download_asset
+from src.utils.file_opener import (
+    safe_set_clipboard,
+    show_page_snackbar,
+    open_or_download_asset,
+    safe_open_dialog,
+    safe_close_dialog,
+)
 from src.utils.dropdown_theme import apply_dropdown_theme
 
 
@@ -205,9 +211,8 @@ async def course_space_hub_view(
         except Exception:
             return 800
 
-    def _close_modal(dlg: ft.AlertDialog):
-        dlg.open = False
-        page.update()
+    def _close_modal(dlg: Optional[ft.AlertDialog] = None):
+        safe_close_dialog(page, dlg)
 
     def _get_course_modules(cid: Optional[str]) -> List[Dict[str, Any]]:
         if not cid:
@@ -447,9 +452,7 @@ async def course_space_hub_view(
             ],
             actions_alignment=ft.MainAxisAlignment.END,
         )
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
+        safe_open_dialog(page, dlg, tag="space_invite_modal")
 
     # ── Space Settings & Edit Modal (Decluttered Studio) ───────────────────
     def _open_space_settings_modal(e=None):
@@ -731,9 +734,7 @@ async def course_space_hub_view(
             ],
             actions_alignment=ft.MainAxisAlignment.END,
         )
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
+        safe_open_dialog(page, dlg, tag="space_invite_modal")
 
     # ── Manage Linked Courses Modal (Decluttered Studio) ───────────────────
     def _open_manage_courses_modal(e=None):
@@ -937,10 +938,8 @@ async def course_space_hub_view(
             ],
             actions_alignment=ft.MainAxisAlignment.END,
         )
-        page.overlay.append(dlg)
-        dlg.open = True
+        safe_open_dialog(page, dlg, tag="space_link_courses_modal")
         page.run_task(_fetch_available)
-        page.update()
 
     # ── Upload Material Modal (Decluttered Studio) ─────────────────────────
     def _open_upload_modal(e=None):
@@ -1181,9 +1180,7 @@ async def course_space_hub_view(
             ],
             actions_alignment=ft.MainAxisAlignment.END,
         )
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
+        safe_open_dialog(page, dlg, tag="space_invite_modal")
 
     # ── Schedule Live Class Modal (Decluttered Studio) ─────────────────────
     def _open_schedule_session_modal(e=None):
@@ -1387,9 +1384,7 @@ async def course_space_hub_view(
             ],
             actions_alignment=ft.MainAxisAlignment.END,
         )
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
+        safe_open_dialog(page, dlg, tag="space_invite_modal")
 
     # ── CBT AI Question Ingestion & Curator Studio Flow (Super Admin Style) ──
     def _launch_cbt_curator_for_space(
@@ -2017,9 +2012,7 @@ async def course_space_hub_view(
             ],
             actions_alignment=ft.MainAxisAlignment.END,
         )
-        page.overlay.append(ingest_dlg)
-        ingest_dlg.open = True
-        page.update()
+        safe_open_dialog(page, ingest_dlg, tag="space_cbt_ingest_modal")
 
     # ── Tutor: Edit Existing Drill in CBT Curator Studio ───────────────────
     async def _edit_drill_in_studio(quiz_summary: dict):
@@ -2184,9 +2177,7 @@ async def course_space_hub_view(
             ),
             actions=[ft.TextButton("Close", on_click=lambda _: _close_modal(dlg))],
         )
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
+        safe_open_dialog(page, dlg, tag="space_quiz_results_modal")
 
     # ── Interactive Student CBT Drill Runner Navigation ────────────────────
     async def _launch_quiz_runner(quiz_id: str, quiz_title: str = ""):

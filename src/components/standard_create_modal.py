@@ -6,7 +6,7 @@ import flet as ft
 from src.requests.Courses import create_course, get_categories
 from src.requests.organisations import get_organisation_members
 from src.utils.dropdown_theme import apply_dropdown_theme
-from src.utils.file_opener import show_page_snackbar
+from src.utils.file_opener import show_page_snackbar, safe_open_dialog, safe_close_dialog
 
 DEFAULT_ORG_ID = "584b537e-6521-4852-a7e4-18f6c095126d"
 
@@ -200,8 +200,7 @@ def open_standard_create_modal(
     error_label = ft.Text("", color=ft.Colors.RED_600, size=12, visible=False, weight=ft.FontWeight.W_500)
 
     def _close_modal(e=None):
-        modal.open = False
-        page.update()
+        safe_close_dialog(page, modal)
 
     async def _submit(e=None):
         name_val = (name_field.value or "").strip()
@@ -347,8 +346,6 @@ def open_standard_create_modal(
         actions_alignment=ft.MainAxisAlignment.END,
     )
 
-    page.overlay.append(modal)
-    modal.open = True
-    page.update()
+    safe_open_dialog(page, modal, tag="standard_create_modal")
     page.run_task(_load_options)
 

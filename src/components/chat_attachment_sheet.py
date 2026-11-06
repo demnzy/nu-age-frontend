@@ -8,6 +8,7 @@ Strictly enforces zero generic file uploads (no document dumping) and adheres to
 
 from typing import Callable, Dict, Any, Optional
 import flet as ft
+from src.utils.modal_guard import safe_open_dialog, safe_close_dialog
 
 
 def open_chat_actions_sheet(
@@ -42,8 +43,7 @@ def open_chat_actions_sheet(
     )
 
     def _close(e=None):
-        dlg.open = False
-        page.update()
+        safe_close_dialog(page, dlg)
         _on_dismiss()
 
     def _handle_action(callback: Callable):
@@ -123,7 +123,5 @@ def open_chat_actions_sheet(
         )
     ]
 
-    page.overlay.append(dlg)
-    dlg.open = True
-    page.update()
+    safe_open_dialog(page, dlg, tag="chat_actions_sheet")
 

@@ -6,6 +6,7 @@ import flet as ft
 from src.components import study_ui as ui
 from src.local_db import get_offline_exam_categories
 from src.requests.study import get_exam_categories
+from src.utils.modal_guard import safe_open_dialog, safe_close_dialog
 
 
 def _get_pacing_seconds(exam_type_str: str, title_str: str = "") -> tuple[int, str]:
@@ -91,11 +92,7 @@ def open_cbt_setup_modal(
     )
 
     def _close_dlg(e=None):
-        dlg.open = False
-        try:
-            page.update()
-        except Exception:
-            pass
+        safe_close_dialog(page, dlg)
 
     async def _fetch_and_build():
         cat_data = None
@@ -681,7 +678,5 @@ def open_cbt_setup_modal(
         )
         page.update()
 
-    page.overlay.append(dlg)
-    dlg.open = True
-    page.update()
+    safe_open_dialog(page, dlg, tag="cbt_setup_modal")
     page.run_task(_fetch_and_build)

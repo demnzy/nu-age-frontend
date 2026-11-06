@@ -32,7 +32,14 @@ from src.local_db import (
 )
 from src.components.notifications_drawer import NotificationManager
 from src.services.notification_service import sync_learner_notifications
-from src.utils.file_opener import show_page_snackbar, safe_set_clipboard
+from src.utils.file_opener import (
+    show_page_snackbar,
+    safe_set_clipboard,
+    safe_open_dialog,
+    safe_close_dialog,
+    is_modal_open,
+    debounced_click,
+)
 from src.components.shimmer_skeletons import shimmer_box, collect_shimmer_boxes
 from src.components.badge_pill import build_glossy_badge_pill
 from src.components.chat_reply_bar import build_chat_reply_bar
@@ -2469,6 +2476,8 @@ async def chat_view(
                 on_close_callback=_restore_scroll_anchor,
             )
 
+        _guarded_actions_click = debounced_click(_open_actions_sheet, min_interval_ms=400)
+
         cur_w = page.width if (hasattr(page, "width") and page.width) else 380
         max_bubble_width = min(540, max(220, int(cur_w * 0.72))) if not is_mob else max(180, int(cur_w - 104))
         is_long_msg = bool(is_ai or is_poll or len(raw_content) > 38 or "\n" in raw_content)
@@ -2487,7 +2496,7 @@ async def chat_view(
             border=border,
             border_radius=radius,
             padding=ft.Padding.symmetric(horizontal=14 if is_poll else 12, vertical=12 if is_poll else 8),
-            on_long_press=_open_actions_sheet,
+            on_long_press=_guarded_actions_click,
             shadow=ft.BoxShadow(
                 blur_radius=4 if is_poll else 3,
                 color=ft.Colors.with_opacity(0.08, ft.Colors.BLACK),
@@ -2539,7 +2548,7 @@ async def chat_view(
                 icon_color=palette["text_muted"],
                 icon_size=16,
                 tooltip="Message options",
-                on_click=_open_actions_sheet,
+                on_click=_guarded_actions_click,
                 style=ft.ButtonStyle(padding=2)
             )
             row_items = [bubble_options_btn, bubble] if is_me else [bubble, bubble_options_btn]
@@ -2947,7 +2956,7 @@ async def chat_view(
                                 icon_color=palette["accent"],
                                 icon_size=24,
                                 tooltip="Chat Actions",
-                                on_click=lambda e: open_attachment_actions_modal(e)
+                                on_click=debounced_click(lambda e: open_attachment_actions_modal(e), min_interval_ms=400)
                             ),
                             # Multiline Auto-expanding Input
                             ft.Container(expand=True, content=msg_input),
@@ -3415,25 +3424,18 @@ async def chat_view(
     # ==========================================
     # 12. COMPOSER ACTIONS & MODALS HELPER
     # ==========================================
-    def _open_modal(control):
-        if hasattr(page, "overlay"):
-            if control not in page.overlay:
-                page.overlay.append(control)
-        control.open = True
-        page.update()
+    def _open_modal(control, tag=None):
+        safe_open_dialog(page, control, tag=tag or "chat_modal")
         _restore_scroll_anchor()
 
     def _close_modal(control=None):
-        if control:
-            control.open = False
-            page.update()
-            _restore_scroll_anchor()
+        safe_close_dialog(page, control)
+        _restore_scroll_anchor()
 
 
     def open_chat_help_dialog():
         def _close_help(ev=None):
-            dlg.open = False
-            page.update()
+            safe_close_dialog(page, dlg)
             _restore_scroll_anchor()
 
         commands_info = [
@@ -3514,9 +3516,7 @@ async def chat_view(
             ],
             actions_alignment=ft.MainAxisAlignment.END,
         )
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
+        safe_open_dialog(page, dlg, tag="chat_help_dialog")
 
     def _trigger_ai_prompt():
         msg_input.value = "/ai "
@@ -3529,6 +3529,8 @@ async def chat_view(
         page.update()
 
     def open_attachment_actions_modal(e=None):
+        if is_modal_open(page, tag="chat_actions_sheet"):
+            return
         open_chat_actions_sheet(
             page=page,
             palette=palette,

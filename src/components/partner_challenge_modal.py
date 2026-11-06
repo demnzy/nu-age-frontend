@@ -20,7 +20,7 @@ import uuid
 import flet as ft
 from typing import Optional, List, Dict, Any, Callable
 
-from src.utils.file_opener import show_page_snackbar
+from src.utils.file_opener import show_page_snackbar, safe_open_dialog, safe_close_dialog
 from src.utils.session_utils import get_session_user
 from src.requests.study_partners import (
     create_partner_challenge,
@@ -602,9 +602,8 @@ def show_duel_results_dialog(
 
         page.run_task(_async_fetch_fresh)
 
-    def _close():
-        dlg.open = False
-        page.update()
+    def _close(e=None):
+        safe_close_dialog(page, dlg)
 
     if needs_my_response and token and partnership_id:
         is_accepting = False
@@ -730,9 +729,7 @@ def show_duel_results_dialog(
         )
         dlg.actions.insert(0, cancel_btn)
 
-    page.overlay.append(dlg)
-    dlg.open = True
-    page.update()
+    safe_open_dialog(page, dlg, tag="partner_challenge_detail")
 
     if partner_score_val is None and token and c_id:
         async def _refresh_live_duel():
@@ -867,8 +864,7 @@ def start_quickfire_duel_flow(
         curr_task = _safe_current_task()
         if active_timer_task and active_timer_task != curr_task and not active_timer_task.done():
             active_timer_task.cancel()
-        duel_dlg.open = False
-        page.update()
+        safe_close_dialog(page, duel_dlg)
 
     def _style_timer(low: bool):
         if low:
@@ -1142,9 +1138,7 @@ def start_quickfire_duel_flow(
             await _finish_duel()
 
 
-    page.overlay.append(duel_dlg)
-    duel_dlg.open = True
-    page.update()
+    safe_open_dialog(page, duel_dlg, tag="partner_duel_runner")
 
     _render_question()
 
@@ -1531,13 +1525,10 @@ def show_create_duel_dialog(
         **_dialog_paddings(),
     )
 
-    def _close():
-        dlg.open = False
-        page.update()
+    def _close(e=None):
+        safe_close_dialog(page, dlg)
 
-    page.overlay.append(dlg)
-    dlg.open = True
-    page.update()
+    safe_open_dialog(page, dlg, tag="partner_challenge_detail")
     page.run_task(_fetch_and_populate_packs)
 
 
@@ -1672,8 +1663,7 @@ def show_flashcard_preview_dialog(
 
     def _close(e=None):
         if dlg_ref[0]:
-            dlg_ref[0].open = False
-            page.update()
+            safe_close_dialog(page, dlg_ref[0])
 
     async def _start_duel_from_preview():
         _close()
@@ -1760,6 +1750,4 @@ def show_flashcard_preview_dialog(
     )
 
     dlg_ref[0] = dlg
-    page.overlay.append(dlg)
-    dlg.open = True
-    page.update()
+    safe_open_dialog(page, dlg, tag="partner_challenge_detail")

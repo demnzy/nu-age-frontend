@@ -16,6 +16,7 @@ Strictly adheres to Flet 0.86.5 conventions and zero hardcoded foreign colors.
 from typing import Callable, Dict, Any, Optional, List
 import flet as ft
 from src.utils.file_opener import safe_set_clipboard, show_page_snackbar
+from src.utils.modal_guard import safe_open_dialog, safe_close_dialog
 from src.components.chat_reactions import POPULAR_EMOJIS
 
 
@@ -351,8 +352,7 @@ def open_message_actions_sheet(
     )
 
     def _close(e=None):
-        dlg.open = False
-        page.update()
+        safe_close_dialog(page, dlg)
         _on_dismiss()
 
     # 1. Emoji Reaction Bar
@@ -559,9 +559,5 @@ def open_message_actions_sheet(
         ], spacing=10, tight=True),
     )
 
-    if hasattr(page, "overlay"):
-        if dlg not in page.overlay:
-            page.overlay.append(dlg)
-    dlg.open = True
-    page.update()
+    safe_open_dialog(page, dlg, tag="chat_message_actions")
 

@@ -6,6 +6,7 @@ Strictly follows Flet 0.86.5 conventions and theme token rules.
 """
 import flet as ft
 from src.components import study_ui as ui
+from src.utils.modal_guard import safe_open_dialog, safe_close_dialog
 
 
 def open_chat_quota_modal(page: ft.Page, quota_info: dict = None, on_upgrade: callable = None):
@@ -31,12 +32,10 @@ def open_chat_quota_modal(page: ft.Page, quota_info: dict = None, on_upgrade: ca
     )
 
     def _close(e=None):
-        dlg.open = False
-        page.update()
+        safe_close_dialog(page, dlg)
 
     def _handle_upgrade(e=None):
-        dlg.open = False
-        page.update()
+        safe_close_dialog(page, dlg)
         if on_upgrade:
             try:
                 on_upgrade()
@@ -201,6 +200,4 @@ def open_chat_quota_modal(page: ft.Page, quota_info: dict = None, on_upgrade: ca
         ),
     )
 
-    page.overlay.append(dlg)
-    dlg.open = True
-    page.update()
+    safe_open_dialog(page, dlg, tag="chat_quota_modal")

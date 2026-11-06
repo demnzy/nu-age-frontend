@@ -7,7 +7,7 @@ and SRS mastery states for a study material with rich Markdown support.
 import asyncio
 import flet as ft
 from src.requests.study import get_all_cards
-from src.utils.file_opener import safe_set_clipboard, show_page_snackbar
+from src.utils.file_opener import safe_set_clipboard, show_page_snackbar, safe_open_dialog, safe_close_dialog
 
 
 def open_deck_inspector(
@@ -330,9 +330,8 @@ def open_deck_inspector(
         on_change=_on_search_change,
     )
 
-    def _close(e):
-        dlg.open = False
-        page.update()
+    def _close(e=None):
+        safe_close_dialog(page, dlg)
 
     loading_view = ft.Container(
         key="loading",
@@ -430,9 +429,7 @@ def open_deck_inspector(
         actions=[],
     )
 
-    page.overlay.append(dlg)
-    dlg.open = True
-    page.update()
+    safe_open_dialog(page, dlg, tag=f"deck_inspector_{mid}")
 
     async def _fetch_and_show():
         if preloaded_cards is not None:
