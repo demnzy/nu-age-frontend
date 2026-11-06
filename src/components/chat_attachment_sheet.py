@@ -13,10 +13,10 @@ import flet as ft
 def open_chat_actions_sheet(
     page: ft.Page,
     palette: Dict[str, Any],
-    on_pick_image: Callable,
     on_open_poll: Callable,
     on_trigger_ai: Callable,
     on_trigger_duel: Callable,
+    on_pick_image: Optional[Callable] = None,
     on_pick_voice_note: Optional[Callable] = None,
     on_close_callback: Optional[Callable] = None,
 ):
@@ -76,14 +76,18 @@ def open_chat_actions_sheet(
             ], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER),
         )
 
-    tiles = [
-        _action_tile(
-            ft.Icons.IMAGE_OUTLINED,
-            "Share Image",
-            "Send photos, diagrams, or textbook screenshots (with live preview & caption)",
-            ft.Colors.BLUE_500,
-            on_pick_image,
-        ),
+    tiles = []
+    if on_pick_image:
+        tiles.append(
+            _action_tile(
+                ft.Icons.IMAGE_OUTLINED,
+                "Share Image",
+                "Send photos, diagrams, or textbook screenshots",
+                ft.Colors.BLUE_500,
+                on_pick_image,
+            )
+        )
+    tiles.extend([
         _action_tile(
             ft.Icons.POLL_ROUNDED,
             "Create Poll",
@@ -105,7 +109,7 @@ def open_chat_actions_sheet(
             ft.Colors.ORANGE_500,
             on_trigger_duel,
         ),
-    ]
+    ])
 
     dlg.content = ft.Container(
         width=420,

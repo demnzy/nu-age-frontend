@@ -64,3 +64,7 @@ Thumbs.db
 desktop.ini
 .agents/
 .gemini/
+
+# Signatures & Stamps
+signature_black_*.png
+stamp_black_*.png

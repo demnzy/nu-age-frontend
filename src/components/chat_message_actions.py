@@ -476,6 +476,36 @@ def open_message_actions_sheet(
         ),
     ]
 
+    media_url = meta.get("media_url") or (raw_content if (raw_content.startswith("http") and any(raw_content.lower().split("?")[0].endswith(ext) for ext in [".png", ".jpg", ".jpeg", ".webp", ".gif"])) else None)
+    if media_url:
+        def _copy_media_link():
+            import asyncio
+            asyncio.create_task(safe_set_clipboard(page, media_url))
+            show_page_snackbar(page, "Attachment link copied to clipboard")
+
+        def _open_media_external():
+            import asyncio
+            asyncio.create_task(page.launch_url(media_url))
+
+        action_tiles.append(
+            _action_tile(
+                ft.Icons.OPEN_IN_NEW_ROUNDED,
+                "Open Attachment",
+                "Open file in browser or system viewer",
+                palette.get("accent", ft.Colors.PRIMARY),
+                _open_media_external,
+            )
+        )
+        action_tiles.append(
+            _action_tile(
+                ft.Icons.LINK_ROUNDED,
+                "Copy Attachment Link",
+                "Copy direct CDN link to clipboard",
+                palette.get("text_muted", ft.Colors.ON_SURFACE_VARIANT),
+                _copy_media_link,
+            )
+        )
+
     if is_admin:
         if is_pinned:
             action_tiles.append(

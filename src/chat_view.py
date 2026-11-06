@@ -1,5 +1,4 @@
 import flet as ft
-import base64
 from datetime import datetime, timezone
 import asyncio
 import json
@@ -33,23 +32,15 @@ from src.local_db import (
 )
 from src.components.notifications_drawer import NotificationManager
 from src.services.notification_service import sync_learner_notifications
-from src.utils.file_opener import show_page_snackbar
+from src.utils.file_opener import show_page_snackbar, safe_set_clipboard
 from src.components.shimmer_skeletons import shimmer_box, collect_shimmer_boxes
 from src.components.badge_pill import build_glossy_badge_pill
 from src.components.chat_reply_bar import build_chat_reply_bar
-from src.components.chat_reactions import build_reaction_picker_row, build_reaction_pills_row
+from src.components.chat_reactions import build_reaction_pills_row
 from src.components.chat_attachment_sheet import open_chat_actions_sheet
 from src.components.chat_quota_modal import open_chat_quota_modal
-from src.components.chat_message_actions import (
-    build_themed_bubble_menu,
-    open_message_actions_sheet,
-)
-from src.utils.file_opener import safe_set_clipboard
-from src.requests.chats import (
-    upload_chat_media_api,
-    get_pinned_chat_message,
-    search_channel_messages_api,
-)
+from src.components.chat_message_actions import open_message_actions_sheet
+from src.requests.chats import get_pinned_chat_message
 
 def build_whatsapp_spans(text: str, default_color: str, palette_map: dict, on_mention_click=None, is_me: bool = False):
     if not text:
@@ -586,8 +577,13 @@ async def chat_view(
     last_scroll_pixels = [0.0]
     last_max_scroll = [0.0]
     is_near_bottom = [True]
+    last_scroll_time = [0.0]
 
     def _on_messages_scroll(e):
+        now = datetime.now().timestamp()
+        if now - last_scroll_time[0] < 0.08:
+            return
+        last_scroll_time[0] = now
         try:
             px = float(getattr(e, "pixels", 0.0) or 0.0)
             mx = float(getattr(e, "max_scroll_extent", 0.0) or 0.0)
@@ -602,8 +598,8 @@ async def chat_view(
         expand=True,
         spacing=4,
         auto_scroll=False,
-        build_controls_on_demand=False,
-        cache_extent=3000,
+        build_controls_on_demand=True,
+        cache_extent=500,
         on_scroll=_on_messages_scroll,
         padding=ft.Padding.symmetric(horizontal=8 if not is_desktop[0] else 12, vertical=8 if not is_desktop[0] else 10)
     )
@@ -672,37 +668,8 @@ async def chat_view(
                 pass
 
     async def _animate_history_bubbles(controls_list):
-        if not controls_list:
-            return
-        # Brief yield so Flutter mounts the controls at bottom scroll offset
-        await asyncio.sleep(0.04)
-        anim_targets = []
-        for ctrl in controls_list:
-            inner_b = getattr(ctrl, "bubble_ref", None)
-            if inner_b and getattr(inner_b, "opacity", 1.0) == 0.0:
-                anim_targets.append(ctrl)
-
-        if not anim_targets:
-            return
-
-        for ctrl in anim_targets:
-            inner_b = getattr(ctrl, "bubble_ref", None)
-            if not inner_b:
-                continue
-            is_me = getattr(ctrl, "is_me_bubble", False)
-            align = ft.Alignment.BOTTOM_RIGHT if is_me else (ft.Alignment.CENTER if isinstance(ctrl, ft.Row) else ft.Alignment.BOTTOM_LEFT)
-            inner_b.scale = ft.Scale(1.0, alignment=align)
-            inner_b.opacity = 1.0
-            inner_b.offset = ft.Offset(0, 0)
-            try:
-                inner_b.update()
-            except Exception:
-                try:
-                    page.update()
-                except Exception:
-                    pass
-            if len(anim_targets) > 1:
-                await asyncio.sleep(0.016)
+        # Optimization: History messages mount with instant crisp visibility (no async sleep loops)
+        return
 
     # ==========================================
     # 3. DATE & TIME FORMATTERS
@@ -811,16 +778,9 @@ async def chat_view(
         msg_type: str = "text",
         local_only: bool = False,
         extra_metadata: Optional[dict] = None,
-        local_preview_src: Optional[str] = None,
-        pending_media_upload: Optional[tuple] = None,
     ):
-        has_media = bool(
-            local_preview_src
-            or pending_media_upload
-            or (extra_metadata and (extra_metadata.get("media_url") or extra_metadata.get("media_type") == "image"))
-        )
         text = custom_text if custom_text is not None else (msg_input.value or "").strip()
-        if (not text and not has_media) or not current_chat_id[0]:
+        if not text or not current_chat_id[0]:
             return
 
         autocomplete_card.visible = False
@@ -917,8 +877,6 @@ async def chat_view(
             "is_me": True,
             "status": "pending",  # In-flight state: 🕒 Clock icon
         }
-        if local_preview_src:
-            optimistic_dict["_local_preview_src"] = local_preview_src
 
         # 2. Zero-latency instant UI render (appears immediately, never lost in the void)
         if len(messages_listview.controls) == 1 and not hasattr(messages_listview.controls[0], "data"):
@@ -935,12 +893,17 @@ async def chat_view(
         bubble_w.client_msg_id = client_temp_id
         bubble_w.msg_data = optimistic_dict
         messages_listview.controls.append(bubble_w)
-        page.update()
+        try:
+            messages_listview.update()
+            if custom_text is None:
+                msg_input.update()
+        except Exception:
+            page.update()
         page.run_task(_animate_bubble_entrance, bubble_w)
         _scroll_to_bottom(animate=True)
 
         # 3. Resilient background dispatch (WebSocket with automatic REST API fallback)
-        async def _dispatch_msg_task(cid, m_text, m_meta, temp_id, opt_dict, media_upload_tuple=None):
+        async def _dispatch_msg_task(cid, m_text, m_meta, temp_id, opt_dict):
             nonlocal token
             sent_ok = False
             curr_token = token or (await page.shared_preferences.get("auth_token"))
@@ -951,32 +914,6 @@ async def chat_view(
                     if ctrl_id and str(ctrl_id) == str(tid):
                         return ctrl
                 return bubble_w
-
-            # Step 0: If this is an optimistic image bubble with a pending upload, upload to CDN in background
-            if media_upload_tuple and not m_meta.get("media_url"):
-                up_bytes, up_name, up_mime = media_upload_tuple
-                try:
-                    up_res = await upload_chat_media_api(curr_token, cid, up_bytes, up_name, up_mime)
-                    if up_res and up_res.get("url"):
-                        m_meta["media_url"] = up_res["url"]
-                        if isinstance(opt_dict.get("metadata_payload"), dict):
-                            opt_dict["metadata_payload"]["media_url"] = up_res["url"]
-                    else:
-                        target_b = _get_target_bubble(temp_id)
-                        if target_b:
-                            update_bubble_status(target_b, "failed")
-                            page.update()
-                        err_msg = up_res.get("error") if isinstance(up_res, dict) else "Upload failed. Check network connection."
-                        show_page_snackbar(page, ft.SnackBar(content=ft.Text(err_msg), bgcolor=ft.Colors.RED_700))
-                        return
-                except Exception as up_ex:
-                    print(f"[NuChat] Background image upload error: {up_ex}")
-                    target_b = _get_target_bubble(temp_id)
-                    if target_b:
-                        update_bubble_status(target_b, "failed")
-                        page.update()
-                    show_page_snackbar(page, ft.SnackBar(content=ft.Text(f"Failed to upload image: {up_ex}"), bgcolor=ft.Colors.RED_700))
-                    return
 
             # Step A: Attempt primary WebSocket transmission
             if ws_client_ref[0] and getattr(ws_client_ref[0], "websocket", None):
@@ -1022,13 +959,16 @@ async def chat_view(
                     update_bubble_status(target_b, "failed")
                     page.update()
 
-        page.run_task(_dispatch_msg_task, current_chat_id[0], text, extra_meta, client_temp_id, optimistic_dict, pending_media_upload)
+        page.run_task(_dispatch_msg_task, current_chat_id[0], text, extra_meta, client_temp_id, optimistic_dict)
+
+    send_btn_has_text = [False]
 
     def _update_send_btn_state(do_update: bool = False):
         has_text = bool(msg_input.value and msg_input.value.strip())
         target_bg = palette["accent_glow"] if has_text else palette["surface_variant"]
         target_col = ft.Colors.WHITE if has_text else palette["text_muted"]
-        changed = (send_btn_container.bgcolor != target_bg) or (send_btn_icon.color != target_col)
+        changed = (send_btn_has_text[0] != has_text) or (send_btn_container.bgcolor != target_bg) or (send_btn_icon.color != target_col)
+        send_btn_has_text[0] = has_text
         send_btn_container.bgcolor = target_bg
         send_btn_icon.color = target_col
         if do_update and changed:
@@ -1037,18 +977,10 @@ async def chat_view(
             except Exception:
                 pass
 
-    def on_input_change(e):
-        _update_send_btn_state(do_update=True)
-        now = datetime.now().timestamp()
-        if now - last_typing_time[0] > 2.5:
-            if ws_client_ref[0] and getattr(ws_client_ref[0], "websocket", None) and current_chat_id[0]:
-                page.run_task(ws_client_ref[0].send_message, current_chat_id[0], "typing", "typing")
-            last_typing_time[0] = now
+    autocomplete_debounce_token = [0]
 
-        val = msg_input.value or ""
+    def _process_autocomplete(val: str):
         active_type = active_chat_info[0].get("type", "direct")
-
-        # Slash commands are available in BOTH DMs and group chats; @ mentions are group only
         match_slash = re.search(r'(^|\s)(/)([\w.-]*)$', val)
         match_mention = re.search(r'(@)([\w.-]*)$', val) if active_type != "direct" else None
 
@@ -1134,7 +1066,7 @@ async def chat_view(
                         autocomplete_card.update()
                         msg_input.update()
                     except Exception:
-                        page.update()
+                        pass
                     _restore_scroll_anchor()
 
                 tile = ft.Container(
@@ -1163,7 +1095,7 @@ async def chat_view(
             try:
                 autocomplete_card.update()
             except Exception:
-                page.update()
+                pass
             return
 
         match = match_mention
@@ -1191,7 +1123,7 @@ async def chat_view(
                         autocomplete_card.update()
                         msg_input.update()
                     except Exception:
-                        page.update()
+                        pass
 
                 all_tile = ft.Container(
                     ink=True,
@@ -1229,7 +1161,7 @@ async def chat_view(
                         autocomplete_card.update()
                         msg_input.update()
                     except Exception:
-                        page.update()
+                        pass
 
                 admin_tile = ft.Container(
                     ink=True,
@@ -1251,7 +1183,7 @@ async def chat_view(
                 )
                 autocomplete_list.controls.append(admin_tile)
 
-            # 2. Group members alone (strictly channel members; never leak arbitrary outside users)
+            # 3. Group members alone (strictly channel members; up to 8 max matches to keep typing fast)
             candidate_members = active_channel_members
             my_uid = str(current_user_id[0]).strip().lower()
             admin_id_val = str(active_channel_admin_id[0]).strip().lower() if active_channel_admin_id[0] else ""
@@ -1262,7 +1194,7 @@ async def chat_view(
                     query in (m.get("username") or "").lower() or
                     query in (m.get("name") or m.get("full_name") or "").lower()
                 )
-            ]
+            ][:8]
 
             for u in matches:
                 u_id_str = str(u.get("id") or u.get("user_id", "")).strip().lower()
@@ -1280,7 +1212,7 @@ async def chat_view(
                         autocomplete_card.update()
                         msg_input.update()
                     except Exception:
-                        page.update()
+                        pass
 
                 tile = ft.Container(
                     ink=True,
@@ -1305,14 +1237,45 @@ async def chat_view(
             try:
                 autocomplete_card.update()
             except Exception:
-                page.update()
+                pass
         else:
             if autocomplete_card.visible:
                 autocomplete_card.visible = False
                 try:
                     autocomplete_card.update()
                 except Exception:
-                    page.update()
+                    pass
+
+    def on_input_change(e):
+        val = msg_input.value or ""
+        _update_send_btn_state(do_update=True)
+        now = datetime.now().timestamp()
+        if now - last_typing_time[0] > 2.5:
+            if ws_client_ref[0] and getattr(ws_client_ref[0], "websocket", None) and current_chat_id[0]:
+                page.run_task(ws_client_ref[0].send_message, current_chat_id[0], "typing", "typing")
+            last_typing_time[0] = now
+
+        # ── FAST-PATH: If neither '/' nor '@' is typed, immediately close autocomplete and exit! ──
+        if "/" not in val and "@" not in val:
+            if autocomplete_card.visible:
+                autocomplete_card.visible = False
+                try:
+                    autocomplete_card.update()
+                except Exception:
+                    pass
+            return
+
+        # Debounce autocomplete processing by 120ms so rapid typing is buttery smooth
+        autocomplete_debounce_token[0] += 1
+        tok = autocomplete_debounce_token[0]
+
+        async def _debounced_autocomplete():
+            await asyncio.sleep(0.12)
+            if autocomplete_debounce_token[0] != tok:
+                return
+            _process_autocomplete(val)
+
+        page.run_task(_debounced_autocomplete)
 
     msg_input = ft.TextField(
         hint_text="Type a message...",
@@ -1760,6 +1723,7 @@ async def chat_view(
     # ==========================================
 
     def render_message_bubble(msg: dict, prev_msg: Optional[dict] = None, next_msg: Optional[dict] = None, animate_entrance: bool = False):
+        is_mob = not is_desktop[0]
         msg_type = msg.get("type", "text")
 
         # ── A. System Announcement Pill ───────────────────────────────────────
@@ -1873,39 +1837,8 @@ async def chat_view(
             ts_color = palette["bubble_in_ts"]
             border = ft.Border.all(1, palette["bubble_in_border"])
 
-        # Pre-calculate image layout & caption state for WhatsApp-style frameless bubbles
-        local_preview_src = msg.get("_local_preview_src")
-        media_url = meta.get("media_url") or (raw_content if (raw_content.startswith("http") and any(raw_content.lower().endswith(ext) for ext in [".png", ".jpg", ".jpeg", ".webp", ".gif"])) else None)
-        has_image = bool(
-            local_preview_src
-            or meta.get("media_type") == "image"
-            or msg.get("type") == "image"
-            or (media_url and any(str(media_url).lower().split("?")[0].endswith(ext) for ext in [".png", ".jpg", ".jpeg", ".webp", ".gif"]))
-        )
-        display_img_src = local_preview_src or media_url
-        clean_text_val = (raw_content or "").strip()
-        is_dummy_image_caption = bool(has_image and (not clean_text_val or clean_text_val.lower() == "shared an image" or clean_text_val == media_url))
-        has_image_caption = bool(has_image and not is_dummy_image_caption and clean_text_val)
-        is_frameless_image = bool(has_image and display_img_src and not is_poll)
-        is_image_only_bubble = bool(is_frameless_image and not has_image_caption)
-
-        cur_w = page.width if (hasattr(page, "width") and page.width) else 380
-        is_mob = not is_desktop[0]
-        if is_mob:
-            img_bubble_w = min(264, max(186, int(cur_w * 0.66)))
-        else:
-            avail_chat_w = max(320, cur_w - 340) if cur_w > 768 else cur_w
-            img_bubble_w = min(310, max(220, int(avail_chat_w * 0.48)))
-
-        orig_w = int(meta.get("img_w") or 0)
-        orig_h = int(meta.get("img_h") or 0)
-        if orig_w > 0 and orig_h > 0:
-            aspect = float(orig_h) / max(1.0, float(orig_w))
-            img_display_h = max(125, min(320, int(round(img_bubble_w * aspect))))
-        else:
-            img_display_h = 200
-
-        effective_ts_color = ft.Colors.WHITE if is_image_only_bubble else ts_color
+        # Media URL detection for lightweight link representation (no heavy ft.Image rasterization)
+        media_url = meta.get("media_url") or (raw_content if (raw_content.startswith("http") and any(raw_content.lower().split("?")[0].endswith(ext) for ext in [".png", ".jpg", ".jpeg", ".webp", ".gif"])) else None)
 
         # ── D. Delivery Tick Telemetry (WhatsApp-style States) ──────────────────
         status_tick = ft.Container()
@@ -1916,21 +1849,21 @@ async def chat_view(
                 tick_icon = ft.Icon(
                     ft.Icons.ACCESS_TIME_ROUNDED,
                     size=10.5,
-                    color=ft.Colors.WHITE70 if is_image_only_bubble else ft.Colors.with_opacity(0.75, ts_color)
+                    color=ft.Colors.with_opacity(0.75, ts_color)
                 )
             elif msg_status == "sent":
                 # Single check: ✓ Sent to server
                 tick_icon = ft.Icon(
                     ft.Icons.CHECK_ROUNDED,
                     size=12,
-                    color=ft.Colors.WHITE if is_image_only_bubble else ft.Colors.with_opacity(0.85, ts_color)
+                    color=ft.Colors.with_opacity(0.85, ts_color)
                 )
             elif msg_status == "read":
                 # Double check: ✓✓ Blue / Cyan read receipt
                 tick_icon = ft.Icon(
                     ft.Icons.DONE_ALL_ROUNDED,
                     size=12,
-                    color=ft.Colors.CYAN_300 if (is_dark or is_image_only_bubble) else ft.Colors.BLUE_600
+                    color=ft.Colors.CYAN_300 if is_dark else ft.Colors.BLUE_600
                 )
             elif msg_status == "failed":
                 # Failed dispatch: ⚠️ Alert
@@ -1944,14 +1877,13 @@ async def chat_view(
                 tick_icon = ft.Icon(
                     ft.Icons.DONE_ALL_ROUNDED,
                     size=12,
-                    color=palette["accent"] if is_poll else (ft.Colors.WHITE if is_image_only_bubble else ft.Colors.with_opacity(0.85, ts_color))
+                    color=palette["accent"] if is_poll else ft.Colors.with_opacity(0.85, ts_color)
                 )
             status_tick = ft.Container(content=tick_icon)
-            status_tick.is_image_overlay_tick = is_image_only_bubble
 
         ts_row = ft.Row(
             [
-                ft.Text(ts_label, size=10, color=effective_ts_color),
+                ft.Text(ts_label, size=10, color=ts_color),
                 status_tick
             ],
             spacing=4,
@@ -2037,65 +1969,41 @@ async def chat_view(
 
         has_top_headers = bool(top_header_controls)
         if has_top_headers:
-            if is_frameless_image:
-                body_controls.append(
-                    ft.Container(
-                        width=img_bubble_w,
-                        padding=ft.Padding.only(left=10, right=10, top=6, bottom=4),
-                        content=ft.Column(top_header_controls, spacing=3, tight=True, horizontal_alignment=ft.CrossAxisAlignment.START),
-                    )
-                )
-            else:
-                body_controls.extend(top_header_controls)
+            body_controls.extend(top_header_controls)
 
-        # 0.2 Image attachment rendering with WhatsApp-style frameless sizing & click-to-zoom Lightbox
-        if is_frameless_image:
-            def _open_image_viewer(e, m_ref=msg, fallback_u=display_img_src):
-                cur_meta = m_ref.get("metadata_payload") or {}
-                if isinstance(cur_meta, str):
-                    try:
-                        cur_meta = json.loads(cur_meta)
-                    except Exception:
-                        cur_meta = {}
-                u = fallback_u or (cur_meta.get("media_url") if isinstance(cur_meta, dict) else None) or ""
-                _open_full_image_viewer(u)
-
-            img_ctrl = ft.Image(
-                src=display_img_src,
-                width=img_bubble_w,
-                height=img_display_h,
-                fit=ft.BoxFit.COVER,
-                gapless_playback=True,
-                fade_in_animation=ft.Animation(180, ft.AnimationCurve.EASE_OUT),
-            )
-            if is_image_only_bubble:
-                img_content = ft.Stack(
-                    [
-                        img_ctrl,
-                        ft.Container(
-                            right=8,
-                            bottom=7,
-                            padding=ft.Padding.symmetric(horizontal=7, vertical=2.5),
-                            border_radius=10,
-                            bgcolor=ft.Colors.with_opacity(0.52, ft.Colors.BLACK),
-                            content=ts_row,
-                        ),
-                    ],
-                    width=img_bubble_w,
-                    height=img_display_h,
-                )
-            else:
-                img_content = img_ctrl
+        # 0.2 Lightweight media attachment link (native Flutter URL launch, zero UI thread lag)
+        if media_url:
+            f_name = meta.get("filename") or "Media Attachment"
+            f_size = meta.get("file_size")
+            attach_label = f"{f_name} ({f_size})" if f_size else f_name
 
             body_controls.append(
                 ft.Container(
-                    width=img_bubble_w,
-                    height=img_display_h,
-                    clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                    url=media_url,
+                    padding=ft.Padding.symmetric(horizontal=10, vertical=7),
+                    border_radius=8,
+                    bgcolor=ft.Colors.with_opacity(0.14, palette["accent"] if not is_me else ft.Colors.WHITE),
                     ink=True,
-                    on_click=_open_image_viewer,
-                    tooltip="Click to view full image",
-                    content=img_content,
+                    tooltip="Open in browser",
+                    content=ft.Row([
+                        ft.Icon(ft.Icons.ATTACH_FILE_ROUNDED, size=16, color=palette["accent"] if not is_me else ft.Colors.WHITE),
+                        ft.Column([
+                            ft.Text(
+                                attach_label,
+                                size=12,
+                                weight=ft.FontWeight.W_600,
+                                color=palette["accent"] if not is_me else ft.Colors.WHITE,
+                                max_lines=1,
+                                overflow=ft.TextOverflow.ELLIPSIS,
+                            ),
+                            ft.Text(
+                                "Open in browser",
+                                size=10,
+                                color=palette["accent"] if not is_me else ft.Colors.WHITE70,
+                            ),
+                        ], spacing=1, expand=True, tight=True),
+                        ft.Icon(ft.Icons.OPEN_IN_NEW_ROUNDED, size=14, color=palette["accent"] if not is_me else ft.Colors.WHITE70),
+                    ], spacing=8, tight=False, vertical_alignment=ft.CrossAxisAlignment.CENTER)
                 )
             )
         elif meta.get("media_type") == "voice_note" or meta.get("type") == "voice_note":
@@ -2323,12 +2231,9 @@ async def chat_view(
                         is_me_voter = (v_uid == my_id)
 
                         if v_img:
-                            avatar_content = ft.Image(
-                                src=v_img,
-                                width=18,
-                                height=18,
-                                fit=ft.BoxFit.COVER,
-                                border_radius=9
+                            avatar_content = ft.CircleAvatar(
+                                foreground_image_src=v_img,
+                                radius=9,
                             )
                         else:
                             avatar_content = ft.Text(
@@ -2527,40 +2432,18 @@ async def chat_view(
                     show_page_snackbar(page, ft.SnackBar(content=ft.Text(f"Mentioned {u}"), duration=1500))
 
             clean_text = (raw_content or "").strip()
-            # If this is an image attachment and caption is empty or legacy dummy placeholder, suppress it
-            is_dummy_image_caption = bool(has_image and (not clean_text or clean_text.lower() == "shared an image" or clean_text == media_url))
+            is_dummy_image_caption = bool(media_url and (not clean_text or clean_text.lower() == "shared an image" or clean_text == media_url))
             if not is_dummy_image_caption and clean_text:
-                if is_frameless_image:
-                    body_controls.append(
-                        ft.Container(
-                            width=img_bubble_w,
-                            padding=ft.Padding.only(left=10, right=10, top=6, bottom=6),
-                            content=ft.Column(
-                                [
-                                    ft.Text(
-                                        spans=build_whatsapp_spans(clean_text, text_color, palette, _on_mention_click, is_me=is_me),
-                                        size=14,
-                                        selectable=True,
-                                    ),
-                                    ft.Row([ts_row], alignment=ft.MainAxisAlignment.END),
-                                ],
-                                spacing=2,
-                                tight=True,
-                                horizontal_alignment=ft.CrossAxisAlignment.START,
-                            ),
-                        )
+                body_controls.append(
+                    ft.Text(
+                        spans=build_whatsapp_spans(clean_text, text_color, palette, _on_mention_click, is_me=is_me),
+                        size=14,
+                        selectable=True
                     )
-                else:
-                    body_controls.append(
-                        ft.Text(
-                            spans=build_whatsapp_spans(clean_text, text_color, palette, _on_mention_click, is_me=is_me),
-                            size=14,
-                            selectable=True
-                        )
-                    )
+                )
 
-        # Timestamp row (already embedded inside poll_card for polls or inside frameless image bubbles)
-        if not is_poll and not is_frameless_image:
+        # Timestamp row (already embedded inside poll_card for polls)
+        if not is_poll:
             body_controls.append(ts_row)
 
         def _copy_bubble_text(e=None):
@@ -2586,11 +2469,10 @@ async def chat_view(
                 on_close_callback=_restore_scroll_anchor,
             )
 
+        cur_w = page.width if (hasattr(page, "width") and page.width) else 380
         max_bubble_width = min(540, max(220, int(cur_w * 0.72))) if not is_mob else max(180, int(cur_w - 104))
         is_long_msg = bool(is_ai or is_poll or len(raw_content) > 38 or "\n" in raw_content)
-        if is_frameless_image:
-            bubble_width = img_bubble_w
-        elif is_poll:
+        if is_poll:
             bubble_width = min(320, max_bubble_width)
         elif is_long_msg and is_mob:
             bubble_width = max_bubble_width
@@ -2601,28 +2483,27 @@ async def chat_view(
 
         bubble = ft.Container(
             width=bubble_width,
-            bgcolor=ft.Colors.TRANSPARENT if (is_image_only_bubble and not has_top_headers) else bg,
-            border=None if is_frameless_image else border,
+            bgcolor=bg,
+            border=border,
             border_radius=radius,
-            clip_behavior=ft.ClipBehavior.ANTI_ALIAS if is_frameless_image else None,
-            padding=ft.Padding.all(0) if is_frameless_image else ft.Padding.symmetric(horizontal=14 if is_poll else 12, vertical=12 if is_poll else 8),
+            padding=ft.Padding.symmetric(horizontal=14 if is_poll else 12, vertical=12 if is_poll else 8),
             on_long_press=_open_actions_sheet,
             shadow=ft.BoxShadow(
                 blur_radius=4 if is_poll else 3,
                 color=ft.Colors.with_opacity(0.08, ft.Colors.BLACK),
                 offset=ft.Offset(0, 1)
             ),
-            scale=ft.Scale(0.92 if is_frameless_image else 0.82, alignment=ft.Alignment.BOTTOM_RIGHT if is_me else ft.Alignment.BOTTOM_LEFT) if animate_entrance else 1.0,
+            scale=ft.Scale(0.82, alignment=ft.Alignment.BOTTOM_RIGHT if is_me else ft.Alignment.BOTTOM_LEFT) if animate_entrance else 1.0,
             opacity=0.0 if animate_entrance else 1.0,
-            offset=ft.Offset(0.02 if is_frameless_image else 0.04, 0.06 if is_frameless_image else 0.10) if (animate_entrance and is_me) else (ft.Offset(-0.02 if is_frameless_image else -0.04, 0.06 if is_frameless_image else 0.10) if animate_entrance else ft.Offset(0, 0)),
-            animate_scale=ft.Animation(240 if is_frameless_image else 230, ft.AnimationCurve.EASE_OUT_CUBIC if is_frameless_image else ft.AnimationCurve.EASE_OUT_BACK) if animate_entrance else None,
-            animate_opacity=ft.Animation(200 if is_frameless_image else 160, ft.AnimationCurve.EASE_OUT) if animate_entrance else None,
-            animate_offset=ft.Animation(240 if is_frameless_image else 230, ft.AnimationCurve.EASE_OUT_CUBIC if is_frameless_image else ft.AnimationCurve.EASE_OUT_BACK) if animate_entrance else None,
+            offset=ft.Offset(0.04, 0.10) if (animate_entrance and is_me) else (ft.Offset(-0.04, 0.10) if animate_entrance else ft.Offset(0, 0)),
+            animate_scale=ft.Animation(230, ft.AnimationCurve.EASE_OUT_BACK) if animate_entrance else None,
+            animate_opacity=ft.Animation(160, ft.AnimationCurve.EASE_OUT) if animate_entrance else None,
+            animate_offset=ft.Animation(230, ft.AnimationCurve.EASE_OUT_BACK) if animate_entrance else None,
             content=ft.Column(
                 body_controls,
                 tight=True,
-                spacing=0 if is_frameless_image else 3,
-                horizontal_alignment=ft.CrossAxisAlignment.START if is_frameless_image else (ft.CrossAxisAlignment.END if is_me else ft.CrossAxisAlignment.START)
+                spacing=3,
+                horizontal_alignment=ft.CrossAxisAlignment.END if is_me else ft.CrossAxisAlignment.START
             )
         )
 
@@ -2643,22 +2524,6 @@ async def chat_view(
             in_right_margin = 16 if is_poll else 120
 
         msg_id_str = str(msg.get("id") or "")
-        bubble_options_btn = build_themed_bubble_menu(
-            msg=msg,
-            palette=palette,
-            current_user_id=current_user_id[0],
-            is_admin=_is_current_user_admin(),
-            pinned_msg_target_id=pinned_msg_target_id,
-            on_set_reply=_set_reply,
-            on_send_reaction=_send_ws_reaction,
-            on_send_pin=_send_ws_pin,
-            on_send_unpin=_send_ws_unpin,
-            on_send_delete=_send_ws_delete,
-            on_copy_text=_copy_bubble_text,
-            on_open_full_sheet=_open_actions_sheet,
-            is_me=is_me,
-        )
-
         reactions_row = build_reaction_pills_row(
             meta.get("reactions"),
             current_user_id[0],
@@ -2666,10 +2531,25 @@ async def chat_view(
             palette
         )
 
+        # On mobile, bubbles span cleanly with no inline 3-dots button (accessible via long press, saving ~60 controls/bubble)
+        # On desktop, a single lightweight icon button opens the actions sheet directly
+        if not is_mob:
+            bubble_options_btn = ft.IconButton(
+                icon=ft.Icons.MORE_HORIZ_ROUNDED,
+                icon_color=palette["text_muted"],
+                icon_size=16,
+                tooltip="Message options",
+                on_click=_open_actions_sheet,
+                style=ft.ButtonStyle(padding=2)
+            )
+            row_items = [bubble_options_btn, bubble] if is_me else [bubble, bubble_options_btn]
+        else:
+            row_items = [bubble]
+
         bubble_col = ft.Column(
             [
                 ft.Row(
-                    [bubble_options_btn, bubble] if is_me else [bubble, bubble_options_btn],
+                    row_items,
                     spacing=2,
                     tight=True,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER
@@ -2817,7 +2697,10 @@ async def chat_view(
         if channel_id == current_chat_id[0]:
             active_chat_status_txt.value = "typing..."
             active_chat_status_txt.color = palette["online_dot"]
-            page.update()
+            try:
+                active_chat_status_txt.update()
+            except Exception:
+                page.update()
 
         async def clear_typing(t):
             await asyncio.sleep(3.2)
@@ -2840,7 +2723,10 @@ async def chat_view(
                 else:
                     active_chat_status_txt.value = f"{len(active_channel_members)} members" if active_channel_members else ""
                     active_chat_status_txt.color = palette["text_muted"]
-                page.update()
+                try:
+                    active_chat_status_txt.update()
+                except Exception:
+                    page.update()
 
         page.run_task(clear_typing, tok)
 
@@ -3103,21 +2989,12 @@ async def chat_view(
                     page.update()
                     return
 
-                should_animate_entrance = not has_animated_room[0]
-                if should_animate_entrance and clean_msgs:
-                    has_animated_room[0] = True
-
                 current_date_label = None
-                total_clean = len(clean_msgs)
-                # Animate the visible window of messages (up to the last 18 messages) on initial load
-                anim_threshold = max(0, total_clean - 18)
 
                 for i, m in enumerate(clean_msgs):
                     mid = str(m.get("id"))
                     if mid:
                         seen_msg_ids.add(mid)
-
-                    should_anim = should_animate_entrance and (i >= anim_threshold)
 
                     m_date = get_day_label(m.get("created_at"))
                     if m_date and m_date != current_date_label:
@@ -3131,12 +3008,6 @@ async def chat_view(
                             padding=ft.Padding.symmetric(horizontal=12, vertical=4),
                             border_radius=12,
                             margin=ft.Margin.symmetric(vertical=6),
-                            scale=ft.Scale(0.85, alignment=ft.Alignment.CENTER) if should_anim else 1.0,
-                            opacity=0.0 if should_anim else 1.0,
-                            offset=ft.Offset(0, 0.10) if should_anim else ft.Offset(0, 0),
-                            animate_scale=ft.Animation(230, ft.AnimationCurve.EASE_OUT_BACK) if should_anim else None,
-                            animate_opacity=ft.Animation(160, ft.AnimationCurve.EASE_OUT) if should_anim else None,
-                            animate_offset=ft.Animation(230, ft.AnimationCurve.EASE_OUT_BACK) if should_anim else None,
                         )
                         date_row = ft.Row([date_pill], alignment=ft.MainAxisAlignment.CENTER)
                         date_row.bubble_ref = date_pill
@@ -3146,15 +3017,18 @@ async def chat_view(
 
                     prev_item = clean_msgs[i - 1] if i > 0 else None
                     next_item = clean_msgs[i + 1] if i < len(clean_msgs) - 1 else None
-                    messages_listview.controls.append(render_message_bubble(m, prev_msg=prev_item, next_msg=next_item, animate_entrance=should_anim))
+                    messages_listview.controls.append(render_message_bubble(m, prev_msg=prev_item, next_msg=next_item, animate_entrance=False))
 
-                page.update()
+                try:
+                    messages_listview.update()
+                except Exception:
+                    page.update()
                 _scroll_to_bottom(animate=False)
-                if should_animate_entrance:
-                    page.run_task(_animate_history_bubbles, list(messages_listview.controls))
 
             cached_history = get_cached_messages(page, chat_id)
+            cached_ids = []
             if cached_history:
+                cached_ids = [str(m.get("id")) for m in cached_history if m.get("id")]
                 _render_history(cached_history)
 
             # --- 2. NETWORK FETCH & SQLITE REFRESH ---
@@ -3162,6 +3036,7 @@ async def chat_view(
             if isinstance(history, list):
                 # Reverse to chronological order (API returns newest first)
                 chronological = list(reversed(history))
+                network_ids = [str(m.get("id")) for m in chronological if m.get("id")]
 
                 formatted_msgs = []
                 for m in chronological:
@@ -3187,7 +3062,9 @@ async def chat_view(
                 if formatted_msgs:
                     upsert_chat_messages(page, formatted_msgs)
 
-                _render_history(chronological)
+                # Avoid wiping and re-rendering if cached messages already matched the server response
+                if not (cached_ids and network_ids == cached_ids):
+                    _render_history(chronological)
 
             # Update Online Status in Header
             _is_online = chat_info.get("is_online", False)
@@ -3198,7 +3075,10 @@ async def chat_view(
             else:
                 active_chat_status_txt.value = f"{len(active_channel_members)} members" if active_channel_members else ""
                 active_chat_status_txt.color = palette["text_muted"]
-            page.update()
+            try:
+                active_chat_status_txt.update()
+            except Exception:
+                page.update()
 
             # --- 3. CONNECT LIVE WEBSOCKET & EMIT READ RECEIPT ---
             ws_client_ref[0] = ChatWebSocketClient(token)
@@ -3428,7 +3308,17 @@ async def chat_view(
                     seen_msg_ids.add(msg_id_str)
                     ctrl.data = msg_id_str
                     update_bubble_status(ctrl, msg_dict.get("status") or "delivered")
-                    page.update()
+                    s_tick = getattr(ctrl, "status_tick", None)
+                    if s_tick and getattr(s_tick, "page", None):
+                        try:
+                            s_tick.update()
+                        except Exception:
+                            page.update()
+                    else:
+                        try:
+                            ctrl.update()
+                        except Exception:
+                            page.update()
                     return
 
         if msg_id_str in seen_msg_ids:
@@ -3511,7 +3401,10 @@ async def chat_view(
 
             bubble_w = render_message_bubble(msg_dict, prev_msg=prev_ctrl, animate_entrance=True)
             messages_listview.controls.append(bubble_w)
-            page.update()
+            try:
+                messages_listview.update()
+            except Exception:
+                page.update()
             page.run_task(_animate_bubble_entrance, bubble_w)
             _scroll_to_bottom(animate=True)
 
@@ -3536,77 +3429,6 @@ async def chat_view(
             page.update()
             _restore_scroll_anchor()
 
-    # ── Instant, Zero-Latency Fullscreen Lightbox ─────────────────────────
-    lightbox_img = ft.Image(
-        src="",
-        fit=ft.BoxFit.CONTAIN,
-        gapless_playback=True,
-    )
-
-    def _close_lightbox(e=None):
-        if not lightbox_overlay.visible:
-            return
-        lightbox_overlay.visible = False
-        try:
-            lightbox_overlay.update()
-        except Exception:
-            page.update()
-
-    lightbox_close_btn = ft.Container(
-        top=18,
-        right=18,
-        content=ft.IconButton(
-            icon=ft.Icons.CLOSE_ROUNDED,
-            icon_color=ft.Colors.WHITE,
-            bgcolor=ft.Colors.BLACK54,
-            icon_size=24,
-            tooltip="Close (or tap anywhere)",
-            on_click=_close_lightbox,
-        ),
-    )
-
-    lightbox_overlay = ft.Container(
-        left=0,
-        top=0,
-        right=0,
-        bottom=0,
-        bgcolor=ft.Colors.with_opacity(0.96, ft.Colors.BLACK),
-        alignment=ft.Alignment.CENTER,
-        visible=False,
-        animate_opacity=ft.Animation(160, ft.AnimationCurve.EASE_OUT),
-        content=ft.GestureDetector(
-            on_tap=_close_lightbox,
-            content=ft.Stack(
-                [
-                    ft.Container(
-                        alignment=ft.Alignment.CENTER,
-                        content=lightbox_img,
-                        expand=True,
-                    ),
-                    lightbox_close_btn,
-                ],
-                expand=True,
-            ),
-        ),
-    )
-
-    if lightbox_overlay not in page.overlay:
-        page.overlay.append(lightbox_overlay)
-
-    def _open_full_image_viewer(img_url: str):
-        if not img_url or lightbox_overlay.visible:
-            return
-        cur_w = getattr(page, "width", None) or 400
-        cur_h = getattr(page, "height", None) or 800
-        is_mob = cur_w < 680
-        lightbox_img.width = min(cur_w - (16 if is_mob else 32), 900)
-        lightbox_img.height = min(cur_h - (40 if is_mob else 80), 850)
-        lightbox_img.src = img_url
-        lightbox_overlay.visible = True
-        try:
-            lightbox_overlay.update()
-        except Exception:
-            page.update()
 
     def open_chat_help_dialog():
         def _close_help(ev=None):
@@ -3696,166 +3518,6 @@ async def chat_view(
         dlg.open = True
         page.update()
 
-    async def _handle_pick_image():
-        try:
-            fp = ft.FilePicker()
-            res = await fp.pick_files(
-                dialog_title="Select Image to Share",
-                allowed_extensions=["png", "jpg", "jpeg", "webp", "gif"],
-                allow_multiple=False
-            )
-            files = res if isinstance(res, list) else getattr(res, "files", [])
-            if not files:
-                return
-            picked = files[0]
-            p_size = getattr(picked, "size", 0) or 0
-            if p_size > 10 * 1024 * 1024:
-                show_page_snackbar(page, ft.SnackBar(content=ft.Text("Image must be smaller than 10MB."), bgcolor=ft.Colors.AMBER_800))
-                return
-            b_data = getattr(picked, "bytes", None)
-            if not b_data and getattr(picked, "path", None):
-                with open(picked.path, "rb") as img_f:
-                    b_data = img_f.read()
-            if not b_data:
-                return
-            cid = current_chat_id[0]
-            if not cid:
-                return
-
-            size_b = len(b_data)
-            if size_b < 1024:
-                size_label = f"{size_b} B"
-            elif size_b < 1024 * 1024:
-                size_label = f"{size_b / 1024:.1f} KB"
-            else:
-                size_label = f"{size_b / (1024 * 1024):.1f} MB"
-
-            orig_w, orig_h = 0, 0
-            try:
-                import io
-                from PIL import Image as PILImage
-                with PILImage.open(io.BytesIO(b_data)) as pil_im:
-                    orig_w, orig_h = pil_im.size
-            except Exception:
-                orig_w, orig_h = 0, 0
-
-            b64_str = base64.b64encode(b_data).decode("utf-8")
-            ext = picked.name.split(".")[-1].lower() if "." in picked.name else "jpeg"
-            mime_type = f"image/{ext}" if ext in ["png", "webp", "gif"] else "image/jpeg"
-            preview_src = picked.path if getattr(picked, "path", None) else f"data:{mime_type};base64,{b64_str}"
-
-            caption_input = ft.TextField(
-                hint_text="Add a caption... (optional)",
-                multiline=True,
-                min_lines=1,
-                max_lines=3,
-                shift_enter=True,
-                border_radius=10,
-                bgcolor=palette["input_bg"],
-                border_color=palette["border"],
-                focused_border_color=palette["accent"],
-                text_size=13,
-                text_style=ft.TextStyle(color=palette["text"], size=13),
-                hint_style=ft.TextStyle(color=palette["text_muted"], size=13),
-                autofocus=True,
-            )
-
-            send_btn_content = ft.Row([
-                ft.Icon(ft.Icons.SEND_ROUNDED, size=15, color=ft.Colors.WHITE),
-                ft.Text("Send", weight=ft.FontWeight.BOLD, size=13, color=ft.Colors.WHITE),
-            ], tight=True, spacing=6)
-
-            send_btn = ft.FilledButton(
-                content=send_btn_content,
-                style=ft.ButtonStyle(
-                    bgcolor=palette["accent"],
-                    shape=ft.RoundedRectangleBorder(radius=8),
-                    padding=ft.Padding.symmetric(horizontal=16, vertical=10),
-                ),
-            )
-            cancel_btn = ft.TextButton("Cancel")
-
-            def _close_img_dlg(e=None):
-                img_preview_dlg.open = False
-                page.update()
-                _restore_scroll_anchor()
-
-            cancel_btn.on_click = _close_img_dlg
-
-            async def _do_upload_and_send(e=None):
-                if send_btn.disabled:
-                    return
-                send_btn.disabled = True
-                cancel_btn.disabled = True
-                caption_text = (caption_input.value or "").strip()
-                meta = {
-                    "media_type": "image",
-                    "filename": picked.name,
-                    "file_size": size_label,
-                }
-                if orig_w > 0 and orig_h > 0:
-                    meta["img_w"] = orig_w
-                    meta["img_h"] = orig_h
-
-                _close_img_dlg()
-                await asyncio.sleep(0.04)
-                await send_text_message(
-                    custom_text=caption_text,
-                    msg_type="text",
-                    extra_metadata=meta,
-                    local_preview_src=preview_src,
-                    pending_media_upload=(b_data, picked.name, mime_type),
-                )
-
-            send_btn.on_click = lambda e: page.run_task(_do_upload_and_send)
-            caption_input.on_submit = lambda e: page.run_task(_do_upload_and_send)
-
-            cur_w = getattr(page, "width", None) or 400
-            prev_box_w = min(cur_w - 56, 430)
-            img_preview_dlg = ft.AlertDialog(
-                modal=True,
-                shape=ft.RoundedRectangleBorder(radius=16),
-                bgcolor=palette["surface"],
-                title=ft.Row([
-                    ft.Icon(ft.Icons.IMAGE_ROUNDED, color=palette["accent"], size=20),
-                    ft.Column([
-                        ft.Text("Preview Image", size=15, weight=ft.FontWeight.BOLD, color=palette["text"]),
-                        ft.Text(f"{picked.name} • {size_label}", size=11, color=palette["text_muted"], max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
-                    ], spacing=1, expand=True),
-                    ft.IconButton(ft.Icons.CLOSE_ROUNDED, icon_size=18, icon_color=palette["text_muted"], on_click=_close_img_dlg),
-                ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                content=ft.Container(
-                    width=min(cur_w - 32, 460),
-                    content=ft.Column([
-                        ft.Container(
-                            width=prev_box_w,
-                            height=230,
-                            border_radius=10,
-                            clip_behavior=ft.ClipBehavior.HARD_EDGE,
-                            bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.BLACK),
-                            border=ft.Border.all(1, palette["border"]),
-                            alignment=ft.Alignment.CENTER,
-                            content=ft.Image(
-                                src=preview_src,
-                                width=prev_box_w,
-                                height=230,
-                                fit=ft.BoxFit.CONTAIN,
-                            )
-                        ),
-                        caption_input,
-                    ], spacing=12, tight=True),
-                ),
-                actions=[cancel_btn, send_btn],
-                actions_alignment=ft.MainAxisAlignment.END,
-            )
-            page.overlay.append(img_preview_dlg)
-            img_preview_dlg.open = True
-            page.update()
-
-        except Exception as img_err:
-            print(f"[NuChat] Error picking image: {img_err}")
-            show_page_snackbar(page, ft.SnackBar(content=ft.Text(f"Failed to pick image: {img_err}"), bgcolor=ft.Colors.RED_700))
-
     def _trigger_ai_prompt():
         msg_input.value = "/ai "
         page.run_task(msg_input.focus)
@@ -3870,7 +3532,6 @@ async def chat_view(
         open_chat_actions_sheet(
             page=page,
             palette=palette,
-            on_pick_image=lambda: page.run_task(_handle_pick_image),
             on_open_poll=open_poll_modal,
             on_trigger_ai=_trigger_ai_prompt,
             on_trigger_duel=_trigger_study_duel,
@@ -4143,13 +3804,6 @@ async def chat_view(
     # ==========================================
     # 13. USER PICKER, GROUPS & MODALS
     # ==========================================
-    async def _load_users_if_needed():
-        nonlocal all_users_cache
-        if not all_users_cache:
-            res = await get_all_users(token)
-            if isinstance(res, list):
-                all_users_cache = res
-
     # ── User Picker (Direct Message) ──────────────────────────────────────────
     def open_users_modal(e):
         user_search = ft.TextField(
@@ -4651,9 +4305,6 @@ async def chat_view(
 
     page._active_chat_id = lambda: current_chat_id[0]
     def _safe_close_active_chat():
-        if lightbox_overlay.visible:
-            _close_lightbox()
-            return
         page.run_task(close_chat_mobile)
     page._close_active_chat_handler = _safe_close_active_chat
 

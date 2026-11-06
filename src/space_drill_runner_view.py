@@ -743,17 +743,17 @@ async def space_drill_runner_view(
 
         filter_row = ft.Row(
             [
-                ft.FilterChip(
+                ft.Chip(
                     label=ft.Text(f"All ({len(breakdown)})", size=11.5),
                     selected=active_filter == "all",
                     on_select=lambda _: _set_filter("all"),
                 ),
-                ft.FilterChip(
+                ft.Chip(
                     label=ft.Text(f"Mistakes ({incorrect_count})", size=11.5),
                     selected=active_filter == "incorrect",
                     on_select=lambda _: _set_filter("incorrect"),
                 ),
-                ft.FilterChip(
+                ft.Chip(
                     label=ft.Text(f"Correct ({correct_count})", size=11.5),
                     selected=active_filter == "correct",
                     on_select=lambda _: _set_filter("correct"),
