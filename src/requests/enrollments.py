@@ -9,9 +9,14 @@ api_url = "https://api.nu-age.name.ng"
 DEFAULT_TIMEOUT = httpx.Timeout(connect=3.5, read=15.0, write=10.0, pool=5.0)
 
 
+def _auth_headers(token: str | None = None) -> dict:
+    if token and str(token).strip() and str(token).strip() not in ('None', 'null', 'undefined'):
+        return {'Authorization': f'Bearer {str(token).strip()}'}
+    return {}
+
 async def get_enrollments(token: str, params: dict | None = None):
     url = f"{api_url}/courses/enrolled"
-    headers = {"Authorization": f"Bearer {token}"}
+    headers = _auth_headers(token)
     try:
         async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
             response = await client.get(url, headers=headers, params=params)

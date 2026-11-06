@@ -60,15 +60,21 @@ class TokenRefreshAuth(httpx.Auth):
         auth_header = request.headers.get("authorization") or request.headers.get("Authorization")
         active_token = self.token or await session.get_access_token()
 
-        if not auth_header:
-            if active_token:
+        # Sanitize malformed or empty Bearer headers to avoid httpx LocalProtocolError: Illegal header value b'Bearer '
+        if auth_header and auth_header.startswith("Bearer "):
+            raw_tok = auth_header[7:].strip()
+            if not raw_tok or raw_tok in ("None", "null", "undefined"):
+                if active_token and active_token not in ("None", "null", "undefined"):
+                    request.headers["Authorization"] = f"Bearer {active_token}"
+                else:
+                    if "authorization" in request.headers:
+                        del request.headers["authorization"]
+                    if "Authorization" in request.headers:
+                        del request.headers["Authorization"]
+            elif active_token and raw_tok != active_token:
                 request.headers["Authorization"] = f"Bearer {active_token}"
-        elif active_token and auth_header.startswith("Bearer "):
-            passed_token = auth_header[7:].strip()
-            # If the session has a newer/different active token than the stale one passed by the caller,
-            # proactively use the active token to avoid unnecessary 401 round-trips.
-            if passed_token != active_token:
-                request.headers["Authorization"] = f"Bearer {active_token}"
+        elif not auth_header and active_token and active_token not in ("None", "null", "undefined"):
+            request.headers["Authorization"] = f"Bearer {active_token}"
 
         # Send request
         response = yield request
@@ -102,6 +108,16 @@ class AsyncClient(_OriginalAsyncClient):
         super().__init__(*args, **kwargs)
 
 
+def auth_headers(token: Optional[str] = None) -> dict:
+    """
+    Returns a clean Authorization header dict if token is non-empty and valid,
+    or an empty dict to prevent 'Illegal header value b'Bearer '' protocol crashes.
+    """
+    if token and str(token).strip() and str(token).strip() not in ("None", "null", "undefined"):
+        return {"Authorization": f"Bearer {str(token).strip()}"}
+    return {}
+
+
 # Patch httpx.AsyncClient so any module doing `httpx.AsyncClient(...)`
 # automatically inherits SSL context and token refresh resilience.
 httpx.AsyncClient = AsyncClient
@@ -121,8 +137,10 @@ async def authenticated_request(
     retry on 401.
     """
     hdrs = dict(headers or {})
-    if token:
-        hdrs["Authorization"] = f"Bearer {token}"
+    if token and str(token).strip() and str(token).strip() not in ("None", "null", "undefined"):
+        hdrs["Authorization"] = f"Bearer {str(token).strip()}"
+    elif "Authorization" in hdrs and not hdrs["Authorization"].replace("Bearer ", "").strip():
+        del hdrs["Authorization"]
 
     auth = kwargs.pop("auth", TokenRefreshAuth(token=token))
     verify = kwargs.pop("verify", ssl_context)

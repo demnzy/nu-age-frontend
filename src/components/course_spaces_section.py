@@ -78,11 +78,18 @@ def build_course_spaces_section(
         page.update()
 
         tok = await _resolve_token()
-        my_res, exp_res = await asyncio.gather(
-            get_my_spaces(token=tok),
-            get_explore_spaces(token=tok, query=state["search_query"]),
-            return_exceptions=True,
-        )
+        if tok and str(tok).strip() and str(tok).strip() not in ("None", "null", "undefined"):
+            my_res, exp_res = await asyncio.gather(
+                get_my_spaces(token=tok),
+                get_explore_spaces(token=tok, query=state["search_query"]),
+                return_exceptions=True,
+            )
+        else:
+            my_res = {"spaces": []}
+            try:
+                exp_res = await get_explore_spaces(token="", query=state["search_query"])
+            except Exception:
+                exp_res = {"spaces": []}
         state["my_spaces"] = my_res.get("spaces", []) if isinstance(my_res, dict) else []
         state["explore_spaces"] = exp_res.get("spaces", []) if isinstance(exp_res, dict) else []
 

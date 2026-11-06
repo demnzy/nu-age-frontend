@@ -17,9 +17,15 @@ api_url = "https://api.nu-age.name.ng"
 DEFAULT_TIMEOUT = httpx.Timeout(connect=5.0, read=25.0, write=25.0, pool=5.0)
 
 
+def _auth_headers(token: Optional[str] = None) -> dict:
+    if token and str(token).strip() and str(token).strip() not in ("None", "null", "undefined"):
+        return {"Authorization": f"Bearer {str(token).strip()}"}
+    return {}
+
+
 async def get_my_spaces(token: str, scope: str = "learner") -> dict:
     url = f"{api_url}/course-spaces/my-spaces"
-    headers = {"Authorization": f"Bearer {token}"}
+    headers = _auth_headers(token)
     params = {"scope": scope}
     try:
         async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
@@ -34,7 +40,7 @@ async def get_my_spaces(token: str, scope: str = "learner") -> dict:
 
 async def get_explore_spaces(token: str, query: str = "", limit: int = 30, offset: int = 0) -> dict:
     url = f"{api_url}/course-spaces/explore"
-    headers = {"Authorization": f"Bearer {token}"}
+    headers = _auth_headers(token)
     params = {"limit": limit, "offset": offset}
     if query:
         params["query"] = query

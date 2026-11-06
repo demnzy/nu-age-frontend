@@ -1944,7 +1944,7 @@ async def self_study_view(page: ft.Page):
             pass
         page.update()
 
-    def go_hub(label_or_e="Loading Study Hub…"):
+    def go_hub(label_or_e="Loading Study Hub…", soft: bool = False):
         label = label_or_e if isinstance(label_or_e, str) else "Loading Study Hub…"
         page.route = "/self-study?offline=true" if state.get("is_offline") else "/self-study"
         state["on_hub"] = True
@@ -1955,8 +1955,10 @@ async def self_study_view(page: ft.Page):
         _reset_keyboard()
         _lock_exam_ui(False)
         _set_appbar("Study Hub", _handle_back_click)
-        _set_loading(label)
-        page.run_task(_load_hub, False, None)
+        has_rendered_content = content_socket.content and not getattr(content_socket.content, "_is_loading", False)
+        if not soft and not has_rendered_content:
+            _set_loading(label)
+        page.run_task(_load_hub, True if has_rendered_content else False, None)
 
     def _exit_study_session(label="Returning…"):
         _lock_exam_ui(False)
@@ -2506,10 +2508,23 @@ async def self_study_view(page: ft.Page):
 
             if state.get("active_material"):
                 target_ui = _build_material_cockpit(state["active_material"], state.get("active_material_cards") or [])
+                content_socket.content = target_ui
             else:
                 target_ui = _build_hub(due_cards or [], materials or [])
-
-            content_socket.content = target_ui
+                curr_ctrl = content_socket.content
+                if (
+                    curr_ctrl
+                    and getattr(curr_ctrl, "key", "") == "self_study_hub_scroll_column"
+                    and getattr(curr_ctrl, "controls", None)
+                    and len(curr_ctrl.controls) > 0
+                    and getattr(curr_ctrl.controls[0], "content", None)
+                    and hasattr(curr_ctrl.controls[0].content, "controls")
+                ):
+                    # In-place refresh: preserve scroll position!
+                    new_sections = target_ui.controls[0].content.controls
+                    curr_ctrl.controls[0].content.controls = new_sections
+                else:
+                    content_socket.content = target_ui
         except Exception as ex:
             import traceback
             print(f"[_load_hub: build view failed]: {ex}")

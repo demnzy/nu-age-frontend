@@ -384,13 +384,23 @@ async def chat_view(
         except Exception:
             page.update()
 
+    def _safe_set_visible(ctrl, visible: bool):
+        if hasattr(ctrl, "_frozen"):
+            try:
+                del ctrl._frozen
+            except Exception:
+                pass
+        try:
+            ctrl.visible = visible
+        except Exception:
+            pass
+
     def _on_search_query_change(e):
         sq = (in_room_search_in.value or "").strip().lower()
         if not sq:
             search_match_count_text.value = ""
             for ctrl in messages_listview.controls:
-                if not ctrl.visible:
-                    ctrl.visible = True
+                _safe_set_visible(ctrl, True)
             page.update()
             return
         matches = 0
@@ -398,10 +408,10 @@ async def chat_view(
             m_data = getattr(ctrl, "msg_data", {})
             c_txt = str(m_data.get("content") or "").lower()
             if sq in c_txt:
-                ctrl.visible = True
+                _safe_set_visible(ctrl, True)
                 matches += 1
             else:
-                ctrl.visible = False
+                _safe_set_visible(ctrl, False)
         search_match_count_text.value = f"{matches} found"
         page.update()
 
@@ -413,8 +423,7 @@ async def chat_view(
         search_match_count_text.value = ""
         if was_open:
             for ctrl in messages_listview.controls:
-                if not ctrl.visible:
-                    ctrl.visible = True
+                _safe_set_visible(ctrl, True)
         if do_update and was_open:
             page.update()
             _restore_scroll_anchor()
@@ -2048,7 +2057,7 @@ async def chat_view(
                         cur_meta = json.loads(cur_meta)
                     except Exception:
                         cur_meta = {}
-                u = (cur_meta.get("media_url") if isinstance(cur_meta, dict) else None) or fallback_u
+                u = fallback_u or (cur_meta.get("media_url") if isinstance(cur_meta, dict) else None) or ""
                 _open_full_image_viewer(u)
 
             img_ctrl = ft.Image(
@@ -3527,52 +3536,77 @@ async def chat_view(
             page.update()
             _restore_scroll_anchor()
 
-    def _open_full_image_viewer(img_url: str):
-        if not img_url:
-            return
-        def _close_viewer(e=None):
-            viewer_dlg.open = False
-            page.update()
-            _restore_scroll_anchor()
+    # ── Instant, Zero-Latency Fullscreen Lightbox ─────────────────────────
+    lightbox_img = ft.Image(
+        src="",
+        fit=ft.BoxFit.CONTAIN,
+        gapless_playback=True,
+    )
 
-        cur_w = getattr(page, "width", None) or 600
-        cur_h = getattr(page, "height", None) or 800
-        v_w = min(cur_w - 32, 780)
-        v_h = min(cur_h - 100, 580)
-        viewer_dlg = ft.AlertDialog(
-            modal=True,
-            bgcolor=ft.Colors.BLACK87,
-            content_padding=ft.Padding.all(0),
-            content=ft.Container(
-                width=v_w,
-                height=v_h,
-                alignment=ft.Alignment.CENTER,
-                content=ft.Stack([
-                    ft.Image(
-                        src=img_url,
-                        width=v_w,
-                        height=v_h,
-                        fit=ft.BoxFit.CONTAIN,
-                    ),
+    def _close_lightbox(e=None):
+        if not lightbox_overlay.visible:
+            return
+        lightbox_overlay.visible = False
+        try:
+            lightbox_overlay.update()
+        except Exception:
+            page.update()
+
+    lightbox_close_btn = ft.Container(
+        top=18,
+        right=18,
+        content=ft.IconButton(
+            icon=ft.Icons.CLOSE_ROUNDED,
+            icon_color=ft.Colors.WHITE,
+            bgcolor=ft.Colors.BLACK54,
+            icon_size=24,
+            tooltip="Close (or tap anywhere)",
+            on_click=_close_lightbox,
+        ),
+    )
+
+    lightbox_overlay = ft.Container(
+        left=0,
+        top=0,
+        right=0,
+        bottom=0,
+        bgcolor=ft.Colors.with_opacity(0.96, ft.Colors.BLACK),
+        alignment=ft.Alignment.CENTER,
+        visible=False,
+        animate_opacity=ft.Animation(160, ft.AnimationCurve.EASE_OUT),
+        content=ft.GestureDetector(
+            on_tap=_close_lightbox,
+            content=ft.Stack(
+                [
                     ft.Container(
-                        top=10,
-                        right=10,
-                        content=ft.IconButton(
-                            icon=ft.Icons.CLOSE_ROUNDED,
-                            icon_color=ft.Colors.WHITE,
-                            bgcolor=ft.Colors.BLACK54,
-                            icon_size=20,
-                            tooltip="Close",
-                            on_click=_close_viewer
-                        )
-                    )
-                ], width=v_w, height=v_h)
-            )
-        )
-        page.overlay.append(viewer_dlg)
-        viewer_dlg.open = True
-        page.update()
-        _restore_scroll_anchor()
+                        alignment=ft.Alignment.CENTER,
+                        content=lightbox_img,
+                        expand=True,
+                    ),
+                    lightbox_close_btn,
+                ],
+                expand=True,
+            ),
+        ),
+    )
+
+    if lightbox_overlay not in page.overlay:
+        page.overlay.append(lightbox_overlay)
+
+    def _open_full_image_viewer(img_url: str):
+        if not img_url or lightbox_overlay.visible:
+            return
+        cur_w = getattr(page, "width", None) or 400
+        cur_h = getattr(page, "height", None) or 800
+        is_mob = cur_w < 680
+        lightbox_img.width = min(cur_w - (16 if is_mob else 32), 900)
+        lightbox_img.height = min(cur_h - (40 if is_mob else 80), 850)
+        lightbox_img.src = img_url
+        lightbox_overlay.visible = True
+        try:
+            lightbox_overlay.update()
+        except Exception:
+            page.update()
 
     def open_chat_help_dialog():
         def _close_help(ev=None):
@@ -4614,6 +4648,14 @@ async def chat_view(
     page.on_resize = update_responsive_layout
     update_responsive_layout()
     page.run_task(fetch_initial_data)
+
+    page._active_chat_id = lambda: current_chat_id[0]
+    def _safe_close_active_chat():
+        if lightbox_overlay.visible:
+            _close_lightbox()
+            return
+        page.run_task(close_chat_mobile)
+    page._close_active_chat_handler = _safe_close_active_chat
 
     return ft.View(
         route="/nu-chat",

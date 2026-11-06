@@ -299,23 +299,24 @@ async def space_drill_runner_view(
                         ft.Text(
                             state["quiz"].get("title", "Topic CBT Drill"),
                             weight=ft.FontWeight.BOLD,
-                            size=15 if is_mob else 16,
+                            size=14 if is_mob else 16,
                             max_lines=1,
                             overflow=ft.TextOverflow.ELLIPSIS,
                         ),
                         ft.Text(
                             f"Question {cur_idx + 1} of {len(questions)}",
-                            size=11.5,
+                            size=11,
                             color=ft.Colors.ON_SURFACE_VARIANT,
                         ),
                     ],
                     spacing=1,
                     tight=True,
+                    expand=True,
                 ),
             ],
             spacing=4,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            tight=True,
+            expand=True,
         )
 
         right_header = ft.Row(
@@ -515,37 +516,94 @@ async def space_drill_runner_view(
         )
 
         # ── 5. Bottom Navigation & Action Bar ────────────────────────────────
-        btn_prev = ft.OutlinedButton(
-            "Previous",
-            icon=ft.Icons.ARROW_BACK_ROUNDED,
-            disabled=cur_idx == 0,
-            on_click=lambda _: _jump_to_question(cur_idx - 1),
-        )
-
         is_last = cur_idx == len(questions) - 1
-        btn_next = ft.ElevatedButton(
-            "Review & Submit" if is_last else "Next Question",
-            icon=ft.Icons.CHECK_CIRCLE_ROUNDED if is_last else ft.Icons.ARROW_FORWARD_ROUNDED,
-            style=ft.ButtonStyle(
-                bgcolor=ft.Colors.PRIMARY,
-                color=ft.Colors.ON_PRIMARY,
-                shape=ft.RoundedRectangleBorder(radius=10),
-            ),
-            on_click=lambda _: page.run_task(_submit_drill) if is_last else _jump_to_question(cur_idx + 1),
-        )
 
-        answered_badge = ft.Text(
-            f"{len(state['selected_answers'])} of {len(questions)} Answered",
-            size=12,
-            weight=ft.FontWeight.W_600,
-            color=ft.Colors.PRIMARY,
-        )
-
-        bottom_bar = ft.Container(
-            padding=ft.Padding.symmetric(horizontal=16, vertical=12),
-            bgcolor=ft.Colors.SURFACE,
-            border=ft.Border.only(top=ft.BorderSide(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE))),
-            content=ft.Row(
+        if is_mob:
+            btn_prev = ft.OutlinedButton(
+                content=ft.Row(
+                    [
+                        ft.Icon(ft.Icons.ARROW_BACK_ROUNDED, size=15),
+                        ft.Text("Prev", size=12, weight=ft.FontWeight.BOLD),
+                    ],
+                    tight=True,
+                    spacing=4,
+                    alignment=ft.MainAxisAlignment.CENTER,
+                ),
+                disabled=cur_idx == 0,
+                on_click=lambda _: _jump_to_question(cur_idx - 1),
+                height=40,
+                style=ft.ButtonStyle(
+                    padding=ft.Padding.symmetric(horizontal=8, vertical=0),
+                    shape=ft.RoundedRectangleBorder(radius=10),
+                ),
+            )
+            btn_next = ft.ElevatedButton(
+                content=ft.Row(
+                    [
+                        ft.Text("Submit" if is_last else "Next", size=12, weight=ft.FontWeight.BOLD),
+                        ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED if is_last else ft.Icons.ARROW_FORWARD_ROUNDED, size=15),
+                    ],
+                    tight=True,
+                    spacing=4,
+                    alignment=ft.MainAxisAlignment.CENTER,
+                ),
+                style=ft.ButtonStyle(
+                    bgcolor=ft.Colors.PRIMARY,
+                    color=ft.Colors.ON_PRIMARY,
+                    padding=ft.Padding.symmetric(horizontal=8, vertical=0),
+                    shape=ft.RoundedRectangleBorder(radius=10),
+                ),
+                on_click=lambda _: page.run_task(_submit_drill) if is_last else _jump_to_question(cur_idx + 1),
+                height=40,
+            )
+            answered_badge = ft.Container(
+                content=ft.Text(
+                    f"{len(state['selected_answers'])}/{len(questions)}",
+                    size=11.5,
+                    weight=ft.FontWeight.BOLD,
+                    color=ft.Colors.PRIMARY,
+                    text_align=ft.TextAlign.CENTER,
+                ),
+                padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+                border_radius=8,
+                bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.PRIMARY),
+            )
+            bottom_bar_content = ft.Row(
+                [
+                    ft.Container(content=btn_prev, expand=1),
+                    answered_badge,
+                    ft.Container(content=btn_next, expand=1),
+                ],
+                spacing=8,
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            )
+        else:
+            btn_prev = ft.OutlinedButton(
+                "Previous",
+                icon=ft.Icons.ARROW_BACK_ROUNDED,
+                disabled=cur_idx == 0,
+                on_click=lambda _: _jump_to_question(cur_idx - 1),
+                height=42,
+            )
+            btn_next = ft.ElevatedButton(
+                "Review & Submit" if is_last else "Next Question",
+                icon=ft.Icons.CHECK_CIRCLE_ROUNDED if is_last else ft.Icons.ARROW_FORWARD_ROUNDED,
+                style=ft.ButtonStyle(
+                    bgcolor=ft.Colors.PRIMARY,
+                    color=ft.Colors.ON_PRIMARY,
+                    shape=ft.RoundedRectangleBorder(radius=10),
+                ),
+                on_click=lambda _: page.run_task(_submit_drill) if is_last else _jump_to_question(cur_idx + 1),
+                height=42,
+            )
+            answered_badge = ft.Text(
+                f"{len(state['selected_answers'])} of {len(questions)} Answered",
+                size=12,
+                weight=ft.FontWeight.W_600,
+                color=ft.Colors.PRIMARY,
+            )
+            bottom_bar_content = ft.Row(
                 [
                     btn_prev,
                     answered_badge,
@@ -553,7 +611,13 @@ async def space_drill_runner_view(
                 ],
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            ),
+            )
+
+        bottom_bar = ft.Container(
+            padding=ft.Padding.symmetric(horizontal=12 if is_mob else 16, vertical=10 if is_mob else 12),
+            bgcolor=ft.Colors.SURFACE,
+            border=ft.Border.only(top=ft.BorderSide(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE))),
+            content=bottom_bar_content,
         )
 
         # Assemble Main Layout with Floating Calculator Dock
@@ -588,42 +652,58 @@ async def space_drill_runner_view(
         passed = bool(res.get("passed", pct >= 70))
         breakdown = res.get("answers_breakdown") or []
 
-        banner_bg = ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY if passed else ft.Colors.AMBER_600)
-        banner_border = ft.BorderSide(1.5, ft.Colors.PRIMARY if passed else ft.Colors.AMBER_600)
+        correct_count = sum(1 for b in breakdown if b.get("is_correct"))
+        incorrect_count = len(breakdown) - correct_count
 
+        active_filter = state.get("results_filter", "incorrect" if incorrect_count > 0 else "all")
+
+        top_bar = ft.Container(
+            padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+            bgcolor=ft.Colors.SURFACE,
+            border=ft.Border.only(bottom=ft.BorderSide(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE))),
+            content=ft.Row(
+                [
+                    ft.IconButton(
+                        icon=ft.Icons.ARROW_BACK_ROUNDED,
+                        tooltip="Back to Space",
+                        on_click=lambda _: page.go(back_route),
+                    ),
+                    ft.Text("Drill Performance", weight=ft.FontWeight.BOLD, size=16),
+                ],
+                spacing=6,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+        )
+
+        hero_color = ft.Colors.PRIMARY if passed else ft.Colors.AMBER_700
         hero_card = ft.Container(
-            padding=20,
+            padding=ft.Padding.symmetric(horizontal=14 if is_mob else 18, vertical=14),
             border_radius=16,
-            bgcolor=banner_bg,
-            border=ft.Border.all(1.5, banner_border.color),
+            bgcolor=ft.Colors.with_opacity(0.08, hero_color),
+            border=ft.Border.all(1, ft.Colors.with_opacity(0.24, hero_color)),
             content=ft.Column(
                 [
                     ft.Row(
                         [
                             ft.Container(
-                                width=56,
-                                height=56,
-                                border_radius=28,
-                                bgcolor=ft.Colors.PRIMARY if passed else ft.Colors.AMBER_600,
+                                width=46,
+                                height=46,
+                                border_radius=23,
+                                bgcolor=hero_color,
                                 alignment=ft.Alignment.CENTER,
-                                content=ft.Icon(
-                                    ft.Icons.EMOJI_EVENTS_ROUNDED if passed else ft.Icons.REPLAY_ROUNDED,
-                                    color=ft.Colors.WHITE,
-                                    size=30,
-                                ),
+                                content=ft.Text(f"{pct}%", size=14, weight=ft.FontWeight.W_800, color=ft.Colors.WHITE),
                             ),
                             ft.Column(
                                 [
                                     ft.Text(
-                                        f"Drill Completed! Score: {score} / {max_score} ({pct}%)",
-                                        size=18,
+                                        "Topic Mastered!" if passed else "Practice Complete!",
+                                        size=15,
                                         weight=ft.FontWeight.BOLD,
                                     ),
                                     ft.Text(
-                                        "Excellent work! You've mastered this topic."
-                                        if passed
-                                        else "Great practice effort! Review the step-by-step solutions below and retake anytime.",
-                                        size=12.5,
+                                        f"Score: {score} / {max_score} points"
+                                        + (" · Pass mark: 70%" if not passed else " · Great work!"),
+                                        size=12,
                                         color=ft.Colors.ON_SURFACE_VARIANT,
                                     ),
                                 ],
@@ -631,35 +711,66 @@ async def space_drill_runner_view(
                                 expand=True,
                             ),
                         ],
-                        spacing=14,
+                        spacing=12,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     ),
-                    ft.Divider(height=1, color=ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)),
                     ft.Row(
                         [
-                            ft.OutlinedButton(
-                                "Back to Space",
-                                icon=ft.Icons.ARROW_BACK_ROUNDED,
-                                on_click=lambda _: page.go(back_route),
+                            ft.Container(
+                                padding=ft.Padding.symmetric(horizontal=10, vertical=4),
+                                border_radius=8,
+                                bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY),
+                                content=ft.Text(f"✓ {correct_count} Correct", size=11.5, weight=ft.FontWeight.BOLD, color=ft.Colors.PRIMARY),
                             ),
-                            ft.ElevatedButton(
-                                "Retake Drill",
-                                icon=ft.Icons.REPLAY_ROUNDED,
-                                style=ft.ButtonStyle(bgcolor=ft.Colors.PRIMARY, color=ft.Colors.ON_PRIMARY),
-                                on_click=lambda _: page.run_task(_reload_and_restart),
+                            ft.Container(
+                                padding=ft.Padding.symmetric(horizontal=10, vertical=4),
+                                border_radius=8,
+                                bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.RED_600),
+                                content=ft.Text(f"✕ {incorrect_count} Mistakes", size=11.5, weight=ft.FontWeight.BOLD, color=ft.Colors.RED_600),
                             ),
                         ],
-                        alignment=ft.MainAxisAlignment.END,
-                        spacing=10,
+                        spacing=8,
                     ),
                 ],
-                spacing=14,
+                spacing=10,
             ),
+        )
+
+        def _set_filter(f_val):
+            state["results_filter"] = f_val
+            _render_main()
+            page.update()
+
+        filter_row = ft.Row(
+            [
+                ft.FilterChip(
+                    label=ft.Text(f"All ({len(breakdown)})", size=11.5),
+                    selected=active_filter == "all",
+                    on_select=lambda _: _set_filter("all"),
+                ),
+                ft.FilterChip(
+                    label=ft.Text(f"Mistakes ({incorrect_count})", size=11.5),
+                    selected=active_filter == "incorrect",
+                    on_select=lambda _: _set_filter("incorrect"),
+                ),
+                ft.FilterChip(
+                    label=ft.Text(f"Correct ({correct_count})", size=11.5),
+                    selected=active_filter == "correct",
+                    on_select=lambda _: _set_filter("correct"),
+                ),
+            ],
+            spacing=8,
+            scroll=ft.ScrollMode.AUTO,
         )
 
         review_cards = []
         for idx, b in enumerate(breakdown):
             is_c = bool(b.get("is_correct"))
+            if active_filter == "incorrect" and is_c:
+                continue
+            if active_filter == "correct" and not is_c:
+                continue
+
             q_title = b.get("question_text", f"Question {idx + 1}")
             opts = b.get("options") or []
             chosen_i = b.get("chosen_index")
@@ -685,7 +796,7 @@ async def space_drill_runner_view(
                             size=18,
                             color=ft.Colors.PRIMARY if is_c else ft.Colors.RED_400,
                         ),
-                        ft.Text(f"Q{idx + 1}: {q_title}", weight=ft.FontWeight.BOLD, size=13.5, expand=True),
+                        ft.Text(f"Q{idx + 1}: {q_title}", weight=ft.FontWeight.BOLD, size=13, expand=True),
                     ],
                     spacing=8,
                 ),
@@ -695,18 +806,18 @@ async def space_drill_runner_view(
                         [
                             ft.Text(
                                 f"Your Answer: {chosen_str}",
-                                size=12.5,
+                                size=12,
                                 weight=ft.FontWeight.W_600,
                                 color=ft.Colors.PRIMARY if is_c else ft.Colors.RED_400,
                             ),
-                            *([ft.Text(f"Correct Answer: {corr_str}", size=12.5, weight=ft.FontWeight.W_600, color=ft.Colors.PRIMARY)] if not is_c else []),
+                            *([ft.Text(f"Correct Answer: {corr_str}", size=12, weight=ft.FontWeight.W_600, color=ft.Colors.PRIMARY)] if not is_c else []),
                             *(
                                 [
                                     ft.Container(
                                         padding=10,
                                         border_radius=8,
                                         bgcolor=ft.Colors.with_opacity(0.05, ft.Colors.ON_SURFACE),
-                                        content=ft.Text(f"💡 Explanation: {expl}", size=12, color=ft.Colors.ON_SURFACE_VARIANT),
+                                        content=ft.Text(f"💡 Explanation: {expl}", size=11.5, color=ft.Colors.ON_SURFACE_VARIANT),
                                     )
                                 ]
                                 if expl
@@ -720,22 +831,90 @@ async def space_drill_runner_view(
 
             review_cards.append(
                 ft.Container(
-                    padding=14,
+                    padding=12,
                     border_radius=12,
                     bgcolor=ft.Colors.SURFACE,
-                    border=ft.Border.only(left=ft.BorderSide(4, ft.Colors.PRIMARY if is_c else ft.Colors.RED_400)),
+                    border=ft.Border.only(left=ft.BorderSide(3.5, ft.Colors.PRIMARY if is_c else ft.Colors.RED_400)),
                     content=ft.Column(card_lines, spacing=6),
                 )
             )
 
+        if not review_cards:
+            review_cards.append(
+                ft.Container(
+                    padding=20,
+                    alignment=ft.Alignment.CENTER,
+                    content=ft.Text(
+                        "No questions match this filter." if active_filter != "incorrect" else "🎉 Perfect score! Zero mistakes.",
+                        size=13,
+                        color=ft.Colors.ON_SURFACE_VARIANT,
+                    ),
+                )
+            )
+
+        scroll_content = ft.Container(
+            padding=ft.Padding.symmetric(horizontal=14 if is_mob else 18, vertical=10),
+            expand=True,
+            content=ft.Column(
+                [
+                    hero_card,
+                    filter_row,
+                    ft.Text("Question Breakdown & Solutions", weight=ft.FontWeight.BOLD, size=14),
+                    ft.Column(review_cards, spacing=8),
+                ],
+                scroll=ft.ScrollMode.AUTO,
+                spacing=12,
+                expand=True,
+            ),
+        )
+
+        bottom_actions = ft.Container(
+            padding=ft.Padding.symmetric(horizontal=14 if is_mob else 18, vertical=10),
+            bgcolor=ft.Colors.SURFACE,
+            border=ft.Border.only(top=ft.BorderSide(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE))),
+            content=ft.Row(
+                [
+                    ft.Container(
+                        content=ft.OutlinedButton(
+                            "Back to Space",
+                            icon=ft.Icons.ARROW_BACK_ROUNDED,
+                            height=40,
+                            on_click=lambda _: page.go(back_route),
+                            style=ft.ButtonStyle(
+                                shape=ft.RoundedRectangleBorder(radius=10),
+                                padding=ft.Padding.symmetric(horizontal=8, vertical=0),
+                            ),
+                        ),
+                        expand=1,
+                    ),
+                    ft.Container(
+                        content=ft.ElevatedButton(
+                            "Retake Drill",
+                            icon=ft.Icons.REPLAY_ROUNDED,
+                            height=40,
+                            style=ft.ButtonStyle(
+                                bgcolor=ft.Colors.PRIMARY,
+                                color=ft.Colors.ON_PRIMARY,
+                                shape=ft.RoundedRectangleBorder(radius=10),
+                                padding=ft.Padding.symmetric(horizontal=8, vertical=0),
+                            ),
+                            on_click=lambda _: page.run_task(_reload_and_restart),
+                        ),
+                        expand=1,
+                    ),
+                ],
+                spacing=10,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+        )
+
         return ft.Column(
             [
-                hero_card,
-                ft.Text("Detailed Question Review & Explanations", weight=ft.FontWeight.BOLD, size=15),
-                ft.Column(review_cards, spacing=10),
+                top_bar,
+                scroll_content,
+                bottom_actions,
             ],
-            scroll=ft.ScrollMode.AUTO,
-            spacing=14,
+            spacing=0,
             expand=True,
         )
 
@@ -784,6 +963,6 @@ async def space_drill_runner_view(
         route=f"/spaces/{clean_space_id}/drills/{clean_quiz_id}",
         bgcolor=ft.Colors.SURFACE,
         padding=0,
-        controls=[root_stack],
+        controls=[ft.SafeArea(content=root_stack, expand=True)],
     )
 

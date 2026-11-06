@@ -853,13 +853,14 @@ async def courses_view(page: ft.Page):
 
     async def populate_tabs():
         token = await page.shared_preferences.get("auth_token")
+        has_token = bool(token and str(token).strip() and str(token).strip() not in ("None", "null", "undefined"))
         try:
             results = await asyncio.gather(
                 get_courses(token, {"is_public": True}),
-                get_enrollments(token, None),
-                get_courses(token, {"progress": 100}),
-                get_all_playlists(token),
-                get_courses(token, {"is_public": "organisation"}),
+                get_enrollments(token, None) if has_token else asyncio.sleep(0, result=[]),
+                get_courses(token, {"progress": 100}) if has_token else asyncio.sleep(0, result=[]),
+                get_all_playlists(token) if has_token else asyncio.sleep(0, result=[]),
+                get_courses(token, {"is_public": "organisation"}) if has_token else asyncio.sleep(0, result=[]),
                 return_exceptions=True,
             )
             course_list = results[0] if isinstance(results[0], list) else []

@@ -997,27 +997,39 @@ async def dashboard_view(page: ft.Page):
         tip_container.opacity = 1
         page.update()
 
-        # Typing animation
+        # Typing animation: targeted update to greeting_name control
         async def type_greeting(target_text: str):
             current_text = ""
             for char in target_text:
                 current_text += char
                 greeting_name.value = current_text + "|"
-                page.update()
+                try:
+                    greeting_name.update()
+                except Exception:
+                    page.update()
                 await asyncio.sleep(0.04)
             
             # Blink the cursor a few times
             for _ in range(3):
                 greeting_name.value = current_text + " "
-                page.update()
+                try:
+                    greeting_name.update()
+                except Exception:
+                    page.update()
                 await asyncio.sleep(0.4)
                 greeting_name.value = current_text + "|"
-                page.update()
+                try:
+                    greeting_name.update()
+                except Exception:
+                    page.update()
                 await asyncio.sleep(0.4)
                 
             # Remove cursor
             greeting_name.value = current_text
-            page.update()
+            try:
+                greeting_name.update()
+            except Exception:
+                page.update()
 
         page.run_task(type_greeting, target_greeting)
         
@@ -1025,37 +1037,52 @@ async def dashboard_view(page: ft.Page):
 
         token = await page.shared_preferences.get("auth_token")
 
-        # ── enrollments (non-fatal on failure) ────────────────────────────────
-        try:
-            enrolled_list = await asyncio.wait_for(
-                get_enrollments(token, None), timeout=3.5
-            )
-            if not isinstance(enrolled_list, list):
-                enrolled_list = []
-        except (asyncio.TimeoutError, Exception):
+        # ── Concurrently fetch Enrollments, Cohorts, and Partnerships ────────
+        from src.requests.study_partners import get_active_partnership
+        from src.components.partner_challenge_modal import show_duel_results_dialog, is_challenge_completed
+
+        async def _fetch_enrollments_safe():
+            try:
+                res = await asyncio.wait_for(get_enrollments(token, None), timeout=4.0)
+                return res if isinstance(res, list) else []
+            except Exception:
+                return []
+
+        async def _fetch_cohorts_safe():
+            try:
+                res = await asyncio.wait_for(get_learner_cohorts(token), timeout=4.0)
+                return res if isinstance(res, dict) else {"cohorts": []}
+            except Exception:
+                return {"cohorts": []}
+
+        async def _fetch_partners_safe():
+            if not token:
+                return None
+            try:
+                return await asyncio.wait_for(get_active_partnership(token), timeout=4.0)
+            except Exception:
+                return None
+
+        enrolled_list, learner_cohorts_res, p_res = await asyncio.gather(
+            _fetch_enrollments_safe(),
+            _fetch_cohorts_safe(),
+            _fetch_partners_safe(),
+            return_exceptions=True,
+        )
+        if isinstance(enrolled_list, Exception) or not isinstance(enrolled_list, list):
             enrolled_list = []
-            
+        if isinstance(learner_cohorts_res, Exception) or not isinstance(learner_cohorts_res, dict):
+            learner_cohorts_res = {"cohorts": []}
+        if isinstance(p_res, Exception):
+            p_res = None
+
         active_count = len(enrolled_list)
         finished_count = sum(1 for c in enrolled_list if c.get("progress", 0.0) >= 100)
-
-
-        # ── Fetch Learner Cohorts ────────────────────────────────────────────
-        learner_cohorts_res = {"cohorts": []}
-        try:
-            learner_cohorts_res = await asyncio.wait_for(get_learner_cohorts(token), timeout=4.0)
-            if not isinstance(learner_cohorts_res, dict):
-                learner_cohorts_res = {"cohorts": []}
-        except Exception:
-            pass
-
         my_cohorts = learner_cohorts_res.get("cohorts", [])
 
         # ── Fetch Active Study Duo Partnership for Incoming Duel Banner ──────
         try:
             if token:
-                from src.requests.study_partners import get_active_partnership
-                from src.components.partner_challenge_modal import show_duel_results_dialog, is_challenge_completed
-                p_res = await asyncio.wait_for(get_active_partnership(token), timeout=3.5)
                 if p_res and p_res.get("has_partnership"):
                     all_partnerships = p_res.get("partnerships") or ([p_res.get("partnership")] if p_res.get("partnership") else [])
                     active_duel = None
@@ -1447,10 +1474,15 @@ async def dashboard_view(page: ft.Page):
                 stat_enrolled.value = "0"
                 stat_finished.value = "0"
                 stat_streak.value = "0"
-                page.update()
+                try:
+                    stat_enrolled.update()
+                    stat_finished.update()
+                    stat_streak.update()
+                except Exception:
+                    page.update()
                 return
 
-            # Animate in ~20 steps or max_val steps, whichever is smaller, over ~600ms
+            # Animate in ~15 steps or max_val steps, whichever is smaller, over ~300ms
             steps = min(max_val, 15)
             delay = 0.3 / steps
 
@@ -1462,14 +1494,24 @@ async def dashboard_view(page: ft.Page):
                 stat_enrolled.value = str(cur_act)
                 stat_finished.value = str(cur_fin)
                 stat_streak.value = str(cur_str)
-                page.update()
+                try:
+                    stat_enrolled.update()
+                    stat_finished.update()
+                    stat_streak.update()
+                except Exception:
+                    page.update()
                 await asyncio.sleep(delay)
                 
             # Final snap to exact values
             stat_enrolled.value = str(target_act)
             stat_finished.value = str(target_fin)
             stat_streak.value = str(target_str)
-            page.update()
+            try:
+                stat_enrolled.update()
+                stat_finished.update()
+                stat_streak.update()
+            except Exception:
+                page.update()
 
         page.run_task(animate_stats, active_count, finished_count, streak)
 
@@ -1878,7 +1920,10 @@ async def dashboard_view(page: ft.Page):
                 await asyncio.sleep(i * 0.1)
                 s.opacity = 1
                 s.offset = ft.Offset(0, 0)
-                page.update()
+                try:
+                    s.update()
+                except Exception:
+                    page.update()
             
             page.run_task(animate_section, section, idx)
 

@@ -104,12 +104,12 @@ class NavPillItem:
 
         self.icon_ctrl = ft.Icon(
             icon_name,
-            size=20 if is_desktop else 19,
+            size=21 if is_desktop else 20,
             rotate=ft.Rotate(angle=-0.5) if is_rotated else None,
         )
         self.label_ctrl = ft.Text(
             label,
-            size=12 if is_desktop else 11,
+            size=12 if is_desktop else 11.5,
             weight=ft.FontWeight.BOLD,
             no_wrap=True,
             visible=False,
@@ -136,12 +136,12 @@ class NavPillItem:
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
         )
 
-        h_pad = 10 if is_desktop else 7
-        v_pad = 7 if is_desktop else 6
+        h_pad = 10 if is_desktop else 8
+        v_pad = 8 if is_desktop else 7
 
         self.container = ft.Container(
             content=self.row,
-            border_radius=20,
+            border_radius=22,
             padding=ft.Padding.symmetric(horizontal=h_pad, vertical=v_pad),
             alignment=ft.Alignment.CENTER,
             animate=ft.Animation(260, ft.AnimationCurve.EASE_OUT_CUBIC),
@@ -163,8 +163,8 @@ class NavPillItem:
     def set_active(self, active: bool, theme: dict, is_desktop: bool = False):
         self.is_active = active
         self.label_ctrl.visible = active
-        self.icon_ctrl.size = 20 if is_desktop else 19
-        self.label_ctrl.size = 12 if is_desktop else 11
+        self.icon_ctrl.size = 21 if is_desktop else 20
+        self.label_ctrl.size = 12 if is_desktop else 11.5
         self.row.spacing = 5 if is_desktop else 4
 
         self.icon_ctrl.color = theme["active_color"] if active else theme["inactive_color"]
@@ -173,11 +173,11 @@ class NavPillItem:
         self.container.border = theme["active_pill_border"] if active else None
 
         if active:
-            h_pad = 14 if is_desktop else 10
-            v_pad = 7 if is_desktop else 6
+            h_pad = 14 if is_desktop else 11
+            v_pad = 8 if is_desktop else 7
         else:
-            h_pad = 10 if is_desktop else 7
-            v_pad = 7 if is_desktop else 6
+            h_pad = 10 if is_desktop else 8
+            v_pad = 8 if is_desktop else 7
 
         self.container.padding = ft.Padding.symmetric(horizontal=h_pad, vertical=v_pad)
 
@@ -205,13 +205,13 @@ class PersistentBottomAppBar:
 
         self._capsule = ft.Container(
             content=self._nav_row,
-            height=58 if is_desktop else 52,
+            height=60 if is_desktop else 58,
             width=(570 if len(self.items) >= 6 else 500) if is_desktop else None,
             bgcolor=theme["capsule_bg"],
             border=theme["capsule_border"],
-            border_radius=29 if is_desktop else 26,
+            border_radius=30 if is_desktop else 29,
             shadow=theme["capsule_shadow"],
-            padding=ft.Padding.symmetric(horizontal=18, vertical=4) if is_desktop else ft.Padding.symmetric(horizontal=10, vertical=2),
+            padding=ft.Padding.symmetric(horizontal=18, vertical=4) if is_desktop else ft.Padding.symmetric(horizontal=10, vertical=3),
             alignment=ft.Alignment.CENTER,
             clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
         )
@@ -219,8 +219,8 @@ class PersistentBottomAppBar:
         self.bar = ft.BottomAppBar(
             bgcolor=ft.Colors.TRANSPARENT,
             elevation=0,
-            height=76 if is_desktop else 68,
-            padding=ft.Padding.only(left=14, right=14, bottom=12) if is_desktop else ft.Padding.only(left=8, right=8, bottom=8),
+            height=78 if is_desktop else 74,
+            padding=ft.Padding.only(left=14, right=14, bottom=12) if is_desktop else ft.Padding.only(left=8, right=8, bottom=10),
             content=ft.Container(
                 alignment=ft.Alignment.CENTER,
                 content=self._capsule,
@@ -268,6 +268,28 @@ class PersistentBottomAppBar:
         if item_route == "/profile":
             return clean in ("/profile", "/edit-profile")
         return clean == item_route
+
+    def get_adjacent_route(self, current_route: str, direction: str):
+        """
+        Calculates the next or previous primary route from the bottom app bar tabs.
+        direction: 'next' (swipe left) moves to the tab to the right.
+                   'prev' (swipe right) moves to the tab to the left.
+        """
+        clean = (current_route or "").split("?")[0]
+        routes = [item.route for item in self.items]
+        current_idx = -1
+        for i, r in enumerate(routes):
+            if self._is_match(r, clean):
+                current_idx = i
+                break
+        if current_idx == -1:
+            return None
+
+        if direction == "next" and current_idx < len(routes) - 1:
+            return routes[current_idx + 1]
+        elif direction == "prev" and current_idx > 0:
+            return routes[current_idx - 1]
+        return None
 
     def _update_unread_badge(self):
         try:
@@ -366,12 +388,12 @@ class PersistentBottomAppBar:
         num_items = len(self.items)
 
         self._capsule.width = (560 if num_items >= 6 else 490) if is_desktop else None
-        self._capsule.height = 58 if is_desktop else 52
-        self._capsule.border_radius = 29 if is_desktop else 26
-        self._capsule.padding = ft.Padding.symmetric(horizontal=18, vertical=4) if is_desktop else ft.Padding.symmetric(horizontal=10, vertical=2)
+        self._capsule.height = 60 if is_desktop else 58
+        self._capsule.border_radius = 30 if is_desktop else 29
+        self._capsule.padding = ft.Padding.symmetric(horizontal=18, vertical=4) if is_desktop else ft.Padding.symmetric(horizontal=10, vertical=3)
 
-        self.bar.height = 76 if is_desktop else 68
-        self.bar.padding = ft.Padding.only(left=16, right=16, bottom=12) if is_desktop else ft.Padding.only(left=8, right=8, bottom=8)
+        self.bar.height = 78 if is_desktop else 74
+        self.bar.padding = ft.Padding.only(left=16, right=16, bottom=12) if is_desktop else ft.Padding.only(left=8, right=8, bottom=10)
 
         theme = _get_nav_theme(self.page)
         for item in self.items:
@@ -409,15 +431,15 @@ class PersistentBottomAppBar:
 
         # Dynamic desktop width: 560px for 6 items (org account), 490px for 5 items
         self._capsule.width = (560 if num_items >= 6 else 490) if is_desktop else None
-        self._capsule.height = 58 if is_desktop else 52
-        self._capsule.border_radius = 29 if is_desktop else 26
-        self._capsule.padding = ft.Padding.symmetric(horizontal=18, vertical=4) if is_desktop else ft.Padding.symmetric(horizontal=10, vertical=2)
+        self._capsule.height = 60 if is_desktop else 58
+        self._capsule.border_radius = 30 if is_desktop else 29
+        self._capsule.padding = ft.Padding.symmetric(horizontal=18, vertical=4) if is_desktop else ft.Padding.symmetric(horizontal=10, vertical=3)
         self._capsule.bgcolor = theme["capsule_bg"]
         self._capsule.border = theme["capsule_border"]
         self._capsule.shadow = theme["capsule_shadow"]
 
-        self.bar.height = 76 if is_desktop else 68
-        self.bar.padding = ft.Padding.only(left=16, right=16, bottom=12) if is_desktop else ft.Padding.only(left=8, right=8, bottom=8)
+        self.bar.height = 78 if is_desktop else 74
+        self.bar.padding = ft.Padding.only(left=16, right=16, bottom=12) if is_desktop else ft.Padding.only(left=8, right=8, bottom=10)
 
         for item in self.items:
             active = self._is_match(item.route, new_route)

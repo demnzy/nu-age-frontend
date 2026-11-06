@@ -1,4 +1,5 @@
 import asyncio
+import time
 import flet as ft
 # Automatically mitigate CORS/COEP header restrictions for Bunny CDN videos on Web
 try:
@@ -223,12 +224,68 @@ async def main(page: ft.Page):
         align=ft.Alignment.TOP_CENTER,
     )
 
+    _last_swipe_time = [0.0]
+    _shell_drag_state = {"total_dx": 0.0}
+
+    def on_shell_drag_start(e: ft.DragStartEvent):
+        _shell_drag_state["total_dx"] = 0.0
+
+    def on_shell_drag_update(e: ft.DragUpdateEvent):
+        delta = getattr(e, "primary_delta", 0) or 0
+        _shell_drag_state["total_dx"] += delta
+
+    def on_shell_drag_end(e: ft.DragEndEvent):
+        now = time.time()
+        if now - _last_swipe_time[0] < 0.35:
+            return
+
+        velocity = getattr(e, "primary_velocity", 0) or 0
+        total_dx = _shell_drag_state["total_dx"]
+
+        # Swipe left (content dragged left -> next tab)
+        is_swipe_left = (total_dx < -45 or velocity < -200)
+        # Swipe right (content dragged right -> prev tab)
+        is_swipe_right = (total_dx > 45 or velocity > 200)
+
+        if not is_swipe_left and not is_swipe_right:
+            return
+
+        clean_route = (page.route or "").split("?")[0]
+
+        # In Nu-Chat on mobile, swipe right exits active conversation back to channel list
+        if clean_route in ("/nu-chat", "/chat"):
+            active_chat_fn = getattr(page, "_active_chat_id", None)
+            is_in_chat = active_chat_fn() if callable(active_chat_fn) else False
+            if is_in_chat:
+                if is_swipe_right:
+                    close_handler = getattr(page, "_close_active_chat_handler", None)
+                    if callable(close_handler):
+                        _last_swipe_time[0] = now
+                        close_handler()
+                return
+
+        # Navigate tabs
+        direction = "next" if is_swipe_left else "prev"
+        target_route = persistent_nav_bar.get_adjacent_route(clean_route, direction)
+        if target_route and target_route != clean_route:
+            _last_swipe_time[0] = now
+            page.go(target_route)
+
+    shell_gesture_wrapper = ft.GestureDetector(
+        content=shell_content,
+        expand=True,
+        drag_interval=20,
+        on_horizontal_drag_start=on_shell_drag_start,
+        on_horizontal_drag_update=on_shell_drag_update,
+        on_horizontal_drag_end=on_shell_drag_end,
+    )
+
     shell_view = ft.View(
         route="/dashboard",
         bottom_appbar=persistent_nav_bar.bar,
         padding=0,
         bgcolor=ft.Colors.SURFACE,
-        controls=[shell_content],
+        controls=[shell_gesture_wrapper],
     )
 
     def is_shell_route(route: str) -> bool:
@@ -790,7 +847,10 @@ async def main(page: ft.Page):
                     # travel down the screen rather than blinking in unison.
                     on = (i + phase) % 3 == 0
                     box.opacity = 0.65 if on else 0.3
-                page.update()
+                try:
+                    view.update()
+                except Exception:
+                    page.update()
                 phase += 1
                 await asyncio.sleep(0.25)
         except asyncio.CancelledError:

@@ -83,7 +83,7 @@ def open_create_journal_modal(
         label_style=ft.TextStyle(size=12, color=ft.Colors.ON_SURFACE_VARIANT),
         hint_style=ft.TextStyle(size=12, color=ft.Colors.with_opacity(0.45, ft.Colors.ON_SURFACE)),
         content_padding=ft.Padding.symmetric(horizontal=14, vertical=12),
-        autofocus=True,
+        autofocus=False,
     )
 
     desc_tf = ft.TextField(
@@ -1145,8 +1145,13 @@ def open_create_journal_modal(
 
     _update_sources_ui()
 
+    cur_w = getattr(page, "width", None) or 400
+    cur_h = getattr(page, "height", None) or 800
+    is_mob = bool(cur_w < 580)
+
     content_box = ft.Container(
-        width=min(510, int(screen_w * 0.94)),
+        width=min(480, int(cur_w * 0.92)),
+        height=min(int(cur_h * 0.70), 550),
         content=ft.Column(
             spacing=12,
             tight=True,
@@ -1177,9 +1182,9 @@ def open_create_journal_modal(
         modal=True,
         shape=ft.RoundedRectangleBorder(radius=20),
         bgcolor=ft.Colors.SURFACE,
-        title_padding=ft.Padding.only(left=20, right=14, top=18, bottom=6),
-        content_padding=ft.Padding.symmetric(horizontal=20, vertical=8),
-        actions_padding=ft.Padding.only(left=20, right=20, top=6, bottom=16),
+        title_padding=ft.Padding.only(left=16, right=10, top=16, bottom=6),
+        content_padding=ft.Padding.symmetric(horizontal=14 if is_mob else 18, vertical=6),
+        actions_padding=ft.Padding.only(left=16, right=16, top=6, bottom=14),
         title=ft.Row(
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -1187,18 +1192,22 @@ def open_create_journal_modal(
                 ft.Row(
                     spacing=10,
                     tight=True,
+                    expand=True,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     controls=[
                         header_badge,
                         ft.Column(
                             spacing=1,
                             tight=True,
+                            expand=True,
                             controls=[
-                                ft.Text("New Course Journal", size=16, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
+                                ft.Text("New Course Journal", size=15 if is_mob else 16, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
                                 ft.Text(
-                                    "Bundle up to 5 modules into one AI study notebook",
-                                    size=11,
+                                    "Bundle up to 5 modules into one notebook",
+                                    size=10.5 if is_mob else 11,
                                     color=ft.Colors.ON_SURFACE_VARIANT,
+                                    max_lines=1,
+                                    overflow=ft.TextOverflow.ELLIPSIS,
                                 ),
                             ],
                         ),
