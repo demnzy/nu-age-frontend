@@ -47,25 +47,8 @@ jobs:
       - name: Install Build Tools
         run: |
           python -m pip install --upgrade pip
-          # IMPORTANT: All flet-* packages must be pinned to the SAME patch version,
-          # and NOT to 0.86.0 specifically.
-          #
-          # flet==0.86.0 / flet-charts==0.86.0 (released 2026-07-14) shipped a rewrite
-          # of MatplotlibChartCanvas onto a new DataChannel transport. The Dart-side
-          # infra it depends on (FrameStreamVisibility mixin, disposeReplaced(),
-          # disposeReplacedAll(), the `visible` getter) was only completed in a later
-          # patch (flet PR #6691) — 0.86.0 shipped referencing APIs that did not exist
-          # yet, which is exactly the Dart compile error in flet_charts'
-          # matplotlib_chart_canvas.dart ("Type 'FrameStreamVisibility' not found",
-          # "Error: The method 'disposeReplaced' isn't defined for the type ...").
-          #
-          # flet-charts patched this rapidly: 0.86.0 -> 0.86.1 -> 0.86.2 -> 0.86.3 ->
-          # 0.86.4 -> 0.86.5. Pin to 0.86.5 across all packages.
-          #
-          # Verify the current latest patch before building:
-          #   pip index versions flet
-          #   pip index versions flet-charts
-          pip install flet-cli==0.86.5 flet==0.86.5 flet-audio==0.86.5 flet-video==0.86.5 flet-charts==0.86.5 flet-webview==0.86.5 httpx==0.28.1 requests==2.33.1
+          # All flet-* packages must be pinned to the SAME patch version: 1.1.2
+          pip install flet-cli==1.1.2 flet==1.1.2 flet-audio==1.1.2 flet-video==1.1.2 flet-charts==1.1.2 flet-webview==1.1.2 flet-shadcn-ui==1.1.2 httpx==0.28.1 requests==2.33.1
 
       - name: Verify matching flet toolchain versions
         run: |
@@ -73,7 +56,7 @@ jobs:
           # into a Gradle build if the pins ever drift out of lockstep again.
           python -c "
           import importlib.metadata as m
-          pkgs = ['flet', 'flet-cli', 'flet-audio', 'flet-video', 'flet-charts', 'flet-webview']
+          pkgs = ['flet', 'flet-cli', 'flet-audio', 'flet-video', 'flet-charts', 'flet-webview', 'flet-shadcn-ui']
           versions = {p: m.version(p) for p in pkgs}
           print(versions)
           vals = set(versions.values())
