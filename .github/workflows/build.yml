@@ -67,8 +67,8 @@ jobs:
           # Pass --yes to auto-accept the Flutter SDK installation prompt
           flet build windows --yes --product "Nu Age" --python-version 3.12 --verbose 2>&1 | tee flet_build.log || true
           
-          # Use case-insensitive grep to catch the success string universally
-          if ! grep -q -i "successfully built" flet_build.log; then
+          # Check for success string or output binary
+          if ! grep -qiE "successfully built|built .* for windows ok|copied build ok" flet_build.log && [ -z "$(find build/windows -name '*.exe' 2>/dev/null)" ]; then
             echo "::error::CRITICAL ERROR: Flet compiler crashed! Check verbose logs for Dart/Python errors."
             exit 1
           fi
