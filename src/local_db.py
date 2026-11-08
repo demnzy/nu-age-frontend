@@ -1111,6 +1111,28 @@ def upsert_chat_messages(page: ft.Page, messages: list):
     except Exception as e:
         print(f"[CACHE ERROR] upsert_chat_messages failed: {e}")
 
+def mark_cached_message_deleted(page: ft.Page, message_id: str):
+    """Marks a cached chat message as deleted in local SQLite storage."""
+    if page is not None and getattr(page, "web", False):
+        return
+    if not message_id:
+        return
+    try:
+        db = get_local_db(page)
+        with db:
+            db.execute(
+                """
+                UPDATE chat_messages 
+                SET content = 'This message was deleted', 
+                    type = 'text', 
+                    metadata_payload = '{"is_deleted": true}' 
+                WHERE id = ?
+                """,
+                (str(message_id),)
+            )
+    except Exception as e:
+        print(f"[CACHE ERROR] mark_cached_message_deleted failed: {e}")
+
 
 def record_exam_attempt(
     material_id: str | None,

@@ -484,6 +484,39 @@ async def get_pinned_chat_message(token: str, channel_id: str):
         return None
 
 
+async def delete_channel_message_api(token: str, channel_id: str, message_id: str):
+    """Deletes a message or poll from a channel for everyone via REST fallback."""
+    url = f"{api_url}/chat/channels/{channel_id}/messages/{message_id}"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
+            resp = await client.delete(url, headers=headers)
+            if resp.status_code == 200:
+                return resp.json()
+            try:
+                err = resp.json().get("detail", f"Status {resp.status_code}")
+            except Exception:
+                err = resp.text or f"Status {resp.status_code}"
+            return {"error": err}
+    except Exception as ex:
+        return {"error": str(ex)}
+
+
+async def vote_poll_message_api(token: str, channel_id: str, message_id: str, option: str):
+    """Casts or toggles a vote on a poll via REST fallback if WebSocket connection drops."""
+    url = f"{api_url}/chat/channels/{channel_id}/messages/{message_id}/vote"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    payload = {"option": option}
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=ssl_context) as client:
+            resp = await client.post(url, json=payload, headers=headers)
+            if resp.status_code == 200:
+                return resp.json()
+            return None
+    except Exception:
+        return None
+
+
 async def search_channel_messages_api(token: str, channel_id: str, query: str, limit: int = 30):
     """Searches messages inside a channel by text content."""
     url = f"{api_url}/chat/channels/{channel_id}/search"

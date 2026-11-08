@@ -71,6 +71,44 @@ if sys.platform == "win32":
     except Exception:
         pass
 
+# ── Flet 1.1.2 Frozen Control Auto-Unfreeze Patch ─────────────────────────────
+# In Flet 1.1.2, diffed list elements (such as chat bubbles, dialogs, cards) are
+# internally flagged with `_frozen = True`. Mutating properties or calling .update()
+# on them raises `RuntimeError: Frozen controls cannot be updated.`
+# This monkey-patch automatically strips `_frozen` so dynamic gestures, in-place
+# transitions, and entrance animations run smoothly without raising exceptions.
+try:
+    import flet.controls.value_types as _flet_vt
+    from flet.controls.base_control import BaseControl as _FletBaseControl
+
+    _orig_prop_set = _flet_vt.Prop.__set__
+    def _resilient_prop_set(self, obj, value):
+        if hasattr(obj, "_frozen"):
+            try:
+                del obj._frozen
+            except Exception:
+                try:
+                    object.__delattr__(obj, "_frozen")
+                except Exception:
+                    pass
+        return _orig_prop_set(self, obj, value)
+    _flet_vt.Prop.__set__ = _resilient_prop_set
+
+    _orig_ctrl_update = _FletBaseControl.update
+    def _resilient_ctrl_update(self):
+        if hasattr(self, "_frozen"):
+            try:
+                del self._frozen
+            except Exception:
+                try:
+                    object.__delattr__(self, "_frozen")
+                except Exception:
+                    pass
+        return _orig_ctrl_update(self)
+    _FletBaseControl.update = _resilient_ctrl_update
+except Exception as _patch_err:
+    print(f"[NuFront] Warning: could not apply Flet 1.1.2 unfreeze patch: {_patch_err}")
+
 # ── Flet 1.1.2 Service & Routing Bridge ──────────────────────────────────────
 try:
     from flet.controls.context import _context_page

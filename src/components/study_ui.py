@@ -321,7 +321,7 @@ def primary_button(text: str, on_click, *, color=None, icon=None, height=46, exp
         ink=True,
         on_click=on_click,
         alignment=ft.Alignment.CENTER,
-        padding=ft.Padding.symmetric(horizontal=20),
+        padding=ft.Padding.symmetric(horizontal=12, vertical=4),
         scale=1.0,
         animate_scale=ft.Animation(DUR_FAST, CURVE_OUT),
         shadow=ft.BoxShadow(
@@ -329,16 +329,19 @@ def primary_button(text: str, on_click, *, color=None, icon=None, height=46, exp
         ),
         content=ft.Row(
             tight=True,
-            spacing=8,
+            spacing=6,
             alignment=ft.MainAxisAlignment.CENTER,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
             controls=(
-                ([ft.Icon(icon, size=17, color=ft.Colors.ON_PRIMARY)] if icon else [])
+                ([ft.Icon(icon, size=16, color=ft.Colors.ON_PRIMARY)] if icon else [])
                 + [
                     ft.Text(
                         text,
-                        size=14,
+                        size=13,
                         weight=ft.FontWeight.W_700,
                         color=ft.Colors.ON_PRIMARY,
+                        max_lines=1,
+                        overflow=ft.TextOverflow.ELLIPSIS,
                     )
                 ]
             ),
@@ -357,14 +360,24 @@ def ghost_button(text: str, on_click, *, color=None, icon=None, height=46, expan
         ink=True,
         on_click=on_click,
         alignment=ft.Alignment.CENTER,
-        padding=ft.Padding.symmetric(horizontal=20),
+        padding=ft.Padding.symmetric(horizontal=12, vertical=4),
         content=ft.Row(
             tight=True,
-            spacing=8,
+            spacing=6,
             alignment=ft.MainAxisAlignment.CENTER,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
             controls=(
-                ([ft.Icon(icon, size=17, color=color)] if icon else [])
-                + [ft.Text(text, size=14, weight=ft.FontWeight.W_700, color=color)]
+                ([ft.Icon(icon, size=16, color=color)] if icon else [])
+                + [
+                    ft.Text(
+                        text,
+                        size=13,
+                        weight=ft.FontWeight.W_700,
+                        color=color,
+                        max_lines=1,
+                        overflow=ft.TextOverflow.ELLIPSIS,
+                    )
+                ]
             ),
         ),
     )
@@ -931,20 +944,51 @@ def build_results_view(
         if page and hasattr(page, "run_task"):
             page.run_task(safe_share_text, page, share_msg, f"{title} Score", f"My {title} Result")
 
-    actions = ft.Row(
-        spacing=10,
-        controls=[
-            ghost_button("Back to Hub", lambda _: on_exit(), icon=ft.Icons.HOME_ROUNDED, expand=True),
-            ghost_button("Share", _share_results, icon=ft.Icons.SHARE_ROUNDED),
-            primary_button(
-                "Try again",
-                lambda _: on_retry(),
-                color=accent,
-                icon=ft.Icons.REPLAY_ROUNDED,
-                expand=True,
-            ),
-        ],
-    )
+    if compact:
+        actions = ft.Column(
+            spacing=8,
+            horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+            controls=[
+                primary_button(
+                    "Try again",
+                    lambda _: on_retry(),
+                    color=accent,
+                    icon=ft.Icons.REPLAY_ROUNDED,
+                ),
+                ft.Row(
+                    spacing=8,
+                    controls=[
+                        ghost_button(
+                            "Back to Hub",
+                            lambda _: on_exit(),
+                            icon=ft.Icons.HOME_ROUNDED,
+                            expand=True,
+                        ),
+                        ghost_button(
+                            "Share",
+                            _share_results,
+                            icon=ft.Icons.SHARE_ROUNDED,
+                            expand=True,
+                        ),
+                    ],
+                ),
+            ],
+        )
+    else:
+        actions = ft.Row(
+            spacing=10,
+            controls=[
+                ghost_button("Back to Hub", lambda _: on_exit(), icon=ft.Icons.HOME_ROUNDED, expand=True),
+                ghost_button("Share", _share_results, icon=ft.Icons.SHARE_ROUNDED),
+                primary_button(
+                    "Try again",
+                    lambda _: on_retry(),
+                    color=accent,
+                    icon=ft.Icons.REPLAY_ROUNDED,
+                    expand=True,
+                ),
+            ],
+        )
 
     body = ft.Column(
         spacing=18,

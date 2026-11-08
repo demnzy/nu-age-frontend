@@ -616,8 +616,9 @@ async def profile_view(page: ft.Page):
         card_finished = bento_kpi_card(ft.Icons.EMOJI_EVENTS_ROUNDED, ft.Colors.GREEN_400, finished_count, "Completed", "Mastery")
         card_velocity = bento_kpi_card(ft.Icons.BOLT_ROUNDED, ft.Colors.PURPLE_400, f"{velocity_pct}%", "Completion", "Rate")
 
-        # Responsive Layout: 2x2 for mobile (< 650px), 4 across for desktop
-        is_mobile = (page.width or 800) < 650
+        # Responsive Layout: Mobile-first default (< 768px), 4 across for wide desktop
+        page_w = page.width if (hasattr(page, "width") and page.width) else 390
+        is_mobile = page_w < 768
         if is_mobile:
             stats_layout = ft.Column([
                 ft.Row([card_streak, card_enrolled], spacing=12),
@@ -639,14 +640,18 @@ async def profile_view(page: ft.Page):
             content=theme_card_icon,
         )
         theme_title = ft.Text(
-            "Theme Appearance",
+            "Theme & Appearance",
             size=13, weight=ft.FontWeight.BOLD,
             color=palette["text_primary"],
+            no_wrap=True,
+            overflow=ft.TextOverflow.ELLIPSIS,
         )
         theme_subtitle = ft.Text(
             palette["theme_sub"],
             size=11,
             color=palette["text_muted"],
+            no_wrap=True,
+            overflow=ft.TextOverflow.ELLIPSIS,
         )
 
         font_switcher_btn = build_typography_switcher_button(
@@ -661,13 +666,27 @@ async def profile_view(page: ft.Page):
             button_height=30,
         )
 
-        theme_card = ft.Container(
-            bgcolor=palette["card_bg"],
-            border_radius=18,
-            padding=ft.Padding.symmetric(horizontal=18, vertical=14),
-            border=ft.Border.all(1, palette["border_clr"]),
-            shadow=ft.BoxShadow(blur_radius=10, color=ft.Colors.with_opacity(0.04, ft.Colors.BLACK), offset=ft.Offset(0, 3)),
-            content=ft.Row([
+        # On mobile & tablets (< 860px), stack controls cleanly in 2 rows so buttons have ample tap targets
+        if page_w < 860:
+            font_switcher_btn.expand = True
+            font_switcher_btn.alignment = ft.Alignment.CENTER
+            theme_switcher_btn.expand = True
+            theme_switcher_btn.alignment = ft.Alignment.CENTER
+            theme_card_content = ft.Column([
+                ft.Row([
+                    theme_icon_box,
+                    ft.Column([
+                        theme_title,
+                        theme_subtitle,
+                    ], spacing=2, expand=True),
+                ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=10),
+                ft.Row([
+                    font_switcher_btn,
+                    theme_switcher_btn,
+                ], spacing=8),
+            ], spacing=12)
+        else:
+            theme_card_content = ft.Row([
                 theme_icon_box,
                 ft.Column([
                     theme_title,
@@ -676,6 +695,14 @@ async def profile_view(page: ft.Page):
                 font_switcher_btn,
                 theme_switcher_btn,
             ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=8)
+
+        theme_card = ft.Container(
+            bgcolor=palette["card_bg"],
+            border_radius=18,
+            padding=ft.Padding.symmetric(horizontal=18, vertical=14),
+            border=ft.Border.all(1, palette["border_clr"]),
+            shadow=ft.BoxShadow(blur_radius=10, color=ft.Colors.with_opacity(0.04, ft.Colors.BLACK), offset=ft.Offset(0, 3)),
+            content=theme_card_content,
         )
 
         # ── 4. Quick LMS Action Shortcuts ─────────────────────────────────────
