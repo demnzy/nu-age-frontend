@@ -685,6 +685,17 @@ async def notifications_view(page: ft.Page) -> ft.View:
     render_content()
     page.run_task(load_active_data)
 
+    async def _on_notifications_refresh(e=None):
+        try:
+            await asyncio.wait_for(load_active_data(), timeout=8.0)
+        except Exception as _ex:
+            print(f"[notifications_view] Pull to refresh error: {_ex}")
+        finally:
+            try:
+                page.update()
+            except Exception:
+                pass
+
     content_socket = ft.Container(
         expand=True,
         content=ft.Column([
@@ -692,7 +703,7 @@ async def notifications_view(page: ft.Page) -> ft.View:
             ft.Container(
                 padding=ft.Padding.symmetric(horizontal=16, vertical=12),
                 content=ft.Row([
-                    ft.IconButton(ft.Icons.ARROW_BACK_ROUNDED, on_click=lambda _: page.go("/dashboard")),
+                    ft.IconButton(ft.Icons.ARROW_BACK_ROUNDED, on_click=lambda _: page.navigate("/dashboard")),
                     ft.Row([
                         ft.Text("Notifications", size=18, weight=ft.FontWeight.BOLD),
                         header_badge_container,
@@ -716,7 +727,13 @@ async def notifications_view(page: ft.Page) -> ft.View:
             ft.Container(
                 padding=ft.Padding.symmetric(horizontal=16, vertical=8),
                 expand=True,
-                content=content_list,
+                content=ft.RefreshIndicator(
+                    expand=True,
+                    color=theme_color,
+                    bgcolor=ft.Colors.SURFACE,
+                    on_refresh=_on_notifications_refresh,
+                    content=content_list,
+                ),
             ),
         ], spacing=8, expand=True),
     )

@@ -379,7 +379,7 @@ def get_enrolled_card(
         bgcolor=palette["btn_bg"],
         border_radius=ft.BorderRadius.all(20),
         ink=True,
-        on_click=lambda e: page.go(f"/courses/{course_id}/view"),
+        on_click=lambda e: page.navigate(f"/courses/{course_id}/view"),
         content=ft.Text(
             action_label,
             size=11.5,

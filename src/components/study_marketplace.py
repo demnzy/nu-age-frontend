@@ -466,7 +466,7 @@ class StudyMarketplaceView:
             actions.append(
                 ft.Container(
                     ink=True,
-                    on_click=lambda _: self.page.go("/platform-admin"),
+                    on_click=lambda _: self.page.navigate("/platform-admin"),
                     padding=ft.Padding.symmetric(horizontal=12, vertical=6),
                     border_radius=ft.BorderRadius.all(10),
                     bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.AMBER),
@@ -875,12 +875,12 @@ class StudyMarketplaceView:
                     "Save coins and get all your required exam subjects in 1-click.\n"
                     "Includes complete past questions, CBT timers, step-by-step explanations, and diagrams.",
                     size=12 if narrow else 13,
-                    color=ft.Colors.WHITE70,
+                    color=ft.Colors.WHITE_70,
                 ),
             ],
         )
 
-        refresh_btn = ft.ElevatedButton(
+        refresh_btn = ft.Button(
             content=ft.Row(
                 [
                     ft.Icon(ft.Icons.REFRESH_ROUNDED, size=14, color="#3730A3"),
@@ -1157,7 +1157,7 @@ class StudyMarketplaceView:
                     ),
                     ft.IconButton(
                         icon=ft.Icons.CLOSE_ROUNDED,
-                        icon_color=ft.Colors.WHITE70,
+                        icon_color=ft.Colors.WHITE_70,
                         icon_size=20,
                         on_click=lambda _: self._close_dialog(confirm_dialog),
                     ),
@@ -1262,7 +1262,7 @@ class StudyMarketplaceView:
                 self.page.run_task(_confirm_bundle_download, action_btn)
             else:
                 self._close_dialog(confirm_dialog)
-                self.page.go("/store?tab=boosters")
+                self.page.navigate("/store?tab=boosters")
 
         action_btn = ft.FilledButton(
             content=ft.Row(
@@ -2310,7 +2310,7 @@ class StudyMarketplaceView:
         if has_enough_coins:
             action_click = lambda e: self.page.run_task(_confirm_download, e.control)
         else:
-            action_click = lambda _: (self._close_dialog(confirm_dialog), self.page.go("/store?tab=boosters"))
+            action_click = lambda _: (self._close_dialog(confirm_dialog), self.page.navigate("/store?tab=boosters"))
 
         action_btn = ft.FilledButton(
             content=ft.Row(
@@ -2640,7 +2640,7 @@ class StudyMarketplaceView:
     # ADMIN REVIEW QUEUE MODAL (Redirects to Unified Super Admin Console)
     # ─────────────────────────────────────────────────────────────────────────
     def _open_admin_queue_modal(self):
-        self.page.go("/platform-admin")
+        self.page.navigate("/platform-admin")
 
     # ─────────────────────────────────────────────────────────────────────────
     # HELPERS & EVENT HANDLERS

@@ -20,6 +20,7 @@ from src.requests.course_spaces import (
 )
 from src.utils.file_opener import show_page_snackbar, safe_set_clipboard
 from src.components.shimmer_skeletons import build_course_spaces_skeleton
+from src.utils.theme_bridge import build_shad_badge, LucideIcons
 
 
 def build_course_spaces_section(
@@ -123,7 +124,7 @@ def build_course_spaces_section(
             focused_border_color=ft.Colors.PRIMARY,
             text_size=13,
         )
-        join_btn = ft.ElevatedButton(
+        join_btn = ft.Button(
             "Unlock Space" if space_title else "Join Space",
             icon=ft.Icons.LOCK_OPEN_ROUNDED if space_title else ft.Icons.LOGIN_ROUNDED,
             style=ft.ButtonStyle(
@@ -154,7 +155,7 @@ def build_course_spaces_section(
                 _close_dialog(dlg)
                 sp_id = res.get("space_id")
                 if sp_id:
-                    page.go(f"/spaces/{sp_id}")
+                    page.navigate(f"/spaces/{sp_id}")
                 else:
                     await _refresh_spaces()
             else:
@@ -248,27 +249,10 @@ def build_course_spaces_section(
         is_enrolled = bool(sp.get("is_student", False) or sp.get("is_enrolled", False) or can_manage)
         courses_list = sp.get("courses") or []
 
-        access_pill = ft.Container(
-            padding=ft.Padding.symmetric(horizontal=8, vertical=3),
-            border_radius=8,
-            bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY if is_open else ft.Colors.SECONDARY),
-            content=ft.Row(
-                [
-                    ft.Icon(
-                        ft.Icons.PUBLIC_ROUNDED if is_open else ft.Icons.LOCK_OUTLINE_ROUNDED,
-                        size=11,
-                        color=ft.Colors.PRIMARY if is_open else ft.Colors.SECONDARY,
-                    ),
-                    ft.Text(
-                        "Open Hub" if is_open else "Invite Only",
-                        size=10,
-                        weight=ft.FontWeight.BOLD,
-                        color=ft.Colors.PRIMARY if is_open else ft.Colors.SECONDARY,
-                    ),
-                ],
-                spacing=4,
-                tight=True,
-            ),
+        access_pill = build_shad_badge(
+            text="Open Hub" if is_open else "Invite Only",
+            variant="primary" if is_open else "outline",
+            icon=LucideIcons.GLOBE if is_open else LucideIcons.LOCK,
         )
 
         # Linked courses preview pills
@@ -300,7 +284,7 @@ def build_course_spaces_section(
                 )
             )
 
-        action_btn = ft.ElevatedButton(
+        action_btn = ft.Button(
             "Enter Space" if is_enrolled else ("Join Space" if is_open else "Unlock with Code"),
             icon=ft.Icons.ARROW_FORWARD_ROUNDED if is_enrolled else (ft.Icons.ADD_ROUNDED if is_open else ft.Icons.VPN_KEY_ROUNDED),
             style=ft.ButtonStyle(
@@ -312,7 +296,7 @@ def build_course_spaces_section(
 
         async def _enter_or_join(ev):
             if is_enrolled:
-                page.go(f"/spaces/{sp_id}")
+                page.navigate(f"/spaces/{sp_id}")
                 return
             if not is_open:
                 _open_join_modal(target_space=sp)
@@ -326,7 +310,7 @@ def build_course_spaces_section(
             join_res = await join_course_space(token=tok, space_id=sp_id)
             if join_res.get("status") == "success":
                 show_page_snackbar(page, f"Enrolled in {name}!")
-                page.go(f"/spaces/{sp_id}")
+                page.navigate(f"/spaces/{sp_id}")
             else:
                 show_page_snackbar(page, join_res.get("message", "Enrollment failed."))
                 action_btn.disabled = False
@@ -489,7 +473,7 @@ def build_course_spaces_section(
 
         # Action buttons (Learners join via code; Course Spaces are created by Organisations)
         action_btns = [
-            ft.ElevatedButton(
+            ft.Button(
                 "Join with Code",
                 icon=ft.Icons.VPN_KEY_ROUNDED,
                 style=ft.ButtonStyle(
@@ -680,7 +664,7 @@ def build_course_spaces_section(
                             page.update(),
                         ),
                     ),
-                    ft.ElevatedButton(
+                    ft.Button(
                         "Join with Code",
                         icon=ft.Icons.VPN_KEY_ROUNDED,
                         style=ft.ButtonStyle(bgcolor=ft.Colors.PRIMARY, color=ft.Colors.ON_PRIMARY),
@@ -689,7 +673,7 @@ def build_course_spaces_section(
                 ]
                 if has_filters
                 else [
-                    ft.ElevatedButton(
+                    ft.Button(
                         "Join with Code",
                         icon=ft.Icons.VPN_KEY_ROUNDED,
                         style=ft.ButtonStyle(bgcolor=ft.Colors.PRIMARY, color=ft.Colors.ON_PRIMARY),

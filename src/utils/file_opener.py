@@ -9,6 +9,8 @@ import flet as ft
 from src.utils.modal_guard import (
     safe_open_dialog,
     safe_close_dialog,
+    safe_update_dialog,
+    run_after_modal_close,
     is_modal_open,
     debounced_click,
 )
@@ -279,15 +281,55 @@ async def safe_set_clipboard(page: ft.Page, text: str):
             return
 
         cb = ft.Clipboard()
-        if hasattr(page, "overlay") and page.overlay is not None and cb not in page.overlay:
-            page.overlay.append(cb)
-            if hasattr(page, "update"):
-                page.update()
+        try:
+            if getattr(cb, "_i", None) is None and hasattr(page, "_services") and page._services is not None:
+                page._services.register_service(cb)
+        except Exception:
+            pass
         res = cb.set(text)
         if asyncio.iscoroutine(res):
             await res
     except Exception as ex:
         print(f"[file_opener] Clipboard set notice: {ex}")
+
+
+async def safe_share_text(
+    page: ft.Page,
+    text: str,
+    title: Optional[str] = None,
+    subject: Optional[str] = None,
+    fallback_toast: str = "Copied to clipboard for sharing!",
+) -> bool:
+    """
+    Uses Flet 1.1.2's native `ft.Share` service (`share_text`) to invoke the native
+    Android/iOS/macOS/Windows share sheet (WhatsApp, Telegram, Messages, Email).
+    Falls back to copying `text` to clipboard if native sharing is unavailable.
+    """
+    if not page or not text:
+        return False
+    text = str(text)
+    try:
+        share_svc = ft.Share()
+        if getattr(share_svc, "_i", None) is None and hasattr(page, "_services") and page._services is not None:
+            page._services.register_service(share_svc)
+        res = share_svc.share_text(text, title=title, subject=subject)
+        if asyncio.iscoroutine(res):
+            result = await asyncio.wait_for(res, timeout=12.0)
+        else:
+            result = res
+        status = getattr(result, "status", None)
+        status_val = getattr(status, "value", str(status or "")).lower()
+        if status_val == "unavailable":
+            await safe_set_clipboard(page, text)
+            if fallback_toast:
+                show_page_snackbar(page, ft.SnackBar(content=ft.Text(fallback_toast), bgcolor=ft.Colors.GREEN_700))
+            return False
+        return True
+    except Exception:
+        await safe_set_clipboard(page, text)
+        if fallback_toast:
+            show_page_snackbar(page, ft.SnackBar(content=ft.Text(fallback_toast), bgcolor=ft.Colors.GREEN_700))
+        return False
 
 
 async def open_or_download_asset(page: ft.Page, target_url_or_path: str, file_name: str = "Course Document"):

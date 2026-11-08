@@ -38,7 +38,16 @@ from src.requests.study_partners import (
     share_study_pack_api,
     log_partnership_study_activity_api,
 )
-from src.utils.file_opener import safe_set_clipboard, show_page_snackbar
+from src.components import study_ui as ui
+from src.utils.file_opener import (
+    safe_set_clipboard,
+    safe_share_text,
+    show_page_snackbar,
+    safe_open_dialog,
+    safe_close_dialog,
+    safe_update_dialog,
+    run_after_modal_close,
+)
 from src.utils.typing_animator import stream_typing_animation
 from src.components.adaptive_video_player import AdaptiveVideoPlayer
 from src.utils.youtube import (
@@ -107,7 +116,11 @@ def _loading(label="Loading…") -> ft.Container:
     from src.components.shimmer_skeletons import build_self_study_skeleton
     c = ft.Container(
         expand=True,
-        content=build_self_study_skeleton(None),
+        content=ft.Shimmer(
+            content=build_self_study_skeleton(None),
+            base_color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
+            highlight_color=ft.Colors.with_opacity(0.22, ft.Colors.ON_SURFACE),
+        ),
     )
     c._is_loading = True
     c._lbl_text = ft.Text(label, size=13.5, weight=ft.FontWeight.W_600)
@@ -130,7 +143,7 @@ def _error_screen(message: str, on_retry) -> ft.Container:
                 ft.Text(message, size=12, color=ft.Colors.GREY_400,
                         text_align=ft.TextAlign.CENTER),
                 ft.Container(height=4),
-                ft.ElevatedButton(
+                ft.Button(
                     "Retry", bgcolor=ft.Colors.PRIMARY, color=ft.Colors.ON_PRIMARY, height=40,
                     style=ft.ButtonStyle(
                         shape=ft.RoundedRectangleBorder(radius=10), elevation=0
@@ -337,9 +350,9 @@ async def self_study_view(page: ft.Page):
 
     def _handle_back_click(e=None):
         if state.get("is_offline"):
-            page.go("/offline")
+            page.navigate("/offline")
         else:
-            page.go("/dashboard")
+            page.navigate("/dashboard")
 
     async def _handle_sync_all_vault(e=None):
         nonlocal token
@@ -409,7 +422,7 @@ async def self_study_view(page: ft.Page):
         icon_size=19,
         icon_color=ft.Colors.ON_SURFACE,
         tooltip="Offline Library",
-        on_click=lambda _: page.go("/offline"),
+        on_click=lambda _: page.navigate("/offline"),
     )
 
     sync_vault_btn = ft.IconButton(
@@ -586,7 +599,7 @@ async def self_study_view(page: ft.Page):
                     ],
                 ),
                 ft.Text("45 materials · 100 AI generations · 40 mock exams / month", size=10, color=ft.Colors.GREY_500),
-                ft.ElevatedButton(
+                ft.Button(
                     content=ft.Row(
                         tight=True, spacing=6,
                         controls=[
@@ -701,9 +714,10 @@ async def self_study_view(page: ft.Page):
         if clear_all:
             state["selected_mat_ids"].clear()
             state["active_material"] = None
+            if state.get("all_due_cards"):
+                state["due_cards"] = list(state["all_due_cards"])
         elif select_all:
             if state.get("materials"):
-                # Under the single-material invariant, select the first material
                 state["active_material"] = state["materials"][0]
                 state["selected_mat_ids"] = {state["materials"][0]["id"]}
         elif target_id:
@@ -714,12 +728,6 @@ async def self_study_view(page: ft.Page):
                     break
 
         _refresh_sidebar_materials()
-        if state.get("on_hub"):
-            if state.get("active_material"):
-                content_socket.content = _build_material_cockpit(state["active_material"], state.get("due_cards", []))
-            else:
-                content_socket.content = _build_hub(state.get("due_cards", []), state.get("materials", []))
-            page.update()
 
         try:
             live_cards = await asyncio.wait_for(
@@ -736,20 +744,37 @@ async def self_study_view(page: ft.Page):
                     state["sidebar_due_text"].value = f"{due_cnt} due"
                     try: state["sidebar_due_text"].update()
                     except Exception: pass
-
-                if state.get("on_hub"):
-                    if state.get("active_material"):
-                        content_socket.content = _build_material_cockpit(state["active_material"], state["due_cards"])
-                    else:
-                        content_socket.content = _build_hub(state["due_cards"], state.get("materials", []))
-                    page.update()
         except Exception as ex:
             print(f"[STUDY] Error syncing due cards: {ex}")
 
+        if state.get("on_hub"):
+            if state.get("active_material"):
+                content_socket.content = _build_material_cockpit(state["active_material"], state.get("due_cards", []))
+            else:
+                content_socket.content = _build_hub(state.get("due_cards", []), state.get("materials", []))
+            page.update()
+
+    _mat_search_seq = [0]
+
     def _on_search_materials(e):
         state["search_query"] = (e.control.value or "").strip().lower()
-        _refresh_sidebar_materials()
-        page.update()
+        _mat_search_seq[0] += 1
+        seq = _mat_search_seq[0]
+
+        async def _debounced_mat_search():
+            await asyncio.sleep(0.16)
+            if seq != _mat_search_seq[0]:
+                return
+            _refresh_sidebar_materials()
+            if getattr(sidebar_materials_col, "page", None) is not None:
+                try:
+                    sidebar_materials_col.update()
+                except Exception:
+                    page.update()
+            else:
+                page.update()
+
+        page.run_task(_debounced_mat_search)
 
     def _select_all_materials(e=None):
         if state.get("materials"):
@@ -1125,30 +1150,25 @@ async def self_study_view(page: ft.Page):
                 ),
             ),
             actions=[
-                ft.TextButton("Got it", on_click=lambda e: _close_shortcuts_dialog(dlg))
+                ft.TextButton("Got it", on_click=lambda e: safe_close_dialog(page, dlg))
             ],
         )
-        def _close_shortcuts_dialog(d):
-            d.open = False
-            page.update()
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
+        safe_open_dialog(page, dlg, tag="study_shortcuts")
 
     def _open_studio_modal():
-        def _close_studio(e):
-            studio_dlg.open = False
-            page.update()
+        nonlocal modal_plan_badge, bars_col
+        modal_plan_badge = _create_badge_control(compact=True)
+        bars_col = ft.Column(spacing=10, controls=[])
+        _refresh_plan_ui()
 
-        def _launch_upload(e):
-            studio_dlg.open = False
-            page.update()
-            _open_upload_modal()
+        def _close_studio(e=None):
+            safe_close_dialog(page, studio_dlg)
 
-        def _launch_generate(e):
-            studio_dlg.open = False
-            page.update()
-            _open_generate_panel()
+        def _launch_upload(e=None):
+            run_after_modal_close(page, studio_dlg, _open_upload_modal)
+
+        def _launch_generate(e=None):
+            run_after_modal_close(page, studio_dlg, _open_generate_panel)
 
         at_mat_lim = state["mat_lim"] is not None and state["mat_used"] >= state["mat_lim"]
         at_gen_lim = state["gen_lim"] is not None and state["gen_used"] >= state["gen_lim"]
@@ -1433,7 +1453,7 @@ async def self_study_view(page: ft.Page):
                                 ),
                             ),
                             # Full-width Primary CTA Button
-                            ft.ElevatedButton(
+                            ft.Button(
                                 content=ft.Row(
                                     tight=True,
                                     spacing=8,
@@ -1450,7 +1470,7 @@ async def self_study_view(page: ft.Page):
                                     shape=ft.RoundedRectangleBorder(radius=12),
                                     elevation=0,
                                 ),
-                                on_click=lambda _: (_close_studio(None), page.go("/store?back=/self-study")),
+                                on_click=lambda _: run_after_modal_close(page, studio_dlg, lambda: page.navigate("/store?back=/self-study")),
                             ),
                             # Secondary direct link to Coin Exchange
                             ft.Container(
@@ -1458,7 +1478,7 @@ async def self_study_view(page: ft.Page):
                                 ink=True,
                                 border_radius=ft.BorderRadius.all(10),
                                 padding=ft.Padding.symmetric(horizontal=6, vertical=8),
-                                on_click=lambda _: (_close_studio(None), page.go("/store?tab=exchange&back=/self-study")),
+                                on_click=lambda _: run_after_modal_close(page, studio_dlg, lambda: page.navigate("/store?tab=exchange&back=/self-study")),
                                 content=ft.Row(
                                     spacing=6,
                                     alignment=ft.MainAxisAlignment.CENTER,
@@ -1485,9 +1505,7 @@ async def self_study_view(page: ft.Page):
     ),
     actions=[],
 )
-        page.overlay.append(studio_dlg)
-        studio_dlg.open = True
-        page.update()
+        safe_open_dialog(page, studio_dlg, tag="study_studio")
 
     sidebar_rail = ft.Container(
         width=54,
@@ -1641,6 +1659,17 @@ async def self_study_view(page: ft.Page):
         ),
     )
 
+    async def _on_self_study_refresh(e=None):
+        try:
+            await asyncio.wait_for(_load_hub(False, None), timeout=8.0)
+        except Exception as _ex:
+            print(f"[self_study] Pull to refresh error: {_ex}")
+        finally:
+            try:
+                page.update()
+            except Exception:
+                pass
+
     # ── Expanded Content Pane ────────────────────────────────────────────────
     sidebar_pane = ft.Container(
         expand=True,
@@ -1679,74 +1708,80 @@ async def self_study_view(page: ft.Page):
                 # Middle scrollable content
                 ft.Container(
                     expand=True,
-                    content=ft.Column(
+                    content=ft.RefreshIndicator(
                         expand=True,
-                        scroll=ft.ScrollMode.AUTO,
-                        spacing=10,
-                        controls=[
-                            ft.Container(
-                                padding=ft.Padding.symmetric(horizontal=10, vertical=10),
-                                content=ft.Column(
-                                    spacing=10,
-                                    controls=[
-                                        # ── SECTION 1: SIDEBAR NAVIGATION MENU ─────────────────────
-                                        _pinned_row(
-                                            ft.Icons.SPACE_DASHBOARD_ROUNDED,
-                                            "Hub Home",
-                                            badge_control=None,
-                                            on_click=lambda _: (_collapse_sidebar(), go_hub() if (not state.get("on_hub") or state.get("active_material")) else None),
-                                        ),
-                                        _pinned_row(
-                                            ft.Icons.STOREFRONT_ROUNDED,
-                                            "Pack Store & Hub",
-                                            badge_control=None,
-                                            on_click=lambda _: (_collapse_sidebar(), go_marketplace()),
-                                        ),
-                                        _pinned_row(
-                                            ft.Icons.STYLE_ROUNDED,
-                                            "Review Due Cards",
-                                            badge_control=state["sidebar_due_text"],
-                                            on_click=_on_click_review_queue,
-                                        ),
-                                        _pinned_row(
-                                            ft.Icons.WORKSPACE_PREMIUM_ROUNDED,
-                                            "Studio & Limits",
-                                            badge_control=sidebar_plan_badge,
-                                            on_click=lambda _: (_collapse_sidebar(), _open_studio_modal()),
-                                        ),
-
-                                        ft.Divider(height=1, color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
-
-                                        # ── SECTION 2: DEDICATED STUDY MATERIALS ───────────────────
-                                        ft.Container(
-                                            padding=ft.Padding.only(top=2),
-                                            content=ft.Column(
-                                                spacing=8,
-                                                controls=[
-                                                    ft.Row(
-                                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                                        controls=[
-                                                            ft.Row(
-                                                                spacing=6,
-                                                                tight=True,
-                                                                controls=[
-                                                                    ft.Icon(ft.Icons.FOLDER_SPECIAL_ROUNDED, size=13, color=ft.Colors.PRIMARY),
-                                                                    ft.Text("MATERIALS VAULT", size=10, weight=ft.FontWeight.W_800, color=ft.Colors.GREY_600),
-                                                                ],
-                                                            ),
-                                                            state["sidebar_vault_text"],
-                                                        ],
-                                                    ),
-                                                    material_search_field,
-                                                    sidebar_materials_col,
-                                                ],
+                        color=ft.Colors.PRIMARY,
+                        bgcolor=ft.Colors.SURFACE,
+                        on_refresh=_on_self_study_refresh,
+                        content=ft.Column(
+                            expand=True,
+                            scroll=ft.ScrollMode.AUTO,
+                            spacing=10,
+                            controls=[
+                                ft.Container(
+                                    padding=ft.Padding.symmetric(horizontal=10, vertical=10),
+                                    content=ft.Column(
+                                        spacing=10,
+                                        controls=[
+                                            # ── SECTION 1: SIDEBAR NAVIGATION MENU ─────────────────────
+                                            _pinned_row(
+                                                ft.Icons.SPACE_DASHBOARD_ROUNDED,
+                                                "Hub Home",
+                                                badge_control=None,
+                                                on_click=lambda _: (_collapse_sidebar(), go_hub() if (not state.get("on_hub") or state.get("active_material")) else None),
                                             ),
-                                        ),
-                                    ],
+                                            _pinned_row(
+                                                ft.Icons.STOREFRONT_ROUNDED,
+                                                "Pack Store & Hub",
+                                                badge_control=None,
+                                                on_click=lambda _: (_collapse_sidebar(), go_marketplace()),
+                                            ),
+                                            _pinned_row(
+                                                ft.Icons.STYLE_ROUNDED,
+                                                "Review Due Cards",
+                                                badge_control=state["sidebar_due_text"],
+                                                on_click=_on_click_review_queue,
+                                            ),
+                                            _pinned_row(
+                                                ft.Icons.WORKSPACE_PREMIUM_ROUNDED,
+                                                "Studio & Limits",
+                                                badge_control=sidebar_plan_badge,
+                                                on_click=lambda _: (_collapse_sidebar(), _open_studio_modal()),
+                                            ),
+
+                                            ft.Divider(height=1, color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+
+                                            # ── SECTION 2: DEDICATED STUDY MATERIALS ───────────────────
+                                            ft.Container(
+                                                padding=ft.Padding.only(top=2),
+                                                content=ft.Column(
+                                                    spacing=8,
+                                                    controls=[
+                                                        ft.Row(
+                                                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                                            controls=[
+                                                                ft.Row(
+                                                                    spacing=6,
+                                                                    tight=True,
+                                                                    controls=[
+                                                                        ft.Icon(ft.Icons.FOLDER_SPECIAL_ROUNDED, size=13, color=ft.Colors.PRIMARY),
+                                                                        ft.Text("MATERIALS VAULT", size=10, weight=ft.FontWeight.W_800, color=ft.Colors.GREY_600),
+                                                                    ],
+                                                                ),
+                                                                state["sidebar_vault_text"],
+                                                            ],
+                                                        ),
+                                                        material_search_field,
+                                                        sidebar_materials_col,
+                                                    ],
+                                                ),
+                                            ),
+                                        ],
+                                    ),
                                 ),
-                            ),
-                        ],
+                            ],
+                        ),
                     ),
                 ),
                 # Bottom Minimal Collapse Footer (Pinned)
@@ -1793,8 +1828,16 @@ async def self_study_view(page: ft.Page):
     mobile_overlay.on_click = lambda _: _toggle_sidebar(None)
     body_host.controls.append(sidebar_container)
 
+    _last_study_layout_key = [None]
+
     def update_layout(e=None):
-        is_desktop = page.width >= 800 if page.width else True
+        w = page.width or 800
+        is_desktop = w >= 800
+        if e is not None:
+            layout_key = (is_desktop, w >= 720, None if is_desktop else int(w // 16))
+            if layout_key == _last_study_layout_key[0]:
+                return
+            _last_study_layout_key[0] = layout_key
         
         # Auto-close sidebar when shrinking from desktop to mobile
         if e is not None and not is_desktop and state.get("was_desktop", True): 
@@ -1820,7 +1863,7 @@ async def self_study_view(page: ft.Page):
         else:
             target_width = min((page.width * 0.88 if page.width else 300), 320)
             sidebar_container.width = target_width
-            sidebar_container.shadow = ft.BoxShadow(blur_radius=20, color=ft.Colors.BLACK26)
+            sidebar_container.shadow = ft.BoxShadow(blur_radius=20, color=ft.Colors.BLACK_26)
             sidebar_rail.visible = False
             sidebar_pane.visible = True
             main_content_wrapper.padding = ft.Padding.only(left=0)
@@ -1868,7 +1911,7 @@ async def self_study_view(page: ft.Page):
         else:
             target_width = min((page.width * 0.88 if page.width else 300), 320)
             sidebar_container.width = target_width
-            sidebar_container.shadow = ft.BoxShadow(blur_radius=20, color=ft.Colors.BLACK26)
+            sidebar_container.shadow = ft.BoxShadow(blur_radius=20, color=ft.Colors.BLACK_26)
             sidebar_rail.visible = False
             sidebar_pane.visible = True
             main_content_wrapper.padding = ft.Padding.only(left=0)
@@ -1951,17 +1994,26 @@ async def self_study_view(page: ft.Page):
         state["active_material"] = None
         state["active_journal"] = None
         state["selected_mat_ids"] = set()
+        if state.get("all_due_cards"):
+            state["due_cards"] = list(state["all_due_cards"])
         _refresh_sidebar_materials()
         _reset_keyboard()
         _lock_exam_ui(False)
+        ui.StudyWakelock.disable(page)
         _set_appbar("Study Hub", _handle_back_click)
-        has_rendered_content = content_socket.content and not getattr(content_socket.content, "_is_loading", False)
-        if not soft and not has_rendered_content:
-            _set_loading(label)
-        page.run_task(_load_hub, True if has_rendered_content else False, None)
+        if state.get("hub_loaded") or state.get("materials") or state.get("journals"):
+            content_socket.content = _build_hub(state.get("due_cards", []), state.get("materials", []))
+            page.update()
+            page.run_task(_load_hub, True, None)
+        else:
+            has_rendered_content = content_socket.content and not getattr(content_socket.content, "_is_loading", False)
+            if not soft and not has_rendered_content:
+                _set_loading(label)
+            page.run_task(_load_hub, True if has_rendered_content else False, None)
 
     def _exit_study_session(label="Returning…"):
         _lock_exam_ui(False)
+        ui.StudyWakelock.disable(page)
         _reset_keyboard()
 
         # Report study session activity to accountability partner
@@ -2006,13 +2058,16 @@ async def self_study_view(page: ft.Page):
             state["on_hub"] = False
             display_title = format_material_title(active_mat.get("title", ""))
             _set_appbar(display_title, go_hub)
-            page.run_task(_open_material_cockpit, active_mat, False)
+            content_socket.content = _build_material_cockpit(active_mat, state.get("active_material_cards") or [])
+            page.update()
+            page.run_task(_open_material_cockpit, active_mat, True)
         else:
-            go_hub(label if isinstance(label, str) else "Loading Study Hub…")
+            go_hub(label if isinstance(label, str) else "Loading Study Hub…", soft=True)
 
     def go_flashcards(cards: list):
         state["on_hub"] = False
         state["session_start_time"] = time.time()
+        ui.StudyWakelock.enable(page)
         _set_appbar("Flashcards", _exit_study_session)
         content_socket.content = _build_flashcard_session(cards)
         page.update()
@@ -2020,6 +2075,7 @@ async def self_study_view(page: ft.Page):
     def go_quiz(questions: list):
         state["on_hub"] = False
         state["session_start_time"] = time.time()
+        ui.StudyWakelock.enable(page)
         _set_appbar("Quick Quiz", _exit_study_session)
         content_socket.content = _build_quiz(questions)
         page.update()
@@ -2041,22 +2097,28 @@ async def self_study_view(page: ft.Page):
                     ft.Text("Removing...", size=12, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE),
                 ],
             )
-            page.update()
+            safe_update_dialog(page, del_dlg)
 
             res = await delete_study_material(token, mat_id)
-            del_dlg.open = False
-            page.update()
+            safe_close_dialog(page, del_dlg)
 
             if "error" in res:
                 show_page_snackbar(page, f"Could not remove: {res['error']}")
             else:
                 show_page_snackbar(page, f"'{display_title}' removed from vault.")
                 state["materials"] = [m for m in state.get("materials", []) if str(m.get("id")) != mat_id]
-                go_hub("Refreshing Study Hub…")
+                state["due_cards"] = [c for c in state.get("due_cards", []) if str(c.get("material_id")) != mat_id]
+                state["all_due_cards"] = [c for c in state.get("all_due_cards", []) if str(c.get("material_id")) != mat_id]
+                if state.get("sidebar_vault_text"):
+                    state["sidebar_vault_text"].value = f"{len(state['materials'])} items"
+                    try:
+                        state["sidebar_vault_text"].update()
+                    except Exception:
+                        pass
+                go_hub("Refreshing Study Hub…", soft=True)
 
-        def _cancel_delete(_):
-            del_dlg.open = False
-            page.update()
+        def _cancel_delete(_=None):
+            safe_close_dialog(page, del_dlg)
 
         del_dlg_w = min(page.width - 44, 400) if page.width else 380
         del_dlg = ft.AlertDialog(
@@ -2112,7 +2174,7 @@ async def self_study_view(page: ft.Page):
                                     ),
                                     on_click=_cancel_delete,
                                 ),
-                                ft.ElevatedButton(
+                                ft.Button(
                                     content=ft.Row(
                                         tight=True,
                                         spacing=6,
@@ -2134,28 +2196,24 @@ async def self_study_view(page: ft.Page):
                 ),
             ),
         )
-        page.overlay.append(del_dlg)
-        del_dlg.open = True
-        page.update()
+        safe_open_dialog(page, del_dlg, tag="study_del_mat")
 
     def _confirm_exit_exam():
-        def _submit_and_leave(e):
-            exit_dlg.open = False
-            page.update()
-            submit_fn = state.get("exam_submit_fn")
-            if submit_fn:
-                submit_fn()
-            else:
-                _exit_study_session("Returning from exam…")
+        def _submit_and_leave(e=None):
+            def _do_submit():
+                submit_fn = state.get("exam_submit_fn")
+                if submit_fn:
+                    submit_fn()
+                else:
+                    _exit_study_session("Returning from exam…")
 
-        def _exit_without_submit(e):
-            exit_dlg.open = False
-            page.update()
-            _exit_study_session("Returning from exam…")
+            run_after_modal_close(page, exit_dlg, _do_submit)
 
-        def _cancel(e):
-            exit_dlg.open = False
-            page.update()
+        def _exit_without_submit(e=None):
+            run_after_modal_close(page, exit_dlg, lambda: _exit_study_session("Returning from exam…"))
+
+        def _cancel(e=None):
+            safe_close_dialog(page, exit_dlg)
 
         exit_dlg_w = min(page.width - 44, 380) if page.width else 360
         exit_dlg = ft.AlertDialog(
@@ -2245,7 +2303,7 @@ async def self_study_view(page: ft.Page):
                                     ),
                                     on_click=_cancel,
                                 ),
-                                ft.ElevatedButton(
+                                ft.Button(
                                     content=ft.Row(
                                         tight=True,
                                         spacing=6,
@@ -2277,9 +2335,7 @@ async def self_study_view(page: ft.Page):
                 ),
             ),
         )
-        page.overlay.append(exit_dlg)
-        exit_dlg.open = True
-        page.update()
+        safe_open_dialog(page, exit_dlg, tag="study_exit_exam")
 
     def _on_exam_back():
         if state.get("exam_locked", False):
@@ -2294,6 +2350,7 @@ async def self_study_view(page: ft.Page):
         exam_topics: list | None = None
     ):
         state["on_hub"] = False
+        ui.StudyWakelock.enable(page)
         _set_appbar("CBT Exam Simulator", _on_exam_back)
         from src.components.cbt_exam_engine import build_cbt_exam_view
 
@@ -2395,7 +2452,6 @@ async def self_study_view(page: ft.Page):
                     asyncio.wait_for(get_materials(token),  timeout=6),
                     asyncio.wait_for(get_subscription_status(token), timeout=6),
                     asyncio.wait_for(get_journals_api(token), timeout=6),
-                    asyncio.sleep(0.35),
                     return_exceptions=True,
                 )
                 due_cards = results[0]
@@ -2474,6 +2530,7 @@ async def self_study_view(page: ft.Page):
         _refresh_plan_ui()
 
         state["on_hub"] = True
+        state["hub_loaded"] = True
         try:
             # Check route query parameters or explicit target_mat_id for deep linking
             resolved_mat_id = target_mat_id
@@ -2512,17 +2569,20 @@ async def self_study_view(page: ft.Page):
             else:
                 target_ui = _build_hub(due_cards or [], materials or [])
                 curr_ctrl = content_socket.content
+                curr_col = curr_ctrl.content if isinstance(curr_ctrl, ft.RefreshIndicator) else curr_ctrl
+                target_col = target_ui.content if isinstance(target_ui, ft.RefreshIndicator) else target_ui
                 if (
-                    curr_ctrl
-                    and getattr(curr_ctrl, "key", "") == "self_study_hub_scroll_column"
-                    and getattr(curr_ctrl, "controls", None)
-                    and len(curr_ctrl.controls) > 0
-                    and getattr(curr_ctrl.controls[0], "content", None)
-                    and hasattr(curr_ctrl.controls[0].content, "controls")
+                    curr_col
+                    and target_col
+                    and getattr(curr_col, "key", "") == "self_study_hub_scroll_column"
+                    and getattr(curr_col, "controls", None)
+                    and len(curr_col.controls) > 0
+                    and getattr(curr_col.controls[0], "content", None)
+                    and hasattr(curr_col.controls[0].content, "controls")
                 ):
-                    # In-place refresh: preserve scroll position!
-                    new_sections = target_ui.controls[0].content.controls
-                    curr_ctrl.controls[0].content.controls = new_sections
+                    # In-place refresh: preserve scroll position and prevent AnimatedSwitcher flash!
+                    new_sections = target_col.controls[0].content.controls
+                    curr_col.controls[0].content.controls = new_sections
                 else:
                     content_socket.content = target_ui
         except Exception as ex:
@@ -2746,7 +2806,7 @@ async def self_study_view(page: ft.Page):
                         color=ft.Colors.GREY_400,
                         text_align=ft.TextAlign.CENTER,
                     ),
-                    ft.ElevatedButton(
+                    ft.Button(
                         "Back to Cockpit" if has_active_mat else "Back to Hub",
                         bgcolor=ft.Colors.PRIMARY,
                         color=ft.Colors.ON_PRIMARY,
@@ -2794,6 +2854,7 @@ async def self_study_view(page: ft.Page):
     async def _poll_generation_status():
         state["poller_id"] = state.get("poller_id", 0) + 1
         my_poller_id = state["poller_id"]
+        last_banner_generating = None
         while True:
             await asyncio.sleep(4)
             
@@ -2810,10 +2871,12 @@ async def self_study_view(page: ft.Page):
                 if mats_to_check:
                     print(f"\n[POLLER] 📡 Checking {len(mats_to_check)} materials: {mats_to_check}")
                     done_mats = []
+                    raw_results = await asyncio.gather(
+                        *(check_generation_status(token, mat_id) for mat_id in mats_to_check),
+                        return_exceptions=True,
+                    )
                     
-                    for mat_id in mats_to_check:
-                        raw_result = await check_generation_status(token, mat_id)
-                        
+                    for mat_id, raw_result in zip(mats_to_check, raw_results):
                         is_active = False
                         if isinstance(raw_result, dict):
                             is_active = raw_result.get("status") == "processing"
@@ -2854,10 +2917,12 @@ async def self_study_view(page: ft.Page):
                         except BaseException as ex:
                             if "Control must be added to the page first" not in str(ex):
                                 print(f"[POLLER] ❌ Error syncing live cards: {ex}")
-                else:
-                    pass
                 
-                # --- UPDATE THE UI ---
+                # --- UPDATE THE UI ONLY WHEN STATE CHANGES ---
+                if is_generating_anything == last_banner_generating:
+                    continue
+                last_banner_generating = is_generating_anything
+
                 banner = state.get("generation_banner")
                 s_icon = state.get("gen_status_icon")
                 s_text = state.get("gen_status_text")
@@ -3001,12 +3066,7 @@ async def self_study_view(page: ft.Page):
                 print(f"[_open_material_cockpit auto_open_generate error]: {ex}")
 
     async def _back_to_hub(e=None):
-        page.route = "/self-study?offline=true" if state.get("is_offline") else "/self-study"
-        state["active_material"] = None
-        state["selected_mat_ids"] = set()
-        _refresh_sidebar_materials()
-        _set_loading("Loading Study Hub…")
-        await _load_hub()
+        go_hub(soft=True)
 
     def _build_material_cockpit(mat: dict, scoped_cards: list) -> ft.Column:
         mid = mat.get("id")
@@ -3103,8 +3163,7 @@ async def self_study_view(page: ft.Page):
 
             def _close_reader(ev=None):
                 if reader_dlg[0]:
-                    reader_dlg[0].open = False
-                    page.update()
+                    safe_close_dialog(page, reader_dlg[0])
 
             async def _copy_notes(ev=None):
                 if not raw_body:
@@ -3177,10 +3236,12 @@ async def self_study_view(page: ft.Page):
                         scroll=ft.ScrollMode.AUTO,
                         expand=True,
                         controls=[
-                            ft.Markdown(
-                                raw_body if raw_body else "_No text content available for this material._",
-                                selectable=True,
-                                extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+                            ft.SelectionArea(
+                                content=ft.Markdown(
+                                    raw_body if raw_body else "_No text content available for this material._",
+                                    selectable=True,
+                                    extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+                                )
                             )
                         ],
                     ),
@@ -3195,9 +3256,10 @@ async def self_study_view(page: ft.Page):
                     ft.OutlinedButton(
                         "Bundle into Journal",
                         icon=ft.Icons.AUTO_STORIES_ROUNDED,
-                        on_click=lambda _: (
-                            _close_reader(),
-                            open_create_journal_modal(
+                        on_click=lambda _: run_after_modal_close(
+                            page,
+                            reader_dlg[0],
+                            lambda: open_create_journal_modal(
                                 page,
                                 token,
                                 vault_materials=state.get("materials", []),
@@ -3206,7 +3268,7 @@ async def self_study_view(page: ft.Page):
                             ),
                         ),
                     ),
-                    ft.ElevatedButton(
+                    ft.Button(
                         "Done",
                         bgcolor=ft.Colors.PRIMARY,
                         color=ft.Colors.ON_PRIMARY,
@@ -3215,9 +3277,7 @@ async def self_study_view(page: ft.Page):
                 ],
                 actions_alignment=ft.MainAxisAlignment.END,
             )
-            page.overlay.append(reader_dlg[0])
-            reader_dlg[0].open = True
-            page.update()
+            safe_open_dialog(page, reader_dlg[0], tag="study_source_reader")
 
         more_menu_items = [
             ft.PopupMenuItem(
@@ -4394,7 +4454,7 @@ async def self_study_view(page: ft.Page):
                         ft.TextButton(
                             content=ft.Text("Get Unlimited", size=11, weight=ft.FontWeight.W_700, color=ft.Colors.PRIMARY),
                             style=ft.ButtonStyle(padding=ft.Padding.symmetric(horizontal=8, vertical=2)),
-                            on_click=lambda _: page.go("/store"),
+                            on_click=lambda _: page.navigate("/store"),
                         ),
                     ],
                 )
@@ -5209,8 +5269,7 @@ async def self_study_view(page: ft.Page):
             def _select_mat(m):
                 gemini_selected["mat"] = m
                 _update_gemini_ui()
-                sheet.open = False
-                page.update()
+                safe_close_dialog(page, sheet)
 
             sheet = ft.BottomSheet(
                 content=ft.Container(
@@ -5235,7 +5294,7 @@ async def self_study_view(page: ft.Page):
                                     ft.IconButton(
                                         icon=ft.Icons.CLOSE_ROUNDED,
                                         icon_size=18,
-                                        on_click=lambda _: (setattr(sheet, "open", False), page.update()),
+                                        on_click=lambda _: safe_close_dialog(page, sheet),
                                     ),
                                 ],
                             ),
@@ -5262,9 +5321,7 @@ async def self_study_view(page: ft.Page):
                     ),
                 )
             )
-            page.overlay.append(sheet)
-            sheet.open = True
-            page.update()
+            safe_open_dialog(page, sheet, tag="study_mat_picker")
 
         gemini_chip_container = ft.Container(
             border_radius=ft.BorderRadius.all(12),
@@ -5401,7 +5458,7 @@ async def self_study_view(page: ft.Page):
         )
 
         if state.get("is_offline"):
-            offline_lib_btn = ft.ElevatedButton(
+            offline_lib_btn = ft.Button(
                 content=ft.Row(
                     spacing=5,
                     tight=True,
@@ -5413,7 +5470,7 @@ async def self_study_view(page: ft.Page):
                 bgcolor=ft.Colors.PRIMARY,
                 height=32,
                 style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), elevation=0),
-                on_click=lambda _: page.go("/offline"),
+                on_click=lambda _: page.navigate("/offline"),
             )
 
             if is_mobile:
@@ -5533,7 +5590,7 @@ async def self_study_view(page: ft.Page):
                                     ft.IconButton(
                                         icon=ft.Icons.CLOSE_ROUNDED,
                                         icon_size=18,
-                                        on_click=lambda _: (setattr(sheet, "open", False), page.update()),
+                                        on_click=lambda _: safe_close_dialog(page, sheet),
                                     ),
                                 ],
                             ),
@@ -5541,49 +5598,55 @@ async def self_study_view(page: ft.Page):
                                 leading=ft.Icon(ft.Icons.AUTO_STORIES_ROUNDED, color=ft.Colors.PRIMARY),
                                 title=ft.Text("New Course Journal", weight=ft.FontWeight.W_700),
                                 subtitle=ft.Text("Bundle up to 5 modules into a full course notebook (3x slots & credits)"),
-                                on_click=lambda _: (
-                                    setattr(sheet, "open", False),
-                                    page.update(),
-                                    open_create_journal_modal(
+                                on_click=lambda _: run_after_modal_close(
+                                    page,
+                                    sheet,
+                                    lambda: open_create_journal_modal(
                                         page,
                                         token,
                                         vault_materials=materials,
                                         on_journal_created=_handle_journal_created,
-                                    )
+                                    ),
                                 ),
                             ),
                             ft.ListTile(
                                 leading=ft.Icon(ft.Icons.BOLT_ROUNDED, color=ft.Colors.TEAL_600),
                                 title=ft.Text("Quick Quiz", weight=ft.FontWeight.W_700),
                                 subtitle=ft.Text("Instant bite-sized comprehension drills (Offline Ready)"),
-                                on_click=lambda _: (setattr(sheet, "open", False), page.update(), page.run_task(_start_quiz, _current_selected_ids())),
+                                on_click=lambda _: run_after_modal_close(
+                                    page,
+                                    sheet,
+                                    lambda: page.run_task(_start_quiz, _current_selected_ids()),
+                                ),
                             ),
                             ft.ListTile(
                                 leading=ft.Icon(ft.Icons.TIMER_OUTLINED, color=ft.Colors.ORANGE_600),
                                 title=ft.Text("Exam Simulator", weight=ft.FontWeight.W_700),
                                 subtitle=ft.Text("Timed mock exam with detailed score report (Offline Ready)"),
-                                on_click=lambda _: (setattr(sheet, "open", False), page.update(), page.run_task(_start_exam, _current_selected_ids())),
+                                on_click=lambda _: run_after_modal_close(
+                                    page,
+                                    sheet,
+                                    lambda: page.run_task(_start_exam, _current_selected_ids()),
+                                ),
                             ),
                             ft.ListTile(
                                 leading=ft.Icon(ft.Icons.STOREFRONT_ROUNDED, color=ft.Colors.PURPLE_600),
                                 visible=False,
                                 title=ft.Text("Store & Quotas", weight=ft.FontWeight.W_700),
                                 subtitle=ft.Text("Upgrade plans or get non-expiring AI generation packs"),
-                                on_click=lambda _: (setattr(sheet, "open", False), page.update(), page.go("/store")),
+                                on_click=lambda _: run_after_modal_close(page, sheet, lambda: page.navigate("/store")),
                             ),
                             ft.ListTile(
                                 leading=ft.Icon(ft.Icons.FOLDER_SPECIAL_ROUNDED, color=ft.Colors.PRIMARY),
                                 title=ft.Text("Manage Vault", weight=ft.FontWeight.W_700),
                                 subtitle=ft.Text("View all uploaded materials and filter topics"),
-                                on_click=lambda _: (setattr(sheet, "open", False), page.update(), _toggle_sidebar(None)),
+                                on_click=lambda _: run_after_modal_close(page, sheet, lambda: _toggle_sidebar(None)),
                             ),
                         ],
                     ),
                 )
             )
-            page.overlay.append(sheet)
-            sheet.open = True
-            page.update()
+            safe_open_dialog(page, sheet, tag="study_more_sheet")
 
         def _quick_action_btn(icon, label, on_click, disabled=False, tooltip=None):
             return ft.Container(
@@ -5826,8 +5889,15 @@ async def self_study_view(page: ft.Page):
             share_dlg = [None]
             def _close_dlg(e=None):
                 if share_dlg[0]:
-                    share_dlg[0].open = False
-                    page.update()
+                    safe_close_dialog(page, share_dlg[0])
+
+            def _share_via_os(e=None):
+                share_text = f"📚 Check out my '{pack_title}' study pack on Nu-Age Study Hub! Let's practice together 🎯"
+                run_after_modal_close(
+                    page,
+                    share_dlg[0],
+                    lambda: page.run_task(safe_share_text, page, share_text, pack_title, f"Study Pack: {pack_title}"),
+                )
 
             partners_col = ft.Column(spacing=10, tight=True, scroll=ft.ScrollMode.AUTO)
             for p_item in partnerships:
@@ -5840,7 +5910,7 @@ async def self_study_view(page: ft.Page):
                 p_uni = p_info.get("university") or ""
                 p_initials = f"{p_first[:1]}{(p_info.get('last_name') or '')[:1]}".upper()
 
-                action_btn = ft.ElevatedButton(
+                action_btn = ft.Button(
                     content=ft.Row(
                         spacing=4,
                         tight=True,
@@ -5857,7 +5927,7 @@ async def self_study_view(page: ft.Page):
                 async def _do_send_share(partner_id=p_id, partner_name=p_first, btn_ref=action_btn):
                     btn_ref.disabled = True
                     btn_ref.content = ft.ProgressRing(width=14, height=14, stroke_width=2, color=ft.Colors.WHITE)
-                    page.update()
+                    safe_update_dialog(page, share_dlg[0])
                     res = await share_study_pack_api(token, partner_id, str(pack_id))
                     if res.get("status") == "success":
                         show_page_snackbar(page, f"Shared '{pack_title[:22]}' with {partner_name}! 🎉 Ready for study duels.")
@@ -5873,7 +5943,7 @@ async def self_study_view(page: ft.Page):
                                 ft.Text("Share", size=11, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE),
                             ],
                         )
-                        page.update()
+                        safe_update_dialog(page, share_dlg[0])
 
                 action_btn.on_click = (lambda pid=p_id, pn=p_first, b=action_btn: lambda _: page.run_task(_do_send_share, pid, pn, b))()
 
@@ -5971,11 +6041,12 @@ async def self_study_view(page: ft.Page):
                         ],
                     ),
                 ),
-                actions=[ft.TextButton("Cancel", on_click=_close_dlg)],
+                actions=[
+                    ft.TextButton("Share via Apps", icon=ft.Icons.SHARE_ROUNDED, on_click=_share_via_os),
+                    ft.TextButton("Cancel", on_click=_close_dlg),
+                ],
             )
-            page.overlay.append(share_dlg[0])
-            share_dlg[0].open = True
-            page.update()
+            safe_open_dialog(page, share_dlg[0], tag="study_share_pack")
 
         def _render_jump_card(mat: dict):
             mtitle = mat.get("title") or "Untitled Document"
@@ -6359,15 +6430,19 @@ async def self_study_view(page: ft.Page):
 
                 def _close_del(ev=None):
                     if del_dlg[0]:
-                        del_dlg[0].open = False
-                        page.update()
+                        safe_close_dialog(page, del_dlg[0])
 
                 async def _do_delete():
                     _close_del()
                     res = await delete_journal_api(token, j_id)
                     if res.get("success"):
                         show_page_snackbar(page, "Course Journal removed (materials kept safely in vault).", ft.Colors.GREEN_700)
-                        await _load_hub()
+                        state["journals"] = [j for j in state.get("journals", []) if str(j.get("id")) != j_id]
+                        _refresh_sidebar_materials()
+                        if state.get("on_hub"):
+                            content_socket.content = _build_hub(state.get("due_cards", []), state.get("materials", []))
+                            page.update()
+                        await _load_hub(silent=True)
                     else:
                         show_page_snackbar(page, res.get("detail") or res.get("error") or "Failed to delete journal", ft.Colors.RED_700)
 
@@ -6383,7 +6458,7 @@ async def self_study_view(page: ft.Page):
                     ),
                     actions=[
                         ft.TextButton("Cancel", on_click=_close_del),
-                        ft.ElevatedButton(
+                        ft.Button(
                             "Delete Journal",
                             bgcolor=ft.Colors.RED_700,
                             color=ft.Colors.WHITE,
@@ -6392,9 +6467,7 @@ async def self_study_view(page: ft.Page):
                         ),
                     ],
                 )
-                page.overlay.append(del_dlg[0])
-                del_dlg[0].open = True
-                page.update()
+                safe_open_dialog(page, del_dlg[0], tag="study_del_journal")
 
             return ft.Container(
                 col={"xs": 12, "sm": 6, "md": 6, "lg": 4},
@@ -6660,7 +6733,7 @@ async def self_study_view(page: ft.Page):
                         ),
                     ],
                 ),
-                ft.ElevatedButton(
+                ft.Button(
                     content=ft.Row(
                         spacing=5,
                         tight=True,
@@ -6785,7 +6858,7 @@ async def self_study_view(page: ft.Page):
                                 spacing=10,
                                 alignment=ft.MainAxisAlignment.CENTER,
                                 controls=[
-                                    ft.ElevatedButton(
+                                    ft.Button(
                                         content=ft.Row(
                                             spacing=6,
                                             tight=True,
@@ -6797,7 +6870,7 @@ async def self_study_view(page: ft.Page):
                                         bgcolor=ft.Colors.PRIMARY,
                                         height=36,
                                         style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=9), elevation=0),
-                                        on_click=lambda _: page.go("/offline"),
+                                        on_click=lambda _: page.navigate("/offline"),
                                     ),
                                     ft.OutlinedButton(
                                         content=ft.Row(
@@ -6848,7 +6921,7 @@ async def self_study_view(page: ft.Page):
                                 spacing=10,
                                 alignment=ft.MainAxisAlignment.CENTER,
                                 controls=[
-                                    ft.ElevatedButton(
+                                    ft.Button(
                                         content=ft.Row(
                                             spacing=6,
                                             tight=True,
@@ -6949,23 +7022,29 @@ async def self_study_view(page: ft.Page):
 
         sections_controls.append(ft.Container(height=32))
 
-        return ft.Column(
-            key="self_study_hub_scroll_column",
+        return ft.RefreshIndicator(
             expand=True,
-            scroll=ft.ScrollMode.AUTO,
-            spacing=0,
-            controls=[
-                ft.Container(
-                    padding=ft.Padding.symmetric(
-                        horizontal=14 if is_small else 24,
-                        vertical=18,
+            color=ft.Colors.PRIMARY,
+            bgcolor=ft.Colors.SURFACE,
+            on_refresh=_on_self_study_refresh,
+            content=ft.Column(
+                key="self_study_hub_scroll_column",
+                expand=True,
+                scroll=ft.ScrollMode.AUTO,
+                spacing=0,
+                controls=[
+                    ft.Container(
+                        padding=ft.Padding.symmetric(
+                            horizontal=14 if is_small else 24,
+                            vertical=18,
+                        ),
+                        content=ft.Column(
+                            spacing=18,
+                            controls=sections_controls,
+                        ),
                     ),
-                    content=ft.Column(
-                        spacing=18,
-                        controls=sections_controls,
-                    ),
-                ),
-            ],
+                ],
+            ),
         )
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -7000,7 +7079,7 @@ async def self_study_view(page: ft.Page):
         loading_ring = ft.ProgressRing(width=16, height=16, stroke_width=2.5, color=ft.Colors.WHITE, visible=False)
         submit_btn_text = ft.Text("Import & Analyze Video", size=13, weight=ft.FontWeight.W_700, color=ft.Colors.ON_PRIMARY)
 
-        submit_btn = ft.ElevatedButton(
+        submit_btn = ft.Button(
             content=ft.Row(
                 tight=True,
                 spacing=8,
@@ -7075,22 +7154,21 @@ async def self_study_view(page: ft.Page):
         )
 
         def _close_yt_dlg():
-            dlg.open = False
-            page.update()
+            safe_close_dialog(page, dlg)
 
         async def _do_import(e):
             raw_url = (url_field.value or "").strip()
             if not raw_url:
                 error_text.value = "Please enter a valid YouTube link."
                 error_text.visible = True
-                page.update()
+                safe_update_dialog(page, dlg)
                 return
 
             error_text.visible = False
             loading_ring.visible = True
             submit_btn_text.value = "Analyzing video & generating notes…"
             submit_btn.disabled = True
-            page.update()
+            safe_update_dialog(page, dlg)
 
             res = await import_youtube_material(token, raw_url, (title_field.value or "").strip() or None)
             if "error" in res:
@@ -7099,7 +7177,7 @@ async def self_study_view(page: ft.Page):
                 loading_ring.visible = False
                 submit_btn_text.value = "Import & Analyze Video"
                 submit_btn.disabled = False
-                page.update()
+                safe_update_dialog(page, dlg)
                 return
 
             _close_yt_dlg()
@@ -7135,9 +7213,7 @@ async def self_study_view(page: ft.Page):
         submit_btn.on_click = lambda e: page.run_task(_do_import, e)
         url_field.on_submit = lambda e: page.run_task(_do_import, e)
         title_field.on_submit = lambda e: page.run_task(_do_import, e)
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
+        safe_open_dialog(page, dlg, tag="study_youtube")
 
     # ─────────────────────────────────────────────────────────────────────────
     # UPLOAD MODAL
@@ -7239,7 +7315,7 @@ async def self_study_view(page: ft.Page):
                             ),
                         ],
                     ),
-                    ft.ElevatedButton(
+                    ft.Button(
                         content=ft.Row([
                             ft.Icon(ft.Icons.STOREFRONT_ROUNDED, size=14, color=ft.Colors.WHITE),
                             ft.Text("Upgrade Plan", size=11, weight=ft.FontWeight.W_800, color=ft.Colors.WHITE),
@@ -7247,7 +7323,7 @@ async def self_study_view(page: ft.Page):
                         bgcolor=ft.Colors.RED_700,
                         height=32,
                         style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), elevation=0),
-                        on_click=lambda _: ((setattr(modal, "open", False), page.update()) if 'modal' in locals() else None, page.go("/store?tab=plans&back=/self-study")),
+                        on_click=lambda _: ((setattr(modal, "open", False), page.update()) if 'modal' in locals() else None, page.navigate("/store?tab=plans&back=/self-study")),
                     ),
                 ],
             ),
@@ -7259,7 +7335,7 @@ async def self_study_view(page: ft.Page):
             selected_file_name = None
             selected_extra_files = []
             update_dropzone_ui()
-            page.update()
+            safe_update_dialog(page, modal)
 
         file_dropzone = ft.Container()
 
@@ -7393,11 +7469,11 @@ async def self_study_view(page: ft.Page):
                         title_field.value = cleaned_name.replace("_", " ").title()
                     error_box.visible = False
                     update_dropzone_ui()
-                    page.update()
+                    safe_update_dialog(page, modal)
             except Exception:
                 error_text.value = "File picker failed — paste text instead."
                 error_box.visible = True
-                page.update()
+                safe_update_dialog(page, modal)
 
         update_dropzone_ui()
 
@@ -7456,7 +7532,7 @@ async def self_study_view(page: ft.Page):
 
             file_section.visible = is_file
             text_section.visible = not is_file
-            page.update()
+            safe_update_dialog(page, modal)
 
         tab_file_btn.on_click = lambda _: switch_mode("file")
         tab_text_btn.on_click = lambda _: switch_mode("text")
@@ -7476,12 +7552,12 @@ async def self_study_view(page: ft.Page):
             if not (title_field.value or "").strip():
                 error_text.value = "Please give this material a title."
                 error_box.visible = True
-                page.update()
+                safe_update_dialog(page, modal)
                 return
             if not (text_field.value or "").strip() and not selected_file_bytes:
                 error_text.value = "Please paste notes or upload a file."
                 error_box.visible = True
-                page.update()
+                safe_update_dialog(page, modal)
                 return
 
             error_box.visible  = False
@@ -7496,7 +7572,7 @@ async def self_study_view(page: ft.Page):
                     ft.Text("Uploading...", color=ft.Colors.ON_PRIMARY, size=13, weight=ft.FontWeight.W_600),
                 ],
             )
-            page.update()
+            safe_update_dialog(page, modal)
 
             def _reset_upload_btn():
                 submit_btn.disabled = False
@@ -7527,7 +7603,7 @@ async def self_study_view(page: ft.Page):
                     error_text.value = str(result.get("error"))
                     error_box.visible = True
                     _reset_upload_btn()
-                    page.update()
+                    safe_update_dialog(page, modal)
                     return
 
                 from datetime import datetime
@@ -7572,8 +7648,7 @@ async def self_study_view(page: ft.Page):
                 update_dropzone_ui()
 
                 # Dismiss modal and automatically transition to study cockpit for this new material
-                modal.open = False
-                page.update()
+                safe_close_dialog(page, modal)
                 show_page_snackbar(page, f"Uploaded '{new_mat['title']}'! Opening study cockpit…")
                 page.run_task(_open_material_cockpit, new_mat, False, True)
 
@@ -7581,14 +7656,14 @@ async def self_study_view(page: ft.Page):
                 error_text.value = "Upload timed out. Check your connection."
                 error_box.visible = True
                 _reset_upload_btn()
-                page.update()
+                safe_update_dialog(page, modal)
             except Exception as ex:
                 error_text.value = f"Upload failed ({type(ex).__name__})."
                 error_box.visible = True
                 _reset_upload_btn()
-                page.update()
+                safe_update_dialog(page, modal)
 
-        submit_btn = ft.ElevatedButton(
+        submit_btn = ft.Button(
             content=ft.Row(
                 alignment=ft.MainAxisAlignment.CENTER,
                 tight=True,
@@ -7609,9 +7684,8 @@ async def self_study_view(page: ft.Page):
             on_click=submit_upload,
         )
 
-        def close_modal(e):
-            modal.open = False
-            page.update()
+        def close_modal(e=None):
+            safe_close_dialog(page, modal)
 
         up_w = min(page.width - 32, 480) if page.width else 440
         up_h = min(page.height - 180, 480) if page.height else 440
@@ -7689,9 +7763,7 @@ async def self_study_view(page: ft.Page):
             ),
             actions=[],
         )
-        page.overlay.append(modal)
-        modal.open = True
-        page.update()
+        safe_open_dialog(page, modal, tag="study_upload")
 
     # ─────────────────────────────────────────────────────────────────────────
     # GENERATE PANEL
@@ -7760,7 +7832,7 @@ async def self_study_view(page: ft.Page):
         def select_target_mat(m):
             selected_target[0] = m
             update_target_ui()
-            page.update()
+            safe_update_dialog(page, modal)
 
         mat_card_controls = []
         for mat in mats:
@@ -7839,7 +7911,7 @@ async def self_study_view(page: ft.Page):
             def toggle_card(e):
                 cb_control.value = not cb_control.value
                 update_card_ui()
-                page.update()
+                safe_update_dialog(page, modal)
 
             def update_card_ui():
                 is_active = bool(cb_control.value)
@@ -7903,7 +7975,7 @@ async def self_study_view(page: ft.Page):
         out_quiz = output_type_card(ft.Icons.BOLT_ROUNDED, "Quick Quiz", "Targeted Drills · Instant Feedback", ft.Colors.TEAL_500, cb_quiz)
         out_exam = output_type_card(ft.Icons.TIMER_OUTLINED, "Exam Simulator", "Full-Length Timed Test", ft.Colors.ORANGE_500, cb_exam)
 
-        gen_btn = ft.ElevatedButton(
+        gen_btn = ft.Button(
             content=ft.Row(
                 alignment=ft.MainAxisAlignment.CENTER,
                 tight=True,
@@ -7932,14 +8004,14 @@ async def self_study_view(page: ft.Page):
             if not selected_types:
                 gen_error.value = "Select at least one output type."
                 gen_error_box.visible = True
-                page.update()
+                safe_update_dialog(page, modal)
                 return
 
             target = selected_target[0]
             if not target or not target.get("id"):
                 gen_error.value = "Please select a material first."
                 gen_error_box.visible = True
-                page.update()
+                safe_update_dialog(page, modal)
                 return
 
             gen_error_box.visible = False
@@ -7953,7 +8025,7 @@ async def self_study_view(page: ft.Page):
                     ft.Text("Queuing AI Tasks…", color=ft.Colors.ON_PRIMARY, size=12, weight=ft.FontWeight.W_600),
                 ],
             )
-            page.update()
+            safe_update_dialog(page, modal)
 
             t_id = target["id"]
             state["generating_mats"].add(t_id)
@@ -7978,15 +8050,14 @@ async def self_study_view(page: ft.Page):
                         ],
                     )
                     state["generating_mats"].discard(t_id)
-                    page.update()
+                    safe_update_dialog(page, modal)
                     return
 
                 state["gen_used"] += 1
                 _refresh_plan_ui()
 
                 # Dismiss modal immediately so user is never stuck with a lingering checkmark
-                modal.open = False
-                page.update()
+                safe_close_dialog(page, modal)
 
                 title_disp = format_material_title(target.get("title", "document"))
                 show_page_snackbar(page, f"✓ AI Generation queued for '{title_disp}'! Deck is generating in background.")
@@ -8008,7 +8079,7 @@ async def self_study_view(page: ft.Page):
                     ],
                 )
                 state["generating_mats"].discard(t_id)
-                page.update()
+                safe_update_dialog(page, modal)
 
             except Exception as ex:
                 gen_error.value = f"Failed to queue tasks ({type(ex).__name__})."
@@ -8024,7 +8095,7 @@ async def self_study_view(page: ft.Page):
                     ],
                 )
                 state["generating_mats"].discard(t_id)
-                page.update()
+                safe_update_dialog(page, modal)
 
         gen_btn.on_click = do_generate
 
@@ -8097,7 +8168,7 @@ async def self_study_view(page: ft.Page):
                             ),
                         ],
                     ),
-                    ft.ElevatedButton(
+                    ft.Button(
                         content=ft.Row(
                             tight=True,
                             spacing=6,
@@ -8109,15 +8180,14 @@ async def self_study_view(page: ft.Page):
                         bgcolor=ft.Colors.RED_700,
                         height=32,
                         style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), elevation=0),
-                        on_click=lambda _: (close_generate_modal(None), page.go("/store?tab=plans&back=/self-study")),
+                        on_click=lambda _: (close_generate_modal(None), page.navigate("/store?tab=plans&back=/self-study")),
                     ),
                 ],
             ),
         )
 
-        def close_generate_modal(e):
-            modal.open = False
-            page.update()
+        def close_generate_modal(e=None):
+            safe_close_dialog(page, modal)
 
         gen_w = min(page.width - 32, 480) if page.width else 440
         gen_h = min(page.height - 180, 520) if page.height else 460
@@ -8209,9 +8279,7 @@ async def self_study_view(page: ft.Page):
             ),
             actions=[],
         )
-        page.overlay.append(modal)
-        modal.open = True
-        page.update()
+        safe_open_dialog(page, modal, tag="study_generate")
 
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -8223,6 +8291,8 @@ async def self_study_view(page: ft.Page):
     # These wrappers preserve the original signatures, so go_flashcards /
     # go_quiz / go_exam below are untouched.
     # ─────────────────────────────────────────────────────────────────────────
+
+    study_haptics = ui.Haptics(page)
 
     def _reset_keyboard():
         """Sessions install their own shortcuts; drop them back on the hub."""
@@ -8238,6 +8308,7 @@ async def self_study_view(page: ft.Page):
             token=token,
             on_exit=_exit_study_session,
             on_restart=lambda: page.run_task(_start_flashcards, _current_selected_ids()),
+            haptics=study_haptics,
             material=state.get("active_material"),
         )
 
@@ -8247,6 +8318,7 @@ async def self_study_view(page: ft.Page):
             questions,
             on_exit=_exit_study_session,
             on_restart=lambda: page.run_task(_start_quiz, _current_selected_ids()),
+            haptics=study_haptics,
         )
 
     def _build_exam(questions: list, duration_seconds: int | None = None):
@@ -8258,12 +8330,40 @@ async def self_study_view(page: ft.Page):
             on_restart=lambda: page.run_task(_start_exam, _current_selected_ids()),
             on_lock=_lock_exam_ui,
             on_register_submit=lambda fn: state.update({"exam_submit_fn": fn}),
+            haptics=study_haptics,
         )
 
 
     # ─────────────────────────────────────────────────────────────────────────
-    # BOOT
+    # NATIVE FLET 1.1.2 CONNECTIVITY MONITOR & BOOT
     # ─────────────────────────────────────────────────────────────────────────
+    def _on_connectivity_change(e):
+        try:
+            raw_types = getattr(e, "connectivity", None) or []
+            is_none = any(
+                getattr(t, "value", str(t)).lower() == "none" for t in raw_types
+            ) or (len(raw_types) == 0)
+            was_offline = bool(state.get("is_offline"))
+            if is_none and not was_offline:
+                state["is_offline"] = True
+                show_page_snackbar(page, "Offline mode activated — using downloaded study vault.", ft.Colors.AMBER_800)
+                if state.get("on_hub"):
+                    page.run_task(_load_hub, True, None)
+            elif not is_none and was_offline:
+                state["is_offline"] = False
+                show_page_snackbar(page, "Back online — syncing Study Hub…", ft.Colors.GREEN_700)
+                if state.get("on_hub"):
+                    page.run_task(_load_hub, True, None)
+        except Exception:
+            pass
+
+    try:
+        conn_svc = ft.Connectivity(on_change=_on_connectivity_change)
+        if getattr(conn_svc, "_i", None) is None and hasattr(page, "_services") and page._services is not None:
+            page._services.register_service(conn_svc)
+    except Exception:
+        pass
+
     content_socket.content = _loading("Loading Study Hub…")
     _refresh_plan_ui()
     update_layout()

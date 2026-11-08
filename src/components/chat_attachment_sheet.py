@@ -44,14 +44,28 @@ def open_chat_actions_sheet(
 
     def _close(e=None):
         safe_close_dialog(page, dlg)
-        _on_dismiss()
 
     def _handle_action(callback: Callable):
         _close()
+
+        async def _run_after_dismiss():
+            import asyncio
+            import inspect
+            await asyncio.sleep(0.06)
+            try:
+                res = callback()
+                if inspect.isawaitable(res):
+                    await res
+            except Exception as ex:
+                print(f"[chat_actions] Callback error: {ex}")
+
         try:
-            callback()
-        except Exception as ex:
-            print(f"[chat_actions] Callback error: {ex}")
+            page.run_task(_run_after_dismiss)
+        except Exception:
+            try:
+                callback()
+            except Exception as ex:
+                print(f"[chat_actions] Callback error: {ex}")
 
     def _action_tile(icon, title: str, subtitle: str, color, on_click_fn):
         return ft.Container(

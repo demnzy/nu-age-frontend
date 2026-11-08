@@ -50,7 +50,7 @@ async def playlist_settings_view(page: ft.Page, playlist_id: str) -> ft.View:
         elif hasattr(page, "on_view_pop") and callable(page.on_view_pop):
             page.on_view_pop(None)
         else:
-            page.go("/organisations")
+            page.navigate("/organisations")
 
     theme_color = ft.Colors.INDIGO_600
 
@@ -113,7 +113,7 @@ async def playlist_settings_view(page: ft.Page, playlist_id: str) -> ft.View:
                     ft.FilledButton(
                         "Return to Dashboard",
                         icon=ft.Icons.ARROW_BACK_ROUNDED,
-                        on_click=lambda _: page.go("/organisations"),
+                        on_click=lambda _: page.navigate("/organisations"),
                     ),
                 ],
             ),
@@ -178,21 +178,21 @@ async def playlist_settings_view(page: ft.Page, playlist_id: str) -> ft.View:
                                 icon_color=ft.Colors.WHITE,
                                 icon_size=17,
                                 tooltip="Pathway Analytics",
-                                on_click=lambda _: page.go(f"/organisations/{effective_org_id}/playlists/{playlist_id}/analytics" if effective_org_id else f"/playlists/{playlist_id}/analytics"),
+                                on_click=lambda _: page.navigate(f"/organisations/{effective_org_id}/playlists/{playlist_id}/analytics" if effective_org_id else f"/playlists/{playlist_id}/analytics"),
                             ),
                             ft.IconButton(
                                 ft.Icons.EDIT_ROAD_ROUNDED,
                                 icon_color=ft.Colors.WHITE,
                                 icon_size=17,
                                 tooltip="Curriculum Roadmap Builder",
-                                on_click=lambda _: page.go(f"/playlists/{playlist_id}/build"),
+                                on_click=lambda _: page.navigate(f"/playlists/{playlist_id}/build"),
                             ),
                             ft.IconButton(
                                 ft.Icons.VISIBILITY_OUTLINED,
                                 icon_color=ft.Colors.WHITE,
                                 icon_size=17,
                                 tooltip="View Pathway",
-                                on_click=lambda _: page.go(f"/playlists/{playlist_id}"),
+                                on_click=lambda _: page.navigate(f"/playlists/{playlist_id}"),
                             ),
                         ], spacing=2),
                     ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
@@ -453,7 +453,7 @@ async def playlist_settings_view(page: ft.Page, playlist_id: str) -> ft.View:
                             shape=ft.RoundedRectangleBorder(radius=8),
                             padding=ft.Padding.symmetric(horizontal=14, vertical=10),
                         ),
-                        on_click=lambda _: page.go(f"/playlists/{playlist_id}/build"),
+                        on_click=lambda _: page.navigate(f"/playlists/{playlist_id}/build"),
                     ),
                 ], alignment=ft.MainAxisAlignment.START),
             ], spacing=6),

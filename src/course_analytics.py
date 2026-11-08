@@ -60,7 +60,7 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
         elif hasattr(page, "on_view_pop") and callable(page.on_view_pop):
             page.on_view_pop(None)
         else:
-            page.go(f"/organisations/{org_id}" if org_id else "/organisations")
+            page.navigate(f"/organisations/{org_id}" if org_id else "/organisations")
 
     theme_color = ft.Colors.INDIGO_600
     course_data: dict = {}
@@ -516,7 +516,7 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
                 result = await start_direct_message(token, str(uid))
                 if result and "error" in result:
                     print(f"DM create failed for {uid}: {result}")
-            page.go("/nu-chat")
+            page.navigate("/nu-chat")
 
         return ft.Container(
             padding=ft.Padding.all(10),
@@ -545,7 +545,7 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
                             icon_size=16,
                             icon_color=ft.Colors.ON_SURFACE_VARIANT,
                             tooltip="View Profile",
-                            on_click=lambda _, uid=user_id: page.go(f"/member/{uid}") if uid else None,
+                            on_click=lambda _, uid=user_id: page.navigate(f"/member/{uid}") if uid else None,
                         ),
                         ft.IconButton(
                             ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED,
@@ -672,21 +672,21 @@ async def course_analytics_view(page: ft.Page, org_id: str, course_id: str):
                                 icon_color=ft.Colors.WHITE,
                                 icon_size=16,
                                 tooltip="Manage Curriculum",
-                                on_click=lambda _: page.go(f"/courses/{course_id}/manage"),
+                                on_click=lambda _: page.navigate(f"/courses/{course_id}/manage"),
                             ),
                             ft.IconButton(
                                 ft.Icons.SETTINGS_OUTLINED,
                                 icon_color=ft.Colors.WHITE,
                                 icon_size=16,
                                 tooltip="Course Settings",
-                                on_click=lambda _: page.go(f"/organisations/{org_id}/courses/{course_id}/settings"),
+                                on_click=lambda _: page.navigate(f"/organisations/{org_id}/courses/{course_id}/settings"),
                             ),
                             ft.IconButton(
                                 ft.Icons.VISIBILITY_OUTLINED,
                                 icon_color=ft.Colors.WHITE,
                                 icon_size=16,
                                 tooltip="View Course Engine",
-                                on_click=lambda _: page.go(f"/courses/{course_id}/view"),
+                                on_click=lambda _: page.navigate(f"/courses/{course_id}/view"),
                             ),
                         ], spacing=0),
                     ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),

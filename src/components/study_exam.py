@@ -21,6 +21,7 @@ import re
 import flet as ft
 
 from src.components import study_ui as ui
+from src.utils.file_opener import safe_open_dialog, safe_close_dialog
 from src.components.exam_calculator import build_exam_calculator
 
 _LETTERS = ["A", "B", "C", "D", "E", "F"]
@@ -201,35 +202,47 @@ def build_exam(
     def _open_diagram_lightbox(url: str, title: str = "Question Diagram"):
         if not url:
             return
+        screen_w = getattr(page, "width", None) or 800
+        screen_h = getattr(page, "height", None) or 600
         dlg = ft.AlertDialog(
             modal=True,
+            shape=ft.RoundedRectangleBorder(radius=16),
+            bgcolor=ft.Colors.SURFACE,
             title=ft.Row(
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 controls=[
-                    ft.Text(title, size=15, weight=ft.FontWeight.BOLD),
+                    ft.Column(
+                        spacing=1,
+                        tight=True,
+                        controls=[
+                            ft.Text(title, size=14.5, weight=ft.FontWeight.BOLD),
+                            ft.Text("Pinch or scroll to zoom (up to 4x) • Drag to pan", size=10.5, color=ui.muted(0.65)),
+                        ],
+                    ),
                     ft.IconButton(
                         ft.Icons.CLOSE_ROUNDED,
                         tooltip="Close",
-                        on_click=lambda _: _close_lightbox(),
+                        on_click=lambda _: safe_close_dialog(page, dlg),
                     ),
                 ],
             ),
             content=ft.Container(
-                width=520,
-                content=ft.Image(
-                    src=url,
-                    fit=ft.BoxFit.CONTAIN,
-                    border_radius=ft.BorderRadius.all(10),
+                width=min(560, int(screen_w * 0.92)),
+                height=min(440, int(screen_h * 0.68)),
+                content=ft.InteractiveViewer(
+                    min_scale=0.8,
+                    max_scale=4.0,
+                    pan_enabled=True,
+                    scale_enabled=True,
+                    content=ft.Image(
+                        src=url,
+                        fit=ft.BoxFit.CONTAIN,
+                        border_radius=ft.BorderRadius.all(10),
+                    ),
                 ),
             ),
         )
-        def _close_lightbox():
-            dlg.open = False
-            page.update()
-
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
+        safe_open_dialog(page, dlg, tag="exam_diagram_lightbox")
 
     options_col = ft.Column(spacing=9)
 

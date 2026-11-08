@@ -1536,7 +1536,7 @@ def open_course_creation_studio(
                 if on_course_created:
                     on_course_created(res)
                 try:
-                    page.go(f"/courses/{res['id']}")
+                    page.navigate(f"/courses/{res['id']}")
                 except Exception:
                     pass
             else:

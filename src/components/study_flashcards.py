@@ -70,6 +70,16 @@ def build_flashcard_session(
 
     is_compact = bool(getattr(page, "width", None) and page.width < 768)
 
+    front_scroll_col = ft.Column(
+        alignment=ft.MainAxisAlignment.CENTER,
+        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+        controls=[
+            ft.Container(
+                alignment=ft.Alignment.CENTER,
+                content=front_markdown,
+            ),
+        ],
+    )
     front_face = ft.Column(
         expand=True,
         alignment=ft.MainAxisAlignment.CENTER,
@@ -80,17 +90,17 @@ def build_flashcard_session(
             ft.Container(
                 expand=True,
                 alignment=ft.Alignment.CENTER,
-                content=ft.Column(
-                    scroll=ft.ScrollMode.AUTO,
-                    alignment=ft.MainAxisAlignment.START,
-                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                    controls=[
-                        ft.Container(
-                            alignment=ft.Alignment.CENTER,
-                            content=front_markdown,
-                        ),
-                    ],
-                ),
+                content=front_scroll_col,
+            ),
+        ],
+    )
+    back_scroll_col = ft.Column(
+        alignment=ft.MainAxisAlignment.CENTER,
+        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+        controls=[
+            ft.Container(
+                alignment=ft.Alignment.CENTER,
+                content=back_markdown,
             ),
         ],
     )
@@ -105,17 +115,7 @@ def build_flashcard_session(
             ft.Container(
                 expand=True,
                 alignment=ft.Alignment.CENTER,
-                content=ft.Column(
-                    scroll=ft.ScrollMode.AUTO,
-                    alignment=ft.MainAxisAlignment.START,
-                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                    controls=[
-                        ft.Container(
-                            alignment=ft.Alignment.CENTER,
-                            content=back_markdown,
-                        ),
-                    ],
-                ),
+                content=back_scroll_col,
             ),
         ],
     )
@@ -159,23 +159,27 @@ def build_flashcard_session(
     def _get_font_size(text: str) -> float:
         l = len((text or "").strip())
         if is_compact:
-            if l <= 60:
-                return 17
-            elif l <= 140:
-                return 15
-            elif l <= 280:
-                return 13.5
+            if l <= 35:
+                return 25.0
+            elif l <= 80:
+                return 21.0
+            elif l <= 160:
+                return 17.5
+            elif l <= 300:
+                return 15.0
             else:
-                return 12
+                return 13.5
         else:
-            if l <= 60:
-                return 22
-            elif l <= 140:
-                return 18
-            elif l <= 280:
-                return 15
+            if l <= 35:
+                return 32.0
+            elif l <= 80:
+                return 26.0
+            elif l <= 160:
+                return 21.0
+            elif l <= 300:
+                return 17.5
             else:
-                return 13.5
+                return 15.0
 
     def _make_stylesheet(size: float, is_bold: bool = False):
         return ft.MarkdownStyleSheet(
@@ -213,8 +217,13 @@ def build_flashcard_session(
 
         f_size = _get_font_size(front_val)
         b_size = _get_font_size(back_val)
-        front_markdown.md_style_sheet = _make_stylesheet(f_size, is_bold=(f_size >= 18))
+        front_markdown.md_style_sheet = _make_stylesheet(f_size, is_bold=(f_size >= 21))
         back_markdown.md_style_sheet = _make_stylesheet(b_size, is_bold=False)
+
+        # Adaptive scrolling: keep short cards centered with zero scroll offset jitter,
+        # and enable smooth scrolling only when content exceeds normal card bounds.
+        front_scroll_col.scroll = ft.ScrollMode.ADAPTIVE if len(front_val) > 280 else None
+        back_scroll_col.scroll = ft.ScrollMode.ADAPTIVE if len(back_val) > 280 else None
 
         front_markdown.value = front_val
         back_markdown.value = back_val

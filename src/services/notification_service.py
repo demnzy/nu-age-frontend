@@ -145,7 +145,7 @@ async def sync_learner_notifications(page: ft.Page, force: bool = False):
                     def _make_action(rt=action_route):
                         def _act():
                             if rt:
-                                page.go(rt)
+                                page.navigate(rt)
                         return _act
 
                     data_payload = item.get("data_payload") or item.get("data") or {}
@@ -275,7 +275,7 @@ async def sync_learner_notifications(page: ft.Page, force: bool = False):
                                     return
                                 except Exception:
                                     pass
-                            page.go(f"/spaces/{sp_id}?tab=sessions")
+                            page.navigate(f"/spaces/{sp_id}?tab=sessions")
                         return lambda: page.run_task(_launch)
 
                     if is_live:
@@ -298,7 +298,7 @@ async def sync_learner_notifications(page: ft.Page, force: bool = False):
                             category="live_session",
                             icon=ft.Icons.ALARM_ROUNDED,
                             action_label="View Details",
-                            on_action=lambda sp_id=s_space_id: page.go(f"/spaces/{sp_id}?tab=sessions"),
+                            on_action=lambda sp_id=s_space_id: page.navigate(f"/spaces/{sp_id}?tab=sessions"),
                         )
 
             # Prune finished session notifications

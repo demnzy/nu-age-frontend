@@ -236,7 +236,7 @@ def build_org_spaces_tab(
                     )
                 )
 
-        btn_save = ft.ElevatedButton(
+        btn_save = ft.Button(
             "Save Changes" if is_edit else "Create Space",
             icon=ft.Icons.CHECK_ROUNDED,
             style=ft.ButtonStyle(
@@ -435,7 +435,7 @@ def build_org_spaces_tab(
             text_size=13,
             content_padding=ft.Padding.symmetric(horizontal=12, vertical=11),
         )
-        btn_join = ft.ElevatedButton(
+        btn_join = ft.Button(
             "Join Space",
             icon=ft.Icons.LOGIN_ROUNDED,
             style=ft.ButtonStyle(
@@ -461,7 +461,7 @@ def build_org_spaces_tab(
                 _close_dialog(join_dlg)
                 sp_id = res.get("space_id") or (res.get("space") or {}).get("id")
                 if sp_id:
-                    page.go(f"/spaces/{sp_id}")
+                    page.navigate(f"/spaces/{sp_id}")
                 else:
                     await _fetch_spaces()
             else:
@@ -573,7 +573,7 @@ def build_org_spaces_tab(
             )
         )
 
-        btn_send = ft.ElevatedButton(
+        btn_send = ft.Button(
             "Enroll & Send Invite",
             icon=ft.Icons.SEND_ROUNDED,
             style=ft.ButtonStyle(
@@ -642,7 +642,7 @@ def build_org_spaces_tab(
                         ],
                         spacing=1,
                     ),
-                    ft.ElevatedButton(
+                    ft.Button(
                         "Copy Code",
                         icon=ft.Icons.COPY_ALL_ROUNDED,
                         style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
@@ -808,22 +808,22 @@ def build_org_spaces_tab(
                     ft.PopupMenuItem(
                         icon=ft.Icons.CLOUD_UPLOAD_ROUNDED,
                         content="Upload / Manage Materials",
-                        on_click=lambda ev, tb=target_base: page.go(f"{tb}?tab=materials"),
+                        on_click=lambda ev, tb=target_base: page.navigate(f"{tb}?tab=materials"),
                     ),
                     ft.PopupMenuItem(
                         icon=ft.Icons.AUTO_AWESOME_ROUNDED,
                         content="Create / Manage CBT Drills",
-                        on_click=lambda ev, tb=target_base: page.go(f"{tb}?tab=drills"),
+                        on_click=lambda ev, tb=target_base: page.navigate(f"{tb}?tab=drills"),
                     ),
                     ft.PopupMenuItem(
                         icon=ft.Icons.VIDEO_CALL_ROUNDED,
                         content="Schedule Live Classes",
-                        on_click=lambda ev, tb=target_base: page.go(f"{tb}?tab=sessions"),
+                        on_click=lambda ev, tb=target_base: page.navigate(f"{tb}?tab=sessions"),
                     ),
                     ft.PopupMenuItem(
                         icon=ft.Icons.PEOPLE_ALT_ROUNDED,
                         content="Manage Members & Co-Tutors",
-                        on_click=lambda ev, tb=target_base: page.go(f"{tb}?tab=members"),
+                        on_click=lambda ev, tb=target_base: page.navigate(f"{tb}?tab=members"),
                     ),
                     ft.PopupMenuItem(
                         icon=ft.Icons.EDIT_ROUNDED,
@@ -843,7 +843,7 @@ def build_org_spaces_tab(
                 ],
             )
 
-        primary_btn = ft.ElevatedButton(
+        primary_btn = ft.Button(
             "Configure Space" if can_manage else ("Open Space" if is_enrolled else ("Join & Enter" if is_open else "Unlock with Code")),
             icon=ft.Icons.TUNE_ROUNDED if can_manage else (ft.Icons.ARROW_FORWARD_ROUNDED if is_enrolled else (ft.Icons.LOGIN_ROUNDED if is_open else ft.Icons.VPN_KEY_ROUNDED)),
             style=ft.ButtonStyle(
@@ -855,7 +855,7 @@ def build_org_spaces_tab(
 
         async def _on_primary_click(ev):
             if can_manage or is_enrolled:
-                page.go(target_base)
+                page.navigate(target_base)
                 return
             if not is_open:
                 _open_join_modal()
@@ -868,7 +868,7 @@ def build_org_spaces_tab(
             j_res = await join_course_space(token=token, space_id=sp_id)
             if j_res.get("status") == "success":
                 show_page_snackbar(page, f"Joined {name}!")
-                page.go(target_base)
+                page.navigate(target_base)
             else:
                 show_page_snackbar(page, j_res.get("message", "Could not join space."))
                 primary_btn.disabled = False
@@ -1017,7 +1017,7 @@ def build_org_spaces_tab(
                             bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
                             ink=is_enrolled,
                             tooltip="Manage Linked Courses" if can_manage else ("Open Linked Courses" if is_enrolled else None),
-                            on_click=(lambda ev, tb=target_base: page.go(f"{tb}?tab=courses")) if is_enrolled else None,
+                            on_click=(lambda ev, tb=target_base: page.navigate(f"{tb}?tab=courses")) if is_enrolled else None,
                             content=ft.Text(f"📚 {c_count} Courses", size=11, weight=ft.FontWeight.W_600),
                         ),
                         ft.Container(
@@ -1026,7 +1026,7 @@ def build_org_spaces_tab(
                             bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
                             ink=is_enrolled,
                             tooltip="Manage Materials Vault" if can_manage else ("Open Materials Vault" if is_enrolled else None),
-                            on_click=(lambda ev, tb=target_base: page.go(f"{tb}?tab=materials")) if is_enrolled else None,
+                            on_click=(lambda ev, tb=target_base: page.navigate(f"{tb}?tab=materials")) if is_enrolled else None,
                             content=ft.Text(f"📁 {m_count} Resources", size=11, weight=ft.FontWeight.W_600),
                         ),
                         ft.Container(
@@ -1035,7 +1035,7 @@ def build_org_spaces_tab(
                             bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
                             ink=is_enrolled,
                             tooltip="Manage CBT Drills & Exams" if can_manage else ("Open CBT Drills & Exams" if is_enrolled else None),
-                            on_click=(lambda ev, tb=target_base: page.go(f"{tb}?tab=drills")) if is_enrolled else None,
+                            on_click=(lambda ev, tb=target_base: page.navigate(f"{tb}?tab=drills")) if is_enrolled else None,
                             content=ft.Text(f"⚡ {q_count} CBT Drills", size=11, weight=ft.FontWeight.W_600),
                         ),
                         ft.Container(
@@ -1044,7 +1044,7 @@ def build_org_spaces_tab(
                             bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
                             ink=is_enrolled,
                             tooltip="Schedule Live Classes" if can_manage else ("Open Live Classes & Meetings" if is_enrolled else None),
-                            on_click=(lambda ev, tb=target_base: page.go(f"{tb}?tab=sessions")) if is_enrolled else None,
+                            on_click=(lambda ev, tb=target_base: page.navigate(f"{tb}?tab=sessions")) if is_enrolled else None,
                             content=ft.Text(f"🎥 {s_count} Live", size=11, weight=ft.FontWeight.W_600),
                         ),
                     ],
@@ -1113,7 +1113,7 @@ def build_org_spaces_tab(
         ]
         if is_admin:
             btn_controls.append(
-                ft.ElevatedButton(
+                ft.Button(
                     "+ Create Space",
                     icon=ft.Icons.ADD_ROUNDED,
                     style=ft.ButtonStyle(bgcolor=theme_color, color=ft.Colors.ON_PRIMARY),
@@ -1213,7 +1213,7 @@ def build_org_spaces_tab(
             if is_admin and not has_filters:
                 zero_actions.insert(
                     0,
-                    ft.ElevatedButton(
+                    ft.Button(
                         "+ Create Your First Course Space",
                         icon=ft.Icons.ADD_ROUNDED,
                         style=ft.ButtonStyle(bgcolor=theme_color, color=ft.Colors.ON_PRIMARY),

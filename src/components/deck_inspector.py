@@ -7,7 +7,13 @@ and SRS mastery states for a study material with rich Markdown support.
 import asyncio
 import flet as ft
 from src.requests.study import get_all_cards
-from src.utils.file_opener import safe_set_clipboard, show_page_snackbar, safe_open_dialog, safe_close_dialog
+from src.utils.file_opener import (
+    safe_set_clipboard,
+    show_page_snackbar,
+    safe_open_dialog,
+    safe_close_dialog,
+    safe_update_dialog,
+)
 
 
 def open_deck_inspector(
@@ -123,7 +129,7 @@ def open_deck_inspector(
             )
             if not cards_state["loading"] and body_switcher.content != cards_view:
                 body_switcher.content = cards_view
-            page.update()
+            safe_update_dialog(page, dlg)
             return
 
         for idx, card in enumerate(filtered, start=1):
@@ -261,7 +267,7 @@ def open_deck_inspector(
         if not cards_state["loading"] and body_switcher.content != cards_view:
             body_switcher.content = cards_view
 
-        page.update()
+        safe_update_dialog(page, dlg)
 
     # ── Filter buttons ────────────────────────────────────────────────────────
     def _set_filter(f_name: str):

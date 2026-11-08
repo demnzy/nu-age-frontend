@@ -67,6 +67,9 @@ def get_local_db(page: ft.Page = None) -> sqlite3.Connection:
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
 
     _connection = sqlite3.connect(db_path, check_same_thread=False)
+    _connection.execute("PRAGMA journal_mode = WAL")
+    _connection.execute("PRAGMA synchronous = NORMAL")
+    _connection.execute("PRAGMA temp_store = MEMORY")
     _connection.execute("PRAGMA foreign_keys = ON")
 
     # Handle schema migration for sender_name

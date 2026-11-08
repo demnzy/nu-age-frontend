@@ -27,6 +27,11 @@ from src.components.objectives_and_leaderboard_modal import (
 )
 
 
+# Module-level cache of last known partnership state keyed by token suffix
+# Eliminates skeleton-to-card vertical layout jumps on Study Hub re-renders
+_PARTNER_STATE_CACHE: dict[str, dict] = {}
+
+
 def _initials(first: str, last: str) -> str:
     return f"{(first or '?')[:1]}{(last or '?')[:1]}".upper()
 
@@ -41,8 +46,23 @@ def build_study_partner_cockpit(
     Builds the interactive Study Partner Cockpit widget.
     Loads active partnership asynchronously and renders the corresponding cockpit card.
     """
+    cache_key = (token or "")[-24:] if token else ""
+    cached_res = _PARTNER_STATE_CACHE.get(cache_key) if cache_key else None
+
+    def _safe_update_card():
+        try:
+            if getattr(card_container, "page", None) is not None:
+                card_container.update()
+                return
+        except Exception:
+            pass
+        try:
+            page.update()
+        except Exception:
+            pass
+
     def _build_skeleton_card() -> ft.Container:
-        return ft.Container(
+        inner = ft.Container(
             padding=ft.Padding.symmetric(horizontal=16, vertical=14),
             border_radius=ft.BorderRadius.all(16),
             bgcolor=ft.Colors.SURFACE,
@@ -91,23 +111,28 @@ def build_study_partner_cockpit(
                             ),
                         ],
                     ),
-                    ft.Container(
-                        padding=ft.Padding.symmetric(horizontal=10, vertical=6),
-                        border_radius=ft.BorderRadius.all(8),
-                        bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
-                        content=ft.Text("Syncing…", size=11, weight=ft.FontWeight.W_600, color=ft.Colors.GREY_400),
+                    ft.Shimmer(
+                        base_color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
+                        highlight_color=ft.Colors.with_opacity(0.24, ft.Colors.ON_SURFACE),
+                        content=ft.Container(
+                            padding=ft.Padding.symmetric(horizontal=10, vertical=6),
+                            border_radius=ft.BorderRadius.all(8),
+                            bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
+                            content=ft.Text("Syncing…", size=11, weight=ft.FontWeight.W_600, color=ft.Colors.GREY_400),
+                        ),
                     ),
                 ],
             ),
         )
+        return inner
 
     card_container = ft.Container(
         margin=ft.Margin.only(bottom=12),
         content=_build_skeleton_card(),
-        opacity=0.9,
+        opacity=1.0 if cached_res is not None else 0.9,
         offset=ft.Offset(0, 0),
-        animate_opacity=ft.Animation(450, ft.AnimationCurve.DECELERATE),
-        animate_offset=ft.Animation(450, ft.AnimationCurve.DECELERATE),
+        animate_opacity=ft.Animation(300, ft.AnimationCurve.DECELERATE),
+        animate_offset=ft.Animation(300, ft.AnimationCurve.DECELERATE),
         visible=bool(token),
     )
 
@@ -119,12 +144,16 @@ def build_study_partner_cockpit(
         nonlocal active_partnerships_list, selected_p_idx, is_offline_state
         if not token:
             card_container.visible = False
-            page.update()
+            _safe_update_card()
             return
 
+        had_cached = (cache_key in _PARTNER_STATE_CACHE)
         res = await get_active_partnership(token)
         if not res or not isinstance(res, dict):
             res = {}
+        if cache_key and res:
+            _PARTNER_STATE_CACHE[cache_key] = res
+
         has_p = bool(res.get("has_partnership"))
         is_offline_state = bool(res.get("is_offline"))
         active_partnerships_list = res.get("partnerships") or ([res.get("partnership")] if res.get("partnership") else [])
@@ -133,15 +162,17 @@ def build_study_partner_cockpit(
 
         target_card = _build_active_card(active_partnerships_list[selected_p_idx]) if (has_p and active_partnerships_list) else _build_invite_card()
 
-        # Smooth crossfade transition into the live loaded card
-        card_container.opacity = 0
-        card_container.offset = ft.Offset(0, 0.04)
-        page.update()
-        await asyncio.sleep(0.08)
-        card_container.content = target_card
-        card_container.opacity = 1
-        card_container.offset = ft.Offset(0, 0)
-        page.update()
+        if had_cached:
+            # Update in-place with zero opacity/offset dip or vertical jump!
+            card_container.content = target_card
+            card_container.opacity = 1.0
+            card_container.offset = ft.Offset(0, 0)
+            _safe_update_card()
+        else:
+            card_container.content = target_card
+            card_container.opacity = 1.0
+            card_container.offset = ft.Offset(0, 0)
+            _safe_update_card()
 
     def _build_invite_card() -> ft.Container:
         return ft.Container(
@@ -197,7 +228,7 @@ def build_study_partner_cockpit(
                     ft.Container(
                         col={"xs": 12, "md": 3},
                         alignment=ft.Alignment.CENTER_RIGHT,
-                        content=ft.ElevatedButton(
+                        content=ft.Button(
                             content=ft.Row(
                                 tight=True,
                                 spacing=6,
@@ -213,7 +244,7 @@ def build_study_partner_cockpit(
                                 elevation=0,
                                 padding=ft.Padding.symmetric(horizontal=14),
                             ),
-                            on_click=lambda _: page.go("/network?tab=partners"),
+                            on_click=lambda _: page.navigate("/network?tab=partners"),
                         ),
                     ),
                 ],
@@ -296,7 +327,7 @@ def build_study_partner_cockpit(
                                     f"{p_item_streak}d",
                                     size=10.5,
                                     weight=ft.FontWeight.W_700 if is_sel else ft.FontWeight.W_500,
-                                    color=ft.Colors.WHITE70 if is_sel else ft.Colors.GREY_500,
+                                    color=ft.Colors.WHITE_70 if is_sel else ft.Colors.GREY_500,
                                     no_wrap=True,
                                 ),
                             ],
@@ -495,7 +526,7 @@ def build_study_partner_cockpit(
                     m_title = mat.get("title") or "Study Material"
                     m_type = (mat.get("source_type") or "text").upper()
 
-                    btn = ft.ElevatedButton(
+                    btn = ft.Button(
                         content=ft.Text("Share", size=12, weight=ft.FontWeight.W_700, no_wrap=True),
                         bgcolor=ft.Colors.PRIMARY,
                         color=ft.Colors.WHITE,
@@ -702,7 +733,7 @@ def build_study_partner_cockpit(
                         ft.Container(
                             col={"xs": 12, "sm": 4},
                             alignment=ft.Alignment.CENTER_RIGHT,
-                            content=ft.ElevatedButton(
+                            content=ft.Button(
                                 content=ft.Row(
                                     tight=True,
                                     spacing=4,
@@ -819,7 +850,7 @@ def build_study_partner_cockpit(
             border_radius=ft.BorderRadius.all(16),
             bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.AMBER),
             ink=True,
-            on_click=lambda _: page.go("/leaderboards?tab=objectives"),
+            on_click=lambda _: page.navigate("/leaderboards?tab=objectives"),
             content=ft.Row(
                 tight=True,
                 spacing=4,
@@ -851,7 +882,7 @@ def build_study_partner_cockpit(
             border_radius=ft.BorderRadius.all(16),
             bgcolor=ft.Colors.with_opacity(0.05, ft.Colors.ON_SURFACE),
             ink=True,
-            on_click=lambda _: page.go("/leaderboards?tab=leaderboards"),
+            on_click=lambda _: page.navigate("/leaderboards?tab=leaderboards"),
             content=ft.Row(
                 tight=True,
                 spacing=4,
@@ -867,7 +898,7 @@ def build_study_partner_cockpit(
             border_radius=ft.BorderRadius.all(16),
             bgcolor=ft.Colors.with_opacity(0.05, ft.Colors.ON_SURFACE),
             ink=True,
-            on_click=lambda _: page.go("/leaderboards?tab=history"),
+            on_click=lambda _: page.navigate("/leaderboards?tab=history"),
             content=ft.Row(
                 tight=True,
                 spacing=4,
@@ -1157,13 +1188,13 @@ def build_study_partner_cockpit(
                                 ),
                             ),
                             _link_btn(nu_coin_icon(size=14), ft.Colors.AMBER_800, "Objectives", ft.Colors.AMBER_900,
-                                      lambda _: page.go("/leaderboards?tab=objectives")),
+                                      lambda _: page.navigate("/leaderboards?tab=objectives")),
                             _link_btn(ft.Icons.FOLDER_SHARED_ROUNDED, ft.Colors.PRIMARY, "Packs", ft.Colors.PRIMARY,
                                       lambda _: show_objectives_and_leaderboard_dialog(page, token, p_id, partner, "shared_packs", on_coins_changed=lambda: page.run_task(_load_partner_state))),
                             _link_btn(ft.Icons.LEADERBOARD_ROUNDED, ft.Colors.PRIMARY, "Ranks", ft.Colors.PRIMARY,
-                                      lambda _: page.go("/leaderboards?tab=leaderboards")),
+                                      lambda _: page.navigate("/leaderboards?tab=leaderboards")),
                             _link_btn(ft.Icons.HISTORY_ROUNDED, ft.Colors.BLUE_700, "History", ft.Colors.BLUE_800,
-                                      lambda _: page.go("/leaderboards?tab=history")),
+                                      lambda _: page.navigate("/leaderboards?tab=history")),
                         ],
                     ),
                     pending_banner,
@@ -1204,6 +1235,16 @@ def build_study_partner_cockpit(
         page.on_resize = _chained_resize
     except Exception:
         pass
+
+    # Pre-populate immediately from cache if available so re-mounting on Hub has zero height jump
+    if cached_res is not None and isinstance(cached_res, dict):
+        has_p_c = bool(cached_res.get("has_partnership"))
+        is_offline_state = bool(cached_res.get("is_offline"))
+        active_partnerships_list = cached_res.get("partnerships") or ([cached_res.get("partnership")] if cached_res.get("partnership") else [])
+        if has_p_c and active_partnerships_list:
+            card_container.content = _build_active_card(active_partnerships_list[0])
+        else:
+            card_container.content = _build_invite_card()
 
     # Launch initial async load
     page.run_task(_load_partner_state)

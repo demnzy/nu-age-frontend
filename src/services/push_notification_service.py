@@ -15,15 +15,25 @@ import uuid
 import json
 import asyncio
 import httpx
+import importlib
 from typing import Optional, Callable, Any, Union
 import flet as ft
 
-# Check if flet_onesignal is installed
-try:
-    import flet_onesignal as fos
-    _ONESIGNAL_AVAILABLE = True
-except ImportError:
-    _ONESIGNAL_AVAILABLE = False
+fos = None
+_ONESIGNAL_AVAILABLE: Optional[bool] = None
+
+
+def _ensure_onesignal_loaded() -> bool:
+    """Lazily loads `flet_onesignal` only when needed on native mobile builds."""
+    global fos, _ONESIGNAL_AVAILABLE
+    if _ONESIGNAL_AVAILABLE is not None:
+        return _ONESIGNAL_AVAILABLE
+    try:
+        fos = importlib.import_module("flet_onesignal")
+        _ONESIGNAL_AVAILABLE = True
+    except ImportError:
+        _ONESIGNAL_AVAILABLE = False
+    return _ONESIGNAL_AVAILABLE
 
 from src.components.notifications_drawer import NotificationManager
 from src.requests.auth import api_url
@@ -199,14 +209,14 @@ async def init_push_notifications(
     """
     global _onesignal_instance
 
-    if not _ONESIGNAL_AVAILABLE:
-        print("[PushService] flet_onesignal library not available in environment.")
-        return None
-
     if not is_push_supported(page):
-        # Gracefully handle desktop / web preview / flet run companion
+        # Gracefully handle desktop / web preview / flet run companion without loading flet_onesignal
         platform_name = page.platform.value if hasattr(page, "platform") and page.platform else "desktop"
         print(f"[PushService] Push idle (platform: {platform_name}, python_on_device: {_python_runs_on_device()}).")
+        return None
+
+    if not _ensure_onesignal_loaded():
+        print("[PushService] flet_onesignal library not available in environment.")
         return None
 
     page_id = id(page)
@@ -247,12 +257,12 @@ async def init_push_notifications(
                     else:
                         page.on_route_change(ev)
             elif hasattr(page, "go"):
-                page.go(target_route)
+                page.navigate(target_route)
         except Exception as nav_ex:
             print(f"[PushService] Navigation dispatch error: {nav_ex!r}")
             try:
                 if hasattr(page, "go"):
-                    page.go(target_route)
+                    page.navigate(target_route)
             except Exception:
                 pass
 
@@ -269,7 +279,7 @@ async def init_push_notifications(
             print(f"[PushService] Error processing notification click: {ex!r}")
             try:
                 if hasattr(page, "go"):
-                    page.go("/notifications")
+                    page.navigate("/notifications")
             except Exception:
                 pass
 
@@ -319,7 +329,7 @@ async def init_push_notifications(
                             ft.Column(
                                 [
                                     ft.Text(title, weight=ft.FontWeight.BOLD, size=13, color=ft.Colors.WHITE),
-                                    ft.Text(body, size=12, color=ft.Colors.WHITE70, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                                    ft.Text(body, size=12, color=ft.Colors.WHITE_70, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                                 ],
                                 spacing=2,
                                 tight=True,

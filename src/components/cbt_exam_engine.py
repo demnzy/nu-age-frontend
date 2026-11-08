@@ -31,6 +31,7 @@ import flet as ft
 from src.components import study_ui as ui
 from src.components.exam_calculator import build_exam_calculator
 from src.local_db import record_exam_attempt, get_exam_attempts
+from src.utils.file_opener import safe_open_dialog, safe_close_dialog, run_after_modal_close
 
 _LETTERS = ["A", "B", "C", "D", "E"]
 _DEFAULT_API_BASE = "https://api.nu-age.name.ng"
@@ -754,7 +755,10 @@ class CBTExamEngine:
             controls=[
                 ft.Row([
                     ft.Icon(ft.Icons.IMAGE_SEARCH_ROUNDED, size=18, color=ft.Colors.PRIMARY),
-                    ft.Text("Question Diagram Lightbox", size=14, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
+                    ft.Column([
+                        ft.Text("Question Diagram Lightbox", size=14, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
+                        ft.Text("Pinch or scroll to zoom (up to 4x) • Drag to pan", size=10.5, color=ui.muted()),
+                    ], spacing=1, tight=True),
                 ], spacing=8, tight=True),
                 ft.IconButton(
                     icon=ft.Icons.CLOSE_ROUNDED,
@@ -771,20 +775,25 @@ class CBTExamEngine:
             content=ft.Column([
                 header,
                 ft.Container(
+                    height=img_max_h,
                     alignment=ft.Alignment.CENTER,
-                    content=ft.Image(
-                        src=url,
-                        fit=ft.BoxFit.CONTAIN,
-                        height=img_max_h,
-                        border_radius=ft.BorderRadius.all(10),
+                    content=ft.InteractiveViewer(
+                        min_scale=0.8,
+                        max_scale=4.0,
+                        pan_enabled=True,
+                        scale_enabled=True,
+                        content=ft.Image(
+                            src=url,
+                            fit=ft.BoxFit.CONTAIN,
+                            height=img_max_h,
+                            border_radius=ft.BorderRadius.all(10),
+                        ),
                     ),
                 ),
             ], spacing=12, tight=True),
         )
 
-        lightbox_dlg.open = True
-        self.page.overlay.append(lightbox_dlg)
-        self.page.update()
+        safe_open_dialog(self.page, lightbox_dlg, tag="cbt_diagram_lightbox")
 
     def _build_option_tile(self, idx: int, text: str, is_selected: bool) -> ft.Container:
         """Tactile option tile (A-E) with high-contrast radio letter squircle and Markdown formatting support."""
@@ -892,13 +901,11 @@ class CBTExamEngine:
                 ft.FilledButton(
                     "Exit to Hub",
                     style=ft.ButtonStyle(bgcolor=ft.Colors.RED_600, color=ft.Colors.WHITE),
-                    on_click=lambda _: (self._close_dialog(exit_dlg), self._handle_direct_exit()),
+                    on_click=lambda _: run_after_modal_close(self.page, exit_dlg, self._handle_direct_exit),
                 ),
             ],
         )
-        exit_dlg.open = True
-        self.page.overlay.append(exit_dlg)
-        self.page.update()
+        safe_open_dialog(self.page, exit_dlg, tag="cbt_exit_confirm")
 
     def _handle_direct_exit(self):
         self.is_running = False
@@ -1176,9 +1183,7 @@ class CBTExamEngine:
             content=ft.Column([header, body], spacing=0, tight=True),
         )
 
-        dlg.open = True
-        self.page.overlay.append(dlg)
-        self.page.update()
+        safe_open_dialog(self.page, dlg, tag="cbt_audit_confirm")
 
     def _audit_stat_tile(self, label: str, value: str, color: str) -> ft.Container:
         return ft.Container(
@@ -1242,12 +1247,11 @@ class CBTExamEngine:
 
     def _confirm_and_submit_exam(self, dlg: ft.AlertDialog):
         """Atomically closes audit dialog and initiates exam submission."""
-        dlg.open = False
+        safe_close_dialog(self.page, dlg)
         self._submit_exam(is_auto_timeout=False)
 
     def _close_dialog(self, dlg: ft.AlertDialog):
-        dlg.open = False
-        self.page.update()
+        safe_close_dialog(self.page, dlg)
 
     # ── SUBMISSION & DIAGNOSTIC REPORT ENGINE ──
     def _submit_exam(self, is_auto_timeout: bool = False):

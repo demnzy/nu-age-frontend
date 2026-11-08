@@ -1,6 +1,13 @@
 import flet as ft
 import asyncio
-from src.utils.file_opener import show_page_snackbar, safe_set_clipboard
+from src.utils.file_opener import (
+    show_page_snackbar,
+    safe_set_clipboard,
+    safe_open_dialog,
+    safe_close_dialog,
+    safe_update_dialog,
+    run_after_modal_close,
+)
 from src.utils.typing_animator import stream_typing_animation
 from src.components.create_journal_modal import JOURNAL_COLORS, resolve_journal_color
 from src.components.deck_inspector import open_deck_inspector
@@ -189,8 +196,7 @@ def build_journal_cockpit(
 
         def _close_reader(e=None):
             if reader_dlg[0]:
-                reader_dlg[0].open = False
-                page.update()
+                safe_close_dialog(page, reader_dlg[0])
 
         async def _copy_source():
             if m_content:
@@ -198,21 +204,27 @@ def build_journal_cockpit(
                 show_page_snackbar(page, f"Copied '{m_title}' notes to clipboard.")
 
         def _jump_to_material(e=None):
-            _close_reader()
-            if on_open_material:
-                target_mat = vault_match or mat_item
-                state["unmounted"] = True
-                on_open_material(target_mat)
+            def _do_jump():
+                if on_open_material:
+                    target_mat = vault_match or mat_item
+                    state["unmounted"] = True
+                    on_open_material(target_mat)
+            if reader_dlg[0]:
+                run_after_modal_close(page, reader_dlg[0], _do_jump)
+            else:
+                _do_jump()
 
         dlg_w = min(680, int((page.width or 420) * 0.94))
         dlg_h = min(500, int((page.height or 680) * 0.65))
 
         body_control = (
-            ft.Markdown(
-                m_content,
-                selectable=True,
-                extension_set=ft.MarkdownExtensionSet.GITHUB_FLAVORED,
-                on_tap_link=lambda e: None,
+            ft.SelectionArea(
+                content=ft.Markdown(
+                    m_content,
+                    selectable=True,
+                    extension_set=ft.MarkdownExtensionSet.GITHUB_FLAVORED,
+                    on_tap_link=lambda e: None,
+                )
             )
             if m_content.strip()
             else ft.Container(
@@ -257,7 +269,7 @@ def build_journal_cockpit(
                 )
             )
         actions_list.append(
-            ft.ElevatedButton(
+            ft.Button(
                 "Done",
                 bgcolor=color_token,
                 color=ft.Colors.WHITE,
@@ -327,9 +339,7 @@ def build_journal_cockpit(
             ),
             actions=actions_list,
         )
-        page.overlay.append(reader_dlg[0])
-        reader_dlg[0].open = True
-        page.update()
+        safe_open_dialog(page, reader_dlg[0], tag="journal_source_reader")
 
     # ── Modal 2: Full-Screen Executive Study Guide Reader ────────────────────
     def _open_full_study_guide_modal(e=None):
@@ -346,8 +356,7 @@ def build_journal_cockpit(
 
         def _close_guide_dlg(ev=None):
             if guide_dlg[0]:
-                guide_dlg[0].open = False
-                page.update()
+                safe_close_dialog(page, guide_dlg[0])
 
         async def _copy_guide():
             await safe_set_clipboard(page, guide_text)
@@ -413,11 +422,13 @@ def build_journal_cockpit(
                     scroll=ft.ScrollMode.AUTO,
                     expand=True,
                     controls=[
-                        ft.Markdown(
-                            guide_text,
-                            selectable=True,
-                            extension_set=ft.MarkdownExtensionSet.GITHUB_FLAVORED,
-                            on_tap_link=lambda ev: None,
+                        ft.SelectionArea(
+                            content=ft.Markdown(
+                                guide_text,
+                                selectable=True,
+                                extension_set=ft.MarkdownExtensionSet.GITHUB_FLAVORED,
+                                on_tap_link=lambda ev: None,
+                            )
                         ),
                     ],
                 ),
@@ -434,7 +445,7 @@ def build_journal_cockpit(
                     ),
                     on_click=lambda _: page.run_task(_copy_guide),
                 ),
-                ft.ElevatedButton(
+                ft.Button(
                     "Done",
                     bgcolor=color_token,
                     color=ft.Colors.WHITE,
@@ -443,9 +454,7 @@ def build_journal_cockpit(
                 ),
             ],
         )
-        page.overlay.append(guide_dlg[0])
-        guide_dlg[0].open = True
-        page.update()
+        safe_open_dialog(page, guide_dlg[0], tag="journal_study_guide")
 
     # ── Modal 3: Edit Course Journal Details ─────────────────────────────────
     def _open_edit_journal_dialog(e=None):
@@ -503,16 +512,15 @@ def build_journal_cockpit(
         def _select_col(k):
             picked_color[0] = k
             _refresh_color_dots()
-            page.update()
+            safe_update_dialog(page, edit_dlg[0])
 
         _refresh_color_dots()
 
         def _close_edit(ev=None):
             if edit_dlg[0]:
-                edit_dlg[0].open = False
-                page.update()
+                safe_close_dialog(page, edit_dlg[0])
 
-        save_btn = ft.ElevatedButton(
+        save_btn = ft.Button(
             "Save Changes",
             bgcolor=color_token,
             color=ft.Colors.WHITE,
@@ -527,7 +535,7 @@ def build_journal_cockpit(
                 return
             save_btn.disabled = True
             save_btn.content = ft.ProgressRing(width=15, height=15, stroke_width=2, color=ft.Colors.ON_PRIMARY)
-            page.update()
+            safe_update_dialog(page, edit_dlg[0])
 
             payload = {
                 "title": new_t,
@@ -551,7 +559,7 @@ def build_journal_cockpit(
                 save_btn.disabled = False
                 save_btn.content = ft.Text("Save Changes", color=ft.Colors.ON_PRIMARY)
                 show_page_snackbar(page, res.get("error", "Could not update journal."))
-                page.update()
+                safe_update_dialog(page, edit_dlg[0])
 
         save_btn.on_click = lambda _: page.run_task(_save_edits)
 
@@ -605,9 +613,7 @@ def build_journal_cockpit(
                 save_btn,
             ],
         )
-        page.overlay.append(edit_dlg[0])
-        edit_dlg[0].open = True
-        page.update()
+        safe_open_dialog(page, edit_dlg[0], tag="journal_edit")
 
     # ── Main Cockpit Renderer ────────────────────────────────────────────────
     def _render_cockpit():
@@ -673,8 +679,7 @@ def build_journal_cockpit(
 
             def _close_conf(ev=None):
                 if conf_dlg[0]:
-                    conf_dlg[0].open = False
-                    page.update()
+                    safe_close_dialog(page, conf_dlg[0])
 
             if q_count > 0:
                 dlg_content = ft.Column(
@@ -712,7 +717,7 @@ def build_journal_cockpit(
                         ),
                         on_click=lambda _: (_close_conf(), page.run_task(_do_regenerate, True)),
                     ),
-                    ft.ElevatedButton(
+                    ft.Button(
                         content=ft.Row(
                             spacing=6,
                             tight=True,
@@ -733,7 +738,7 @@ def build_journal_cockpit(
                 )
                 dlg_actions = [
                     ft.TextButton("Cancel", on_click=_close_conf),
-                    ft.ElevatedButton(
+                    ft.Button(
                         content=ft.Row(
                             spacing=6,
                             tight=True,
@@ -762,9 +767,7 @@ def build_journal_cockpit(
                 content=dlg_content,
                 actions=dlg_actions,
             )
-            page.overlay.append(conf_dlg[0])
-            conf_dlg[0].open = True
-            page.update()
+            safe_open_dialog(page, conf_dlg[0], tag="journal_synth_confirm")
 
         # ── Delete Journal Handler ───────────────────────────────────────────
         async def _do_delete():
@@ -782,8 +785,7 @@ def build_journal_cockpit(
 
             def _close_del(ev=None):
                 if del_dlg[0]:
-                    del_dlg[0].open = False
-                    page.update()
+                    safe_close_dialog(page, del_dlg[0])
 
             del_dlg[0] = ft.AlertDialog(
                 modal=True,
@@ -797,7 +799,7 @@ def build_journal_cockpit(
                 ),
                 actions=[
                     ft.TextButton("Cancel", on_click=_close_del),
-                    ft.ElevatedButton(
+                    ft.Button(
                         "Delete Journal",
                         bgcolor=ft.Colors.ERROR,
                         color=ft.Colors.ON_ERROR,
@@ -806,9 +808,7 @@ def build_journal_cockpit(
                     ),
                 ],
             )
-            page.overlay.append(del_dlg[0])
-            del_dlg[0].open = True
-            page.update()
+            safe_open_dialog(page, del_dlg[0], tag="journal_delete_confirm")
 
         # ── Attach Vault Modules Dialog ──────────────────────────────────────
         def _open_attach_source_dialog(e=None):
@@ -841,10 +841,9 @@ def build_journal_cockpit(
 
             def _close_pick(ev=None):
                 if pick_dlg[0]:
-                    pick_dlg[0].open = False
-                    page.update()
+                    safe_close_dialog(page, pick_dlg[0])
 
-            attach_confirm_btn = ft.ElevatedButton(
+            attach_confirm_btn = ft.Button(
                 "Attach Selected",
                 bgcolor=ft.Colors.PRIMARY,
                 color=ft.Colors.ON_PRIMARY,
@@ -858,7 +857,7 @@ def build_journal_cockpit(
                     return
                 attach_confirm_btn.disabled = True
                 attach_confirm_btn.content = ft.ProgressRing(width=15, height=15, stroke_width=2, color=ft.Colors.ON_PRIMARY)
-                page.update()
+                safe_update_dialog(page, pick_dlg[0])
 
                 res = await add_materials_to_journal_api(token, jid_str, list(chosen_to_attach))
                 _close_pick()
@@ -875,7 +874,7 @@ def build_journal_cockpit(
             def _on_attach_search(ev=None):
                 attach_filter_q[0] = (attach_search_tf.value or "").strip().lower()
                 _rebuild_pick_list()
-                page.update()
+                safe_update_dialog(page, pick_dlg[0])
 
             attach_search_tf = ft.TextField(
                 hint_text="Search vault modules...",
@@ -942,7 +941,7 @@ def build_journal_cockpit(
                                 return
                             chosen_to_attach.add(target_vid)
                         _rebuild_pick_list()
-                        page.update()
+                        safe_update_dialog(page, pick_dlg[0])
 
                     pick_col.controls.append(
                         ft.Container(
@@ -1016,9 +1015,7 @@ def build_journal_cockpit(
                     attach_confirm_btn,
                 ],
             )
-            page.overlay.append(pick_dlg[0])
-            pick_dlg[0].open = True
-            page.update()
+            safe_open_dialog(page, pick_dlg[0], tag="journal_attach_modules")
 
         # ── Launchers for Mock Exam & CBT Simulation ─────────────────────────
         async def _launch_journal_exam(e=None):
@@ -1763,7 +1760,7 @@ def build_journal_cockpit(
             ],
         )
 
-        exam_start_btn = ft.ElevatedButton(
+        exam_start_btn = ft.Button(
             content=ft.Row(
                 spacing=7,
                 tight=True,
@@ -1800,7 +1797,7 @@ def build_journal_cockpit(
             on_click=lambda _: page.run_task(_configure_journal_exam),
         )
 
-        exam_synth_btn = ft.ElevatedButton(
+        exam_synth_btn = ft.Button(
             content=ft.Row(
                 spacing=7,
                 tight=True,
@@ -1909,11 +1906,13 @@ def build_journal_cockpit(
                     scroll=ft.ScrollMode.AUTO,
                     expand=True,
                     controls=[
-                        ft.Markdown(
-                            guide_text,
-                            selectable=True,
-                            extension_set=ft.MarkdownExtensionSet.GITHUB_FLAVORED,
-                            on_tap_link=lambda ev: None,
+                        ft.SelectionArea(
+                            content=ft.Markdown(
+                                guide_text,
+                                selectable=True,
+                                extension_set=ft.MarkdownExtensionSet.GITHUB_FLAVORED,
+                                on_tap_link=lambda ev: None,
+                            )
                         ),
                     ],
                 ),
@@ -1967,7 +1966,7 @@ def build_journal_cockpit(
                                 ),
                             ],
                         ),
-                        ft.ElevatedButton(
+                        ft.Button(
                             content=ft.Row(
                                 spacing=6,
                                 tight=True,
@@ -2298,7 +2297,7 @@ def build_journal_cockpit(
                         ft.TextButton(
                             content=ft.Text("Get Unlimited", size=11, weight=ft.FontWeight.W_700, color=color_token),
                             style=ft.ButtonStyle(padding=ft.Padding.symmetric(horizontal=8, vertical=2)),
-                            on_click=lambda _: page.go("/store"),
+                            on_click=lambda _: page.navigate("/store"),
                         ),
                     ],
                 )

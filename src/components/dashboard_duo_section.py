@@ -163,7 +163,7 @@ def build_dashboard_duo_section(
             # - If already claimed: clean ✓ Claimed badge.
             # - If in progress: clean ratio pill (e.g. 2/5). ZERO GRAY BOXES!
             if can_claim:
-                claim_btn = ft.ElevatedButton(
+                claim_btn = ft.Button(
                     content=ft.Row(
                         spacing=4,
                         tight=True,
@@ -506,7 +506,7 @@ def build_dashboard_duo_section(
 
                 action_controls = []
                 if not is_mine and status == "pending":
-                    accept_btn = ft.ElevatedButton(
+                    accept_btn = ft.Button(
                         content=ft.Text("Accept & Download", size=11, weight=ft.FontWeight.W_700),
                         bgcolor=ft.Colors.PRIMARY,
                         color=ft.Colors.WHITE,
@@ -529,7 +529,7 @@ def build_dashboard_duo_section(
                     accept_btn.on_click = (lambda sid=share_id, b=accept_btn: lambda _: page.run_task(_accept_pack, sid, b))()
                     action_controls.append(accept_btn)
                 else:
-                    duel_btn = ft.ElevatedButton(
+                    duel_btn = ft.Button(
                         content=ft.Row(
                             tight=True,
                             spacing=4,
@@ -633,7 +633,7 @@ def build_dashboard_duo_section(
                 pack_list.controls.append(card)
 
         # Header with Share Pack CTA button
-        share_cta = ft.ElevatedButton(
+        share_cta = ft.Button(
             content=ft.Row(
                 tight=True,
                 spacing=4,

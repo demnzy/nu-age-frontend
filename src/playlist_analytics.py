@@ -52,7 +52,7 @@ async def playlist_analytics_view(page: ft.Page, org_id: str, playlist_id: str):
         elif hasattr(page, "on_view_pop") and callable(page.on_view_pop):
             page.on_view_pop(None)
         else:
-            page.go(f"/organisations/{org_id}" if org_id else "/organisations")
+            page.navigate(f"/organisations/{org_id}" if org_id else "/organisations")
 
     theme_color = ft.Colors.INDIGO_600
     playlist_data: dict = {}
@@ -311,7 +311,7 @@ async def playlist_analytics_view(page: ft.Page, org_id: str, playlist_id: str):
                                 icon_size=15,
                                 icon_color=ft.Colors.ON_SURFACE_VARIANT,
                                 tooltip=f"Open {c_name}",
-                                on_click=lambda _, cid=c_id: page.go(f"/courses/{cid}"),
+                                on_click=lambda _, cid=c_id: page.navigate(f"/courses/{cid}"),
                             ),
                         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                         ft.Container(height=3),
@@ -387,7 +387,7 @@ async def playlist_analytics_view(page: ft.Page, org_id: str, playlist_id: str):
                 result = await start_direct_message(token, str(sid))
                 if result and "error" in result:
                     print(f"DM create failed for {sid}: {result}")
-            page.go("/nu-chat")
+            page.navigate("/nu-chat")
 
         return ft.Container(
             padding=ft.Padding.all(10),
@@ -419,7 +419,7 @@ async def playlist_analytics_view(page: ft.Page, org_id: str, playlist_id: str):
                             icon_size=16,
                             icon_color=ft.Colors.ON_SURFACE_VARIANT,
                             tooltip="View Profile",
-                            on_click=lambda _, sid=uid: page.go(f"/member/{sid}") if sid else None,
+                            on_click=lambda _, sid=uid: page.navigate(f"/member/{sid}") if sid else None,
                         ),
                         ft.IconButton(
                             ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED,
@@ -545,21 +545,21 @@ async def playlist_analytics_view(page: ft.Page, org_id: str, playlist_id: str):
                                 icon_color=ft.Colors.WHITE,
                                 icon_size=16,
                                 tooltip="Roadmap Builder",
-                                on_click=lambda _: page.go(f"/playlists/{playlist_id}/build"),
+                                on_click=lambda _: page.navigate(f"/playlists/{playlist_id}/build"),
                             ),
                             ft.IconButton(
                                 ft.Icons.SETTINGS_OUTLINED,
                                 icon_color=ft.Colors.WHITE,
                                 icon_size=16,
                                 tooltip="Path Settings",
-                                on_click=lambda _: page.go(f"/playlists/{playlist_id}/settings"),
+                                on_click=lambda _: page.navigate(f"/playlists/{playlist_id}/settings"),
                             ),
                             ft.IconButton(
                                 ft.Icons.VISIBILITY_OUTLINED,
                                 icon_color=ft.Colors.WHITE,
                                 icon_size=16,
                                 tooltip="View Pathway",
-                                on_click=lambda _: page.go(f"/playlists/{playlist_id}"),
+                                on_click=lambda _: page.navigate(f"/playlists/{playlist_id}"),
                             ),
                         ], spacing=0),
                     ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),

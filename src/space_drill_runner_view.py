@@ -121,13 +121,13 @@ async def space_drill_runner_view(
     # ── Exit Dialog ──────────────────────────────────────────────────────────
     def _confirm_exit(ev=None):
         if state["submitted"]:
-            page.go(back_route)
+            page.navigate(back_route)
             return
 
         def _do_exit(e=None):
             dlg.open = False
             page.update()
-            page.go(back_route)
+            page.navigate(back_route)
 
         dlg = ft.AlertDialog(
             shape=ft.RoundedRectangleBorder(radius=14),
@@ -142,7 +142,7 @@ async def space_drill_runner_view(
             ),
             actions=[
                 ft.TextButton("Stay in Drill", on_click=lambda _: (setattr(dlg, "open", False), page.update())),
-                ft.ElevatedButton("Exit Drill", style=ft.ButtonStyle(bgcolor=ft.Colors.RED_700, color=ft.Colors.WHITE), on_click=_do_exit),
+                ft.Button("Exit Drill", style=ft.ButtonStyle(bgcolor=ft.Colors.RED_700, color=ft.Colors.WHITE), on_click=_do_exit),
             ],
             actions_alignment=ft.MainAxisAlignment.END,
         )
@@ -180,7 +180,7 @@ async def space_drill_runner_view(
                 ),
                 actions=[
                     ft.TextButton("Review Questions", on_click=lambda _: (setattr(conf_dlg, "open", False), page.update())),
-                    ft.ElevatedButton("Submit Now", style=ft.ButtonStyle(bgcolor=ft.Colors.PRIMARY, color=ft.Colors.ON_PRIMARY), on_click=_proceed_sub),
+                    ft.Button("Submit Now", style=ft.ButtonStyle(bgcolor=ft.Colors.PRIMARY, color=ft.Colors.ON_PRIMARY), on_click=_proceed_sub),
                 ],
                 actions_alignment=ft.MainAxisAlignment.END,
             )
@@ -267,7 +267,7 @@ async def space_drill_runner_view(
                     [
                         ft.Icon(ft.Icons.QUIZ_OUTLINED, size=48, color=ft.Colors.ON_SURFACE_VARIANT),
                         ft.Text("No questions found in this practice drill.", size=16, weight=ft.FontWeight.BOLD),
-                        ft.ElevatedButton("Return to Space", on_click=lambda _: page.go(back_route)),
+                        ft.Button("Return to Space", on_click=lambda _: page.navigate(back_route)),
                     ],
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                     spacing=12,
@@ -537,7 +537,7 @@ async def space_drill_runner_view(
                     shape=ft.RoundedRectangleBorder(radius=10),
                 ),
             )
-            btn_next = ft.ElevatedButton(
+            btn_next = ft.Button(
                 content=ft.Row(
                     [
                         ft.Text("Submit" if is_last else "Next", size=12, weight=ft.FontWeight.BOLD),
@@ -586,7 +586,7 @@ async def space_drill_runner_view(
                 on_click=lambda _: _jump_to_question(cur_idx - 1),
                 height=42,
             )
-            btn_next = ft.ElevatedButton(
+            btn_next = ft.Button(
                 "Review & Submit" if is_last else "Next Question",
                 icon=ft.Icons.CHECK_CIRCLE_ROUNDED if is_last else ft.Icons.ARROW_FORWARD_ROUNDED,
                 style=ft.ButtonStyle(
@@ -666,7 +666,7 @@ async def space_drill_runner_view(
                     ft.IconButton(
                         icon=ft.Icons.ARROW_BACK_ROUNDED,
                         tooltip="Back to Space",
-                        on_click=lambda _: page.go(back_route),
+                        on_click=lambda _: page.navigate(back_route),
                     ),
                     ft.Text("Drill Performance", weight=ft.FontWeight.BOLD, size=16),
                 ],
@@ -879,7 +879,7 @@ async def space_drill_runner_view(
                             "Back to Space",
                             icon=ft.Icons.ARROW_BACK_ROUNDED,
                             height=40,
-                            on_click=lambda _: page.go(back_route),
+                            on_click=lambda _: page.navigate(back_route),
                             style=ft.ButtonStyle(
                                 shape=ft.RoundedRectangleBorder(radius=10),
                                 padding=ft.Padding.symmetric(horizontal=8, vertical=0),
@@ -888,7 +888,7 @@ async def space_drill_runner_view(
                         expand=1,
                     ),
                     ft.Container(
-                        content=ft.ElevatedButton(
+                        content=ft.Button(
                             "Retake Drill",
                             icon=ft.Icons.REPLAY_ROUNDED,
                             height=40,

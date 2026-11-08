@@ -1,6 +1,148 @@
 import asyncio
 import time
+import sys
 import flet as ft
+
+# ── Windows asyncio IOCP Signal 2 Race Condition Patch (Python 3.14+) ─────────
+if sys.platform == "win32":
+    try:
+        import math
+        import asyncio.windows_events as _we
+        import _overlapped
+        import _winapi
+
+        _orig_iocp_poll = _we.IocpProactor._poll
+
+        def _resilient_iocp_poll(self, timeout=None):
+            if timeout is None:
+                ms = _we.INFINITE
+            elif timeout < 0:
+                raise ValueError("negative timeout")
+            else:
+                ms = math.ceil(timeout * 1e3)
+                if ms >= _we.INFINITE:
+                    raise ValueError("timeout too big")
+
+            while True:
+                try:
+                    status = _overlapped.GetQueuedCompletionStatus(self._iocp, ms)
+                except OSError as ex:
+                    if "ignored due to race condition" in str(ex):
+                        ms = 0
+                        continue
+                    raise
+                if status is None:
+                    break
+                ms = 0
+
+                err, transferred, key, address = status
+                try:
+                    f, ov, obj, callback = self._cache.pop(address)
+                except KeyError:
+                    if self._loop.get_debug():
+                        self._loop.call_exception_handler({
+                            'message': ('GetQueuedCompletionStatus() returned an unexpected event'),
+                            'status': ('err=%s transferred=%s key=%#x address=%#x' % (err, transferred, key, address)),
+                        })
+                    if key not in (0, _overlapped.INVALID_HANDLE_VALUE):
+                        _winapi.CloseHandle(key)
+                    continue
+
+                if obj in self._stopped_serving:
+                    f.cancel()
+                elif not f.done():
+                    try:
+                        value = callback(transferred, key, ov)
+                    except OSError as e:
+                        f.set_exception(e)
+                        self._results.append(f)
+                    else:
+                        f.set_result(value)
+                        self._results.append(f)
+                    finally:
+                        f = None
+
+            for ov in self._unregistered:
+                self._cache.pop(ov.address, None)
+            self._unregistered.clear()
+
+        _we.IocpProactor._poll = _resilient_iocp_poll
+    except Exception:
+        pass
+
+# ── Flet 1.1.2 Service & Routing Bridge ──────────────────────────────────────
+try:
+    from flet.controls.context import _context_page
+except Exception:
+    _context_page = None
+
+if not hasattr(ft, "ElevatedButton"):
+    ft.ElevatedButton = ft.Button
+
+for _legacy_c, _new_c in (
+    ("WHITE70", "WHITE_70"), ("WHITE60", "WHITE_60"), ("WHITE54", "WHITE_54"),
+    ("WHITE38", "WHITE_38"), ("WHITE30", "WHITE_30"), ("WHITE24", "WHITE_24"),
+    ("WHITE12", "WHITE_12"), ("WHITE10", "WHITE_10"), ("BLACK87", "BLACK_87"),
+    ("BLACK54", "BLACK_54"), ("BLACK45", "BLACK_45"), ("BLACK38", "BLACK_38"),
+    ("BLACK26", "BLACK_26"), ("BLACK12", "BLACK_12"),
+):
+    if not hasattr(ft.Colors, _legacy_c) and hasattr(ft.Colors, _new_c):
+        setattr(ft.Colors, _legacy_c, getattr(ft.Colors, _new_c))
+
+if not hasattr(ft.Page, "go"):
+    ft.Page.go = ft.Page.navigate
+
+if not hasattr(ft.Page, "shared_preferences"):
+    def _page_shared_preferences(self):
+        sp = self.__dict__.get("_cached_shared_preferences")
+        if sp is None:
+            if _context_page is not None:
+                _context_page.set(self)
+            sp = ft.SharedPreferences()
+            self.__dict__["_cached_shared_preferences"] = sp
+        return sp
+    ft.Page.shared_preferences = property(_page_shared_preferences)
+
+if not hasattr(ft.Page, "clipboard"):
+    def _page_clipboard(self):
+        cb = self.__dict__.get("_cached_clipboard")
+        if cb is None:
+            if _context_page is not None:
+                _context_page.set(self)
+            cb = ft.Clipboard()
+            self.__dict__["_cached_clipboard"] = cb
+        return cb
+    ft.Page.clipboard = property(_page_clipboard)
+
+if not hasattr(ft.Page, "storage_paths"):
+    def _page_storage_paths(self):
+        stp = self.__dict__.get("_cached_storage_paths")
+        if stp is None:
+            if _context_page is not None:
+                _context_page.set(self)
+            stp = ft.StoragePaths()
+            self.__dict__["_cached_storage_paths"] = stp
+        return stp
+    ft.Page.storage_paths = property(_page_storage_paths)
+
+if not hasattr(ft.Page, "launch_url"):
+    async def _page_launch_url(self, url, **kwargs):
+        ul = self.__dict__.get("_cached_url_launcher")
+        if ul is None:
+            if _context_page is not None:
+                _context_page.set(self)
+            ul = ft.UrlLauncher()
+            self.__dict__["_cached_url_launcher"] = ul
+        if kwargs.get("web_popup_window"):
+            await ul.open_window(
+                url,
+                title=kwargs.get("web_popup_window_name"),
+                width=kwargs.get("web_popup_window_width"),
+                height=kwargs.get("web_popup_window_height"),
+            )
+        else:
+            await ul.launch_url(url)
+    ft.Page.launch_url = _page_launch_url
 # Automatically mitigate CORS/COEP header restrictions for Bunny CDN videos on Web
 try:
     from src.utils.web_patch import patch_flet_web_coep
@@ -8,6 +150,17 @@ try:
 except Exception:
     pass
 from src.Login import login_view
+from src.utils.theme_bridge import (
+    build_shad_theme,
+    LucideIcons,
+    enable_lucide_icon_bridge,
+    get_theme_palette,
+    build_flet_theme,
+    THEME_PALETTES,
+)
+
+# Comprehensively upgrade all legacy ft.Icons across the app to crisp Lucide vector icons
+enable_lucide_icon_bridge()
 from src.course_analytics import course_analytics_view
 from src.playlist_analytics import playlist_analytics_view
 from src.signup import Signup_view
@@ -20,6 +173,7 @@ from src.profile import profile_view
 from src.edit_profile import edit_profile_view
 from src.org_view import organisations_view
 from src.create_course import create_courses_view
+from src.onboarding import onboarding_view, check_should_show_onboarding, FORCE_SHOW_ONBOARDING
 from src.course_builder import course_builder_view
 from src.course_settings import course_settings_view
 from src.course_page import course_learner_view
@@ -180,26 +334,24 @@ async def main(page: ft.Page):
 
     async def keep_alive():
         while True:
-            await asyncio.sleep(30)  # Wait 30 seconds
+            await asyncio.sleep(45)
             try:
-                # Silently update an invisible text or just ping the page
-                page.update()
-            except Exception:
-                # If the page is truly dead, break the loop
-                break
-
-            try:
-                sp = ft.SharedPreferences()
-                stored_token = await sp.get("auth_token")
-                if stored_token:
-                    session = AuthSession.get_instance(page)
-                    if session.get_token_age_seconds(stored_token) >= 2400:  # 40 minutes (access token expires at 60m)
-                        print("[Heartbeat] Access token is >= 40 minutes old. Proactively refreshing in background...")
-                        await session.refresh_access_token()
+                _ = page.session
+                session = AuthSession.get_instance(page)
+                stored_token = session._cached_access_token or await page.shared_preferences.get("auth_token")
+                if stored_token and session.get_token_age_seconds(stored_token) >= 2400:  # 40 minutes (access token expires at 60m)
+                    print("[Heartbeat] Access token is >= 40 minutes old. Proactively refreshing in background...")
+                    await session.refresh_access_token()
+            except RuntimeError as rex:
+                if "destroyed session" in str(rex).lower():
+                    break
+                print(f"[Heartbeat] Background token refresh check error: {rex}")
             except Exception as ex:
+                if "destroyed session" in str(ex).lower():
+                    break
                 print(f"[Heartbeat] Background token refresh check error: {ex}")
 
-    # Start the heartbeat in the background as soon as the user logs in
+    # Start the token refresh check in the background
     page.run_task(keep_alive)
     # --- 1. THE UNIVERSAL SOURCE OF TRUTH ---
     # We define the ColorScheme AND Transitions in ONE object so they don't overwrite each other.
@@ -224,28 +376,34 @@ async def main(page: ft.Page):
         align=ft.Alignment.TOP_CENTER,
     )
 
+    _drag_dx = [0.0]
     _last_swipe_time = [0.0]
-    _shell_drag_state = {"total_dx": 0.0}
 
     def on_shell_drag_start(e: ft.DragStartEvent):
-        _shell_drag_state["total_dx"] = 0.0
+        _drag_dx[0] = 0.0
 
     def on_shell_drag_update(e: ft.DragUpdateEvent):
         delta = getattr(e, "primary_delta", 0) or 0
-        _shell_drag_state["total_dx"] += delta
+        _drag_dx[0] += delta
+
+    def on_shell_drag_cancel(e=None):
+        _drag_dx[0] = 0.0
 
     def on_shell_drag_end(e: ft.DragEndEvent):
         now = time.time()
         if now - _last_swipe_time[0] < 0.35:
+            _drag_dx[0] = 0.0
             return
 
         velocity = getattr(e, "primary_velocity", 0) or 0
-        total_dx = _shell_drag_state["total_dx"]
+        total_dx = _drag_dx[0]
+        _drag_dx[0] = 0.0
 
-        # Swipe left (content dragged left -> next tab)
-        is_swipe_left = (total_dx < -45 or velocity < -200)
-        # Swipe right (content dragged right -> prev tab)
-        is_swipe_right = (total_dx > 45 or velocity > 200)
+        # Swipe left (content flung or dragged left -> next tab)
+        # Recognizes either high-velocity fling (>200) or deliberate distance drag (>65px)
+        is_swipe_left = velocity < -200 or total_dx < -65
+        # Swipe right (content flung or dragged right -> prev tab)
+        is_swipe_right = velocity > 200 or total_dx > 65
 
         if not is_swipe_left and not is_swipe_right:
             return
@@ -267,16 +425,25 @@ async def main(page: ft.Page):
         # Navigate tabs
         direction = "next" if is_swipe_left else "prev"
         target_route = persistent_nav_bar.get_adjacent_route(clean_route, direction)
+
+        # If on a shell sub-view (e.g. /self-study, /student-network), swipe right navigates back
+        if not target_route and is_swipe_right:
+            if len(shell_history) > 1:
+                shell_history.pop()
+                target_route = shell_history[-1]
+            elif clean_route != "/dashboard":
+                target_route = "/dashboard"
+
         if target_route and target_route != clean_route:
             _last_swipe_time[0] = now
-            page.go(target_route)
+            page.navigate(target_route)
 
     shell_gesture_wrapper = ft.GestureDetector(
         content=shell_content,
         expand=True,
-        drag_interval=20,
         on_horizontal_drag_start=on_shell_drag_start,
         on_horizontal_drag_update=on_shell_drag_update,
+        on_horizontal_drag_cancel=on_shell_drag_cancel,
         on_horizontal_drag_end=on_shell_drag_end,
     )
 
@@ -292,7 +459,7 @@ async def main(page: ft.Page):
         if not route:
             return False
         clean = route.split("?")[0]
-        if clean in ("/", "/login", "/signup", "/offline"):
+        if clean in ("/", "/login", "/signup", "/offline", "/onboarding"):
             return False
         if clean.startswith("/accept-invite/"):
             return False
@@ -315,13 +482,13 @@ async def main(page: ft.Page):
             page.views.pop()
             top_view = page.views[-1]
             if top_view is shell_view:
-                page.go(shell_history[-1] if shell_history else "/dashboard")
+                page.navigate(shell_history[-1] if shell_history else "/dashboard")
             else:
-                page.go(top_view.route)
+                page.navigate(top_view.route)
         elif len(shell_history) > 1:
             shell_history.pop()
             prev_route = shell_history.pop()
-            page.go(prev_route)
+            page.navigate(prev_route)
 
     # 2. Attach it to the page event
     page.on_view_pop = view_pop
@@ -382,31 +549,35 @@ async def main(page: ft.Page):
     # DARK MODE TOGGLE — the only new function
     # ─────────────────────────────────────────────
 
-    async def apply_theme(is_dark: bool, trigger_update: bool = True):
-        """Apply the correct theme and persist the preference."""
-        if is_dark:
-            page.theme_mode = ft.ThemeMode.DARK
-            if page.theme is not LIGHT_THEME:
-                page.theme = LIGHT_THEME       # used as fallback base
-            if page.dark_theme is not DARK_THEME:
-                page.dark_theme = DARK_THEME   # Flet uses dark_theme in dark mode
-            page.bgcolor = "#121212"
-            shell_view.bgcolor = "#121212"
+    async def apply_theme(theme_choice: Any, trigger_update: bool = True):
+        """Apply the chosen theme preset and persist user preference."""
+        if isinstance(theme_choice, bool):
+            theme_key = "dark" if theme_choice else "light"
+        elif isinstance(theme_choice, str) and theme_choice in THEME_PALETTES:
+            theme_key = theme_choice
+        else:
+            theme_key = "dark" if bool(theme_choice) else "light"
 
-            # Set to Dark Mode Logo
+        palette = get_theme_palette(theme_key)
+        is_dark = palette["is_dark"]
+
+        if isinstance(page.data, dict):
+            page.data["current_theme_key"] = theme_key
+        page.theme_mode = palette["theme_mode"]
+
+        # Build dynamic Flet theme containing the exact ColorScheme mapping
+        current_font = getattr(page.theme, "font_family", "inter") or "inter"
+        theme_obj = build_flet_theme(palette, font_family=current_font)
+        page.theme = theme_obj
+        page.dark_theme = theme_obj
+        page.bgcolor = palette["surface"]
+        shell_view.bgcolor = palette["surface"]
+
+        if is_dark:
             splash_logo.src = "nu_age_black_2-removebg-preview.png"
             splash_logo.width = 300
             splash_logo.height = 500
         else:
-            page.theme_mode = ft.ThemeMode.LIGHT
-            if page.theme is not LIGHT_THEME:
-                page.theme = LIGHT_THEME
-            if page.dark_theme is not DARK_THEME:
-                page.dark_theme = DARK_THEME
-            page.bgcolor = ft.Colors.SURFACE
-            shell_view.bgcolor = ft.Colors.SURFACE
-
-            # THE FIX: Explicitly reset to Light Mode Logo
             splash_logo.src = "Nu age new logo.png"
             splash_logo.width = 400
             splash_logo.height = 600
@@ -421,37 +592,48 @@ async def main(page: ft.Page):
         if trigger_update:
             page.update()
 
-    async def _persist_theme_pref(is_dark: bool):
+    async def _persist_theme_pref(theme_key: str):
         try:
-            await page.shared_preferences.set("dark_mode", "true" if is_dark else "false")
+            palette = get_theme_palette(theme_key)
+            await page.shared_preferences.set("theme_key", theme_key)
+            await page.shared_preferences.set("dark_mode", "true" if palette["is_dark"] else "false")
         except Exception:
             pass
 
-    async def toggle_dark_mode(target_is_dark: bool = None, trigger_update: bool = True):
-        """
-        Call this from anywhere in your app:
-            await page.session.store.get("toggle_dark_mode")()
-        Or expose it via page.data for global access.
-        """
-        if target_is_dark is not None:
-            is_dark = target_is_dark
-        else:
-            current = await page.shared_preferences.get("dark_mode")
-            is_dark = not (current == "true")
-        page.run_task(_persist_theme_pref, is_dark)
-        await apply_theme(is_dark, trigger_update=trigger_update)
-        return is_dark
+    async def set_app_theme(target_theme: Any, trigger_update: bool = True):
+        theme_key = target_theme if isinstance(target_theme, str) else ("dark" if target_theme else "light")
+        await apply_theme(theme_key, trigger_update=trigger_update)
+        try:
+            await _persist_theme_pref(theme_key)
+        except Exception:
+            pass
+        return theme_key
 
-    # Store the toggle function so any view can access it
-    page.data = {"toggle_dark_mode": toggle_dark_mode}
+    async def toggle_dark_mode(target_is_dark: bool = None, trigger_update: bool = True):
+        cur_key = page.data.get("current_theme_key", "dark") if isinstance(page.data, dict) else "dark"
+        cur_p = get_theme_palette(cur_key)
+        if target_is_dark is not None:
+            new_key = "dark" if target_is_dark else "light"
+        else:
+            new_key = "light" if cur_p["is_dark"] else "dark"
+        return await set_app_theme(new_key, trigger_update=trigger_update)
+
+    # Store the theme functions so any view can access them
+    page.data = {
+        "toggle_dark_mode": toggle_dark_mode,
+        "set_app_theme": set_app_theme,
+        "current_theme_key": "dark",
+    }
 
     # ─────────────────────────────────────────────
     # LOAD PERSISTED THEME PREFERENCE ON STARTUP
     # ─────────────────────────────────────────────
 
-    saved_mode = await page.shared_preferences.get("dark_mode")
-    is_dark_on_start = saved_mode == "true"
-    await apply_theme(is_dark_on_start)
+    saved_theme_key = await page.shared_preferences.get("theme_key")
+    if not saved_theme_key or saved_theme_key not in THEME_PALETTES:
+        saved_mode = await page.shared_preferences.get("dark_mode")
+        saved_theme_key = "dark" if saved_mode == "true" else "light"
+    await apply_theme(saved_theme_key)
 
     # ─────────────────────────────────────────────
     # LOAD PERSISTED TYPOGRAPHY PRESET ON STARTUP
@@ -468,6 +650,10 @@ async def main(page: ft.Page):
     page.appbar = None
 
     # --- 3. SPLASH SCREEN ---
+    splash_logo.opacity = 1.0
+    splash_logo.scale = 1.0
+    splash_logo.animate_opacity = ft.Animation(280, ft.AnimationCurve.EASE_OUT)
+    splash_logo.animate_scale = ft.Animation(280, ft.AnimationCurve.EASE_OUT)
 
     splash_container = ft.Container(
         content=splash_logo,
@@ -479,15 +665,16 @@ async def main(page: ft.Page):
     page.add(splash_container)
     page.update()
 
-    await asyncio.sleep(2.0)
+    await asyncio.sleep(0.6)
 
-    # Fade Out Animation
-    steps = 15
-    for i in range(steps, -1, -1):
-        splash_logo.opacity = i / steps
-        splash_logo.scale = 0.8 + (0.2 * (i / steps))
+    # Native Flutter Fade Out Animation (1 IPC update instead of 16)
+    splash_logo.opacity = 0.0
+    splash_logo.scale = 0.85
+    try:
+        splash_logo.update()
+    except Exception:
         page.update()
-        await asyncio.sleep(0.04)
+    await asyncio.sleep(0.28)
 
     page.remove(splash_container)
     page.update()
@@ -516,7 +703,7 @@ async def main(page: ft.Page):
 
     def _view_offline_courses_button() -> ft.Control:
         def go_offline(e):
-            page.go("/offline")
+            page.navigate("/offline")
 
         return ft.FilledButton(
             content=ft.Row(
@@ -551,7 +738,7 @@ async def main(page: ft.Page):
             page.run_task(route_change, None)
 
         def go_offline(e):
-            page.go("/offline")
+            page.navigate("/offline")
 
         # ── Technical Diagnostics Toggle ──────────────────────────────
         details_text = ft.Text(
@@ -840,9 +1027,10 @@ async def main(page: ft.Page):
         (the normal path), or on its own if `view` somehow stops being the
         active/top view without an explicit cancel."""
         phase = 0
+        capped_boxes = list(boxes or [])[:16]
         try:
             while page.views and page.views[-1] is view:
-                for i, box in enumerate(boxes):
+                for i, box in enumerate(capped_boxes):
                     # Offset each box's phase so the shimmer appears to
                     # travel down the screen rather than blinking in unison.
                     on = (i + phase) % 3 == 0
@@ -852,7 +1040,7 @@ async def main(page: ft.Page):
                 except Exception:
                     page.update()
                 phase += 1
-                await asyncio.sleep(0.25)
+                await asyncio.sleep(0.55)
         except asyncio.CancelledError:
             # Expected: load_view() cancels us the instant the real view
             # is ready. Exit immediately, no cleanup needed.
@@ -1024,8 +1212,10 @@ async def main(page: ft.Page):
 
             shell_view.appbar = real_view.appbar
             shell_view.floating_action_button = real_view.floating_action_button
-            default_shell_bg = "#121212" if page.theme_mode == ft.ThemeMode.DARK else ft.Colors.SURFACE
-            shell_view.bgcolor = real_view.bgcolor or default_shell_bg
+            
+            cur_key = page.data.get("current_theme_key", "dark") if isinstance(page.data, dict) else "dark"
+            cur_p = get_theme_palette(cur_key)
+            shell_view.bgcolor = cur_p["surface"]
             shell_view.scroll = None
             shell_view.horizontal_alignment = real_view.horizontal_alignment
             shell_view.vertical_alignment = real_view.vertical_alignment
@@ -1034,12 +1224,13 @@ async def main(page: ft.Page):
             shell_view.route = route
 
             clean_controls = _strip_redundant_appbars(real_view.controls)
-            shell_content.content = ft.Container(
+            view_container = ft.Container(
                 content=ft.Column(clean_controls, expand=True, spacing=0) if len(clean_controls) > 1 else (clean_controls[0] if clean_controls else ft.Container()),
                 expand=True,
                 alignment=ft.Alignment.TOP_CENTER,
                 key=f"shell_view_{route}",
             )
+            shell_content.content = build_shad_theme(view_container, page=page, theme_key=cur_key)
 
             persistent_nav_bar.set_active_route(route)
             if not shell_history or shell_history[-1] != route:
@@ -1048,6 +1239,10 @@ async def main(page: ft.Page):
         else:
             if real_view.bottom_appbar is not None or real_view.appbar is not None:
                 real_view.controls = _strip_redundant_appbars(real_view.controls)
+            cur_key = page.data.get("current_theme_key", "dark") if isinstance(page.data, dict) else "dark"
+            cur_p = get_theme_palette(cur_key)
+            if not real_view.bgcolor or real_view.bgcolor in (ft.Colors.SURFACE, "#121212", "#252424", "#FAFAFA"):
+                real_view.bgcolor = cur_p["surface"]
             if page.views and skel is not None and page.views[-1] is skel:
                 page.views[-1] = real_view
             else:
@@ -1111,7 +1306,7 @@ async def main(page: ft.Page):
                                             ft.Text(str(ex), size=12, color=ft.Colors.OUTLINE),
                                             ft.FilledButton(
                                                 "Go to login",
-                                                on_click=lambda e: page.go("/"),
+                                                on_click=lambda e: page.navigate("/"),
                                             ),
                                         ],
                                         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -1218,7 +1413,7 @@ async def main(page: ft.Page):
         def is_public_route(route):
             r = (route or "").split("?")[0].rstrip("/").lower()
             return (
-                r in ["", "/", "/login", "/signup", "/platform-admin", "/auth-callback", "nuage://auth-callback", "auth-callback"]
+                r in ["", "/", "/login", "/signup", "/platform-admin", "/onboarding", "/auth-callback", "nuage://auth-callback", "auth-callback"]
                 or r.startswith("/accept-invite/")
                 or r.startswith("/auth-callback")
                 or r.startswith("nuage://auth-callback")
@@ -1289,7 +1484,7 @@ async def main(page: ft.Page):
 
             if offer_offline and _has_any_downloaded_courses():
                 def go_offline(e):
-                    page.go("/offline")
+                    page.navigate("/offline")
 
                 snack_content_controls.append(
                     ft.FilledButton(
@@ -1547,10 +1742,9 @@ async def main(page: ft.Page):
         current_user = get_session_user(page) or None
         _store = get_session_store(page)
         cached_token = _store.get("session_auth_token") if hasattr(_store, "get") else None
-        sp = ft.SharedPreferences()
-        stored_token = await sp.get("auth_token")
-
         session = AuthSession.get_instance(page)
+        stored_token = cached_token or session._cached_access_token or await page.shared_preferences.get("auth_token")
+
         token_stale = session.get_token_age_seconds(stored_token) >= 2700  # 45 minutes
 
         needs_auth_check = (
@@ -1589,9 +1783,8 @@ async def main(page: ft.Page):
                 await asyncio.sleep(0)
                 shimmer_task = page.run_task(run_shimmer, skel.data, skel)
 
-            # Fast local check first — no network call needed to know
-            # whether a token even exists.
-            token = await page.shared_preferences.get("auth_token")
+            # Reuse already-resolved token (only hit shared_preferences if still empty)
+            token = stored_token or await page.shared_preferences.get("auth_token")
 
             if not token:
                 shimmer_task.cancel()
@@ -1802,7 +1995,7 @@ async def main(page: ft.Page):
 
             if err:
                 show_error_dialog(f"Google Sign-In failed: {err}", title="Authentication Error")
-                page.go("/login")
+                page.navigate("/login")
                 return
 
             if access_token:
@@ -1814,15 +2007,15 @@ async def main(page: ft.Page):
                         await page.shared_preferences.set("refresh_token", refresh_token)
                     set_session_value(page, "session_auth_token", access_token)
                     persistent_nav_bar.refresh()
-                    page.go("/dashboard")
+                    page.navigate("/dashboard")
                     return
                 except Exception as ex:
                     print(f"[AuthCallback] Failed to store auth tokens: {ex}")
                     show_error_dialog("Failed to complete Google Sign-In. Please try again.", title="Sign In Error")
-                    page.go("/login")
+                    page.navigate("/login")
                     return
             else:
-                page.go("/login")
+                page.navigate("/login")
                 return
         elif page.route == "/dashboard":
             await load_view_and_report(dashboard_view(page), page.route, active_skeleton, active_shimmer_task)
@@ -1836,12 +2029,22 @@ async def main(page: ft.Page):
         elif page.route == "/signup":
             page.views.clear()
             page.views.append(Signup_view(page))
+        elif clean_route == "/onboarding" or page.route == "/onboarding":
+            async def _dismiss_onboarding_route(data=None):
+                token = await page.shared_preferences.get("auth_token") if hasattr(page, "shared_preferences") else None
+                target = "/dashboard" if token else "/login"
+                page.route = target
+                await route_change(None)
+                page.update()
+
+            page.views.clear()
+            page.views.append(onboarding_view(page, on_dismiss=lambda d: page.run_task(_dismiss_onboarding_route, d)))
         elif clean_route == "/profile" or page.route == "/profile" or (page.route and page.route.startswith("/profile")):
             await load_view_and_report(profile_view(page), page.route, active_skeleton, active_shimmer_task)
         elif clean_route == "/courses" or page.route == "/courses":
             await load_view_and_report(courses_view(page), page.route, active_skeleton, active_shimmer_task)
         elif clean_route == "/playground":
-            page.go("/courses?tab=playground")
+            page.navigate("/courses?tab=playground")
             return
         elif clean_route == "/platform-admin" or page.route == "/platform-admin":
             await load_view_and_report(platform_admin_view(page), page.route, active_skeleton, active_shimmer_task)
@@ -1904,7 +2107,7 @@ async def main(page: ft.Page):
             user_data = page.session.store.get("current_user") or {} if hasattr(page, "session") and hasattr(page.session, "store") else {}
             u_role = str(user_data.get("role", "")).upper()
             if u_role in ("ADMIN", "OWNER"):
-                page.go("/organisations")
+                page.navigate("/organisations")
                 return
             from src.create_playlist import create_playlists_view
             await load_view_and_report(create_playlists_view(page, troute.org_id), page.route, active_skeleton, active_shimmer_task)
@@ -1926,7 +2129,7 @@ async def main(page: ft.Page):
             user_data = page.session.store.get("current_user") or {} if hasattr(page, "session") and hasattr(page.session, "store") else {}
             u_role = str(user_data.get("role", "")).upper()
             if u_role in ("ADMIN", "OWNER"):
-                page.go("/organisations")
+                page.navigate("/organisations")
                 return
             await load_view_and_report(create_courses_view(page, troute.org_id), page.route, active_skeleton, active_shimmer_task)
         elif troute.match("/courses/:course_id/manage"):
@@ -1934,7 +2137,7 @@ async def main(page: ft.Page):
             await load_view_and_report(course_builder_view(page, troute.course_id), page.route, active_skeleton, active_shimmer_task)
         elif troute.match("/courses/:course_id/offline"):
             if getattr(page, "web", False):
-                page.go(f"/courses/{troute.course_id}/view")
+                page.navigate(f"/courses/{troute.course_id}/view")
                 return
             # Explicit offline course learner view: strictly offline, zero network probe
             course_id_param = troute.course_id
@@ -1997,7 +2200,7 @@ async def main(page: ft.Page):
                 )
         elif clean_route in ("/offline", "/courses/offline") or troute.match("/offline"):
             if getattr(page, "web", False):
-                page.go("/courses")
+                page.navigate("/courses")
                 return
             while len(page.views) > 1 and page.views[-1] is not shell_view:
                 page.views.pop()
@@ -2123,8 +2326,6 @@ async def main(page: ft.Page):
             if fell_back:
                 show_error_dialog("That page couldn't be found", icon=ft.Icons.ERROR_OUTLINE)
 
-        saved_mode = await page.shared_preferences.get("dark_mode")
-        await apply_theme(saved_mode == "true")
         page.update()
 
     page.on_route_change = route_change
@@ -2259,7 +2460,7 @@ async def main(page: ft.Page):
 
         if not tok and not _is_public_route(target_route):
             print(f"[PushRouter] Unauthenticated tap on protected route {target_route}; redirecting to login.")
-            page.go("/login")
+            page.navigate("/login")
             return
 
         # 2. Wait up to 1.2s for any in-flight route_change or resume token check to settle
@@ -2276,7 +2477,7 @@ async def main(page: ft.Page):
             await route_change(None)
         else:
             print(f"[PushRouter] Navigating page to {target_route}")
-            page.go(target_route)
+            page.navigate(target_route)
 
     # --- BUG FIX: intermittent white screen on FIRST load (distinct from
     # the token-expiry bug above — this can happen regardless of whether
@@ -2312,8 +2513,22 @@ async def main(page: ft.Page):
         print(f"initial shared_preferences read failed: {ex!r}")
         has_token = None
 
-    if not page.route or page.route == "/":
-        page.route = "/dashboard" if has_token else "/"
+    should_onboard = FORCE_SHOW_ONBOARDING
+    if should_onboard is None:
+        try:
+            should_onboard = await check_should_show_onboarding(page)
+        except Exception:
+            should_onboard = False
+
+    if not page.route or page.route == "/" or page.route == "/dashboard":
+        if should_onboard:
+            page.route = "/onboarding"
+            try:
+                await page.push_route("/onboarding")
+            except Exception:
+                pass
+        else:
+            page.route = "/dashboard" if has_token else "/"
 
     # 0ms Cold-Start Notification Cache Hydration (Instant Badge Counter on Launch)
     try:

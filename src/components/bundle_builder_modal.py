@@ -146,7 +146,7 @@ def show_bundle_builder_dialog(
 
     # Live Banner Gradient Preview
     preview_title = ft.Text(init_title or "Bundle Preview", size=15, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE, no_wrap=True)
-    preview_subtitle = ft.Text(f"{init_cat} • 0 Constituent Packs", size=11, color=ft.Colors.WHITE70)
+    preview_subtitle = ft.Text(f"{init_cat} • 0 Constituent Packs", size=11, color=ft.Colors.WHITE_70)
     preview_banner_container = ft.Container(
         gradient=ft.LinearGradient(
             begin=ft.Alignment.TOP_LEFT,

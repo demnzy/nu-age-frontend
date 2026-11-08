@@ -327,7 +327,7 @@ class AuthSession:
             except Exception:
                 pass
             try:
-                page.go("/login")
+                page.navigate("/login")
             except Exception as ex:
                 print(f"[AuthSession] Error navigating to /login: {ex}")
 
@@ -406,6 +406,6 @@ class AuthSession:
         except Exception as ex:
             print(f"[AuthSession] Error displaying session expired dialog: {ex}")
             try:
-                page.go("/login")
+                page.navigate("/login")
             except Exception:
                 pass

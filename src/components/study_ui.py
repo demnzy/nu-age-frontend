@@ -19,8 +19,10 @@ modern LMS / assessment engines:
 
 import asyncio
 import inspect
+from typing import Any
 
 import flet as ft
+from src.utils.theme_bridge import LucideIcons, build_shad_badge
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TOKENS
@@ -90,14 +92,16 @@ class Haptics:
         self._ctrl = None
         try:
             self._ctrl = ft.HapticFeedback()
-            page.overlay.append(self._ctrl)
+            if (
+                getattr(self._ctrl, "_i", None) is None
+                and hasattr(page, "_services")
+                and page._services is not None
+            ):
+                page._services.register_service(self._ctrl)
         except Exception:
             self._ctrl = None
 
     def _fire(self, name: str):
-        # In Flet 0.86 these are coroutines, so calling them synchronously
-        # would never actually fire (and leaks "never awaited" warnings).
-        # Schedule them on the page's loop instead.
         if not self._ctrl:
             return
         try:
@@ -115,8 +119,6 @@ class Haptics:
 
             self._page.run_task(_run)
         except Exception:
-            # No running loop (e.g. under test) — close the coroutine so it
-            # doesn't emit a "never awaited" warning.
             try:
                 result.close()
             except Exception:
@@ -128,13 +130,79 @@ class Haptics:
     def medium(self):
         self._fire("medium_impact")
 
+    def heavy(self):
+        self._fire("heavy_impact")
+
     def select(self):
         self._fire("selection_click")
 
+    def click(self):
+        self._fire("selection_click")
+
     def dispose(self):
+        self._ctrl = None
+
+
+class StudyWakelock:
+    """Keeps the screen awake during active Flashcard, Quiz, and CBT Exam sessions using Flet 1.1.2 `ft.Wakelock`."""
+
+    _instances: dict[int, Any] = {}
+
+    @classmethod
+    def _get_service(cls, page: ft.Page):
+        if not page:
+            return None
+        pid = id(page)
+        svc = cls._instances.get(pid)
+        if svc is None:
+            try:
+                svc = ft.Wakelock()
+                if (
+                    getattr(svc, "_i", None) is None
+                    and hasattr(page, "_services")
+                    and page._services is not None
+                ):
+                    page._services.register_service(svc)
+                cls._instances[pid] = svc
+            except Exception:
+                return None
+        return svc
+
+    @classmethod
+    def enable(cls, page: ft.Page) -> None:
+        svc = cls._get_service(page)
+        if not svc or not hasattr(page, "run_task"):
+            return
+
+        async def _en():
+            try:
+                res = svc.enable()
+                if inspect.iscoroutine(res):
+                    await res
+            except Exception:
+                pass
+
         try:
-            if self._ctrl in self._page.overlay:
-                self._page.overlay.remove(self._ctrl)
+            page.run_task(_en)
+        except Exception:
+            pass
+
+    @classmethod
+    def disable(cls, page: ft.Page) -> None:
+        svc = cls._get_service(page)
+        if not svc or not hasattr(page, "run_task"):
+            return
+
+        async def _dis():
+            try:
+                res = svc.disable()
+                if inspect.iscoroutine(res):
+                    await res
+            except Exception:
+                pass
+
+        try:
+            page.run_task(_dis)
         except Exception:
             pass
 
@@ -194,6 +262,11 @@ def pill(label: str, color, *, icon=None, solid: bool = False, size: int = 10):
         border=None if solid else ft.Border.all(1, tint(color, 0.30)),
         content=ft.Row(spacing=5, tight=True, controls=controls),
     )
+
+
+def shad_badge(label: str, variant: str = "secondary", icon=None, on_click=None) -> ft.Control:
+    """Modern Shadcn Badge helper with native dynamic theming."""
+    return build_shad_badge(text=label, variant=variant, icon=icon, on_click=on_click)
 
 
 def section_label(text: str, *, trailing=None):
@@ -848,10 +921,21 @@ def build_results_view(
         ],
     )
 
+    def _share_results(_=None):
+        from src.utils.file_opener import safe_share_text
+
+        share_msg = (
+            f"🎯 I just scored {pct}% ({correct}/{total}) on {title} in Nu-Age Study Hub! "
+            f"(Best streak: {best_streak}🔥)"
+        )
+        if page and hasattr(page, "run_task"):
+            page.run_task(safe_share_text, page, share_msg, f"{title} Score", f"My {title} Result")
+
     actions = ft.Row(
         spacing=10,
         controls=[
             ghost_button("Back to Hub", lambda _: on_exit(), icon=ft.Icons.HOME_ROUNDED, expand=True),
+            ghost_button("Share", _share_results, icon=ft.Icons.SHARE_ROUNDED),
             primary_button(
                 "Try again",
                 lambda _: on_retry(),

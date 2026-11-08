@@ -59,13 +59,13 @@ async def store_view(page: ft.Page, initial_tab: str = "plans", back_target: str
     # Determine back navigation destination
     def _handle_back(_):
         if back_target and back_target != page.route:
-            page.go(back_target)
+            page.navigate(back_target)
         elif "/profile" in (page.route or ""):
-            page.go("/profile")
+            page.navigate("/profile")
         elif "/self-study" in (page.route or ""):
-            page.go("/self-study")
+            page.navigate("/self-study")
         else:
-            page.go("/dashboard")
+            page.navigate("/dashboard")
 
     # ── APP BAR ──────────────────────────────────────────────────────────────
     app_bar = ft.AppBar(
@@ -235,7 +235,7 @@ async def store_view(page: ft.Page, initial_tab: str = "plans", back_target: str
             expand=True,
         )
         status_spinner = ft.ProgressRing(width=22, height=22, stroke_width=2.5, color=ft.Colors.PRIMARY)
-        check_button = ft.ElevatedButton(
+        check_button = ft.Button(
             content=ft.Row(
                 tight=True,
                 spacing=6,
@@ -388,7 +388,7 @@ async def store_view(page: ft.Page, initial_tab: str = "plans", back_target: str
                             color=ft.Colors.GREY_600,
                             text_align=ft.TextAlign.CENTER,
                         ),
-                        ft.ElevatedButton(
+                        ft.Button(
                             content=ft.Row(
                                 tight=True,
                                 spacing=8,
@@ -531,7 +531,7 @@ async def store_view(page: ft.Page, initial_tab: str = "plans", back_target: str
         # Action CTA Button
         if is_current:
             if is_free:
-                action_btn = ft.ElevatedButton(
+                action_btn = ft.Button(
                     content=ft.Row(
                         tight=True,
                         spacing=6,
@@ -547,7 +547,7 @@ async def store_view(page: ft.Page, initial_tab: str = "plans", back_target: str
                     style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10), elevation=0),
                 )
             elif sub_status == "expired":
-                action_btn = ft.ElevatedButton(
+                action_btn = ft.Button(
                     content=ft.Row(
                         tight=True,
                         spacing=6,
@@ -563,7 +563,7 @@ async def store_view(page: ft.Page, initial_tab: str = "plans", back_target: str
                     on_click=lambda e: page.run_task(_handle_checkout, plan, "plan", action_btn),
                 )
             elif sub_status == "grace_period":
-                action_btn = ft.ElevatedButton(
+                action_btn = ft.Button(
                     content=ft.Row(
                         tight=True,
                         spacing=6,
@@ -579,7 +579,7 @@ async def store_view(page: ft.Page, initial_tab: str = "plans", back_target: str
                     on_click=lambda e: page.run_task(_handle_checkout, plan, "plan", action_btn),
                 )
             elif days_left is not None and days_left <= 7:
-                action_btn = ft.ElevatedButton(
+                action_btn = ft.Button(
                     content=ft.Row(
                         tight=True,
                         spacing=6,
@@ -595,7 +595,7 @@ async def store_view(page: ft.Page, initial_tab: str = "plans", back_target: str
                     on_click=lambda e: page.run_task(_handle_checkout, plan, "plan", action_btn),
                 )
             else:
-                action_btn = ft.ElevatedButton(
+                action_btn = ft.Button(
                     content=ft.Row(
                         tight=True,
                         spacing=6,
@@ -612,7 +612,7 @@ async def store_view(page: ft.Page, initial_tab: str = "plans", back_target: str
                 )
         else:
             action_label = f"Upgrade to {plan['name']}" if price_val > 0 else "Select Plan"
-            action_btn = ft.ElevatedButton(
+            action_btn = ft.Button(
                 content=ft.Row(
                     tight=True,
                     spacing=6,
@@ -710,7 +710,7 @@ async def store_view(page: ft.Page, initial_tab: str = "plans", back_target: str
                 )
             )
 
-        action_btn = ft.ElevatedButton(
+        action_btn = ft.Button(
             content=ft.Row(
                 tight=True,
                 spacing=6,
@@ -788,7 +788,7 @@ async def store_view(page: ft.Page, initial_tab: str = "plans", back_target: str
                 )
             )
 
-        action_btn = ft.ElevatedButton(
+        action_btn = ft.Button(
             content=ft.Row(
                 tight=True,
                 spacing=6,
@@ -861,7 +861,7 @@ async def store_view(page: ft.Page, initial_tab: str = "plans", back_target: str
                 )
             )
 
-        action_btn = ft.ElevatedButton(
+        action_btn = ft.Button(
             content=ft.Row(
                 tight=True,
                 spacing=6,
@@ -1064,7 +1064,7 @@ async def store_view(page: ft.Page, initial_tab: str = "plans", back_target: str
                 content=ft.Text(tier["discount"], size=9.5, weight=ft.FontWeight.W_800, color=ft.Colors.GREEN_700),
             )
 
-        action_btn = ft.ElevatedButton(
+        action_btn = ft.Button(
             content=ft.Row(
                 tight=True,
                 spacing=6,
@@ -1502,7 +1502,7 @@ async def store_view(page: ft.Page, initial_tab: str = "plans", back_target: str
             )
             if status == "pending":
                 actions_row.controls.append(
-                    ft.ElevatedButton(
+                    ft.Button(
                         content=ft.Row(
                             tight=True,
                             spacing=4,
@@ -1773,7 +1773,7 @@ async def store_view(page: ft.Page, initial_tab: str = "plans", back_target: str
 
             cta_btn = None
             if show_btn:
-                cta_btn = ft.ElevatedButton(
+                cta_btn = ft.Button(
                     content=ft.Row(
                         tight=True,
                         spacing=6,
@@ -1866,7 +1866,7 @@ async def store_view(page: ft.Page, initial_tab: str = "plans", back_target: str
                                 ft.Text("Store Catalog Unavailable", size=16, weight=ft.FontWeight.W_700, color=ft.Colors.ON_SURFACE),
                                 ft.Text("Unable to load store products from the server. Check your connection.", size=12, color=ft.Colors.ON_SURFACE_VARIANT),
                                 ft.Container(height=8),
-                                ft.ElevatedButton(
+                                ft.Button(
                                     content=ft.Row([
                                         ft.Icon(ft.Icons.REFRESH_ROUNDED, size=16, color=ft.Colors.WHITE),
                                         ft.Text("Retry", size=12, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE),
@@ -1940,7 +1940,7 @@ async def store_view(page: ft.Page, initial_tab: str = "plans", back_target: str
                                 ),
                             ],
                         ),
-                        ft.ElevatedButton(
+                        ft.Button(
                             content=ft.Row([
                                 ft.Icon(ft.Icons.SWAP_HORIZ_ROUNDED, size=15, color=ft.Colors.WHITE),
                                 ft.Text("Exchange Coins for AI Credits", size=12, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE),
@@ -1981,7 +1981,7 @@ async def store_view(page: ft.Page, initial_tab: str = "plans", back_target: str
                                 ),
                             ],
                         ),
-                        ft.ElevatedButton(
+                        ft.Button(
                             content=ft.Row([
                                 ft.Icon(ft.Icons.SWAP_HORIZ_ROUNDED, size=15, color=ft.Colors.WHITE),
                                 ft.Text("Exchange Coins", size=12, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE),

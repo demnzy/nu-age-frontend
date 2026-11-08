@@ -32,7 +32,7 @@ async def member_profile_view(page: ft.Page, identifier: str):
             page.views.pop()
             page.update()
         else:
-            page.go("/network")
+            page.navigate("/network")
 
     # ── Async Data Fetcher & Renderer ─────────────────────────────────────────
     async def load_profile():
@@ -60,7 +60,7 @@ async def member_profile_view(page: ft.Page, identifier: str):
                         "Return to Student Network",
                         icon=ft.Icons.ARROW_BACK_ROUNDED,
                         style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10)),
-                        on_click=lambda _: page.go("/network")
+                        on_click=lambda _: page.navigate("/network")
                     )
                 ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10)
             )
@@ -263,7 +263,7 @@ async def member_profile_view(page: ft.Page, identifier: str):
                     padding=ft.Padding.symmetric(horizontal=18, vertical=12)
                 ),
                 expand=True,
-                on_click=lambda _: page.go(f"/nu-chat?dm={user_id}")
+                on_click=lambda _: page.navigate(f"/nu-chat?dm={user_id}")
             ),
             ft.OutlinedButton(
                 "Share",
@@ -346,7 +346,7 @@ async def member_profile_view(page: ft.Page, identifier: str):
                 ft.FilledButton(
                     "Chat",
                     style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10)),
-                    on_click=lambda _: page.go(f"/nu-chat?dm={user_id}")
+                    on_click=lambda _: page.navigate(f"/nu-chat?dm={user_id}")
                 )
             ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=14)
         )

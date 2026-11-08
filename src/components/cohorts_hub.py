@@ -685,7 +685,7 @@ def build_cohorts_tab(
                     count = res.get("notified_count", 1)
                     show_snack(f"Push & in-app nudge sent to {count} learner(s) via OneSignal.")
 
-            send_btn = ft.ElevatedButton(
+            send_btn = ft.Button(
                 content=ft.Row([
                     ft.Icon(ft.Icons.NOTIFICATIONS_ACTIVE_ROUNDED, size=15, color=ft.Colors.WHITE),
                     ft.Text("Send Nudge Alert", size=12, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE),
@@ -767,7 +767,7 @@ def build_cohorts_tab(
                         ], spacing=6, expand=True),
                         *(
                             [
-                                ft.ElevatedButton(
+                                ft.Button(
                                     content=ft.Row([
                                         ft.Icon(ft.Icons.NOTIFICATIONS_ACTIVE_ROUNDED, size=13, color=ft.Colors.WHITE),
                                         ft.Text("Bulk Nudge Inactive", size=11, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE),
@@ -885,7 +885,7 @@ def build_cohorts_tab(
                         bgcolor=ft.Colors.SURFACE,
                         border=ft.Border.all(1, ft.Colors.with_opacity(0.1, ft.Colors.ON_SURFACE)),
                         ink=True,
-                        on_click=lambda _, cid=crs_id: page.go(f"/courses/{cid}"),
+                        on_click=lambda _, cid=crs_id: page.navigate(f"/courses/{cid}"),
                         content=ft.Row([
                             ft.Container(
                                 padding=8, border_radius=8, bgcolor=ft.Colors.with_opacity(0.08, theme_color),
@@ -900,7 +900,7 @@ def build_cohorts_tab(
                                 icon_color=theme_color,
                                 icon_size=20,
                                 tooltip="Study course",
-                                on_click=lambda _, cid=crs_id: page.go(f"/courses/{cid}"),
+                                on_click=lambda _, cid=crs_id: page.navigate(f"/courses/{cid}"),
                             ),
                             ft.IconButton(
                                 icon=ft.Icons.DELETE_OUTLINE_ROUNDED,
@@ -1183,7 +1183,7 @@ def build_cohorts_tab(
                             ft.Icon(ft.Icons.WARNING_AMBER_ROUNDED, size=18, color=ft.Colors.AMBER_800),
                             ft.Text(f"{inactive_total} learners need academic attention", size=12, weight=ft.FontWeight.W_700, color=ft.Colors.AMBER_900),
                         ], spacing=8, expand=True),
-                        ft.ElevatedButton(
+                        ft.Button(
                             content=ft.Row([
                                 ft.Icon(ft.Icons.NOTIFICATIONS_ACTIVE_ROUNDED, size=14, color=ft.Colors.WHITE),
                                 ft.Text("Bulk Nudge Inactive", size=11, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE),
@@ -1256,7 +1256,7 @@ def build_cohorts_tab(
                 # Candidate Take Exam Handler
                 def make_take_handler(target_ex_id):
                     def _do(_):
-                        page.go(f"/cohorts/{c_id}/exams/{target_ex_id}?org_id={org_id}")
+                        page.navigate(f"/cohorts/{c_id}/exams/{target_ex_id}?org_id={org_id}")
                     return _do
 
                 # Admin Actions

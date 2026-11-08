@@ -610,7 +610,7 @@ def build_discuss_tab_view(
             ),
             actions=[
                 ft.TextButton("Cancel", on_click=lambda _: _close_report_dialog()),
-                ft.ElevatedButton(
+                ft.Button(
                     "Submit Report",
                     bgcolor=ft.Colors.RED_600,
                     color=ft.Colors.WHITE,

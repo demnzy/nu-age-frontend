@@ -147,7 +147,7 @@ def build_learner_cohorts_view(
 
     # ── Candidate Take Exam Launcher ──────────────────────────────────────────
     def launch_candidate_exam(org_id: str, cohort_id: str, exam_id: str):
-        return lambda _: page.go(f"/cohorts/{cohort_id}/exams/{exam_id}?org_id={org_id}")
+        return lambda _: page.navigate(f"/cohorts/{cohort_id}/exams/{exam_id}?org_id={org_id}")
 
 
     # ── Main Render UI ────────────────────────────────────────────────────────
@@ -175,7 +175,7 @@ def build_learner_cohorts_view(
                         ft.IconButton(
                             icon=ft.Icons.ARROW_BACK_ROUNDED,
                             tooltip="Go Back",
-                            on_click=lambda _: on_back() if on_back else page.go("/dashboard"),
+                            on_click=lambda _: on_back() if on_back else page.navigate("/dashboard"),
                         ),
                         ft.Text("My Training Cohorts", size=18, weight=ft.FontWeight.BOLD),
                     ], spacing=8),
@@ -201,7 +201,7 @@ def build_learner_cohorts_view(
                             ft.FilledButton(
                                 "Explore Course Catalog",
                                 icon=ft.Icons.AUTO_STORIES_ROUNDED,
-                                on_click=lambda _: page.go("/courses"),
+                                on_click=lambda _: page.navigate("/courses"),
                                 style=ft.ButtonStyle(bgcolor=theme_color, padding=ft.Padding.symmetric(horizontal=18, vertical=12)),
                             ),
                         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10),
@@ -455,7 +455,7 @@ def build_learner_cohorts_view(
                 border=ft.Border.all(1, ft.Colors.with_opacity(0.12, ft.Colors.ON_SURFACE)),
                 shadow=ft.BoxShadow(blur_radius=6, color=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE), offset=ft.Offset(0, 2)),
                 ink=True,
-                on_click=lambda _, cid=crs_id: page.go(f"/courses/{cid}"),
+                on_click=lambda _, cid=crs_id: page.navigate(f"/courses/{cid}"),
                 content=ft.Row([
                     thumb,
                     ft.Column([
@@ -476,7 +476,7 @@ def build_learner_cohorts_view(
                         "Resume" if crs_prog > 0 else "Study",
                         icon=ft.Icons.PLAY_ARROW_ROUNDED,
                         style=ft.ButtonStyle(bgcolor=theme_color, color=ft.Colors.ON_PRIMARY, shape=ft.RoundedRectangleBorder(radius=8), padding=ft.Padding.symmetric(horizontal=12, vertical=6)),
-                        on_click=lambda _, cid=crs_id: page.go(f"/courses/{cid}"),
+                        on_click=lambda _, cid=crs_id: page.navigate(f"/courses/{cid}"),
                     ),
                 ], spacing=12, vertical_alignment=ft.CrossAxisAlignment.CENTER),
             )
@@ -730,7 +730,7 @@ def build_learner_cohorts_view(
                         icon=ft.Icons.ARROW_BACK_ROUNDED,
                         icon_size=20,
                         tooltip="Back to Dashboard",
-                        on_click=lambda _: on_back() if on_back else page.go("/dashboard"),
+                        on_click=lambda _: on_back() if on_back else page.navigate("/dashboard"),
                     ),
                     ft.Column([
                         ft.Row([

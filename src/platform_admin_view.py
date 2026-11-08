@@ -1276,7 +1276,7 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
 
                         style=ft.ButtonStyle(color=palette["text_muted"]),
 
-                        on_click=lambda e: page.go("/dashboard"),
+                        on_click=lambda e: page.navigate("/dashboard"),
 
                     ),
 
@@ -6850,7 +6850,7 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
 
                     ft.Text(b.get("title", "Untitled Bundle"), size=15, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
 
-                    ft.Text(f"{b.get('category', 'General')} • {b.get('packs_count', 0)} Packs Included", size=11.5, color=ft.Colors.WHITE70),
+                    ft.Text(f"{b.get('category', 'General')} • {b.get('packs_count', 0)} Packs Included", size=11.5, color=ft.Colors.WHITE_70),
 
                 ], spacing=6),
 
@@ -12696,7 +12696,7 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
 
 
 
-        submit_btn = ft.ElevatedButton(
+        submit_btn = ft.Button(
 
             content=ft.Row([modal_spinner, ft.Text("Save Objective" if is_edit else "Create Objective", size=12, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE)], tight=True, spacing=6),
 
@@ -12948,7 +12948,7 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
 
                 ),
 
-                ft.ElevatedButton(
+                ft.Button(
 
                     "Permanently Delete",
 
@@ -13078,7 +13078,7 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
 
                             ),
 
-                            ft.ElevatedButton(
+                            ft.Button(
 
                                 content=ft.Row([ft.Icon(ft.Icons.ADD_ROUNDED, size=16, color=ft.Colors.WHITE), ft.Text("Create Objective", size=12, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE)], tight=True, spacing=6),
 
@@ -13280,7 +13280,7 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
 
                         ft.Text(admin_state["objectives_error"], size=11, color=palette["text_muted"]),
 
-                        ft.ElevatedButton("Retry", on_click=lambda _: page.run_task(_fetch_objectives)),
+                        ft.Button("Retry", on_click=lambda _: page.run_task(_fetch_objectives)),
 
                     ],
 
@@ -13318,7 +13318,7 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
 
                         ft.Container(height=8),
 
-                        ft.ElevatedButton(
+                        ft.Button(
 
                             "Create First Objective",
 
@@ -13944,7 +13944,7 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
 
                 ft.TextButton("Cancel", on_click=lambda _: (setattr(del_dlg, "open", False), page.update())),
 
-                ft.ElevatedButton("Delete", bgcolor=palette["danger"], color=ft.Colors.WHITE, on_click=lambda e: page.run_task(_confirm_del, e)),
+                ft.Button("Delete", bgcolor=palette["danger"], color=ft.Colors.WHITE, on_click=lambda e: page.run_task(_confirm_del, e)),
 
             ],
 
@@ -14014,7 +14014,7 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
 
                 ft.TextButton("Cancel", on_click=lambda _: (setattr(del_dlg, "open", False), page.update())),
 
-                ft.ElevatedButton("Delete", bgcolor=palette["danger"], color=ft.Colors.WHITE, on_click=lambda e: page.run_task(_confirm_del, e)),
+                ft.Button("Delete", bgcolor=palette["danger"], color=ft.Colors.WHITE, on_click=lambda e: page.run_task(_confirm_del, e)),
 
             ],
 
@@ -14246,7 +14246,7 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
 
 
 
-        submit_btn = ft.ElevatedButton(
+        submit_btn = ft.Button(
 
             content=ft.Row([modal_spinner, ft.Text("Create Badge", size=12, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE)], tight=True, spacing=6),
 
@@ -14470,7 +14470,7 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
 
 
 
-        save_btn = ft.ElevatedButton(
+        save_btn = ft.Button(
 
             content=ft.Row([modal_spinner, ft.Text("Save Changes", size=12, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE)], tight=True, spacing=6),
 
@@ -14768,7 +14768,7 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
 
 
 
-        submit_btn = ft.ElevatedButton(
+        submit_btn = ft.Button(
 
             content=ft.Row([modal_spinner, ft.Text("Create Code", size=12, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE)], tight=True, spacing=6),
 
@@ -15106,7 +15106,7 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
 
 
 
-        invite_btn = ft.ElevatedButton(
+        invite_btn = ft.Button(
 
             content=ft.Row([modal_spinner, ft.Text("Send Invitation", size=12, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE)], tight=True, spacing=6),
 
@@ -15308,7 +15308,7 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
 
                             ),
 
-                            ft.ElevatedButton(
+                            ft.Button(
 
                                 content=ft.Row([
 
@@ -15482,7 +15482,7 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
 
                         ft.Container(height=8),
 
-                        ft.ElevatedButton("Create Promo Code", bgcolor=palette["accent"], color=ft.Colors.WHITE, on_click=lambda _: _open_create_promo_code_modal()),
+                        ft.Button("Create Promo Code", bgcolor=palette["accent"], color=ft.Colors.WHITE, on_click=lambda _: _open_create_promo_code_modal()),
 
                     ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=6),
 
@@ -15862,7 +15862,7 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
 
                             ft.Container(height=8),
 
-                            ft.ElevatedButton("Invite Campus Ambassador", bgcolor=palette["accent"], color=ft.Colors.WHITE, on_click=lambda _: _open_invite_ambassador_modal()),
+                            ft.Button("Invite Campus Ambassador", bgcolor=palette["accent"], color=ft.Colors.WHITE, on_click=lambda _: _open_invite_ambassador_modal()),
 
                         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=6),
 
@@ -16416,7 +16416,7 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
 
                                 ),
 
-                                ft.ElevatedButton(
+                                ft.Button(
 
                                     content=ft.Row([ft.Icon(ft.Icons.SEND_ROUNDED, size=13, color=ft.Colors.WHITE), ft.Text("Approve & Invite", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE)], tight=True, spacing=4),
 
@@ -16670,7 +16670,7 @@ async def platform_admin_view(page: ft.Page) -> ft.View:
 
                         ft.Container(height=8),
 
-                        ft.ElevatedButton("Create Honor Badge", bgcolor=palette["accent"], color=ft.Colors.WHITE, on_click=lambda _: _open_create_badge_modal()),
+                        ft.Button("Create Honor Badge", bgcolor=palette["accent"], color=ft.Colors.WHITE, on_click=lambda _: _open_create_badge_modal()),
 
                     ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=6),
 

@@ -198,7 +198,7 @@ def build_google_auth_button(
                                     nav_bar.refresh()
                                 except Exception:
                                     pass
-                            page.go("/dashboard")
+                            page.navigate("/dashboard")
                             return
                         elif "error" in received_tokens:
                             err_msg = received_tokens["error"]

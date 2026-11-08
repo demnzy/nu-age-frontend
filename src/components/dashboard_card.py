@@ -290,7 +290,7 @@ def get_continue_learning_card(
         ),
         animate_scale=ft.Animation(duration=250, curve=ft.AnimationCurve.EASE_OUT),
         ink=True,
-        on_click=lambda _: page.go(f"/courses/{c_id}/view"),
+        on_click=lambda _: page.navigate(f"/courses/{c_id}/view"),
         content=ft.Column(
             spacing=7,
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,

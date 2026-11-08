@@ -317,7 +317,7 @@ async def leaderboards_view(
                                 b_ref[0].update()
                             show_page_snackbar(page, c_res.get("message") or c_res.get("error", "Error claiming reward."))
 
-                    claim_btn = ft.ElevatedButton(
+                    claim_btn = ft.Button(
                         content=ft.Row([
                             nu_coin_icon(size=14),
                             ft.Text(f"Claim +{reward}", size=11, weight=ft.FontWeight.W_800),
@@ -993,7 +993,7 @@ async def leaderboards_view(
                     spacing=6,
                     tight=True,
                     controls=[
-                        ft.IconButton(ft.Icons.ARROW_BACK_ROUNDED, icon_size=20, on_click=lambda _: page.go(back_target)),
+                        ft.IconButton(ft.Icons.ARROW_BACK_ROUNDED, icon_size=20, on_click=lambda _: page.navigate(back_target)),
                         ft.Text("Leaderboards & Objectives", size=14, weight=ft.FontWeight.W_800),
                     ],
                 ),

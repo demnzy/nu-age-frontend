@@ -193,46 +193,97 @@ class ChatWebSocketClient:
         self.token = token
         self.websocket = None
         self.listen_task = None
+        self.reconnect_task = None
         self.on_message_callback = None
-        self.on_disconnect_callback = None  # NEW: lets the UI react when the socket dies
+        self.on_disconnect_callback = None
+        self.on_connected_callback = None
+        self._is_closed = False
+        self._is_connecting = False
+        self._backoff = 2.0
 
-    async def connect(self, on_message_callback, on_disconnect_callback=None, timeout: float = 15.0) -> bool:
+    async def connect(self, on_message_callback, on_disconnect_callback=None, timeout: float = 6.0) -> bool:
         """
-        Opens the pipe and starts listening in the background.
-        Returns True on success, False on failure, so the caller can
-        show a proper error state instead of silently doing nothing.
+        Connects to the live WebSocket server with fast timeout and ssl_context.
+        Starts listener and supervisor reconnect task on disconnect.
         """
         self.on_message_callback = on_message_callback
-        self.on_disconnect_callback = on_disconnect_callback
+        if on_disconnect_callback:
+            self.on_disconnect_callback = on_disconnect_callback
+        self._is_closed = False
 
-        # Ensure your backend router prefix matches this path
+        if self.websocket and not getattr(self.websocket, "closed", False):
+            return True
+
+        if self._is_connecting:
+            return False
+        self._is_connecting = True
+
         connection_url = f"{ws_url}/chat/ws?token={self.token}"
+        use_ssl = ssl_context if connection_url.startswith("wss://") else None
 
         try:
             self.websocket = await asyncio.wait_for(
-                websockets.connect(connection_url), timeout=timeout
+                websockets.connect(
+                    connection_url,
+                    ssl=use_ssl,
+                    open_timeout=5.0,
+                    ping_interval=25.0,
+                    ping_timeout=15.0,
+                    close_timeout=4.0,
+                ),
+                timeout=timeout,
             )
-            print("Connected to Nu-Chat Live!")
+            print("[NuChat] Connected to Nu-Chat Live!")
+            self._backoff = 2.0
+            self._is_connecting = False
+            if self.listen_task:
+                self.listen_task.cancel()
             self.listen_task = asyncio.create_task(self._listen())
+            if self.on_connected_callback:
+                try:
+                    self.on_connected_callback()
+                except Exception:
+                    pass
             return True
         except asyncio.TimeoutError:
-            print("WebSocket connection timed out.")
+            print("[NuChat] WebSocket connection timed out (server slow or waking up).")
             self.websocket = None
+            self._is_connecting = False
+            self._schedule_reconnect()
             return False
         except Exception as e:
-            print(f"WebSocket connection failed: {e}")
+            print(f"[NuChat] WebSocket connection failed: {e}")
             self.websocket = None
+            self._is_connecting = False
+            self._schedule_reconnect()
             return False
+
+    def _schedule_reconnect(self):
+        """Schedules background reconnection with backoff without blocking the UI."""
+        if self._is_closed or self._is_connecting:
+            return
+        if self.reconnect_task and not self.reconnect_task.done():
+            return
+        self.reconnect_task = asyncio.create_task(self._reconnect_worker())
+
+    async def _reconnect_worker(self):
+        """Silent background worker that re-establishes socket connection."""
+        await asyncio.sleep(self._backoff)
+        if self._is_closed:
+            return
+        self._backoff = min(20.0, self._backoff * 1.5)
+        if self.on_message_callback:
+            await self.connect(self.on_message_callback, self.on_disconnect_callback, timeout=6.0)
 
     async def _listen(self):
         """The permanent background loop waiting for new messages."""
         try:
-            while True:
+            while self.websocket and not getattr(self.websocket, "closed", False):
                 message_str = await self.websocket.recv()
                 try:
                     message_dict = json.loads(message_str)
                 except json.JSONDecodeError:
-                    print(f"Received malformed message, skipping: {message_str!r}")
+                    print(f"[NuChat] Received malformed message, skipping: {message_str!r}")
                     continue
 
                 if self.on_message_callback:
@@ -242,19 +293,22 @@ class ChatWebSocketClient:
                         print(f"[NuChat] Error in on_message_callback: {cb_err}")
 
         except websockets.exceptions.ConnectionClosed:
-            print("Disconnected from Nu-Chat Live.")
+            print("[NuChat] Disconnected from Nu-Chat Live.")
         except Exception as e:
-            print(f"WebSocket Error: {e}")
+            print(f"[NuChat] WebSocket Error: {e}")
         finally:
-            # Socket is dead either way — mark it and let the UI know
             self.websocket = None
-            if self.on_disconnect_callback:
-                self.on_disconnect_callback()
+            if self.on_disconnect_callback and not self._is_closed:
+                try:
+                    self.on_disconnect_callback()
+                except Exception:
+                    pass
+            if not self._is_closed:
+                self._schedule_reconnect()
 
     async def send_message(self, channel_id: str, content: str, msg_type: str = "text", **kwargs) -> bool:
-        """Pushes data up the live pipe to the server. Returns True/False for success."""
-        if not self.websocket:
-            print("Cannot send: no active socket connection.")
+        """Pushes data up the live pipe to the server with fast timeout. Returns True/False for success."""
+        if not self.websocket or getattr(self.websocket, "closed", False):
             return False
 
         payload = {
@@ -264,18 +318,22 @@ class ChatWebSocketClient:
         }
         payload.update(kwargs)
         try:
-            await self.websocket.send(json.dumps(payload))
+            await asyncio.wait_for(self.websocket.send(json.dumps(payload)), timeout=2.5)
             return True
         except websockets.exceptions.ConnectionClosedError:
-            print("Socket disconnected! Message failed to send.")
-            self.websocket = None  # Mark as dead so the UI knows
+            print("[NuChat] Socket disconnected! Message will fall back to REST.")
+            self.websocket = None
+            self._schedule_reconnect()
             return False
         except Exception as e:
-            print(f"Unknown sending error: {e}")
+            print(f"[NuChat] WebSocket sending error: {e}")
             return False
 
     async def disconnect(self):
         """Cleanly shuts down the pipe when leaving the chat screen."""
+        self._is_closed = True
+        if self.reconnect_task:
+            self.reconnect_task.cancel()
         if self.listen_task:
             self.listen_task.cancel()
             try:
@@ -283,6 +341,11 @@ class ChatWebSocketClient:
             except (asyncio.CancelledError, Exception):
                 pass
         if self.websocket:
+            try:
+                await self.websocket.close()
+            except Exception:
+                pass
+            self.websocket = None
             try:
                 await self.websocket.close()
             except Exception as e:

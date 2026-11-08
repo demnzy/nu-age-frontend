@@ -119,7 +119,7 @@ def _get_file_icon(filename: str) -> tuple[str, str]:
     if ext in ("py", "js", "ts", "html", "css", "java", "cpp", "c", "sql", "json"):
         return ft.Icons.CODE_ROUNDED, ft.Colors.PRIMARY
     if ext in ("ppt", "pptx", "key"):
-        return ft.Icons.COPRESENCE_ROUNDED, ft.Colors.ORANGE_400
+        return ft.Icons.CO_PRESENT_ROUNDED, ft.Colors.ORANGE_400
     if ext in ("png", "jpg", "jpeg", "webp", "gif", "svg"):
         return ft.Icons.IMAGE_ROUNDED, ft.Colors.PURPLE_400
     return ft.Icons.INSERT_DRIVE_FILE_ROUNDED, ft.Colors.SECONDARY
@@ -315,7 +315,7 @@ async def course_space_hub_view(
             )
         )
 
-        btn_send = ft.ElevatedButton(
+        btn_send = ft.Button(
             "Enroll & Send Invite",
             icon=ft.Icons.SEND_ROUNDED,
             style=ft.ButtonStyle(
@@ -382,7 +382,7 @@ async def course_space_hub_view(
                         ],
                         spacing=1,
                     ),
-                    ft.ElevatedButton(
+                    ft.Button(
                         "Copy Code",
                         icon=ft.Icons.COPY_ALL_ROUNDED,
                         style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
@@ -605,7 +605,7 @@ async def course_space_hub_view(
             icon=ft.Icons.DELETE_FOREVER_ROUNDED,
             style=ft.ButtonStyle(color=ft.Colors.RED_400),
         )
-        save_btn = ft.ElevatedButton(
+        save_btn = ft.Button(
             "Save Settings",
             icon=ft.Icons.CHECK_ROUNDED,
             style=ft.ButtonStyle(
@@ -637,7 +637,7 @@ async def course_space_hub_view(
             if res.get("status") == "success":
                 show_page_snackbar(page, "Course Space deleted.")
                 _close_modal(dlg)
-                page.go(target_back)
+                page.navigate(target_back)
             else:
                 delete_btn.disabled = False
                 show_page_snackbar(page, res.get("message", "Could not delete space."))
@@ -766,7 +766,7 @@ async def course_space_hub_view(
             content_padding=ft.Padding.symmetric(horizontal=12, vertical=10),
         )
         checks_col = ft.Column(spacing=4, scroll=ft.ScrollMode.AUTO, height=210)
-        btn_link = ft.ElevatedButton(
+        btn_link = ft.Button(
             "Link Selected Courses",
             icon=ft.Icons.ADD_LINK_ROUNDED,
             style=ft.ButtonStyle(
@@ -1028,7 +1028,7 @@ async def course_space_hub_view(
 
         clear_file_btn.on_click = _clear_picked_file
 
-        btn_upload = ft.ElevatedButton(
+        btn_upload = ft.Button(
             "Upload Resource",
             icon=ft.Icons.CLOUD_UPLOAD_ROUNDED,
             style=ft.ButtonStyle(
@@ -1108,7 +1108,7 @@ async def course_space_hub_view(
             border=ft.Border.all(1, ft.Colors.with_opacity(0.2, ft.Colors.PRIMARY)),
             content=ft.Row(
                 [
-                    ft.ElevatedButton(
+                    ft.Button(
                         "Choose File",
                         icon=ft.Icons.ATTACH_FILE_ROUNDED,
                         on_click=lambda ev: page.run_task(_pick_file_click, ev),
@@ -1267,7 +1267,7 @@ async def course_space_hub_view(
             )
         )
 
-        btn_save = ft.ElevatedButton(
+        btn_save = ft.Button(
             "Schedule Class",
             icon=ft.Icons.EVENT_AVAILABLE_ROUNDED,
             style=ft.ButtonStyle(
@@ -1692,7 +1692,7 @@ async def course_space_hub_view(
             border=ft.Border.all(1, ft.Colors.with_opacity(0.2, ft.Colors.PRIMARY)),
             content=ft.Row(
                 [
-                    ft.ElevatedButton(
+                    ft.Button(
                         "Choose File",
                         icon=ft.Icons.UPLOAD_FILE_ROUNDED,
                         on_click=lambda ev: page.run_task(_pick_ingest_file, ev),
@@ -1734,7 +1734,7 @@ async def course_space_hub_view(
 
         source_container = ft.Container(content=upload_zone)
 
-        btn_action = ft.ElevatedButton(
+        btn_action = ft.Button(
             "Run AI Ingestion & Open Curator",
             icon=ft.Icons.AUTO_AWESOME_ROUNDED,
             style=ft.ButtonStyle(
@@ -2181,7 +2181,7 @@ async def course_space_hub_view(
 
     # ── Interactive Student CBT Drill Runner Navigation ────────────────────
     async def _launch_quiz_runner(quiz_id: str, quiz_title: str = ""):
-        page.go(f"/spaces/{clean_space_id}/drills/{quiz_id}")
+        page.navigate(f"/spaces/{clean_space_id}/drills/{quiz_id}")
 
     # ── UI Renderer ────────────────────────────────────────────────────────
     mat_search_tf = ft.TextField(
@@ -2262,7 +2262,7 @@ async def course_space_hub_view(
                 text_size=13,
                 width=320,
             )
-            unlock_btn = ft.ElevatedButton(
+            unlock_btn = ft.Button(
                 "Unlock & Join Space",
                 icon=ft.Icons.LOCK_OPEN_ROUNDED,
                 style=ft.ButtonStyle(
@@ -2301,7 +2301,7 @@ async def course_space_hub_view(
                 switch_to_manage_btn = ft.OutlinedButton(
                     "Switch to Management Studio",
                     icon=ft.Icons.TUNE_ROUNDED,
-                    on_click=lambda ev: page.go(f"/spaces/{clean_space_id}/manage"),
+                    on_click=lambda ev: page.navigate(f"/spaces/{clean_space_id}/manage"),
                 )
 
             gate_card = ft.Container(
@@ -2340,7 +2340,7 @@ async def course_space_hub_view(
                         ft.TextButton(
                             "Back to Explore Spaces",
                             icon=ft.Icons.ARROW_BACK_ROUNDED,
-                            on_click=lambda ev: page.go(target_back),
+                            on_click=lambda ev: page.navigate(target_back),
                         ),
                     ],
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -2368,7 +2368,7 @@ async def course_space_hub_view(
             res = await leave_course_space(token=token, space_id=clean_space_id)
             if res.get("status") == "success":
                 show_page_snackbar(page, res.get("message", "Left Course Space."))
-                page.go(target_back)
+                page.navigate(target_back)
             else:
                 show_page_snackbar(page, res.get("message", "Could not leave space."))
 
@@ -2420,7 +2420,7 @@ async def course_space_hub_view(
         header_actions = []
         if can_manage:
             header_actions.append(
-                ft.ElevatedButton(
+                ft.Button(
                     "Invite Learners",
                     icon=ft.Icons.PERSON_ADD_ROUNDED,
                     style=ft.ButtonStyle(
@@ -2437,7 +2437,7 @@ async def course_space_hub_view(
                 ft.OutlinedButton(
                     "Student Preview",
                     icon=ft.Icons.VISIBILITY_OUTLINED,
-                    on_click=lambda ev: page.go(f"/spaces/{clean_space_id}"),
+                    on_click=lambda ev: page.navigate(f"/spaces/{clean_space_id}"),
                 )
             )
             header_actions.append(
@@ -2449,7 +2449,7 @@ async def course_space_hub_view(
             )
         elif not is_member and is_open:
             header_actions.append(
-                ft.ElevatedButton(
+                ft.Button(
                     "Join Space",
                     icon=ft.Icons.LOGIN_ROUNDED,
                     style=ft.ButtonStyle(bgcolor=ft.Colors.PRIMARY, color=ft.Colors.ON_PRIMARY),
@@ -2470,7 +2470,7 @@ async def course_space_hub_view(
                 ft.IconButton(
                     ft.Icons.ARROW_BACK_ROUNDED,
                     tooltip="Back",
-                    on_click=lambda ev: page.go(target_back),
+                    on_click=lambda ev: page.navigate(target_back),
                 ),
                 ft.Column(
                     [
@@ -2681,7 +2681,7 @@ async def course_space_hub_view(
                     ft.Row(
                         [
                             ft.Text("Linked Organisation Courses", weight=ft.FontWeight.BOLD, size=15),
-                            ft.ElevatedButton(
+                            ft.Button(
                                 "+ Link Courses",
                                 icon=ft.Icons.ADD_LINK_ROUNDED,
                                 style=ft.ButtonStyle(
@@ -2719,7 +2719,7 @@ async def course_space_hub_view(
                                 ),
                                 *(
                                     [
-                                        ft.ElevatedButton(
+                                        ft.Button(
                                             "+ Link Existing Courses",
                                             icon=ft.Icons.ADD_LINK_ROUNDED,
                                             style=ft.ButtonStyle(bgcolor=ft.Colors.PRIMARY, color=ft.Colors.ON_PRIMARY),
@@ -2774,7 +2774,7 @@ async def course_space_hub_view(
                             ft.OutlinedButton(
                                 "Preview Course",
                                 icon=ft.Icons.OPEN_IN_NEW_ROUNDED,
-                                on_click=lambda ev, cid=c_id: page.go(f"/courses/{cid}/view"),
+                                on_click=lambda ev, cid=c_id: page.navigate(f"/courses/{cid}/view"),
                             ),
                             ft.OutlinedButton(
                                 "Unlink",
@@ -2785,7 +2785,7 @@ async def course_space_hub_view(
                         ]
                     else:
                         action_controls = [
-                            ft.ElevatedButton(
+                            ft.Button(
                                 "Review Course" if prog_pct >= 100 else ("Resume Course" if prog_pct > 0 else "Start Course"),
                                 icon=ft.Icons.PLAY_ARROW_ROUNDED,
                                 style=ft.ButtonStyle(
@@ -2793,7 +2793,7 @@ async def course_space_hub_view(
                                     color=ft.Colors.ON_PRIMARY,
                                     shape=ft.RoundedRectangleBorder(radius=10),
                                 ),
-                                on_click=lambda ev, cid=c_id: page.go(f"/courses/{cid}/view"),
+                                on_click=lambda ev, cid=c_id: page.navigate(f"/courses/{cid}/view"),
                             ),
                         ]
 
@@ -2870,7 +2870,7 @@ async def course_space_hub_view(
             top_mat_row = [mat_search_tf]
             if can_manage:
                 top_mat_row.append(
-                    ft.ElevatedButton(
+                    ft.Button(
                         "+ Upload Resource",
                         icon=ft.Icons.CLOUD_UPLOAD_ROUNDED,
                         style=ft.ButtonStyle(bgcolor=ft.Colors.PRIMARY, color=ft.Colors.ON_PRIMARY),
@@ -2923,7 +2923,7 @@ async def course_space_hub_view(
                                 ),
                                 *(
                                     [
-                                        ft.ElevatedButton(
+                                        ft.Button(
                                             "+ Upload First Resource",
                                             icon=ft.Icons.CLOUD_UPLOAD_ROUNDED,
                                             style=ft.ButtonStyle(bgcolor=ft.Colors.PRIMARY, color=ft.Colors.ON_PRIMARY),
@@ -3050,7 +3050,7 @@ async def course_space_hub_view(
             top_drill_row = [drill_search_tf]
             if can_manage:
                 top_drill_row.append(
-                    ft.ElevatedButton(
+                    ft.Button(
                         "+ Create CBT Drill (AI / Studio)",
                         icon=ft.Icons.AUTO_AWESOME_ROUNDED,
                         style=ft.ButtonStyle(bgcolor=ft.Colors.PRIMARY, color=ft.Colors.ON_PRIMARY),
@@ -3102,7 +3102,7 @@ async def course_space_hub_view(
                                 ),
                                 *(
                                     [
-                                        ft.ElevatedButton(
+                                        ft.Button(
                                             "+ Create First CBT Drill with AI",
                                             icon=ft.Icons.AUTO_AWESOME_ROUNDED,
                                             style=ft.ButtonStyle(bgcolor=ft.Colors.PRIMARY, color=ft.Colors.ON_PRIMARY),
@@ -3181,7 +3181,7 @@ async def course_space_hub_view(
                         )
 
                     drill_actions = [
-                        ft.ElevatedButton(
+                        ft.Button(
                             "Retake Drill" if attempts_cnt > 0 else "Start CBT Drill",
                             icon=ft.Icons.PLAY_ARROW_ROUNDED,
                             style=ft.ButtonStyle(bgcolor=ft.Colors.PRIMARY, color=ft.Colors.ON_PRIMARY),
@@ -3277,7 +3277,7 @@ async def course_space_hub_view(
                     ft.Row(
                         [
                             ft.Text("Scheduled Classes & Live Meeting Links", weight=ft.FontWeight.BOLD, size=15, color=ft.Colors.ON_SURFACE),
-                            ft.ElevatedButton(
+                            ft.Button(
                                 "+ Schedule Live Class",
                                 icon=ft.Icons.VIDEO_CALL_ROUNDED,
                                 style=ft.ButtonStyle(bgcolor=ft.Colors.PRIMARY, color=ft.Colors.ON_PRIMARY),
@@ -3313,7 +3313,7 @@ async def course_space_hub_view(
                                 ),
                                 *(
                                     [
-                                        ft.ElevatedButton(
+                                        ft.Button(
                                             "+ Schedule First Class",
                                             icon=ft.Icons.VIDEO_CALL_ROUNDED,
                                             style=ft.ButtonStyle(bgcolor=ft.Colors.PRIMARY, color=ft.Colors.ON_PRIMARY),
@@ -3410,7 +3410,7 @@ async def course_space_hub_view(
                             tooltip="Copy Meeting Link",
                             on_click=lambda ev, u=meet_link: page.run_task(_copy_meet_link, ev, u),
                         ),
-                        ft.ElevatedButton(
+                        ft.Button(
                             "Join Class",
                             icon=ft.Icons.OPEN_IN_NEW_ROUNDED,
                             style=ft.ButtonStyle(bgcolor=ft.Colors.PRIMARY, color=ft.Colors.ON_PRIMARY),
@@ -3466,7 +3466,7 @@ async def course_space_hub_view(
         # PANEL E: MEMBERS & CO-TUTORS ROSTER
         elif state["active_tab"] == "members":
             panel_col = ft.Column(spacing=12)
-            invite_top_btn = ft.ElevatedButton(
+            invite_top_btn = ft.Button(
                 "Invite Learners",
                 icon=ft.Icons.PERSON_ADD_ROUNDED,
                 style=ft.ButtonStyle(

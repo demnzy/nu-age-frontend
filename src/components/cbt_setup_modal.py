@@ -6,7 +6,12 @@ import flet as ft
 from src.components import study_ui as ui
 from src.local_db import get_offline_exam_categories
 from src.requests.study import get_exam_categories
-from src.utils.modal_guard import safe_open_dialog, safe_close_dialog
+from src.utils.modal_guard import (
+    safe_open_dialog,
+    safe_close_dialog,
+    safe_update_dialog,
+    run_after_modal_close,
+)
 
 
 def _get_pacing_seconds(exam_type_str: str, title_str: str = "") -> tuple[int, str]:
@@ -126,7 +131,7 @@ def open_cbt_setup_modal(
                             color=ui.muted(0.7),
                             text_align=ft.TextAlign.CENTER,
                         ),
-                        ft.ElevatedButton(
+                        ft.Button(
                             "Close",
                             on_click=_close_dlg,
                             style=ft.ButtonStyle(
@@ -239,10 +244,7 @@ def open_cbt_setup_modal(
 
             # Re-highlight preset chips
             _build_preset_chips()
-            try:
-                page.update()
-            except Exception:
-                pass
+            safe_update_dialog(page, dlg)
 
         def _on_slider_change(e):
             current_question_count[0] = int(round(e.control.value))
@@ -444,10 +446,7 @@ def open_cbt_setup_modal(
                 )
 
             topic_chips_wrap.controls = controls
-            try:
-                page.update()
-            except Exception:
-                pass
+            safe_update_dialog(page, dlg)
 
         def _on_filter_changed(e):
             topic_filter_text[0] = str(e.control.value or "")
@@ -485,12 +484,16 @@ def open_cbt_setup_modal(
                     ft.Text("Preparing Exam…", size=13, weight=ft.FontWeight.W_700, color=ft.Colors.ON_PRIMARY),
                 ],
             )
-            page.update()
-
-            _close_dlg()
+            safe_update_dialog(page, dlg)
 
             if on_start:
-                on_start(clean_ids, chosen_limit, chosen_topics, calculated_duration)
+                run_after_modal_close(
+                    page,
+                    dlg,
+                    lambda: on_start(clean_ids, chosen_limit, chosen_topics, calculated_duration),
+                )
+            else:
+                _close_dlg()
 
         start_btn.on_click = _on_start_clicked
 
@@ -676,7 +679,7 @@ def open_cbt_setup_modal(
                 footer_widget,
             ],
         )
-        page.update()
+        safe_update_dialog(page, dlg)
 
     safe_open_dialog(page, dlg, tag="cbt_setup_modal")
     page.run_task(_fetch_and_build)

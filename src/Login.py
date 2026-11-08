@@ -112,7 +112,7 @@ def login_view(page: ft.Page):
         timeout_dialog.open = False
         page.pop_dialog()
         page.update()
-        page.go("/offline")
+        page.navigate("/offline")
 
     def _show_connectivity_dialog():
         # Rebuilt each time (rather than a static module-level actions
@@ -204,7 +204,7 @@ def login_view(page: ft.Page):
                             nav_bar.refresh()
                         except Exception:
                             pass
-                    page.go("/dashboard")
+                    page.navigate("/dashboard")
                     return
             set_error("Account verified successfully! Please click Sign In to continue.")
             page.update()
@@ -243,7 +243,7 @@ def login_view(page: ft.Page):
         page.pop_dialog()
         page.update()
 
-    verify_action_btn = ft.ElevatedButton(
+    verify_action_btn = ft.Button(
         "Verify & Sign In",
         width=250,
         height=44,
@@ -376,7 +376,7 @@ def login_view(page: ft.Page):
                     page.run_task(setup_user_push_notifications, page, token)
                 except Exception:
                     pass
-                page.go("/dashboard")
+                page.navigate("/dashboard")
 
             elif status == 404:
                 set_error(
@@ -461,6 +461,8 @@ def login_view(page: ft.Page):
         hint_text="name@example.com",
         prefix_icon=ft.Icons.PERSON_OUTLINE_ROUNDED,
         keyboard_type=ft.KeyboardType.EMAIL,
+        autofill_hints=[ft.AutofillHint.EMAIL, ft.AutofillHint.USERNAME],
+        text_input_action=ft.TextInputAction.NEXT,
         expand=True,
     )
     password = field(
@@ -469,12 +471,14 @@ def login_view(page: ft.Page):
         prefix_icon=ft.Icons.LOCK_OUTLINE_ROUNDED,
         password=True,
         can_reveal_password=True,
+        autofill_hints=[ft.AutofillHint.PASSWORD],
+        text_input_action=ft.TextInputAction.DONE,
         expand=True,
         on_submit=handle_submit,
     )
 
     # ── submit button ─────────────────────────────────────────────
-    Submit = ft.ElevatedButton(
+    Submit = ft.Button(
         content=ft.Text("Sign In", size=13, weight=ft.FontWeight.W_600),
         expand=True,
         color=ft.Colors.ON_PRIMARY,
@@ -605,7 +609,7 @@ def login_view(page: ft.Page):
         on_submit=lambda _: page.run_task(handle_verification) if not reset_password_btn.disabled else None,
     )
 
-    send_email_btn = ft.ElevatedButton(
+    send_email_btn = ft.Button(
         content=ft.Text("Send Recovery Code", size=13.5, weight=ft.FontWeight.W_600),
         expand=True,
         height=42,
@@ -616,7 +620,7 @@ def login_view(page: ft.Page):
         on_click=lambda e: page.run_task(send_verification_email),
     )
 
-    continue_to_pwd_btn = ft.ElevatedButton(
+    continue_to_pwd_btn = ft.Button(
         content=ft.Text("Continue", size=13.5, weight=ft.FontWeight.W_600),
         expand=True,
         height=42,
@@ -627,7 +631,7 @@ def login_view(page: ft.Page):
         on_click=lambda _: switch_step(3),
     )
 
-    reset_password_btn = ft.ElevatedButton(
+    reset_password_btn = ft.Button(
         content=ft.Text("Reset Password", size=13.5, weight=ft.FontWeight.W_600),
         expand=True,
         height=42,
@@ -802,7 +806,7 @@ def login_view(page: ft.Page):
             success_snack.open = True
         page.update()
 
-    finish_btn = ft.ElevatedButton(
+    finish_btn = ft.Button(
         content=ft.Text("Sign In with New Password", size=13.5, weight=ft.FontWeight.W_600),
         expand=True,
         height=42,
@@ -1162,7 +1166,7 @@ def login_view(page: ft.Page):
                 ft.ControlState.DEFAULT: ft.Colors.with_opacity(0.03, ft.Colors.PRIMARY),
             },
         ),
-        on_click=lambda _: page.go("/offline"),
+        on_click=lambda _: page.navigate("/offline"),
     )
 
     # ── Left Hero Panel (Desktop) ─────────────────────────────────
@@ -1236,10 +1240,17 @@ def login_view(page: ft.Page):
             ),
             ft.Container(height=4),
 
-            # Form Fields
-            ft.Row([email]),
-            ft.Container(height=2),
-            ft.Row([password]),
+            # Form Fields (wrapped in AutofillGroup for OS credential managers)
+            ft.AutofillGroup(
+                content=ft.Column(
+                    spacing=2,
+                    tight=True,
+                    controls=[
+                        ft.Row([email]),
+                        ft.Row([password]),
+                    ],
+                )
+            ),
 
             # Inline Validation Error
             validation_error,
@@ -1281,7 +1292,7 @@ def login_view(page: ft.Page):
                     ),
                     ft.TextButton(
                         "Sign Up",
-                        on_click=lambda _: page.go("/signup"),
+                        on_click=lambda _: page.navigate("/signup"),
                         style=ft.ButtonStyle(
                             color=ft.Colors.PRIMARY,
                             padding=ft.Padding.only(left=4),

@@ -223,7 +223,7 @@ async def edit_profile_view(page: ft.Page) -> ft.View:
                 set_session_value(page, "current_user", user_data)
                 show_feedback("Profile updated successfully! Redirecting...", is_error=False)
                 await asyncio.sleep(0.6)
-                page.go("/profile")
+                page.navigate("/profile")
             elif status == 409:
                 show_feedback("That username is already taken. Please choose another.")
             elif status == 422:
@@ -276,7 +276,7 @@ async def edit_profile_view(page: ft.Page) -> ft.View:
             shape=ft.RoundedRectangleBorder(radius=12),
             padding=ft.Padding.symmetric(vertical=16, horizontal=20)
         ),
-        on_click=lambda _: page.go("/profile"),
+        on_click=lambda _: page.navigate("/profile"),
     )
 
     # ── Hero Profile Header (Matching LMS Standard) ───────────────────────────
@@ -417,7 +417,7 @@ async def edit_profile_view(page: ft.Page) -> ft.View:
                                 bgcolor={"": ft.Colors.with_opacity(0.18, ft.Colors.WHITE)},
                                 shape=ft.CircleBorder()
                             ),
-                            on_click=lambda _: page.go("/profile"),
+                            on_click=lambda _: page.navigate("/profile"),
                         ),
                         ft.Text(
                             "EDIT PROFILE",
@@ -564,7 +564,7 @@ def _error_view(page: ft.Page) -> ft.View:
                             "Return to Login",
                             icon=ft.Icons.LOGIN_ROUNDED,
                             style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10)),
-                            on_click=lambda _: page.go("/login")
+                            on_click=lambda _: page.navigate("/login")
                         ),
                     ],
                 ),

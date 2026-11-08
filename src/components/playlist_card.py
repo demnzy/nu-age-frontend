@@ -44,7 +44,7 @@ def get_playlist_card(
                     gradient=ft.LinearGradient(
                         begin=ft.Alignment.TOP_CENTER,
                         end=ft.Alignment.BOTTOM_CENTER,
-                        colors=[ft.Colors.TRANSPARENT, ft.Colors.BLACK54]
+                        colors=[ft.Colors.TRANSPARENT, ft.Colors.BLACK_54]
                     ),
                     expand=True,
                 ),
@@ -109,7 +109,7 @@ def get_playlist_card(
         )
 
     # ── action button ─────────────────────────────────────────────────────────
-    action_btn = ft.ElevatedButton(
+    action_btn = ft.Button(
         content=ft.Text("View Playlist", size=13,
                         color=ft.Colors.ON_PRIMARY, weight=ft.FontWeight.W_600),
         bgcolor=ft.Colors.PRIMARY,

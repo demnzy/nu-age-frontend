@@ -10,6 +10,7 @@ import os
 import tempfile
 import re
 import base64
+import functools
 from src.utils.code_runner import (
     execute_python,
     execute_sql,
@@ -38,6 +39,7 @@ from src.theme.typography import (
     get_mono_font,
 )
 
+@functools.lru_cache(maxsize=128)
 def heal_markdown(text: str) -> str:
     """
     Auto-heals markdown anomalies and enforces modern GitHub-Flavored Markdown (GFM):
@@ -614,7 +616,7 @@ async def course_learner_view(
                 pass
             current_audio_player = None
             page.active_lesson_audio_player = None
-        page.go(back_target)
+        page.navigate(back_target)
 
     page_appbar = ft.AppBar(
         leading=ft.IconButton(
@@ -2983,7 +2985,7 @@ async def course_learner_view(
                             current_audio_player = None
                             page.active_lesson_audio_player = None
                         page.pop_dialog()
-                        page.go(back_target)
+                        page.navigate(back_target)
 
                     is_offline = back_target == "/offline"
 
@@ -2997,7 +2999,7 @@ async def course_learner_view(
                             current_audio_player = None
                             page.active_lesson_audio_player = None
                         page.pop_dialog()
-                        page.go(f"/courses/{course_id}/stats")
+                        page.navigate(f"/courses/{course_id}/stats")
 
                     if not is_offline:
                         stats_action_container = ft.FilledButton(

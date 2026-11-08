@@ -648,7 +648,7 @@ def show_duel_results_dialog(
             page.run_task(_launch)
 
         play_label = f"Match {wager_val} & Play" if wager_val > 0 else "Play Duel Now"
-        dlg.actions.insert(0, ft.ElevatedButton(
+        dlg.actions.insert(0, ft.Button(
             content=ft.Row(
                 tight=True,
                 spacing=6,
@@ -1302,7 +1302,7 @@ def show_create_duel_dialog(
             print(f"[show_create_duel_dialog] _fetch_and_populate_packs error: {ex}")
 
     progress_ring = ft.ProgressRing(width=20, height=20, stroke_width=2.5, color=ft.Colors.PRIMARY, visible=False)
-    launch_btn = ft.ElevatedButton(
+    launch_btn = ft.Button(
         content=ft.Row(
             tight=True,
             spacing=8,
@@ -1580,6 +1580,21 @@ def show_flashcard_preview_dialog(
 
     init_card_val = flashcards[0].get("front", "Empty") if total_cards else "No flashcards in this deck."
     is_compact = bool(getattr(page, "width", None) and page.width < 600)
+
+    def _get_preview_font_size(text: str) -> float:
+        l = len((text or "").strip())
+        if is_compact:
+            if l <= 35: return 21.0
+            elif l <= 80: return 18.0
+            elif l <= 160: return 15.5
+            else: return 13.5
+        else:
+            if l <= 35: return 24.0
+            elif l <= 80: return 20.0
+            elif l <= 160: return 17.0
+            else: return 14.5
+
+    init_sz = _get_preview_font_size(init_card_val)
     card_md = ft.Markdown(
         value=init_card_val,
         selectable=False,
@@ -1587,10 +1602,10 @@ def show_flashcard_preview_dialog(
         md_style_sheet=ft.MarkdownStyleSheet(
             text_alignment=ft.TextAlign.CENTER,
             p_text_style=ft.TextStyle(
-                size=14.5 if is_compact else 16,
-                weight=ft.FontWeight.W_600,
+                size=init_sz,
+                weight=ft.FontWeight.W_700 if init_sz >= 18 else ft.FontWeight.W_500,
                 color=ft.Colors.ON_SURFACE,
-                height=1.45,
+                height=1.4,
             ),
         ),
     )
@@ -1604,10 +1619,10 @@ def show_flashcard_preview_dialog(
         alignment=ft.Alignment.CENTER,
         ink=True,
         content=ft.Column(
-            controls=[card_md],
-            alignment=ft.MainAxisAlignment.START if is_compact else ft.MainAxisAlignment.CENTER,
+            controls=[ft.Container(alignment=ft.Alignment.CENTER, content=card_md)],
+            alignment=ft.MainAxisAlignment.CENTER,
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            scroll=ft.ScrollMode.AUTO,
+            scroll=ft.ScrollMode.ADAPTIVE,
         ),
     )
 
@@ -1632,6 +1647,17 @@ def show_flashcard_preview_dialog(
             card_md.value = curr.get("back") or curr.get("answer") or curr.get("definition") or "No back text"
             card_box.bgcolor = _tint(0.07, ft.Colors.GREEN)
             card_box.border = ft.Border.all(1.5, _tint(0.40, ft.Colors.GREEN))
+
+        cur_sz = _get_preview_font_size(card_md.value)
+        card_md.md_style_sheet = ft.MarkdownStyleSheet(
+            text_alignment=ft.TextAlign.CENTER,
+            p_text_style=ft.TextStyle(
+                size=cur_sz,
+                weight=ft.FontWeight.W_700 if cur_sz >= 18 else ft.FontWeight.W_500,
+                color=ft.Colors.ON_SURFACE,
+                height=1.4,
+            ),
+        )
         page.update()
 
     def _flip(e=None):
@@ -1692,7 +1718,7 @@ def show_flashcard_preview_dialog(
     action_label = duel_action_label or "Challenge on this pack"
     action_icon = ft.Icons.PLAY_ARROW_ROUNDED if on_action_click else ft.Icons.FLASH_ON_ROUNDED
 
-    duel_cta = ft.ElevatedButton(
+    duel_cta = ft.Button(
         content=ft.Row(
             tight=True,
             spacing=6,

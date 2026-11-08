@@ -10,11 +10,12 @@ authors = [
 dependencies = [
     "certifi>=2026.2.25",
     "charset-normalizer>=3.4.7",
-    "flet==0.86.5",
-    "flet-audio==0.86.5",
-    "flet-charts==0.86.5",
-    "flet-video==0.86.5",
-    "flet-webview==0.86.5",
+    "flet==1.1.2",
+    "flet-audio>=0.86.5",
+    "flet-charts==1.1.2",
+    "flet-video==1.1.2",
+    "flet-webview==1.1.2",
+    "flet-shadcn-ui==1.1.2",
     "httpx>=0.28.1",
     "idna>=3.11",
     "requests>=2.33.1",
@@ -26,19 +27,19 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "flet-cli==0.86.5",
-    "flet-desktop==0.86.5",
-    "flet-web==0.86.5",
+    "flet-cli==1.1.2",
+    "flet-desktop==1.1.2",
+    "flet-web==1.1.2",
 ]
 web = [
-    "flet-web==0.86.5",
+    "flet-web==1.1.2",
     "fastapi>=0.115.0",
     "uvicorn>=0.30.0",
 ]
 
 [project.optional-dependencies]
 web = [
-    "flet-web==0.86.5",
+    "flet-web==1.1.2",
     "fastapi>=0.115.0",
     "uvicorn>=0.30.0",
 ]

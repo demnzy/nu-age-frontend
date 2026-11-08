@@ -54,7 +54,8 @@ from src.components.onboarding_overlay import build_onboarding_overlay
 #   True  -> always show it (handy while designing/testing)
 #   False -> never show it
 #   None  -> persistent frontend mechanism (must show on compiled app 1st run, then never again)
-FORCE_SHOW_ONBOARDING = None
+# Retired legacy modal overlay in favor of full-page carousel at /onboarding
+FORCE_SHOW_ONBOARDING = False
 
 
 def _get_app_disk_state() -> dict:
@@ -306,7 +307,7 @@ async def dashboard_view(page: ft.Page):
         ),
         ink=True,
         tooltip="View & Edit Profile",
-        on_click=lambda _: page.go("/profile"),
+        on_click=lambda _: page.navigate("/profile"),
     )
 
     # Mobile Showcase Avatar
@@ -350,7 +351,7 @@ async def dashboard_view(page: ft.Page):
         ),
         ink=True,
         tooltip="View & Edit Profile",
-        on_click=lambda _: page.go("/profile"),
+        on_click=lambda _: page.navigate("/profile"),
     )
 
     def build_hero_content():
@@ -471,7 +472,7 @@ async def dashboard_view(page: ft.Page):
             ],
         )
 
-        cta_btn = ft.ElevatedButton(
+        cta_btn = ft.Button(
             content=ft.Row(
                 spacing=6,
                 tight=True,
@@ -488,7 +489,7 @@ async def dashboard_view(page: ft.Page):
                 elevation=0,
                 padding=ft.Padding.symmetric(horizontal=16, vertical=8),
             ),
-            on_click=lambda _: page.go("/self-study"),
+            on_click=lambda _: page.navigate("/self-study"),
         )
 
         if is_desktop:
@@ -551,7 +552,7 @@ async def dashboard_view(page: ft.Page):
         content=build_self_study_content((page.width or 400) >= 800),
         padding=18,
     )
-    self_study_card.on_click = lambda _: page.go("/self-study")
+    self_study_card.on_click = lambda _: page.navigate("/self-study")
     self_study_card.ink = True
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -594,7 +595,7 @@ async def dashboard_view(page: ft.Page):
             ],
         )
 
-        cta_btn = ft.ElevatedButton(
+        cta_btn = ft.Button(
             content=ft.Row(
                 spacing=6,
                 tight=True,
@@ -611,7 +612,7 @@ async def dashboard_view(page: ft.Page):
                 elevation=0,
                 padding=ft.Padding.symmetric(horizontal=16, vertical=8),
             ),
-            on_click=lambda _: page.go("/network"),
+            on_click=lambda _: page.navigate("/network"),
         )
 
         if is_desktop:
@@ -674,7 +675,7 @@ async def dashboard_view(page: ft.Page):
         content=build_network_content((page.width or 400) >= 800),
         padding=18,
     )
-    network_card.on_click = lambda _: page.go("/network")
+    network_card.on_click = lambda _: page.navigate("/network")
     network_card.ink = True
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -853,7 +854,7 @@ async def dashboard_view(page: ft.Page):
             ),
         )
 
-        action_btn = ft.ElevatedButton(
+        action_btn = ft.Button(
             content=ft.Row(
                 tight=True,
                 spacing=6,
@@ -869,7 +870,7 @@ async def dashboard_view(page: ft.Page):
                 elevation=0,
                 padding=ft.Padding.symmetric(horizontal=14),
             ),
-            on_click=lambda _: page.go("/leaderboards"),
+            on_click=lambda _: page.navigate("/leaderboards"),
         )
 
         left_side = ft.Row(
@@ -992,54 +993,20 @@ async def dashboard_view(page: ft.Page):
         dash_avatar_mobile.content.value = dash_inits_updated
 
         # Trigger fade animations immediately
+        greeting_name.value = target_greeting
         greeting_sub.opacity = 1
         greeting_sub.offset = ft.Offset(0, 0)
         tip_container.opacity = 1
         page.update()
 
-        # Typing animation: targeted update to greeting_name control
-        async def type_greeting(target_text: str):
-            current_text = ""
-            for char in target_text:
-                current_text += char
-                greeting_name.value = current_text + "|"
-                try:
-                    greeting_name.update()
-                except Exception:
-                    page.update()
-                await asyncio.sleep(0.04)
-            
-            # Blink the cursor a few times
-            for _ in range(3):
-                greeting_name.value = current_text + " "
-                try:
-                    greeting_name.update()
-                except Exception:
-                    page.update()
-                await asyncio.sleep(0.4)
-                greeting_name.value = current_text + "|"
-                try:
-                    greeting_name.update()
-                except Exception:
-                    page.update()
-                await asyncio.sleep(0.4)
-                
-            # Remove cursor
-            greeting_name.value = current_text
-            try:
-                greeting_name.update()
-            except Exception:
-                page.update()
-
-        page.run_task(type_greeting, target_greeting)
-        
         streak = user_data.get("streak", 0)
 
         token = await page.shared_preferences.get("auth_token")
 
-        # ── Concurrently fetch Enrollments, Cohorts, and Partnerships ────────
+        # ── Concurrently fetch Enrollments, Cohorts, Partnerships, and Objectives ──
         from src.requests.study_partners import get_active_partnership
         from src.components.partner_challenge_modal import show_duel_results_dialog, is_challenge_completed
+        from src.requests.objectives import get_platform_objectives_api
 
         async def _fetch_enrollments_safe():
             try:
@@ -1063,10 +1030,19 @@ async def dashboard_view(page: ft.Page):
             except Exception:
                 return None
 
-        enrolled_list, learner_cohorts_res, p_res = await asyncio.gather(
+        async def _fetch_objectives_safe():
+            if not token:
+                return None
+            try:
+                return await asyncio.wait_for(get_platform_objectives_api(token), timeout=2.5)
+            except Exception:
+                return None
+
+        enrolled_list, learner_cohorts_res, p_res, obj_res = await asyncio.gather(
             _fetch_enrollments_safe(),
             _fetch_cohorts_safe(),
             _fetch_partners_safe(),
+            _fetch_objectives_safe(),
             return_exceptions=True,
         )
         if isinstance(enrolled_list, Exception) or not isinstance(enrolled_list, list):
@@ -1075,6 +1051,8 @@ async def dashboard_view(page: ft.Page):
             learner_cohorts_res = {"cohorts": []}
         if isinstance(p_res, Exception):
             p_res = None
+        if isinstance(obj_res, Exception):
+            obj_res = None
 
         active_count = len(enrolled_list)
         finished_count = sum(1 for c in enrolled_list if c.get("progress", 0.0) >= 100)
@@ -1159,7 +1137,7 @@ async def dashboard_view(page: ft.Page):
                                 play_btn.disabled = False
                                 page.update()
 
-                            play_btn = ft.ElevatedButton(
+                            play_btn = ft.Button(
                                 content=ft.Row(
                                     tight=True,
                                     spacing=4,
@@ -1393,18 +1371,15 @@ async def dashboard_view(page: ft.Page):
             incoming_duel_container.content = None
             incoming_duel_container.data = None
 
-        # ── Fetch Nu-Coins for Leaderboards Action Card ──────────────────────
+        # ── Nu-Coins for Leaderboards Action Card (fetched concurrently above) ─
         coins_bal = user_data.get("coins_balance", 0)
         try:
-            if token:
-                from src.requests.objectives import get_platform_objectives_api
-                obj_res = await asyncio.wait_for(get_platform_objectives_api(token), timeout=2.5)
-                if obj_res and "coins_balance" in obj_res:
-                    coins_bal = obj_res.get("coins_balance", coins_bal)
-                    from src.utils.session_utils import get_session_user, set_session_value
-                    u_store = get_session_user(page)
-                    u_store["coins_balance"] = coins_bal
-                    set_session_value(page, "current_user", u_store)
+            if isinstance(obj_res, dict) and "coins_balance" in obj_res:
+                coins_bal = obj_res.get("coins_balance", coins_bal)
+                from src.utils.session_utils import get_session_user, set_session_value
+                u_store = get_session_user(page)
+                u_store["coins_balance"] = coins_bal
+                set_session_value(page, "current_user", u_store)
         except Exception:
             pass
 
@@ -1427,7 +1402,7 @@ async def dashboard_view(page: ft.Page):
                     avg_p = round(sum(crs.get("progress", 0) for crs in c_courses) / len(c_courses))
 
                 def make_cohort_click(target_cid):
-                    return lambda _: page.go(f"/cohorts/{target_cid}")
+                    return lambda _: page.navigate(f"/cohorts/{target_cid}")
 
                 cohort_tiles.append(
                     ft.Container(
@@ -1460,60 +1435,16 @@ async def dashboard_view(page: ft.Page):
                             ft.Icon(ft.Icons.GROUPS_ROUNDED, size=18, color=ft.Colors.PRIMARY),
                             ft.Text("My Training Cohorts", size=15, weight=ft.FontWeight.BOLD),
                         ], spacing=8, tight=True),
-                        ft.TextButton("View All →", on_click=lambda _: page.go("/cohorts")),
+                        ft.TextButton("View All →", on_click=lambda _: page.navigate("/cohorts")),
                     ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                     ft.Column(cohort_tiles, spacing=8),
                 ], spacing=10),
             )
         
-        # ── stat animation ────────────────────────────────────────────────────
-        async def animate_stats(target_act: int, target_fin: int, target_str: int):
-            # Find the max so we know how many steps to take if we want to run together
-            max_val = max(target_act, target_fin, target_str)
-            if max_val == 0:
-                stat_enrolled.value = "0"
-                stat_finished.value = "0"
-                stat_streak.value = "0"
-                try:
-                    stat_enrolled.update()
-                    stat_finished.update()
-                    stat_streak.update()
-                except Exception:
-                    page.update()
-                return
-
-            # Animate in ~15 steps or max_val steps, whichever is smaller, over ~300ms
-            steps = min(max_val, 15)
-            delay = 0.3 / steps
-
-            for step in range(1, steps + 1):
-                cur_act = int((target_act / steps) * step)
-                cur_fin = int((target_fin / steps) * step)
-                cur_str = int((target_str / steps) * step)
-                
-                stat_enrolled.value = str(cur_act)
-                stat_finished.value = str(cur_fin)
-                stat_streak.value = str(cur_str)
-                try:
-                    stat_enrolled.update()
-                    stat_finished.update()
-                    stat_streak.update()
-                except Exception:
-                    page.update()
-                await asyncio.sleep(delay)
-                
-            # Final snap to exact values
-            stat_enrolled.value = str(target_act)
-            stat_finished.value = str(target_fin)
-            stat_streak.value = str(target_str)
-            try:
-                stat_enrolled.update()
-                stat_finished.update()
-                stat_streak.update()
-            except Exception:
-                page.update()
-
-        page.run_task(animate_stats, active_count, finished_count, streak)
+        # ── Set stat values immediately (consolidated in single page.update below) ─
+        stat_enrolled.value = str(active_count)
+        stat_finished.value = str(finished_count)
+        stat_streak.value = str(streak)
 
 
         # ── build continue-learning cards ─────────────────────────────────────
@@ -1530,7 +1461,7 @@ async def dashboard_view(page: ft.Page):
                     page=page,
                     course_dict=course,
                 )
-                card.on_click = lambda e, cid=course_id: page.go(f"/courses/{cid}/view")
+                card.on_click = lambda e, cid=course_id: page.navigate(f"/courses/{cid}/view")
                 enrolled_cards.append(card)
 
         if enrolled_cards:
@@ -1549,7 +1480,7 @@ async def dashboard_view(page: ft.Page):
                             ]),
                             ft.TextButton(
                                 "View All",
-                                on_click=lambda _: page.go("/courses"),
+                                on_click=lambda _: page.navigate("/courses"),
                                 style=ft.ButtonStyle(color=ft.Colors.PRIMARY,
                                                      padding=ft.Padding.all(0)),
                             ),
@@ -1601,7 +1532,7 @@ async def dashboard_view(page: ft.Page):
                                     tight=True,
                                     spacing=6,
                                 ),
-                                on_click=lambda _: page.go("/offline"),
+                                on_click=lambda _: page.navigate("/offline"),
                                 style=ft.ButtonStyle(
                                     bgcolor=ft.Colors.PRIMARY,
                                     color=ft.Colors.ON_PRIMARY,
@@ -1633,7 +1564,7 @@ async def dashboard_view(page: ft.Page):
                                     size=13, color=ft.Colors.GREY_400),
                             ft.TextButton(
                                 "Find a course →",
-                                on_click=lambda _: page.go("/courses"),
+                                on_click=lambda _: page.navigate("/courses"),
                                 style=ft.ButtonStyle(color=ft.Colors.PRIMARY),
                             ),
                         ],
@@ -1778,7 +1709,7 @@ async def dashboard_view(page: ft.Page):
                     ft.Text("Categorize your study paths.", size=12, color=ft.Colors.GREY_400),
                     ft.TextButton(
                         "Browse Catalog →",
-                        on_click=lambda _: page.go("/courses"),
+                        on_click=lambda _: page.navigate("/courses"),
                         style=ft.ButtonStyle(color=ft.Colors.SECONDARY, padding=ft.Padding.all(0)),
                     ),
                 ],
@@ -1870,42 +1801,54 @@ async def dashboard_view(page: ft.Page):
                 ],
             )
 
+        async def _on_dashboard_refresh(e=None):
+            try:
+                await asyncio.wait_for(fetch_dashboard_data(), timeout=8.0)
+            except Exception as _r_ex:
+                print(f"[dashboard_view] Refresh error: {_r_ex}")
+            finally:
+                page.update()
+
         content_socket.content = ft.Column(
             expand=True,
             spacing=0,
             controls=[
-                ft.Column(
+                ft.RefreshIndicator(
                     expand=True,
-                    scroll=ft.ScrollMode.AUTO,
-                    spacing=0,
-                    controls=[
-                        header,
-                        ft.Container(
-                            padding=ft.Padding.symmetric(
-                                horizontal=16, vertical=16
-                            ),
-                            content=ft.Column(
-                                spacing=16,
-                                controls=[
-                                    incoming_duel_container,     # 0. Active Incoming 15-Q Duel Banner (Shows only when challenged!)
-                                    quick_hub_section,          # 1. 4-tile Quick Launch Hub
-                                    leaderboards_action_card,   # 2. Campus Leaderboards & Objectives Card (Prominent & Visible!)
-                                    continue_learning_section,  # 3. Continue Learning Course Cards
-                                    trackers_container,         # 4. Dual Course Mastery & Learning Focus Trackers
-                                    learner_cohorts_card,       # 5. My Training Cohorts Track
-                                    self_study_card,            # 6. Self-Study Hub
-                                    network_card,               # 7. Standalone Student Network Showcase
-                                    ft.Container(height=24),
-                                ],
-                            ),
-                        )
-                    ],
+                    color=ft.Colors.PRIMARY,
+                    bgcolor=ft.Colors.SURFACE,
+                    on_refresh=_on_dashboard_refresh,
+                    content=ft.Column(
+                        expand=True,
+                        scroll=ft.ScrollMode.AUTO,
+                        spacing=0,
+                        controls=[
+                            header,
+                            ft.Container(
+                                padding=ft.Padding.symmetric(
+                                    horizontal=16, vertical=16
+                                ),
+                                content=ft.Column(
+                                    spacing=16,
+                                    controls=[
+                                        incoming_duel_container,     # 0. Active Incoming 15-Q Duel Banner (Shows only when challenged!)
+                                        quick_hub_section,          # 1. 4-tile Quick Launch Hub
+                                        leaderboards_action_card,   # 2. Campus Leaderboards & Objectives Card (Prominent & Visible!)
+                                        continue_learning_section,  # 3. Continue Learning Course Cards
+                                        trackers_container,         # 4. Dual Course Mastery & Learning Focus Trackers
+                                        learner_cohorts_card,       # 5. My Training Cohorts Track
+                                        self_study_card,            # 6. Self-Study Hub
+                                        network_card,               # 7. Standalone Student Network Showcase
+                                        ft.Container(height=24),
+                                    ],
+                                ),
+                            )
+                        ],
+                    ),
                 ),
             ],
         )
-        page.update()
-        
-        # Trigger staggered fade-up animations for main dashboard sections
+        # Reveal main dashboard sections in a single batched frame
         sections_to_animate = [
             header,
             activity_card,
@@ -1914,33 +1857,33 @@ async def dashboard_view(page: ft.Page):
             network_card,
             continue_learning_section,
         ]
-        
-        for idx, section in enumerate(sections_to_animate):
-            async def animate_section(s, i):
-                await asyncio.sleep(i * 0.1)
-                s.opacity = 1
-                s.offset = ft.Offset(0, 0)
-                try:
-                    s.update()
-                except Exception:
-                    page.update()
-            
-            page.run_task(animate_section, section, idx)
+        for s in sections_to_animate:
+            s.opacity = 1
+            s.offset = ft.Offset(0, 0)
+        page.update()
 
     try:
         await asyncio.wait_for(fetch_dashboard_data(), timeout=8.0)
     except Exception as _dex:
         print(f"[dashboard_view] Initial fetch error or timeout: {_dex}")
 
+    _w0 = page.width or 400
+    _last_dash_bp = [(_w0 >= 800, _w0 >= 720, _w0 >= 680)]
+
     def on_dashboard_resize(e):
-        is_desk = (page.width or 400) >= 800
+        w = page.width or 400
+        bp = (w >= 800, w >= 720, w >= 680)
+        if bp == _last_dash_bp[0]:
+            return
+        _last_dash_bp[0] = bp
+        is_desk = bp[0]
         trackers_container.content = build_trackers_layout(is_desk)
         header.content = build_hero_content()
         self_study_card.content = build_self_study_content(is_desk)
         network_card.content = build_network_content(is_desk)
         quick_hub_section.content = get_quick_hub(page)
         if callable(getattr(incoming_duel_container, "data", None)):
-            incoming_duel_container.data((page.width or 400) >= 680)
+            incoming_duel_container.data(bp[2])
         page.update()
 
     page.on_resize = on_dashboard_resize

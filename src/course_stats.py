@@ -352,7 +352,7 @@ async def course_stats_view(page: ft.Page, course_id: str) -> ft.View:
                         ft.Container(
                             col={"xs": 12, "md": 4},
                             alignment=ft.Alignment.CENTER_RIGHT if not is_mobile else ft.Alignment.CENTER,
-                            content=ft.ElevatedButton(
+                            content=ft.Button(
                                 content=ft.Row(
                                     spacing=8,
                                     tight=True,
@@ -775,7 +775,7 @@ async def course_stats_view(page: ft.Page, course_id: str) -> ft.View:
                             ft.Icon(ft.Icons.ERROR_OUTLINE_ROUNDED, size=48, color=ft.Colors.RED_400),
                             ft.Text("Could not load course completion stats", size=16, weight=ft.FontWeight.W_700, color=ON_SURFACE),
                             ft.Text(str(err_text), size=12, color=ON_SURFACE_VARIANT),
-                            ft.ElevatedButton("Return to Catalog", on_click=lambda _: page.go("/courses")),
+                            ft.Button("Return to Catalog", on_click=lambda _: page.navigate("/courses")),
                         ],
                     )
                     page.update()
@@ -800,7 +800,7 @@ async def course_stats_view(page: ft.Page, course_id: str) -> ft.View:
                         ft.Icon(ft.Icons.WARNING_AMBER_ROUNDED, size=48, color=ft.Colors.AMBER_500),
                         ft.Text("Failed to load statistics", size=16, weight=ft.FontWeight.W_600, color=ON_SURFACE),
                         ft.Text(str(ex), size=12, color=ON_SURFACE_VARIANT),
-                        ft.ElevatedButton("Return to Catalog", on_click=lambda _: page.go("/courses")),
+                        ft.Button("Return to Catalog", on_click=lambda _: page.navigate("/courses")),
                     ],
                 )
                 page.update()
@@ -829,7 +829,7 @@ async def course_stats_view(page: ft.Page, course_id: str) -> ft.View:
                 ft.Icons.ARROW_BACK_IOS_NEW_ROUNDED,
                 icon_color=ON_SURFACE,
                 icon_size=18,
-                on_click=lambda _: page.go("/courses"),
+                on_click=lambda _: page.navigate("/courses"),
             ),
             title=ft.Text("Course Results & Stats", size=16, weight=ft.FontWeight.W_700, color=ON_SURFACE),
             bgcolor=SURFACE,

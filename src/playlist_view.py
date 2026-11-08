@@ -61,7 +61,7 @@ async def playlist_view(page: ft.Page, playlist_id: str, back_target: str = "/co
             icon=ft.Icons.ARROW_BACK_ROUNDED,
             icon_color=ft.Colors.ON_SURFACE,
             tooltip="Back to Catalog",
-            on_click=lambda _: page.go(back_target),
+            on_click=lambda _: page.navigate(back_target),
         ),
         actions=[
             ft.IconButton(
@@ -242,15 +242,15 @@ async def playlist_view(page: ft.Page, playlist_id: str, back_target: str = "/co
         for c in playlist_courses:
             cid = str(c.get("id"))
             if cid in enrolled_ids and cid not in completed_course_ids:
-                page.go(f"/courses/{cid}/view")
+                page.navigate(f"/courses/{cid}/view")
                 return
 
         # If all courses completed or none marked, open the first course
         if playlist_courses:
             first_id = playlist_courses[0].get("id")
-            page.go(f"/courses/{first_id}/view")
+            page.navigate(f"/courses/{first_id}/view")
         else:
-            page.go("/courses")
+            page.navigate("/courses")
 
     # ── View Construction ─────────────────────────────────────────────────────
     def build_main_content() -> ft.Control:
@@ -266,10 +266,10 @@ async def playlist_view(page: ft.Page, playlist_id: str, back_target: str = "/co
                     controls=[
                         ft.Icon(ft.Icons.PLAYLIST_REMOVE_ROUNDED, size=56, color=ft.Colors.RED_400),
                         ft.Text(err_msg, size=16, weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE),
-                        ft.ElevatedButton(
+                        ft.Button(
                             "Return to Catalog",
                             icon=ft.Icons.ARROW_BACK_ROUNDED,
-                            on_click=lambda _: page.go("/courses"),
+                            on_click=lambda _: page.navigate("/courses"),
                         ),
                     ],
                 ),
@@ -536,9 +536,9 @@ async def playlist_view(page: ft.Page, playlist_id: str, back_target: str = "/co
                                         bg=ft.Colors.with_opacity(0.05, ft.Colors.ON_SURFACE), fg=ft.Colors.ON_SURFACE_VARIANT)
 
             # Quick Action Button
-            btn_ref = ft.Ref[ft.ElevatedButton]()
+            btn_ref = ft.Ref[ft.Button]()
             if is_enrolled:
-                action_btn = ft.ElevatedButton(
+                action_btn = ft.Button(
                     content=ft.Row(
                         spacing=6,
                         tight=True,
@@ -554,7 +554,7 @@ async def playlist_view(page: ft.Page, playlist_id: str, back_target: str = "/co
                         shape=ft.RoundedRectangleBorder(radius=8),
                         elevation=0,
                     ),
-                    on_click=lambda _, c_id=cid: page.go(f"/courses/{c_id}/view"),
+                    on_click=lambda _, c_id=cid: page.navigate(f"/courses/{c_id}/view"),
                 )
             else:
                 action_btn = ft.OutlinedButton(
@@ -571,7 +571,7 @@ async def playlist_view(page: ft.Page, playlist_id: str, back_target: str = "/co
                         shape=ft.RoundedRectangleBorder(radius=8),
                         side=ft.BorderSide(1, ft.Colors.with_opacity(0.2, ft.Colors.ON_SURFACE)),
                     ),
-                    on_click=lambda _, c_id=cid: page.go(f"/courses/{c_id}"),
+                    on_click=lambda _, c_id=cid: page.navigate(f"/courses/{c_id}"),
                 )
 
             # Optional Quick Enroll button if not enrolled
@@ -775,7 +775,7 @@ async def playlist_view(page: ft.Page, playlist_id: str, back_target: str = "/co
                         controls=[
                             ft.Icon(ft.Icons.FOLDER_OPEN_ROUNDED, size=48, color=ft.Colors.ON_SURFACE_VARIANT),
                             ft.Text("This learning path has no courses yet.", size=15, color=ft.Colors.ON_SURFACE_VARIANT),
-                            ft.ElevatedButton("Explore Catalog", on_click=lambda _: page.go("/courses")),
+                            ft.Button("Explore Catalog", on_click=lambda _: page.navigate("/courses")),
                         ],
                     ),
                 )
@@ -815,7 +815,7 @@ async def playlist_view(page: ft.Page, playlist_id: str, back_target: str = "/co
                                    bg=ft.Colors.with_opacity(0.12, ft.Colors.GREEN_600), fg=ft.Colors.GREEN_700)
             cta_title = "Congratulations! You Finished This Path"
             cta_sub = "You've successfully completed every course in this curriculum."
-            cta_btn = ft.ElevatedButton(
+            cta_btn = ft.Button(
                 content=ft.Row(
                     alignment=ft.MainAxisAlignment.CENTER,
                     tight=True,
@@ -836,7 +836,7 @@ async def playlist_view(page: ft.Page, playlist_id: str, back_target: str = "/co
                                    bg=ft.Colors.with_opacity(0.12, UI_ACCENT), fg=UI_ACCENT)
             cta_title = "Continue Your Learning Journey"
             cta_sub = f"You are enrolled in all {total_courses} courses. Jump back into your curriculum."
-            cta_btn = ft.ElevatedButton(
+            cta_btn = ft.Button(
                 content=ft.Row(
                     alignment=ft.MainAxisAlignment.CENTER,
                     tight=True,
@@ -857,7 +857,7 @@ async def playlist_view(page: ft.Page, playlist_id: str, back_target: str = "/co
                                    bg=ft.Colors.with_opacity(0.1, UI_ACCENT), fg=UI_ACCENT)
             cta_title = "Enroll in Full Learning Path"
             cta_sub = f"Unlock and track all {total_courses} courses in one click with continuous progress synchronization."
-            cta_btn = ft.ElevatedButton(
+            cta_btn = ft.Button(
                 content=ft.Row(
                     alignment=ft.MainAxisAlignment.CENTER,
                     tight=True,

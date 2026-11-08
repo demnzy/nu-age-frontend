@@ -2587,7 +2587,7 @@ async def course_builder_view(page: ft.Page, course_id: str):
             title=ft.Text(title, weight=ft.FontWeight.BOLD),
             content=ft.Container(width=min(480, max(260, pw - 48)), content=ft.Text(message)),
             actions=[
-                ft.ElevatedButton(
+                ft.Button(
                     "OK",
                     bgcolor=UI_ACCENT if success else ft.Colors.ERROR,
                     color=ft.Colors.ON_PRIMARY,
@@ -3026,7 +3026,8 @@ async def course_builder_view(page: ft.Page, course_id: str):
             content["text"] = val
             selection_state["start"] = len(val)
             selection_state["end"] = len(val)
-            update_preview_content()
+            if preview_box.visible:
+                update_preview_content()
 
         text_input = ft.TextField(
             label="Lesson Text (Markdown)",
@@ -4375,7 +4376,7 @@ async def course_builder_view(page: ft.Page, course_id: str):
             editor_content.controls.append(nav_row)
 
         editor_content.controls.append(
-            ft.ElevatedButton(
+            ft.Button(
                 "Save & Close",
                 bgcolor=UI_ACCENT,
                 color=ft.Colors.ON_PRIMARY,
@@ -4425,7 +4426,7 @@ async def course_builder_view(page: ft.Page, course_id: str):
             content=ft.Container(width=min(460, max(260, pw - 48)), content=title_field),
             actions=[
                 ft.TextButton("Cancel", on_click=close_modal),
-                ft.ElevatedButton("Add Module", bgcolor=UI_ACCENT, color=ft.Colors.ON_PRIMARY, on_click=create_module),
+                ft.Button("Add Module", bgcolor=UI_ACCENT, color=ft.Colors.ON_PRIMARY, on_click=create_module),
             ],
             actions_alignment=ft.MainAxisAlignment.END,
         )
@@ -4704,7 +4705,7 @@ async def course_builder_view(page: ft.Page, course_id: str):
                 content=ft.Container(width=min(460, max(260, pw - 48)), content=title_field),
                 actions=[
                     ft.TextButton("Cancel", on_click=close_modal),
-                    ft.ElevatedButton("Save", bgcolor=UI_ACCENT, color=ft.Colors.ON_PRIMARY, on_click=save),
+                    ft.Button("Save", bgcolor=UI_ACCENT, color=ft.Colors.ON_PRIMARY, on_click=save),
                 ],
                 actions_alignment=ft.MainAxisAlignment.END,
             )
@@ -4851,7 +4852,7 @@ async def course_builder_view(page: ft.Page, course_id: str):
             show_dialog(f"{action_name} failed", str(ex), success=False)
 
     def build_publish_button():
-        return ft.ElevatedButton(
+        return ft.Button(
             "Update Course" if has_existing_materials[0] else "Publish Course",
             icon=ft.Icons.CHECK_CIRCLE_ROUNDED if has_existing_materials[0] else ft.Icons.ROCKET_LAUNCH_ROUNDED,
             bgcolor=UI_ACCENT,
@@ -5002,7 +5003,7 @@ async def course_builder_view(page: ft.Page, course_id: str):
             ),
         )
 
-        generate_btn = ft.ElevatedButton(
+        generate_btn = ft.Button(
             "Generate Curriculum",
             icon=ft.Icons.AUTO_AWESOME_ROUNDED,
             bgcolor=UI_ACCENT,
@@ -5243,7 +5244,7 @@ async def course_builder_view(page: ft.Page, course_id: str):
                 ft.Icons.ARROW_BACK_IOS_NEW_ROUNDED,
                 icon_size=16 if is_mobile(page) else 18,
                 tooltip="Return to Courses",
-                on_click=lambda e: page.go("/dashboard"),
+                on_click=lambda e: page.navigate("/dashboard"),
             ),
             ft.Container(
                 expand=True,

@@ -63,7 +63,7 @@ async def courses_view(page: ft.Page):
             if status == 200:
                 e.control.content = ft.Text("Fetching Course Contents...", color=ft.Colors.WHITE)
                 page.update()
-                page.go(f"/courses/{course_id}/view")
+                page.navigate(f"/courses/{course_id}/view")
                 e.control.disabled = False
                 e.control.content = ft.Text("Continue Course")
                 page.update()
@@ -111,10 +111,18 @@ async def courses_view(page: ft.Page):
             return org.strip()
         return None
 
+    _course_card_cache: dict[str, ft.Control] = {}
+
     def build_course_card(course):
+        course_id = course.get("id")
+        cache_key = str(course_id) if course_id is not None else str(id(course))
+        cached = _course_card_cache.get(cache_key)
+        if cached is not None:
+            cached.opacity = 1
+            cached.offset = ft.Offset(0, 0)
+            return cached
         course_name = course.get("name", "Untitled Course")
         image_url = course.get("image_url", None)
-        course_id = course.get("id")
         full_name = _extract_instructor_name(course) or "Instructor"
         category = _extract_category_name(course) or "General"
         created_at = course.get("created_at", "")
@@ -129,11 +137,12 @@ async def courses_view(page: ft.Page):
             course_author=full_name,
             image_url=image_url,
             created_at=created_at,
-            on_view_click=lambda e, c_id=course_id: page.go(f"/courses/{c_id}"),
+            on_view_click=lambda e, c_id=course_id: page.navigate(f"/courses/{c_id}"),
             course_dict=course,
             page=page,
         )
         card.col = {"xs": 12, "sm": 6}
+        _course_card_cache[cache_key] = card
         return card
 
     def filter_courses(e=None):
@@ -234,10 +243,17 @@ async def courses_view(page: ft.Page):
             import asyncio
             await asyncio.sleep(0.02)
             if course_cards:
+                needs_update = False
                 for card in course_cards:
-                    card.opacity = 1
-                    card.offset = ft.Offset(0, 0)
-                page.update()
+                    if getattr(card, "opacity", 1) != 1:
+                        card.opacity = 1
+                        card.offset = ft.Offset(0, 0)
+                        needs_update = True
+                if needs_update:
+                    if _is_mounted(course_container):
+                        course_container.update()
+                    else:
+                        page.update()
 
         page.run_task(animate_cards)
 
@@ -259,12 +275,27 @@ async def courses_view(page: ft.Page):
         org_chip.border = ft.Border.all(1, ft.Colors.with_opacity(0.14, ft.Colors.ON_SURFACE))
         filter_courses()
 
+    _course_search_seq = [0]
+
+    def _on_course_search_change(e):
+        _course_search_seq[0] += 1
+        seq = _course_search_seq[0]
+
+        async def _debounced():
+            import asyncio
+            await asyncio.sleep(0.16)
+            if seq != _course_search_seq[0]:
+                return
+            filter_courses(e)
+
+        page.run_task(_debounced)
+
     search_tf_input = ft.TextField(
         hint_text="Search courses, instructors, topics...",
         hint_style=ft.TextStyle(size=13, color=ft.Colors.ON_SURFACE_VARIANT),
         text_style=ft.TextStyle(size=13, color=ft.Colors.ON_SURFACE),
         border=ft.InputBorder.NONE,
-        on_change=filter_courses,
+        on_change=_on_course_search_change,
         on_submit=filter_courses,
         expand=True,
         content_padding=ft.Padding.symmetric(vertical=6),
@@ -799,7 +830,7 @@ async def courses_view(page: ft.Page):
         border=ft.Border.all(1, ft.Colors.with_opacity(0.22, ft.Colors.PRIMARY)),
         ink=True,
         tooltip="Open Offline Library & Saved Courses",
-        on_click=lambda _: page.go("/offline"),
+        on_click=lambda _: page.navigate("/offline"),
         content=ft.Row(
             spacing=4 if is_mobile_screen else 5,
             tight=True,
@@ -910,7 +941,7 @@ async def courses_view(page: ft.Page):
                         rating=rating,
                         course_dict=course,
                     )
-                    card.on_click = lambda e, c_id=course_id, c_name=course_name: page.go(f"/courses/{c_id}/view")
+                    card.on_click = lambda e, c_id=course_id, c_name=course_name: page.navigate(f"/courses/{c_id}/view")
                     card.col = {"xs": 12, "sm": 6}
                     enroll_cards.append(card)
 
@@ -929,8 +960,8 @@ async def courses_view(page: ft.Page):
                 card = get_completed_card(
                     course_name=course_name,
                     course_id=course_id,
-                    on_review_click=lambda cid: page.go(f"/courses/{cid}/view"),
-                    on_stats_click=lambda cid: page.go(f"/courses/{cid}/stats"),
+                    on_review_click=lambda cid: page.navigate(f"/courses/{cid}/view"),
+                    on_stats_click=lambda cid: page.navigate(f"/courses/{cid}/stats"),
                     page=page,
                     image_url=image_url,
                     category=category,
@@ -968,11 +999,19 @@ async def courses_view(page: ft.Page):
                     org,
                     p_img,
                     created_at,
-                    on_enroll_click=lambda e, cid=p_id: page.go(f"/playlists/{cid}"),
+                    on_enroll_click=lambda e, cid=p_id: page.navigate(f"/playlists/{cid}"),
                 )
-                card.on_click = lambda e, pid=p_id: page.go(f"/playlists/{pid}")
+                card.on_click = lambda e, pid=p_id: page.navigate(f"/playlists/{pid}")
                 card.col = {"xs": 12, "sm": 6}
                 playlist_cards.append(card)
+
+        async def _on_courses_refresh(e=None):
+            try:
+                await asyncio.wait_for(populate_tabs(), timeout=8.0)
+            except Exception as _ex:
+                print(f"[courses_view] Pull to refresh error: {_ex}")
+            finally:
+                page.update()
 
         # Rebuild Available Section
         available_section.content = ft.Column(
@@ -985,10 +1024,16 @@ async def courses_view(page: ft.Page):
                     ], spacing=10),
                     padding=ft.Padding.only(bottom=6),
                 ),
-                ft.ListView(
+                ft.RefreshIndicator(
                     expand=True,
-                    scroll=ft.ScrollMode.AUTO,
-                    controls=[course_container],
+                    color=ft.Colors.PRIMARY,
+                    bgcolor=ft.Colors.SURFACE,
+                    on_refresh=_on_courses_refresh,
+                    content=ft.ListView(
+                        expand=True,
+                        scroll=ft.ScrollMode.AUTO,
+                        controls=[course_container],
+                    ),
                 ),
             ],
         )
@@ -1026,7 +1071,7 @@ async def courses_view(page: ft.Page):
                             max_lines=2,
                         ),
                         ft.Container(height=4),
-                        ft.ElevatedButton(
+                        ft.Button(
                             content=ft.Row(
                                 [
                                     ft.Icon(ft.Icons.EXPLORE_ROUNDED, size=16, color=ft.Colors.ON_PRIMARY),
@@ -1046,16 +1091,16 @@ async def courses_view(page: ft.Page):
                 ),
             )
 
-        enrolled_section.content = ft.Column(
-            controls=[
-                ft.ListView(
-                    expand=True,
-                    controls=[enrolled_content],
-                    scroll=ft.ScrollMode.AUTO,
-                ),
-            ],
-            scroll=ft.ScrollMode.AUTO,
+        enrolled_section.content = ft.RefreshIndicator(
             expand=True,
+            color=ft.Colors.PRIMARY,
+            bgcolor=ft.Colors.SURFACE,
+            on_refresh=_on_courses_refresh,
+            content=ft.ListView(
+                expand=True,
+                controls=[enrolled_content],
+                scroll=ft.ScrollMode.AUTO,
+            ),
         )
 
         # Rebuild Completed Section
@@ -1111,16 +1156,16 @@ async def courses_view(page: ft.Page):
                 ),
             )
 
-        completed_section.content = ft.Column(
-            controls=[
-                ft.ListView(
-                    expand=True,
-                    controls=[completed_content],
-                    scroll=ft.ScrollMode.AUTO,
-                ),
-            ],
-            scroll=ft.ScrollMode.AUTO,
+        completed_section.content = ft.RefreshIndicator(
             expand=True,
+            color=ft.Colors.PRIMARY,
+            bgcolor=ft.Colors.SURFACE,
+            on_refresh=_on_courses_refresh,
+            content=ft.ListView(
+                expand=True,
+                controls=[completed_content],
+                scroll=ft.ScrollMode.AUTO,
+            ),
         )
 
         # Rebuild Playlists Section
@@ -1142,16 +1187,16 @@ async def courses_view(page: ft.Page):
                 ),
             )
 
-        playlists_section.content = ft.Column(
-            controls=[
-                ft.ListView(
-                    expand=True,
-                    controls=[playlists_content],
-                    scroll=ft.ScrollMode.AUTO,
-                ),
-            ],
-            scroll=ft.ScrollMode.AUTO,
+        playlists_section.content = ft.RefreshIndicator(
             expand=True,
+            color=ft.Colors.PRIMARY,
+            bgcolor=ft.Colors.SURFACE,
+            on_refresh=_on_courses_refresh,
+            content=ft.ListView(
+                expand=True,
+                controls=[playlists_content],
+                scroll=ft.ScrollMode.AUTO,
+            ),
         )
 
         # Organisation courses
@@ -1182,7 +1227,7 @@ async def courses_view(page: ft.Page):
                         org_name=org_name,
                         image_url=image_url,
                         created_at=created_at,
-                        on_view_click=lambda e, cid=course_id: page.go(f"/courses/{cid}"),
+                        on_view_click=lambda e, cid=course_id: page.navigate(f"/courses/{cid}"),
                         course_dict=course,
                         page=page,
                     )
@@ -1204,33 +1249,33 @@ async def courses_view(page: ft.Page):
         org_container = ft.ResponsiveRow(spacing=16, run_spacing=16)
         org_container.controls = org_cards
 
-        org_section.content = ft.Column(
-            controls=[
-                ft.ListView(
-                    expand=True,
-                    controls=[
-                        ft.Container(
-                            padding=ft.Padding.symmetric(horizontal=16),
-                            content=org_container,
-                        ) if org_cards else ft.Container(
-                            padding=ft.Padding.all(36),
-                            alignment=ft.Alignment.CENTER,
-                            content=ft.Column(
-                                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                                spacing=12,
-                                controls=[
-                                    ft.Icon(ft.Icons.BUSINESS_ROUNDED, size=48, color=ft.Colors.ON_SURFACE_VARIANT),
-                                    ft.Text("No Organisation Courses", size=16, weight=ft.FontWeight.W_700, color=ft.Colors.ON_SURFACE),
-                                    ft.Text("Courses tailored for your organisation will appear here.", size=13, color=ft.Colors.ON_SURFACE_VARIANT),
-                                ],
-                            ),
-                        ),
-                    ],
-                    scroll=ft.ScrollMode.AUTO,
-                ),
-            ],
-            scroll=ft.ScrollMode.AUTO,
+        org_section.content = ft.RefreshIndicator(
             expand=True,
+            color=ft.Colors.PRIMARY,
+            bgcolor=ft.Colors.SURFACE,
+            on_refresh=_on_courses_refresh,
+            content=ft.ListView(
+                expand=True,
+                controls=[
+                    ft.Container(
+                        padding=ft.Padding.symmetric(horizontal=16),
+                        content=org_container,
+                    ) if org_cards else ft.Container(
+                        padding=ft.Padding.all(36),
+                        alignment=ft.Alignment.CENTER,
+                        content=ft.Column(
+                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            spacing=12,
+                            controls=[
+                                ft.Icon(ft.Icons.BUSINESS_ROUNDED, size=48, color=ft.Colors.ON_SURFACE_VARIANT),
+                                ft.Text("No Organisation Courses", size=16, weight=ft.FontWeight.W_700, color=ft.Colors.ON_SURFACE),
+                                ft.Text("Courses tailored for your organisation will appear here.", size=13, color=ft.Colors.ON_SURFACE_VARIANT),
+                            ],
+                        ),
+                    ),
+                ],
+                scroll=ft.ScrollMode.AUTO,
+            ),
         )
 
         if _is_mounted(section_body):

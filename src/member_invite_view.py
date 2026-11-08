@@ -73,9 +73,9 @@ def member_invite_view(page: ft.Page, token: str):
                     await asyncio.sleep(2.0)
                     saved_token = await page.shared_preferences.get("auth_token")
                     if saved_token:
-                        page.go("/dashboard")
+                        page.navigate("/dashboard")
                     else:
-                        page.go("/login")
+                        page.navigate("/login")
                     
                 # ── Scenario B: User Needs to Sign Up ─────────────────────────────
                 elif data.get("status") == "needs_signup":
@@ -90,7 +90,7 @@ def member_invite_view(page: ft.Page, token: str):
                     page.update()
                     
                     await asyncio.sleep(2.0)
-                    page.go("/signup")
+                    page.navigate("/signup")
 
             except Exception as ex:
                 # Fallback Error State UI

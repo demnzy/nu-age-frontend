@@ -563,7 +563,7 @@ async def playlist_builder_view(page: ft.Page, playlist_id: str):
                             bgcolor={"": ft.Colors.with_opacity(0.18, ft.Colors.WHITE)},
                             shape=ft.CircleBorder(),
                         ),
-                        on_click=lambda _: page.go("/organisations"),
+                        on_click=lambda _: page.navigate("/organisations"),
                     ),
                     ft.Column(
                         spacing=2,

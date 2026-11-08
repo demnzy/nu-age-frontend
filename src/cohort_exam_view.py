@@ -42,7 +42,7 @@ async def cohort_exam_page_view(
                         ft.Icon(ft.Icons.LOCK_ROUNDED, size=48, color=ft.Colors.AMBER_700),
                         ft.Text("Authentication Required", size=18, weight=ft.FontWeight.BOLD),
                         ft.Text("Please log in to access this assessment.", size=13, color=ft.Colors.ON_SURFACE_VARIANT),
-                        ft.FilledButton("Log In", on_click=lambda _: page.go("/login")),
+                        ft.FilledButton("Log In", on_click=lambda _: page.navigate("/login")),
                     ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=12),
                 )
             ],
@@ -91,7 +91,7 @@ async def cohort_exam_page_view(
                                 "Unable to determine the organization associated with this cohort. Please return to your cohorts list.",
                                 size=12, color=ft.Colors.ON_SURFACE_VARIANT, text_align=ft.TextAlign.CENTER,
                             ),
-                            ft.FilledButton("Return to Cohorts", icon=ft.Icons.ARROW_BACK_ROUNDED, on_click=lambda _: page.go("/cohorts")),
+                            ft.FilledButton("Return to Cohorts", icon=ft.Icons.ARROW_BACK_ROUNDED, on_click=lambda _: page.navigate("/cohorts")),
                         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=12),
                     ),
                 )
@@ -134,7 +134,7 @@ async def cohort_exam_page_view(
                             ft.FilledButton(
                                 "Return to Cohort",
                                 icon=ft.Icons.ARROW_BACK_ROUNDED,
-                                on_click=lambda _: page.go(effective_back),
+                                on_click=lambda _: page.navigate(effective_back),
                                 style=ft.ButtonStyle(padding=ft.Padding.symmetric(horizontal=22, vertical=12)),
                             ),
                         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=12),
@@ -153,7 +153,7 @@ async def cohort_exam_page_view(
                 w.prevent_close = False
         except Exception:
             pass
-        page.go(effective_back)
+        page.navigate(effective_back)
 
     # 5. Build full exam runner
     exam_runner_content = build_cohort_exam_view(

@@ -253,7 +253,7 @@ def open_standard_create_modal(
                     on_course_created(res)
                 # Seamless transition straight into the full-page Curriculum Builder!
                 try:
-                    page.go(f"/courses/{res['id']}/manage")
+                    page.navigate(f"/courses/{res['id']}/manage")
                 except Exception:
                     pass
             else:

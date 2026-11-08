@@ -37,29 +37,29 @@ def get_landing_appbar(page: ft.Page, active_page: str = "login"):
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
         ),
         ink=True,
-        on_click=lambda e: page.go("/"),
+        on_click=lambda e: page.navigate("/"),
         padding=ft.Padding.only(left=16),
     )
 
     if active_page == "signup":
-        auth_btn = ft.ElevatedButton(
+        auth_btn = ft.Button(
             "Sign In",
             icon=ft.Icons.LOGIN_ROUNDED,
             color=ft.Colors.ON_PRIMARY,
             bgcolor=ft.Colors.PRIMARY,
             height=36,
             style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
-            on_click=lambda e: page.go("/"),
+            on_click=lambda e: page.navigate("/"),
         )
     else:
-        auth_btn = ft.ElevatedButton(
+        auth_btn = ft.Button(
             "Sign Up",
             icon=ft.Icons.PERSON_ADD_ALT_1_ROUNDED,
             color=ft.Colors.ON_PRIMARY,
             bgcolor=ft.Colors.PRIMARY,
             height=36,
             style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
-            on_click=lambda e: page.go("/signup"),
+            on_click=lambda e: page.navigate("/signup"),
         )
 
     return ft.AppBar(
@@ -73,4 +73,4 @@ def get_landing_appbar(page: ft.Page, active_page: str = "login"):
         toolbar_height=56,
         elevation=0,
         elevation_on_scroll=0,
-    )
+    )

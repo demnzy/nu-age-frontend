@@ -40,9 +40,9 @@ def open_chat_quota_modal(page: ft.Page, quota_info: dict = None, on_upgrade: ca
             try:
                 on_upgrade()
             except Exception:
-                page.go("/store")
+                page.navigate("/store")
         else:
-            page.go("/store")
+            page.navigate("/store")
 
     perk_items = [
         ("✨ Unlimited AI Queries", "Ask unlimited questions across all notebooks and materials without daily caps."),
@@ -83,7 +83,7 @@ def open_chat_quota_modal(page: ft.Page, quota_info: dict = None, on_upgrade: ca
             horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
             spacing=8,
             controls=[
-                ft.ElevatedButton(
+                ft.Button(
                     content=ft.Row(
                         alignment=ft.MainAxisAlignment.CENTER,
                         spacing=6,
@@ -115,7 +115,7 @@ def open_chat_quota_modal(page: ft.Page, quota_info: dict = None, on_upgrade: ca
                     content=ft.Text("I'll wait until tomorrow", size=12, color=ft.Colors.GREY_500),
                     on_click=_close,
                 ),
-                ft.ElevatedButton(
+                ft.Button(
                     content=ft.Row(
                         spacing=6,
                         tight=True,

@@ -70,7 +70,7 @@ class StudyBundleCard(ft.Container):
         if len(packs) > 5:
             subject_chips.append(
                 ft.Container(
-                    content=ft.Text(f"+{len(packs) - 5} more", size=10, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE70),
+                    content=ft.Text(f"+{len(packs) - 5} more", size=10, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE_70),
                     padding=ft.Padding.symmetric(horizontal=6, vertical=3),
                     border_radius=ft.BorderRadius.all(10),
                     bgcolor=ft.Colors.with_opacity(0.18, ft.Colors.BLACK),
@@ -123,7 +123,7 @@ class StudyBundleCard(ft.Container):
                     ft.Text(
                         f"{orig_price} coins",
                         size=11,
-                        color=ft.Colors.WHITE60,
+                        color=ft.Colors.WHITE_60,
                         style=ft.TextStyle(decoration=ft.TextDecoration.LINE_THROUGH),
                     )
                 )
@@ -132,7 +132,7 @@ class StudyBundleCard(ft.Container):
                     [
                         nu_coin_icon(size=14),
                         ft.Text(f"{price}", size=15, weight=ft.FontWeight.W_800, color=ft.Colors.WHITE),
-                        ft.Text("coins", size=11, color=ft.Colors.WHITE70),
+                        ft.Text("coins", size=11, color=ft.Colors.WHITE_70),
                     ],
                     spacing=4,
                     tight=True,
@@ -187,7 +187,7 @@ class StudyBundleCard(ft.Container):
                                     category.upper(),
                                     size=10,
                                     weight=ft.FontWeight.BOLD,
-                                    color=ft.Colors.WHITE70,
+                                    color=ft.Colors.WHITE_70,
                                 ),
                             ],
                             spacing=6,
@@ -210,7 +210,7 @@ class StudyBundleCard(ft.Container):
                 ft.Text(
                     desc if desc else f"All-in-one exam prep bundle with {packs_count} full study packs.",
                     size=12,
-                    color=ft.Colors.WHITE70,
+                    color=ft.Colors.WHITE_70,
                     max_lines=2,
                     overflow=ft.TextOverflow.ELLIPSIS,
                 ) if desc else ft.Container(),
@@ -229,7 +229,7 @@ class StudyBundleCard(ft.Container):
                         [
                             ft.Row(
                                 [
-                                    ft.Icon(ft.Icons.COLLECTIONS_BOOKMARK_ROUNDED, size=13, color=ft.Colors.WHITE70),
+                                    ft.Icon(ft.Icons.COLLECTIONS_BOOKMARK_ROUNDED, size=13, color=ft.Colors.WHITE_70),
                                     ft.Text(f"{packs_count} Study Packs", size=11, weight=ft.FontWeight.W_600, color=ft.Colors.WHITE),
                                 ],
                                 spacing=4,
@@ -237,7 +237,7 @@ class StudyBundleCard(ft.Container):
                             ),
                             ft.Row(
                                 [
-                                    ft.Icon(ft.Icons.QUIZ_ROUNDED, size=13, color=ft.Colors.WHITE70),
+                                    ft.Icon(ft.Icons.QUIZ_ROUNDED, size=13, color=ft.Colors.WHITE_70),
                                     ft.Text(f"{total_q} Questions CBT", size=11, weight=ft.FontWeight.W_600, color=ft.Colors.WHITE),
                                 ],
                                 spacing=4,
@@ -245,8 +245,8 @@ class StudyBundleCard(ft.Container):
                             ),
                             ft.Row(
                                 [
-                                    ft.Icon(ft.Icons.DOWNLOAD_ROUNDED, size=12, color=ft.Colors.WHITE60),
-                                    ft.Text(f"{downloads}", size=11, color=ft.Colors.WHITE70),
+                                    ft.Icon(ft.Icons.DOWNLOAD_ROUNDED, size=12, color=ft.Colors.WHITE_60),
+                                    ft.Text(f"{downloads}", size=11, color=ft.Colors.WHITE_70),
                                 ],
                                 spacing=3,
                                 tight=True,
@@ -265,7 +265,7 @@ class StudyBundleCard(ft.Container):
                 ft.Row(
                     [
                         ft.Row(price_widgets, spacing=6, tight=True, alignment=ft.MainAxisAlignment.START),
-                        ft.ElevatedButton(
+                        ft.Button(
                             content=ft.Row(
                                 [
                                     ft.Icon(

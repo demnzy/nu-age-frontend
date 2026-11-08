@@ -1,6 +1,12 @@
 import flet as ft
 import asyncio
-from src.utils.file_opener import show_page_snackbar
+from src.utils.file_opener import (
+    show_page_snackbar,
+    safe_open_dialog,
+    safe_close_dialog,
+    safe_update_dialog,
+    run_after_modal_close,
+)
 from src.requests.study import (
     create_journal_api,
     create_multi_journal_api,
@@ -133,7 +139,7 @@ def open_create_journal_modal(
 
     def _on_auto_gen_changed(e=None):
         _update_quota_banner()
-        page.update()
+        safe_update_dialog(page, dlg_ref[0])
 
     auto_gen_switch = ft.Switch(
         value=(active_mode[0] == "multi_upload"),
@@ -237,8 +243,7 @@ def open_create_journal_modal(
 
     def _close_dlg(e=None):
         if dlg_ref[0]:
-            dlg_ref[0].open = False
-            page.update()
+            safe_close_dialog(page, dlg_ref[0])
 
     # ── File Picker Handler ──
     async def _handle_pick_files(e=None):
@@ -340,6 +345,12 @@ def open_create_journal_modal(
         def _close_sheet(ev=None):
             if sheet[0]:
                 sheet[0].open = False
+                try:
+                    if getattr(sheet[0], "page", None) is not None:
+                        sheet[0].update()
+                        return
+                except Exception:
+                    pass
                 page.update()
 
         def _save_note(ev=None):
@@ -392,7 +403,7 @@ def open_create_journal_modal(
                             spacing=8,
                             controls=[
                                 ft.TextButton("Cancel", on_click=_close_sheet),
-                                ft.ElevatedButton(
+                                ft.Button(
                                     content=ft.Row(
                                         spacing=6,
                                         tight=True,
@@ -411,9 +422,12 @@ def open_create_journal_modal(
                 ),
             )
         )
-        page.overlay.append(sheet[0])
-        sheet[0].open = True
-        page.update()
+        if hasattr(page, "show_dialog") and getattr(page, "_dialogs", None) is not None:
+            page.show_dialog(sheet[0])
+        else:
+            page.overlay.append(sheet[0])
+            sheet[0].open = True
+            page.update()
 
     # ── Sleek Custom Vault Search Bar (Zero muddy grey fill) ──
     clear_search_btn = ft.IconButton(
@@ -803,7 +817,8 @@ def open_create_journal_modal(
                         )
                     )
 
-        page.update()
+        if dlg_ref[0] is not None:
+            safe_update_dialog(page, dlg_ref[0])
 
     # ── Color Selection Swatches ──
     color_row = ft.Row(
@@ -839,7 +854,7 @@ def open_create_journal_modal(
             color_row.controls[idx].content = (
                 ft.Icon(ft.Icons.CHECK_ROUNDED, size=12, color=ft.Colors.WHITE) if is_sel else None
             )
-        page.update()
+        safe_update_dialog(page, dlg_ref[0])
 
     # ── Segmented Mode Pill Switcher ──
     mode_switch_row = ft.Container(
@@ -1020,7 +1035,7 @@ def open_create_journal_modal(
             ],
         )
 
-    submit_btn = ft.ElevatedButton(
+    submit_btn = ft.Button(
         content=_default_submit_content(),
         bgcolor=ft.Colors.PRIMARY,
         height=40,
@@ -1054,7 +1069,7 @@ def open_create_journal_modal(
                 ft.Text("Creating...", size=12.5, weight=ft.FontWeight.W_700, color=ft.Colors.ON_PRIMARY),
             ],
         )
-        page.update()
+        safe_update_dialog(page, dlg_ref[0])
 
         desc = desc_tf.value.strip() if desc_tf.value else ""
         col = selected_color[0]
@@ -1100,10 +1115,7 @@ def open_create_journal_modal(
                 err_msg = res.get("error") or "Failed to create journal."
                 if res.get("code") == 402 or "credit" in err_msg.lower() or "expired" in err_msg.lower() or "quota" in err_msg.lower():
                     def _go_store(ev=None):
-                        store_dlg.open = False
-                        _close_dlg()
-                        page.update()
-                        page.go("/store")
+                        run_after_modal_close(page, store_dlg, lambda: page.navigate("/store"))
 
                     store_dlg = ft.AlertDialog(
                         shape=ft.RoundedRectangleBorder(radius=16),
@@ -1118,8 +1130,8 @@ def open_create_journal_modal(
                             color=ft.Colors.ON_SURFACE_VARIANT,
                         ),
                         actions=[
-                            ft.TextButton("Maybe Later", on_click=lambda _: (setattr(store_dlg, "open", False), page.update())),
-                            ft.ElevatedButton(
+                            ft.TextButton("Maybe Later", on_click=lambda _: safe_close_dialog(page, store_dlg)),
+                            ft.Button(
                                 "Go to Store",
                                 icon=ft.Icons.SHOPPING_BAG_ROUNDED,
                                 style=ft.ButtonStyle(bgcolor=ft.Colors.PRIMARY, color=ft.Colors.ON_PRIMARY),
@@ -1128,18 +1140,17 @@ def open_create_journal_modal(
                         ],
                         actions_alignment=ft.MainAxisAlignment.END,
                     )
-                    page.overlay.append(store_dlg)
-                    store_dlg.open = True
+                    safe_open_dialog(page, store_dlg, tag="journal_store_credits")
                 else:
                     show_page_snackbar(page, err_msg)
                 submit_btn.disabled = False
                 submit_btn.content = _default_submit_content()
-                page.update()
+                safe_update_dialog(page, dlg_ref[0])
         except Exception as err:
             show_page_snackbar(page, f"Error: {err}")
             submit_btn.disabled = False
             submit_btn.content = _default_submit_content()
-            page.update()
+            safe_update_dialog(page, dlg_ref[0])
 
     submit_btn.on_click = lambda _: page.run_task(_handle_submit)
 
@@ -1232,6 +1243,4 @@ def open_create_journal_modal(
         ],
     )
 
-    page.overlay.append(dlg_ref[0])
-    dlg_ref[0].open = True
-    page.update()
+    safe_open_dialog(page, dlg_ref[0], tag="create_journal_modal")

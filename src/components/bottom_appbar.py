@@ -1,56 +1,39 @@
 import flet as ft
 from src.components.notifications_drawer import NotificationManager
+from src.utils.theme_bridge import LucideIcons
 
 
 def _get_nav_theme(page: ft.Page, is_dark: bool = None) -> dict:
-    if is_dark is None:
-        is_dark = (page.theme_mode != ft.ThemeMode.LIGHT) if hasattr(page, "theme_mode") and page.theme_mode else True
+    from src.utils.theme_bridge import get_theme_palette
+    cur_key = page.data.get("current_theme_key") if hasattr(page, "data") and isinstance(page.data, dict) else None
+    if not cur_key:
+        if is_dark is None:
+            is_dark = (page.theme_mode != ft.ThemeMode.LIGHT) if hasattr(page, "theme_mode") and page.theme_mode else True
+        cur_key = "dark" if is_dark else "light"
+    p = get_theme_palette(cur_key)
 
-    # Mode-cognizant design aligning with Nu-Age DARK_THEME / LIGHT_THEME in main.py
-    if is_dark:
-        primary = "#4CAF50"       # Official Nu-Age dark primary green
-        surface = "#222222"       # Nu-Age dark surface
-        outline = "#2C2C2C"       # Nu-Age dark outline / border
-        on_surface_muted = "#9E9E9E"
+    is_d = p["is_dark"]
+    primary = p["primary"]
+    surface = p["capsule_bg"]
+    outline = p["outline"]
+    on_surface_muted = p["muted"]
 
-        return {
-            "is_dark": True,
-            "capsule_bg": surface,
-            "capsule_border": ft.Border.all(1, outline),
-            "capsule_shadow": ft.BoxShadow(
-                blur_radius=16,
-                color=ft.Colors.with_opacity(0.40, ft.Colors.BLACK),
-                offset=ft.Offset(0, 4),
-            ),
-            "active_pill_bg": ft.Colors.with_opacity(0.12, primary),
-            "active_pill_border": ft.Border.all(1, ft.Colors.with_opacity(0.38, primary)),
-            "active_color": ft.Colors.WHITE,
-            "inactive_color": on_surface_muted,
-            "inactive_hover": "#FFFFFF",
-            "hover_bg": ft.Colors.with_opacity(0.18, ft.Colors.WHITE),
-        }
-    else:
-        primary = "#035800"       # Official Nu-Age light primary green
-        surface = "#FFFFFF"       # Crisp, elevated white surface against the light background
-        outline = "#E0E0E0"       # Nu-Age light outline / border
-        on_surface_muted = "#757575"
-
-        return {
-            "is_dark": False,
-            "capsule_bg": surface,
-            "capsule_border": ft.Border.all(1, outline),
-            "capsule_shadow": ft.BoxShadow(
-                blur_radius=14,
-                color=ft.Colors.with_opacity(0.10, ft.Colors.BLACK),
-                offset=ft.Offset(0, 4),
-            ),
-            "active_pill_bg": ft.Colors.with_opacity(0.12, primary),
-            "active_pill_border": ft.Border.all(1, ft.Colors.with_opacity(0.28, primary)),
-            "active_color": primary,
-            "inactive_color": on_surface_muted,
-            "inactive_hover": "#1A1A1A",
-            "hover_bg": ft.Colors.with_opacity(0.06, ft.Colors.BLACK),
-        }
+    return {
+        "is_dark": is_d,
+        "capsule_bg": surface,
+        "capsule_border": ft.Border.all(1, outline),
+        "capsule_shadow": ft.BoxShadow(
+            blur_radius=16 if is_d else 14,
+            color=ft.Colors.with_opacity(0.40 if is_d else 0.10, ft.Colors.BLACK),
+            offset=ft.Offset(0, 4),
+        ),
+        "active_pill_bg": ft.Colors.with_opacity(0.14 if is_d else 0.12, primary),
+        "active_pill_border": ft.Border.all(1, ft.Colors.with_opacity(0.38 if is_d else 0.28, primary)),
+        "active_color": primary if not is_d else ft.Colors.WHITE,
+        "inactive_color": on_surface_muted,
+        "inactive_hover": "#FFFFFF" if is_d else "#1A1A1A",
+        "hover_bg": ft.Colors.with_opacity(0.18 if is_d else 0.06, ft.Colors.WHITE if is_d else ft.Colors.BLACK),
+    }
 
 
 class BottomAppBarThemeManager:
@@ -262,7 +245,7 @@ class PersistentBottomAppBar:
         if item_route == "/organisations":
             return clean == "/organisations" or clean.startswith("/organisations/")
         if item_route == "/nu-chat":
-            return clean == "/nu-chat"
+            return clean in ("/nu-chat", "/chat")
         if clean == "/notifications":
             return item_route == "/notifications"
         if item_route == "/profile":
@@ -325,7 +308,7 @@ class PersistentBottomAppBar:
                 except Exception as ex:
                     print(f"[bottom_appbar] error invoking on_route_change: {ex!r}")
         else:
-            self.page.go(route)
+            self.page.navigate(route)
 
     def refresh(self):
         from src.utils.session_utils import get_session_user
@@ -334,19 +317,19 @@ class PersistentBottomAppBar:
         self.items.clear()
 
         nav_specs = [
-            (ft.Icons.HOME_ROUNDED, "/dashboard", "Home", False, False),
-            (ft.Icons.CHAT_BUBBLE_ROUNDED, "/nu-chat", "Chat", False, False),
-            (ft.Icons.SCHOOL_ROUNDED, "/courses", "Learn", False, False),
-            (ft.Icons.NOTIFICATIONS_ROUNDED, "/notifications", "Alerts", False, True),
+            (LucideIcons.HOUSE, "/dashboard", "Home", False, False),
+            (LucideIcons.MESSAGE_SQUARE, "/nu-chat", "Chat", False, False),
+            (LucideIcons.GRADUATION_CAP, "/courses", "Learn", False, False),
+            (LucideIcons.BELL, "/notifications", "Alerts", False, True),
         ]
 
         if role in ["ADMIN", "TEACHER", "OWNER", "SUPERADMIN"]:
             nav_specs.append(
-                (ft.Icons.CORPORATE_FARE_ROUNDED, "/organisations", "Orgs", False, False)
+                (LucideIcons.BUILDING_2, "/organisations", "Orgs", False, False)
             )
 
         nav_specs.append(
-            (ft.Icons.PERSON_ROUNDED, "/profile", "Profile", False, False)
+            (LucideIcons.USER, "/profile", "Profile", False, False)
         )
 
         theme = _get_nav_theme(self.page)

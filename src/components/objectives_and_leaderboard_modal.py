@@ -295,7 +295,7 @@ def show_objectives_and_leaderboard_dialog(
                 progress_val = min(1.0, curr / tgt)
 
                 if can_claim:
-                    claim_btn = ft.ElevatedButton(
+                    claim_btn = ft.Button(
                         content=ft.Row([
                             nu_coin_icon(size=14),
                             ft.Text(f"Claim +{reward}", size=11.5, weight=ft.FontWeight.W_700, no_wrap=True),
@@ -548,7 +548,7 @@ def show_objectives_and_leaderboard_dialog(
 
                 action_controls = []
                 if not is_mine and status == "pending":
-                    accept_btn = ft.ElevatedButton(
+                    accept_btn = ft.Button(
                         content=ft.Text("Accept & Download", size=11.5, weight=ft.FontWeight.W_700, no_wrap=True),
                         bgcolor=ft.Colors.PRIMARY,
                         color=ft.Colors.WHITE,
@@ -572,7 +572,7 @@ def show_objectives_and_leaderboard_dialog(
                     )
                     preview_btn.on_click = _make_preview(pack_id, title, s)
 
-                    duel_btn = ft.ElevatedButton(
+                    duel_btn = ft.Button(
                         content=ft.Row(
                             tight=True,
                             spacing=4,

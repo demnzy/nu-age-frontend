@@ -48,29 +48,185 @@ from src.components.chat_attachment_sheet import open_chat_actions_sheet
 from src.components.chat_quota_modal import open_chat_quota_modal
 from src.components.chat_message_actions import open_message_actions_sheet
 from src.requests.chats import get_pinned_chat_message
+from src.utils.theme_bridge import get_theme_palette, THEME_PALETTES
+
+_WHATSAPP_PATTERN = re.compile(
+    r'(\[[^\]]+\]\(https?://[^\s\)]+\))|'
+    r'(https?://[^\s]+)|'
+    r'((?<!\w)@[\w.-]+)|'
+    r'(\*\*[^\*\n]+\*\*)|'
+    r'(__[^_\n]+__)|'
+    r'(\*[^\*\n]+\*)|'
+    r'(_[^_\n]+_)|'
+    r'(~~[^~\n]+~~|~[^~\n]+~)|'
+    r'(`[^`\n]+`)'
+)
+
+_BLOCK_MD_PATTERN = re.compile(
+    r"(^#{1,6}\s+)|"
+    r"(^\s*[-*+]\s+)|"
+    r"(^\s*\d+\.\s+)|"
+    r"(^\s*>\s+)|"
+    r"(```)|"
+    r"(^\s*\|.+\|\s*$)|"
+    r"(^\s*(?:---|\*\*\*|___)\s*$)",
+    re.MULTILINE,
+)
+
+_MENTION_OUTSIDE_CODE_RE = re.compile(r"(`+[^`]*`+)|((?<!\w)@[\w.-]+)")
+
+
+def has_block_markdown(text: str) -> bool:
+    """Detects whether a chat message uses block-level or multi-line Markdown syntax."""
+    if not text:
+        return False
+    if "```" in text:
+        return True
+    if any(tok in text for tok in ("#", "- ", "* ", "+ ", "> ", "|", "1. ", "2. ", "---")):
+        return bool(_BLOCK_MD_PATTERN.search(text))
+    return False
+
+
+def _inject_markdown_mentions(text: str) -> str:
+    """Converts @username mentions outside code spans into clickable Markdown links."""
+    if "@" not in text:
+        return text
+
+    def _repl(m: re.Match) -> str:
+        if m.group(1):
+            return m.group(1)
+        uname = m.group(2)
+        return f"[**{uname}**](mention:{uname})"
+
+    return _MENTION_OUTSIDE_CODE_RE.sub(_repl, text)
+
+
+def build_chat_markdown(
+    text: str,
+    default_color: str,
+    palette_map: dict,
+    on_mention_click=None,
+    is_me: bool = False,
+    page: Optional[ft.Page] = None,
+) -> ft.Control:
+    """Renders a chat message bubble with full GitHub-flavored Markdown, themed code blocks, and clickable @mentions."""
+    link_col = palette_map.get("bubble_out_link", "#C8E6C9") if is_me else palette_map.get("accent", "#4CAF50")
+    code_col = "#E8F5E9" if is_me else palette_map.get("code_text", default_color)
+    code_span_bg = (
+        ft.Colors.with_opacity(0.22, ft.Colors.BLACK)
+        if is_me
+        else palette_map.get("code_bg", ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE))
+    )
+    quote_bg = (
+        ft.Colors.with_opacity(0.16, ft.Colors.BLACK)
+        if is_me
+        else ft.Colors.with_opacity(0.08, palette_map.get("accent", "#4CAF50"))
+    )
+
+    md_text = _inject_markdown_mentions(text)
+
+    def _on_tap_link(e):
+        url = (getattr(e, "data", None) or "").strip()
+        if not url:
+            return
+        if url.startswith("mention:"):
+            uname = url[len("mention:") :]
+            if on_mention_click:
+                on_mention_click(uname)
+            return
+        if page and hasattr(page, "launch_url"):
+            try:
+                res = page.launch_url(url)
+                if asyncio.iscoroutine(res):
+                    page.run_task(page.launch_url, url)
+            except Exception:
+                pass
+
+    style_sheet = ft.MarkdownStyleSheet(
+        p_text_style=ft.TextStyle(color=default_color, size=14),
+        h1_text_style=ft.TextStyle(color=default_color, size=18, weight=ft.FontWeight.BOLD),
+        h2_text_style=ft.TextStyle(color=default_color, size=16.5, weight=ft.FontWeight.BOLD),
+        h3_text_style=ft.TextStyle(color=default_color, size=15, weight=ft.FontWeight.BOLD),
+        h4_text_style=ft.TextStyle(color=default_color, size=14, weight=ft.FontWeight.BOLD),
+        strong_text_style=ft.TextStyle(color=default_color, size=14, weight=ft.FontWeight.BOLD),
+        em_text_style=ft.TextStyle(color=default_color, size=14, italic=True),
+        del_text_style=ft.TextStyle(color=default_color, size=14, decoration=ft.TextDecoration.LINE_THROUGH),
+        a_text_style=ft.TextStyle(
+            color=link_col,
+            size=14,
+            weight=ft.FontWeight.W_600,
+            decoration=ft.TextDecoration.UNDERLINE,
+        ),
+        list_bullet_text_style=ft.TextStyle(color=default_color, size=14),
+        table_head_text_style=ft.TextStyle(color=default_color, size=13, weight=ft.FontWeight.BOLD),
+        table_body_text_style=ft.TextStyle(color=default_color, size=13),
+        code_text_style=ft.TextStyle(
+            color=code_col,
+            bgcolor=code_span_bg,
+            font_family="monospace",
+            size=12.5,
+        ),
+        blockquote_text_style=ft.TextStyle(color=default_color, size=13.5, italic=True),
+        blockquote_padding=ft.Padding.symmetric(horizontal=10, vertical=6),
+        blockquote_decoration=ft.BoxDecoration(
+            bgcolor=quote_bg,
+            border_radius=6,
+            border=ft.Border.only(left=ft.BorderSide(3, link_col)),
+        ),
+        codeblock_padding=ft.Padding.all(10),
+        codeblock_decoration=ft.BoxDecoration(
+            bgcolor=palette_map.get("code_bg", "#161616"),
+            border_radius=8,
+            border=ft.Border.all(1, palette_map.get("code_border", "#2C2C2C")),
+        ),
+    )
+
+    md_ctrl = ft.Markdown(
+        value=md_text,
+        selectable=True,
+        extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+        code_theme=ft.MarkdownCodeTheme.ATOM_ONE_DARK,
+        md_style_sheet=style_sheet,
+        auto_follow_links=False,
+        on_tap_link=_on_tap_link,
+    )
+    return ft.SelectionArea(content=md_ctrl)
+
 
 def build_whatsapp_spans(text: str, default_color: str, palette_map: dict, on_mention_click=None, is_me: bool = False):
     if not text:
         return [ft.TextSpan("")]
 
-    pattern = re.compile(
-        r'(https?://[^\s]+)|'
-        r'(@[\w.-]+)|'
-        r'(\*[^\*\n]+\*)|'
-        r'(_[^_\n]+_)|'
-        r'(~[^~\n]+~)|'
-        r'(`[^`\n]+`)'
-    )
+    # Blazing fast-path for plain text without markdown or mentions (avoids regex overhead for ~90% of messages)
+    if not any(c in text for c in ("http", "@", "*", "_", "~", "`", "[")):
+        return [ft.TextSpan(text, style=ft.TextStyle(color=default_color, size=14))]
 
     spans = []
     last_idx = 0
-    for match in pattern.finditer(text):
+    for match in _WHATSAPP_PATTERN.finditer(text):
         start, end = match.span()
         if start > last_idx:
             spans.append(ft.TextSpan(text[last_idx:start], style=ft.TextStyle(color=default_color, size=14)))
 
         m_str = match.group(0)
-        if match.group(1):  # URL
+        if match.group(1):  # Markdown Link [label](url)
+            close_bracket = m_str.find("](")
+            label = m_str[1:close_bracket]
+            url = m_str[close_bracket + 2 : -1]
+            link_col = palette_map.get("bubble_out_link", "#C8E6C9") if is_me else palette_map.get("accent", "#4CAF50")
+            spans.append(
+                ft.TextSpan(
+                    label,
+                    style=ft.TextStyle(
+                        color=link_col,
+                        weight=ft.FontWeight.W_600,
+                        decoration=ft.TextDecoration.UNDERLINE,
+                        size=14,
+                    ),
+                    url=url,
+                )
+            )
+        elif match.group(2):  # Raw URL
             link_col = palette_map.get("bubble_out_link", "#C8E6C9") if is_me else palette_map.get("accent", "#4CAF50")
             spans.append(
                 ft.TextSpan(
@@ -83,7 +239,7 @@ def build_whatsapp_spans(text: str, default_color: str, palette_map: dict, on_me
                     url=m_str
                 )
             )
-        elif match.group(2):  # Mention (@username, @admin, or @all)
+        elif match.group(3):  # Mention (@username, @admin, or @all)
             uname = m_str
             clean_tag = uname.lower()
             is_admin_tag = (clean_tag == "@admin")
@@ -105,7 +261,19 @@ def build_whatsapp_spans(text: str, default_color: str, palette_map: dict, on_me
                     on_click=lambda e, u=uname: on_mention_click(u) if on_mention_click else None
                 )
             )
-        elif match.group(3):  # Bold
+        elif match.group(4) or match.group(5):  # Standard Markdown **Bold** or __Bold__
+            inner = m_str[2:-2]
+            spans.append(
+                ft.TextSpan(
+                    inner,
+                    style=ft.TextStyle(
+                        color=default_color,
+                        weight=ft.FontWeight.BOLD,
+                        size=14
+                    )
+                )
+            )
+        elif match.group(6):  # Single *Bold*
             inner = m_str[1:-1]
             spans.append(
                 ft.TextSpan(
@@ -117,7 +285,7 @@ def build_whatsapp_spans(text: str, default_color: str, palette_map: dict, on_me
                     )
                 )
             )
-        elif match.group(4):  # Italic
+        elif match.group(7):  # Italic _italic_
             inner = m_str[1:-1]
             spans.append(
                 ft.TextSpan(
@@ -129,8 +297,8 @@ def build_whatsapp_spans(text: str, default_color: str, palette_map: dict, on_me
                     )
                 )
             )
-        elif match.group(5):  # Strikethrough
-            inner = m_str[1:-1]
+        elif match.group(8):  # Strikethrough ~~strike~~ or ~strike~
+            inner = m_str[2:-2] if m_str.startswith("~~") else m_str[1:-1]
             spans.append(
                 ft.TextSpan(
                     inner,
@@ -141,14 +309,20 @@ def build_whatsapp_spans(text: str, default_color: str, palette_map: dict, on_me
                     )
                 )
             )
-        elif match.group(6):  # Inline Code
+        elif match.group(9):  # Inline Code `code`
             inner = m_str[1:-1]
             code_col = palette_map.get("bubble_out_link", "#C8E6C9") if is_me else palette_map.get("accent", "#4CAF50")
+            code_bg = (
+                ft.Colors.with_opacity(0.20, ft.Colors.BLACK)
+                if is_me
+                else ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)
+            )
             spans.append(
                 ft.TextSpan(
-                    inner,
+                    f" {inner} ",
                     style=ft.TextStyle(
                         color=code_col,
+                        bgcolor=code_bg,
                         font_family="monospace",
                         size=13
                     )
@@ -183,37 +357,105 @@ async def chat_view(
     # ==========================================
     # 1. THEME & PALETTE ENGINE
     # ==========================================
-    is_dark = page.theme_mode == ft.ThemeMode.DARK if hasattr(page, "theme_mode") else True
+    cur_theme_key = page.data.get("current_theme_key") if hasattr(page, "data") and isinstance(page.data, dict) else None
+    if not cur_theme_key or cur_theme_key not in THEME_PALETTES:
+        cur_theme_key = "dark" if (hasattr(page, "theme_mode") and page.theme_mode == ft.ThemeMode.DARK) else "light"
 
-    # Mode-cognizant design strictly aligned with Nu-Age DARK_THEME / LIGHT_THEME in main.py
-    if is_dark:
-        primary = "#4CAF50"          # Official Nu-Age dark primary green (main.py)
-        secondary = "#37BF14"        # Official Nu-Age vibrant accent green (main.py)
-        surface = "#1E1E1E"          # Nu-Age dark surface
-        surface_variant = "#262626"  # Nu-Age dark surface variant / inputs
-        card_bg = "#1E1E1E"          # Nu-Age dark card
-        border = "#2C2C2C"           # Nu-Age dark outline (main.py)
+    tp = get_theme_palette(cur_theme_key)
+    is_dark = tp["is_dark"]
+    primary = tp["primary"]
+    secondary = tp["secondary"]
+    surface = tp["surface"]
+    card_bg = tp["card_bg"]
+    border = tp["outline"]
+    text = tp["on_surface"]
+    text_muted = tp["muted"]
+
+    if cur_theme_key == "midnight":
+        chat_wall = "#000000"
+        surface = "#000000"
+        surface_variant = "#0D0D0D"
+        card_bg = "#0A0A0A"
+        border = "#1F1F1F"
+        border_subtle = "#141414"
+        text_subtle = "#666666"
+        bubble_in_bg = "#0D0D0D"
+        bubble_out_bg = "#047857"  # Dark emerald, perfectly tuned for white text on AMOLED
+        active_chat_bg = "#141414"
+        accent_glow = "#047857"
+        code_bg = "#0A0A0A"
+        code_border = "#1F1F1F"
+        pill_bg = "#141414"
+        pill_text = "#00E676"
+        system_bg = "#0D0D0D"
+    elif cur_theme_key == "slate":
+        chat_wall = "#0B0F19"
+        surface = "#0B0F19"
+        surface_variant = "#1E293B"
+        card_bg = "#111827"
+        border = "#1F2937"
+        border_subtle = "#162032"
+        text_subtle = "#6B7280"
+        bubble_in_bg = "#1E293B"
+        bubble_out_bg = "#065F46"
+        active_chat_bg = "#1E293B"
+        accent_glow = "#10B981"
+        code_bg = "#111827"
+        code_border = "#1F2937"
+        pill_bg = "#1E293B"
+        pill_text = "#10B981"
+        system_bg = "#131D31"
+    elif cur_theme_key == "sepia":
+        chat_wall = "#F8F5EE"
+        surface = "#F8F5EE"
+        surface_variant = "#EDE6D6"
+        card_bg = "#FFFDF9"
+        border = "#E6DEC8"
+        border_subtle = "#EFE8D6"
+        text_subtle = "#8D8276"
+        bubble_in_bg = "#FFFDF9"
+        bubble_out_bg = "#1B4332"  # Deep forest olive, crisp with white text
+        active_chat_bg = "#EDE6D6"
+        accent_glow = "#1B4332"
+        code_bg = "#F4EFE6"
+        code_border = "#E6DEC8"
+        pill_bg = "#EDE6D6"
+        pill_text = "#1B4332"
+        system_bg = "#EDE6D6"
+    elif is_dark:
+        surface = "#1E1E1E"
+        surface_variant = "#262626"
+        card_bg = "#1E1E1E"
+        border = "#2C2C2C"
         border_subtle = "#222222"
-        text = "#E8E8E8"             # Nu-Age dark text (soft white - main.py)
-        text_muted = "#9E9E9E"       # Nu-Age muted text
         text_subtle = "#757575"
-        chat_wall = "#121212"        # Nu-Age dark page background (#121212)
-        bubble_out_bg = "#2E7D32"    # Nu-Age dark outgoing bubble (rich forest green)
-        active_chat_bg = "#262626"   # WhatsApp-style sleek neutral active chat selection
+        chat_wall = "#121212"
+        bubble_in_bg = "#222222"
+        bubble_out_bg = "#2E7D32"
+        active_chat_bg = "#262626"
+        accent_glow = "#388E3C"
+        code_bg = "#181818"
+        code_border = "#2C2C2C"
+        pill_bg = "#262626"
+        pill_text = text_muted
+        system_bg = "#262626"
     else:
-        primary = "#035800"          # Official Nu-Age light primary green (main.py)
-        secondary = "#37BF14"        # Official Nu-Age vibrant accent green (main.py)
-        surface = "#FFFFFF"          # Nu-Age light surface (crisp white)
-        surface_variant = "#F5F5F5"  # Nu-Age light surface variant / inputs
-        card_bg = "#FFFFFF"          # Nu-Age light card
-        border = "#E0E0E0"           # Nu-Age light outline (main.py)
+        surface = "#FFFFFF"
+        surface_variant = "#F5F5F5"
+        card_bg = "#FFFFFF"
+        border = "#E0E0E0"
         border_subtle = "#EEEEEE"
-        text = "#1A1A1A"             # Nu-Age light text (main.py)
-        text_muted = "#666666"       # Nu-Age light muted text
         text_subtle = "#9E9E9E"
-        chat_wall = "#FAFAFA"        # Nu-Age light page background (#FAFAFA)
-        bubble_out_bg = "#035800"    # Nu-Age light outgoing bubble (flagship primary green)
-        active_chat_bg = "#F0F2F5"   # WhatsApp-style sleek neutral active chat selection
+        chat_wall = "#FAFAFA"
+        bubble_in_bg = "#FFFFFF"
+        bubble_out_bg = "#035800"
+        active_chat_bg = "#F0F2F5"
+        accent_glow = primary
+        code_bg = "#1E1E1E"
+        code_border = "#333333"
+        pill_bg = "#E6FAE5"
+        pill_text = primary
+        system_bg = "#F5F5F5"
 
     palette = {
         "bg": chat_wall,
@@ -223,7 +465,7 @@ async def chat_view(
         "border": border,
         "border_subtle": border_subtle,
         "accent": primary,
-        "accent_glow": primary if not is_dark else "#388E3C",
+        "accent_glow": accent_glow,
         "secondary": secondary,
         "text": text,
         "text_muted": text_muted,
@@ -235,24 +477,24 @@ async def chat_view(
         "input_bar_bg": surface,
         "input_bg": surface_variant,
         "active_chat_bg": active_chat_bg,
-        "bubble_in_bg": "#222222" if is_dark else "#FFFFFF",
+        "bubble_in_bg": bubble_in_bg,
         "bubble_in_border": border,
         "bubble_in_text": text,
         "bubble_in_ts": text_muted,
         "bubble_out_bg": bubble_out_bg,
         "bubble_out_text": "#FFFFFF",
         "bubble_out_ts": "rgba(255,255,255,0.75)",
-        "bubble_out_link": "#C8E6C9",
-        "pill_bg": surface_variant if is_dark else "#E6FAE5",
-        "pill_text": text_muted if is_dark else primary,
-        "system_bg": surface_variant if is_dark else "#F5F5F5",
+        "bubble_out_link": "#C8E6C9" if (is_dark or cur_theme_key == "sepia") else "#A5D6A7",
+        "pill_bg": pill_bg,
+        "pill_text": pill_text,
+        "system_bg": system_bg,
         "system_text": text_muted,
         "online_dot": secondary,
         "unread_badge": primary,
         "bar_other": text_subtle,
-        "code_bg": "#181818" if is_dark else "#1E1E1E",
-        "code_border": "#2C2C2C" if is_dark else "#333333",
-        "code_text": "#E8E8E8",
+        "code_bg": code_bg,
+        "code_border": code_border,
+        "code_text": "#E8E8E8" if is_dark else text,
     }
 
     token = await page.shared_preferences.get("auth_token") or "dummy_token"
@@ -270,10 +512,12 @@ async def chat_view(
     is_loading_channels = [True]
     shimmer_loop_running = [False]
     all_users_cache = []
+    all_users_dict = {}
     fab_open = [False]
     search_query = [""]
     seen_msg_ids = set()
     chat_load_lock = [False]
+    chat_load_seq = [0]
     last_typing_time = [0]
     typing_tokens = {}
     active_reply_state = [None]
@@ -308,6 +552,11 @@ async def chat_view(
                 res = await get_all_users(token)
                 if isinstance(res, list):
                     all_users_cache = res
+                    all_users_dict.clear()
+                    for u in res:
+                        u_id = str(u.get("id") or u.get("user_id", "")).strip().lower()
+                        if u_id:
+                            all_users_dict[u_id] = u
             except Exception:
                 pass
 
@@ -441,6 +690,7 @@ async def chat_view(
         hint_style=ft.TextStyle(size=12, color=palette["text_muted"]),
         text_size=12,
         text_style=ft.TextStyle(size=12, color=palette["text"]),
+        text_input_action=ft.TextInputAction.SEARCH,
         border_radius=8,
         bgcolor=palette["input_bg"],
         border_color=palette["border"],
@@ -535,7 +785,73 @@ async def chat_view(
         _restore_scroll_anchor()
         page.run_task(msg_input.focus)
 
+    def _update_bubble_reactions_in_place(
+        target_msg_id: str,
+        new_reactions: Optional[dict] = None,
+        toggle_emoji: Optional[str] = None,
+    ):
+        t_mid = str(target_msg_id or "").strip().lower()
+        if not t_mid:
+            return
+        my_uid = str(current_user_id[0] or "").strip().lower()
+        for ctrl in messages_listview.controls:
+            if hasattr(ctrl, "data") and str(ctrl.data).strip().lower() == t_mid:
+                m_d = getattr(ctrl, "msg_data", None)
+                if not isinstance(m_d, dict):
+                    break
+                meta = m_d.get("metadata_payload") or {}
+                if isinstance(meta, str):
+                    try:
+                        meta = json.loads(meta)
+                    except Exception:
+                        meta = {}
+                if not isinstance(meta, dict):
+                    meta = {}
+
+                if new_reactions is not None and isinstance(new_reactions, dict):
+                    reactions_map = dict(new_reactions)
+                else:
+                    reactions_map = dict(meta.get("reactions") or {})
+                    if toggle_emoji:
+                        voters = [str(u).strip().lower() for u in (reactions_map.get(toggle_emoji) or [])]
+                        if my_uid in voters:
+                            voters = [u for u in voters if u != my_uid]
+                        else:
+                            voters.append(my_uid)
+                        if voters:
+                            reactions_map[toggle_emoji] = voters
+                        else:
+                            reactions_map.pop(toggle_emoji, None)
+
+                meta["reactions"] = reactions_map
+                m_d["metadata_payload"] = meta
+                ctrl.msg_data = m_d
+
+                r_holder = getattr(ctrl, "reactions_holder", None)
+                if r_holder is not None:
+                    r_holder.content = build_reaction_pills_row(
+                        reactions_map,
+                        current_user_id[0],
+                        lambda emoji_val, mid=str(m_d.get("id") or ""): _send_ws_reaction(mid, emoji_val),
+                        palette,
+                    )
+                    if getattr(r_holder, "page", None) is not None:
+                        try:
+                            r_holder.update()
+                            return
+                        except Exception:
+                            pass
+                if getattr(ctrl, "page", None) is not None:
+                    try:
+                        ctrl.update()
+                    except Exception:
+                        pass
+                break
+
     def _send_ws_reaction(target_msg_id: str, emoji_char: str):
+        # 1. Instant 0ms optimistic reaction toggle on the target bubble's reaction holder
+        _update_bubble_reactions_in_place(target_msg_id, toggle_emoji=emoji_char)
+        # 2. Dispatch async WebSocket frame
         cid = current_chat_id[0]
         if cid and ws_client_ref[0]:
             page.run_task(
@@ -548,6 +864,23 @@ async def chat_view(
             )
 
     def _send_ws_pin(target_msg_id: str):
+        # Optimistically show pinned bar immediately
+        t_mid = str(target_msg_id or "").strip().lower()
+        for ctrl in messages_listview.controls:
+            if hasattr(ctrl, "data") and str(ctrl.data).strip().lower() == t_mid:
+                m_d = getattr(ctrl, "msg_data", {})
+                if isinstance(m_d, dict):
+                    pinned_msg_target_id[0] = m_d.get("id")
+                    p_snip = m_d.get("content") or "Pinned notice"
+                    pinned_notice_text.value = f"📌 Pinned: {p_snip[:60]}"
+                    pinned_notice_bar.visible = True
+                    unpin_btn.visible = _is_current_user_admin()
+                    if getattr(pinned_notice_bar, "page", None) is not None:
+                        try:
+                            pinned_notice_bar.update()
+                        except Exception:
+                            pass
+                break
         cid = current_chat_id[0]
         if cid and ws_client_ref[0]:
             page.run_task(
@@ -559,6 +892,14 @@ async def chat_view(
             )
 
     def _send_ws_unpin(target_msg_id: str = ""):
+        pinned_msg_target_id[0] = None
+        if pinned_notice_bar.visible:
+            pinned_notice_bar.visible = False
+            if getattr(pinned_notice_bar, "page", None) is not None:
+                try:
+                    pinned_notice_bar.update()
+                except Exception:
+                    pass
         cid = current_chat_id[0]
         if cid and ws_client_ref[0]:
             page.run_task(
@@ -570,6 +911,22 @@ async def chat_view(
             )
 
     def _send_ws_delete(target_msg_id: str):
+        t_mid = str(target_msg_id or "").strip().lower()
+        for idx, ctrl in enumerate(messages_listview.controls):
+            if hasattr(ctrl, "data") and str(ctrl.data).strip().lower() == t_mid:
+                m_d = getattr(ctrl, "msg_data", {})
+                if isinstance(m_d, dict):
+                    m_d["content"] = "This message was deleted"
+                    meta = m_d.get("metadata_payload") or {}
+                    if isinstance(meta, str):
+                        try:
+                            meta = json.loads(meta)
+                        except Exception:
+                            meta = {}
+                    meta["is_deleted"] = True
+                    m_d["metadata_payload"] = meta
+                    _replace_bubble_in_place(idx, m_d, do_update=True)
+                break
         cid = current_chat_id[0]
         if cid and ws_client_ref[0]:
             page.run_task(
@@ -611,8 +968,37 @@ async def chat_view(
         padding=ft.Padding.symmetric(horizontal=8 if not is_desktop[0] else 12, vertical=8 if not is_desktop[0] else 10)
     )
 
-    messages_anim_container = ft.Container(
+    async def _on_refresh_active_messages(e=None):
+        cid = current_chat_id[0]
+        if not cid:
+            return
+        try:
+            history = await get_channel_messages(token, cid)
+            if isinstance(history, list):
+                chronological = list(reversed(history))
+                new_deltas = [m for m in chronological if str(m.get("id")) not in seen_msg_ids]
+                if new_deltas:
+                    for m in new_deltas:
+                        mid = str(m.get("id"))
+                        if mid:
+                            seen_msg_ids.add(mid)
+                        prev_item = messages_listview.controls[-1].msg_data if (messages_listview.controls and hasattr(messages_listview.controls[-1], "msg_data")) else None
+                        messages_listview.controls.append(render_message_bubble(m, prev_msg=prev_item, animate_entrance=False))
+                    if getattr(messages_listview, "page", None) is not None:
+                        messages_listview.update()
+        except Exception as ex:
+            print(f"[NuChat] Pull-to-refresh messages error: {ex}")
+
+    messages_refresh_indicator = ft.RefreshIndicator(
         content=messages_listview,
+        on_refresh=_on_refresh_active_messages,
+        color=palette["accent"],
+        bgcolor=palette["surface"],
+        expand=True,
+    )
+
+    messages_anim_container = ft.Container(
+        content=messages_refresh_indicator,
         expand=True,
         bgcolor=palette["chat_wall"],
         opacity=1.0,
@@ -754,7 +1140,7 @@ async def chat_view(
         if st == "pending":
             target_icon = ft.Icons.ACCESS_TIME_ROUNDED
             target_size = 10.5
-            target_color = ft.Colors.WHITE70 if is_overlay_tick else ft.Colors.with_opacity(0.75, ts_color)
+            target_color = ft.Colors.WHITE_70 if is_overlay_tick else ft.Colors.with_opacity(0.75, ts_color)
         elif st == "sent":
             target_icon = ft.Icons.CHECK_ROUNDED
             target_size = 12
@@ -1255,12 +1641,16 @@ async def chat_view(
 
     def on_input_change(e):
         val = msg_input.value or ""
-        _update_send_btn_state(do_update=True)
+        # 1. Fast state transition check: only touch controls if text transitioned from empty <-> non-empty
+        has_text = bool(val and val.strip())
+        if send_btn_has_text[0] != has_text:
+            _update_send_btn_state(do_update=True)
+
         now = datetime.now().timestamp()
-        if now - last_typing_time[0] > 2.5:
+        if now - last_typing_time[0] > 3.0:
+            last_typing_time[0] = now
             if ws_client_ref[0] and getattr(ws_client_ref[0], "websocket", None) and current_chat_id[0]:
                 page.run_task(ws_client_ref[0].send_message, current_chat_id[0], "typing", "typing")
-            last_typing_time[0] = now
 
         # ── FAST-PATH: If neither '/' nor '@' is typed, immediately close autocomplete and exit! ──
         if "/" not in val and "@" not in val:
@@ -1272,12 +1662,12 @@ async def chat_view(
                     pass
             return
 
-        # Debounce autocomplete processing by 120ms so rapid typing is buttery smooth
+        # Debounce autocomplete processing by 150ms so rapid typing is buttery smooth
         autocomplete_debounce_token[0] += 1
         tok = autocomplete_debounce_token[0]
 
         async def _debounced_autocomplete():
-            await asyncio.sleep(0.12)
+            await asyncio.sleep(0.15)
             if autocomplete_debounce_token[0] != tok:
                 return
             _process_autocomplete(val)
@@ -1299,6 +1689,7 @@ async def chat_view(
         text_size=14,
         text_style=ft.TextStyle(color=palette["text"], size=14),
         hint_style=ft.TextStyle(color=palette["text_muted"], size=14),
+        text_input_action=ft.TextInputAction.SEND,
         shift_enter=True,
         on_change=on_input_change,
         on_submit=send_text_message
@@ -1306,9 +1697,20 @@ async def chat_view(
 
     send_btn_container.on_click = send_text_message
 
+    _chat_search_seq = [0]
+
     def on_search_changed(e):
         search_query[0] = (e.control.value or "").lower().strip()
-        render_chat_list()
+        _chat_search_seq[0] += 1
+        seq = _chat_search_seq[0]
+
+        async def _debounced_chat_search():
+            await asyncio.sleep(0.14)
+            if seq != _chat_search_seq[0]:
+                return
+            render_chat_list()
+
+        page.run_task(_debounced_chat_search)
 
     search_field = ft.TextField(
         prefix_icon=ft.Icons.SEARCH_ROUNDED,
@@ -1324,6 +1726,7 @@ async def chat_view(
         text_size=13,
         text_style=ft.TextStyle(color=palette["text"], size=13),
         hint_style=ft.TextStyle(color=palette["text_muted"], size=13),
+        text_input_action=ft.TextInputAction.SEARCH,
         on_change=on_search_changed,
         on_submit=lambda e: render_chat_list()
     )
@@ -1445,6 +1848,27 @@ async def chat_view(
         fn(e)
 
     chat_list_scroll_col = ft.ListView(expand=True, spacing=0)
+
+    async def _on_refresh_channels(e=None):
+        nonlocal channels_list
+        try:
+            res = await get_user_channels(token)
+            if isinstance(res, list):
+                for ch in res:
+                    if not ch.get("channel_id") and ch.get("id"):
+                        ch["channel_id"] = ch["id"]
+                channels_list = res
+                render_chat_list()
+        except Exception as ex:
+            print(f"[NuChat] Pull-to-refresh channels error: {ex}")
+
+    chat_list_refresh_indicator = ft.RefreshIndicator(
+        content=chat_list_scroll_col,
+        on_refresh=_on_refresh_channels,
+        color=palette["accent"],
+        bgcolor=palette["surface"],
+        expand=True,
+    )
     speed_dial_container = ft.Container(bottom=20, right=16, content=_build_speed_dial())
 
     chat_list_ui = ft.Column(
@@ -1473,7 +1897,7 @@ async def chat_view(
                     ft.Row([search_field])
                 ], spacing=0)
             ),
-            chat_list_scroll_col
+            chat_list_refresh_indicator
         ],
         spacing=0
     )
@@ -1963,7 +2387,7 @@ async def chat_view(
                     ink=True,
                     on_click=lambda e, t_mid=r_mid: _jump_to_message(t_mid),
                     bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.BLACK if not is_me else ft.Colors.WHITE),
-                    border=ft.Border.only(left=ft.BorderSide(3, palette["accent"] if not is_me else ft.Colors.WHITE70)),
+                    border=ft.Border.only(left=ft.BorderSide(3, palette["accent"] if not is_me else ft.Colors.WHITE_70)),
                     border_radius=6,
                     padding=ft.Padding.symmetric(horizontal=8, vertical=4),
                     margin=ft.Margin.only(bottom=4),
@@ -2006,10 +2430,10 @@ async def chat_view(
                             ft.Text(
                                 "Open in browser",
                                 size=10,
-                                color=palette["accent"] if not is_me else ft.Colors.WHITE70,
+                                color=palette["accent"] if not is_me else ft.Colors.WHITE_70,
                             ),
                         ], spacing=1, expand=True, tight=True),
-                        ft.Icon(ft.Icons.OPEN_IN_NEW_ROUNDED, size=14, color=palette["accent"] if not is_me else ft.Colors.WHITE70),
+                        ft.Icon(ft.Icons.OPEN_IN_NEW_ROUNDED, size=14, color=palette["accent"] if not is_me else ft.Colors.WHITE_70),
                     ], spacing=8, tight=False, vertical_alignment=ft.CrossAxisAlignment.CENTER)
                 )
             )
@@ -2123,21 +2547,21 @@ async def chat_view(
                     has_img = bool(img_url and isinstance(img_url, str) and (img_url.startswith("http") or img_url.startswith("data:")))
                     return (img_url if has_img else None, inits, my_name)
 
-                for u in all_users_cache:
-                    if str(u.get("id") or u.get("user_id", "")).strip().lower() == uid_clean:
-                        name = (u.get("name") or u.get("full_name") or u.get("username") or "User").strip()
-                        img_url = u.get("profile_picture_url") or u.get("avatar_url")
-                        tokens = [t for t in name.split() if t]
-                        if len(tokens) >= 2:
-                            inits = (tokens[0][0] + tokens[1][0]).upper()
-                        elif tokens and len(tokens[0]) >= 2:
-                            inits = tokens[0][:2].upper()
-                        elif tokens:
-                            inits = tokens[0][0].upper()
-                        else:
-                            inits = "U"
-                        has_img = bool(img_url and isinstance(img_url, str) and (img_url.startswith("http") or img_url.startswith("data:")))
-                        return (img_url if has_img else None, inits, name)
+                u = all_users_dict.get(uid_clean)
+                if u:
+                    name = (u.get("name") or u.get("full_name") or u.get("username") or "User").strip()
+                    img_url = u.get("profile_picture_url") or u.get("avatar_url")
+                    tokens = [t for t in name.split() if t]
+                    if len(tokens) >= 2:
+                        inits = (tokens[0][0] + tokens[1][0]).upper()
+                    elif tokens and len(tokens[0]) >= 2:
+                        inits = tokens[0][:2].upper()
+                    elif tokens:
+                        inits = tokens[0][0].upper()
+                    else:
+                        inits = "U"
+                    has_img = bool(img_url and isinstance(img_url, str) and (img_url.startswith("http") or img_url.startswith("data:")))
+                    return (img_url if has_img else None, inits, name)
 
                 return (None, "U", "User")
 
@@ -2395,17 +2819,7 @@ async def chat_view(
             )
             body_controls.append(code_card)
 
-        # 4. AI Response Markdown Bubble
-        elif is_ai:
-            body_controls.append(
-                ft.Markdown(
-                    raw_content,
-                    selectable=True,
-                    extension_set=ft.MarkdownExtensionSet.GITHUB_WEB
-                )
-            )
-
-        # 5. Standard Text Bubble (WhatsApp Rich Text Formatting)
+        # 4. AI Response or Markdown-Formatted Chat Bubble
         else:
             def _on_mention_click(u):
                 clean_click = str(u).lower().strip()
@@ -2423,31 +2837,36 @@ async def chat_view(
                     if target_u in (m_uname, m_name) or target_u == m_uname.replace(" ", "_"):
                         matched_uid = str(member.get("id") or member.get("user_id", "")).strip().lower()
                         break
-                if not matched_uid:
-                    for usr in all_users_cache:
-                        u_uname = (usr.get("username") or "").lower()
-                        u_name = (usr.get("name") or usr.get("full_name") or "").lower()
-                        if target_u in (u_uname, u_name) or target_u == u_uname.replace(" ", "_"):
-                            matched_uid = str(usr.get("id") or usr.get("user_id", "")).strip().lower()
-                            break
                 if matched_uid:
                     if matched_uid == my_id:
-                        page.go("/profile")
+                        page.navigate("/profile")
                     else:
-                        page.go(f"/member/{matched_uid}")
+                        page.navigate(f"/member/{matched_uid}")
                 else:
                     show_page_snackbar(page, ft.SnackBar(content=ft.Text(f"Mentioned {u}"), duration=1500))
 
             clean_text = (raw_content or "").strip()
             is_dummy_image_caption = bool(media_url and (not clean_text or clean_text.lower() == "shared an image" or clean_text == media_url))
             if not is_dummy_image_caption and clean_text:
-                body_controls.append(
-                    ft.Text(
-                        spans=build_whatsapp_spans(clean_text, text_color, palette, _on_mention_click, is_me=is_me),
-                        size=14,
-                        selectable=True
+                if is_ai or has_block_markdown(clean_text):
+                    body_controls.append(
+                        build_chat_markdown(
+                            clean_text,
+                            text_color,
+                            palette,
+                            on_mention_click=_on_mention_click,
+                            is_me=is_me,
+                            page=page,
+                        )
                     )
-                )
+                else:
+                    body_controls.append(
+                        ft.Text(
+                            spans=build_whatsapp_spans(clean_text, text_color, palette, _on_mention_click, is_me=is_me),
+                            size=14,
+                            selectable=True
+                        )
+                    )
 
         # Timestamp row (already embedded inside poll_card for polls)
         if not is_poll:
@@ -2473,25 +2892,18 @@ async def chat_view(
                 on_copy_text=_copy_bubble_text,
                 pinned_msg_target_id=pinned_msg_target_id,
                 is_me=is_me,
-                on_close_callback=_restore_scroll_anchor,
+                on_close_callback=None,
             )
 
         _guarded_actions_click = debounced_click(_open_actions_sheet, min_interval_ms=400)
 
         cur_w = page.width if (hasattr(page, "width") and page.width) else 380
         max_bubble_width = min(540, max(220, int(cur_w * 0.72))) if not is_mob else max(180, int(cur_w - 104))
-        is_long_msg = bool(is_ai or is_poll or len(raw_content) > 38 or "\n" in raw_content)
-        if is_poll:
-            bubble_width = min(320, max_bubble_width)
-        elif is_long_msg and is_mob:
-            bubble_width = max_bubble_width
-        elif is_long_msg and not is_mob:
-            bubble_width = min(500, max_bubble_width)
-        else:
-            bubble_width = None
+        bubble_width = min(320, max_bubble_width) if is_poll else None
 
         bubble = ft.Container(
             width=bubble_width,
+            max_width=max_bubble_width,
             bgcolor=bg,
             border=border,
             border_radius=radius,
@@ -2539,21 +2951,218 @@ async def chat_view(
             lambda emoji_val, mid=msg_id_str: _send_ws_reaction(mid, emoji_val),
             palette
         )
+        reactions_holder = ft.Container(content=reactions_row)
 
-        # On mobile, bubbles span cleanly with no inline 3-dots button (accessible via long press, saving ~60 controls/bubble)
-        # On desktop, a single lightweight icon button opens the actions sheet directly
-        if not is_mob:
-            bubble_options_btn = ft.IconButton(
-                icon=ft.Icons.MORE_HORIZ_ROUNDED,
-                icon_color=palette["text_muted"],
-                icon_size=16,
-                tooltip="Message options",
-                on_click=_guarded_actions_click,
-                style=ft.ButtonStyle(padding=2)
-            )
-            row_items = [bubble_options_btn, bubble] if is_me else [bubble, bubble_options_btn]
-        else:
-            row_items = [bubble]
+        # Message options (3-dots) visible across all form factors (both mobile and desktop)
+        bubble_options_btn = ft.IconButton(
+            icon=ft.Icons.MORE_HORIZ_ROUNDED,
+            icon_color=palette["text_muted"],
+            icon_size=18,
+            tooltip="Message options",
+            on_click=_guarded_actions_click,
+            style=ft.ButtonStyle(padding=2)
+        )
+
+        # ── WhatsApp-Style Swipe-to-Reply with 50% Hard Clamping Wall ─────────
+        # When is_me: bubble is on the RIGHT -> user MUST swipe LEFT (dx < 0).
+        # When other: bubble is on the LEFT  -> user MUST swipe RIGHT (dx > 0).
+        # Swiping in the wrong direction is strictly ignored (0 movement).
+        # Movement is hard-clamped at exactly 50% (the wall) so it NEVER leaves the screen.
+        reply_badge_icon = ft.Icon(
+            ft.Icons.REPLY_ROUNDED,
+            size=18,
+            color=palette["accent"]
+        )
+        reply_badge = ft.Container(
+            width=36,
+            height=36,
+            border_radius=18,
+            bgcolor=palette["accent_glow"],
+            alignment=ft.Alignment.CENTER,
+            scale=ft.Scale(0.0),
+            opacity=0.0,
+            animate_scale=ft.Animation(150, ft.AnimationCurve.EASE_OUT_BACK),
+            animate_opacity=ft.Animation(150, ft.AnimationCurve.EASE_OUT),
+            shadow=ft.BoxShadow(
+                blur_radius=6,
+                color=ft.Colors.with_opacity(0.25, ft.Colors.BLACK),
+                offset=ft.Offset(0, 2)
+            ),
+            content=reply_badge_icon,
+        )
+
+        badge_holder = ft.Container(
+            content=reply_badge,
+            top=0,
+            bottom=0,
+            right=6 if is_me else None,
+            left=6 if not is_me else None,
+            alignment=ft.Alignment.CENTER,
+        )
+
+        swipe_state = {
+            "dx": 0.0,
+            "triggered": False,
+            "active": False,
+        }
+
+        # Reference width for computing fractional translation:
+        # Clamped at 50% (0.50) of the bubble's extent.
+        ref_extent = float(bubble_width or max_bubble_width or 240)
+
+        def _extract_drag_dx(e) -> float:
+            p_delta = getattr(e, "primary_delta", None)
+            if p_delta is not None:
+                try:
+                    return float(p_delta)
+                except Exception:
+                    pass
+            ld = getattr(e, "local_delta", None)
+            if ld and hasattr(ld, "x"):
+                try:
+                    return float(getattr(ld, "x", 0.0) or 0.0)
+                except Exception:
+                    pass
+            gd = getattr(e, "global_delta", None)
+            if gd and hasattr(gd, "x"):
+                try:
+                    return float(getattr(gd, "x", 0.0) or 0.0)
+                except Exception:
+                    pass
+            return float(getattr(e, "delta_x", 0.0) or 0.0)
+
+        def _on_swipe_start(e):
+            swipe_state["dx"] = 0.0
+            swipe_state["triggered"] = False
+            swipe_state["active"] = True
+            bubble.animate_offset = None
+
+        def _on_swipe_update(e):
+            if not swipe_state["active"]:
+                return
+            delta_val = _extract_drag_dx(e)
+            swipe_state["dx"] += delta_val
+            raw_dx = swipe_state["dx"]
+
+            # DIRECTION ENFORCEMENT:
+            # is_me: MUST swipe LEFT (raw_dx < 0). Swiping right (raw_dx > 0) is strictly forbidden.
+            # not is_me: MUST swipe RIGHT (raw_dx > 0). Swiping left (raw_dx < 0) is strictly forbidden.
+            if is_me:
+                if raw_dx > 0.0:
+                    raw_dx = 0.0
+                    swipe_state["dx"] = 0.0
+            else:
+                if raw_dx < 0.0:
+                    raw_dx = 0.0
+                    swipe_state["dx"] = 0.0
+
+            # Compute fraction relative to bubble extent
+            raw_frac = raw_dx / max(120.0, ref_extent)
+
+            # HARD CLAMPING AT 50% WALL:
+            # If is_me: clamp strictly between -0.50 and 0.0
+            # If not is_me: clamp strictly between 0.0 and +0.50
+            if is_me:
+                clamped_frac = max(-0.50, min(0.0, raw_frac))
+            else:
+                clamped_frac = min(0.50, max(0.0, raw_frac))
+
+            bubble.animate_offset = None
+            bubble.offset = ft.Offset(clamped_frac, 0)
+
+            abs_frac = abs(clamped_frac)
+            abs_px = abs(raw_dx)
+
+            if abs_px > 4.0:
+                reply_badge.opacity = min(1.0, abs_px / 22.0)
+                reply_badge.scale = ft.Scale(min(1.0, abs_px / 32.0))
+                # Threshold reached when dragged >= 35% or >= 40px
+                if abs_frac >= 0.35 or abs_px >= 40.0:
+                    swipe_state["triggered"] = True
+                    reply_badge.bgcolor = palette["accent"]
+                    reply_badge_icon.color = ft.Colors.WHITE
+                else:
+                    swipe_state["triggered"] = False
+                    reply_badge.bgcolor = palette["accent_glow"]
+                    reply_badge_icon.color = palette["accent"]
+            else:
+                reply_badge.opacity = 0.0
+                reply_badge.scale = ft.Scale(0.0)
+
+            try:
+                bubble.update()
+                reply_badge.update()
+            except Exception:
+                pass
+
+        def _on_swipe_end(e):
+            if not swipe_state["active"]:
+                return
+            swipe_state["active"] = False
+            velocity = getattr(e, "primary_velocity", 0.0) or 0.0
+            swipe_state["dx"] = 0.0
+
+            # Velocity-based flick recognition in valid direction
+            if is_me and velocity <= -280.0:
+                swipe_state["triggered"] = True
+            elif (not is_me) and velocity >= 280.0:
+                swipe_state["triggered"] = True
+
+            was_triggered = swipe_state["triggered"]
+            swipe_state["triggered"] = False
+
+            # Spring bounce back to 0 (origin)
+            bubble.animate_offset = ft.Animation(240, ft.AnimationCurve.EASE_OUT_BACK)
+            bubble.offset = ft.Offset(0, 0)
+
+            reply_badge.scale = ft.Scale(0.0)
+            reply_badge.opacity = 0.0
+            reply_badge.bgcolor = palette["accent_glow"]
+            reply_badge_icon.color = palette["accent"]
+
+            try:
+                bubble.update()
+                reply_badge.update()
+            except Exception:
+                pass
+
+            if was_triggered:
+                _set_reply(msg)
+
+        def _on_swipe_cancel(e=None):
+            if not swipe_state["active"]:
+                return
+            swipe_state["active"] = False
+            swipe_state["dx"] = 0.0
+            swipe_state["triggered"] = False
+            bubble.animate_offset = ft.Animation(240, ft.AnimationCurve.EASE_OUT_BACK)
+            bubble.offset = ft.Offset(0, 0)
+            reply_badge.scale = ft.Scale(0.0)
+            reply_badge.opacity = 0.0
+            try:
+                bubble.update()
+                reply_badge.update()
+            except Exception:
+                pass
+
+        bubble_gesture = ft.GestureDetector(
+            content=bubble,
+            drag_interval=20,
+            on_horizontal_drag_start=_on_swipe_start,
+            on_horizontal_drag_update=_on_swipe_update,
+            on_horizontal_drag_end=_on_swipe_end,
+            on_horizontal_drag_cancel=_on_swipe_cancel,
+            on_long_press=_guarded_actions_click,
+        )
+
+        bubble_swipe_stack = ft.Stack(
+            controls=[
+                badge_holder,
+                bubble_gesture,
+            ]
+        )
+
+        row_items = [bubble_options_btn, bubble_swipe_stack] if is_me else [bubble_swipe_stack, bubble_options_btn]
 
         bubble_col = ft.Column(
             [
@@ -2563,7 +3172,7 @@ async def chat_view(
                     tight=True,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER
                 ),
-                reactions_row,
+                reactions_holder,
             ],
             tight=True,
             spacing=1,
@@ -2582,6 +3191,7 @@ async def chat_view(
             c.msg_data = msg
             c.status_tick = status_tick
             c.bubble_ref = bubble
+            c.reactions_holder = reactions_holder
             c.is_me_bubble = True
             return c
         else:
@@ -2622,9 +3232,9 @@ async def chat_view(
                     def _open_sender_profile(ev, sid=sender_id):
                         if sid:
                             if sid == my_id:
-                                page.go("/profile")
+                                page.navigate("/profile")
                             else:
-                                page.go(f"/member/{sid}")
+                                page.navigate(f"/member/{sid}")
 
                     avatar_widget = ft.Container(
                         content=avatar_ctrl,
@@ -2655,6 +3265,7 @@ async def chat_view(
             c.client_msg_id = str(msg.get("client_msg_id") or "")
             c.msg_data = msg
             c.bubble_ref = bubble
+            c.reactions_holder = reactions_holder
             c.is_me_bubble = False
             return c
 
@@ -2694,17 +3305,16 @@ async def chat_view(
         tok = datetime.now().timestamp()
         typing_tokens[channel_id] = tok
 
-        # 1. Update left list state
+        # 1. Update left list state in-memory
         for chat in channels_list:
             if chat.get("channel_id") == channel_id:
                 chat["is_typing"] = True
                 chat["typing_name"] = sender_name
                 break
-        render_chat_list()
 
-        # 2. Update active chat header subtitle
+        # 2. Update active chat header subtitle directly (zero sidebar re-render lag)
         if channel_id == current_chat_id[0]:
-            active_chat_status_txt.value = "typing..."
+            active_chat_status_txt.value = f"{sender_name} is typing..." if sender_name and sender_name != "Someone" else "typing..."
             active_chat_status_txt.color = palette["online_dot"]
             try:
                 active_chat_status_txt.update()
@@ -2720,7 +3330,6 @@ async def chat_view(
                     c.pop("is_typing", None)
                     c.pop("typing_name", None)
                     break
-            render_chat_list()
 
             if current_chat_id[0] == channel_id:
                 chat_info = next((c for c in channels_list if c.get("channel_id") == channel_id), {})
@@ -2743,8 +3352,8 @@ async def chat_view(
     # 10. ACTIVE CHAT LOADER & SYNC
     # ==========================================
     async def load_active_chat(chat_id: str):
-        if chat_load_lock[0]:
-            return
+        chat_load_seq[0] += 1
+        my_load_seq = chat_load_seq[0]
         chat_load_lock[0] = True
 
         try:
@@ -2754,11 +3363,6 @@ async def chat_view(
             chat_info["has_unread_mention"] = False
             active_chat_info[0] = chat_info
             render_chat_list()
-
-            # Cleanly disconnect prior room socket if needed
-            if ws_client_ref[0]:
-                await ws_client_ref[0].disconnect()
-                ws_client_ref[0] = None
 
             back_btn = ft.IconButton(
                 ft.Icons.ARROW_BACK_ROUNDED,
@@ -2851,9 +3455,9 @@ async def chat_view(
                             break
                 if target_uid:
                     if target_uid == current_user_id[0]:
-                        page.go("/profile")
+                        page.navigate("/profile")
                     else:
-                        page.go(f"/member/{target_uid}")
+                        page.navigate(f"/member/{target_uid}")
 
             raw_avatar = get_avatar(_chat_name, _chat_type, _chat_online, radius=20, avatar_url=chat_info.get("avatar_url") or chat_info.get("other_user_avatar"))
             if _chat_type == "direct":
@@ -2893,10 +3497,9 @@ async def chat_view(
             if _chat_type == "direct":
                 other_badge = chat_info.get("primary_badge") or chat_info.get("other_user_badge")
                 if not other_badge:
-                    for u in all_users_cache:
-                        if str(u.get("id") or u.get("user_id", "")).strip().lower() == str(_other_uid or "").strip().lower():
-                            other_badge = u.get("primary_badge")
-                            break
+                    u = all_users_dict.get(str(_other_uid or "").strip().lower())
+                    if u:
+                        other_badge = u.get("primary_badge")
                 if other_badge and isinstance(other_badge, dict):
                     title_row_controls.append(build_glossy_badge_pill(other_badge, is_mobile=not is_desktop[0], max_width=120))
 
@@ -3042,6 +3645,8 @@ async def chat_view(
 
             # --- 2. NETWORK FETCH & SQLITE REFRESH ---
             history = await get_channel_messages(token, chat_id)
+            if chat_load_seq[0] != my_load_seq or current_chat_id[0] != chat_id:
+                return
             if isinstance(history, list):
                 # Reverse to chronological order (API returns newest first)
                 chronological = list(reversed(history))
@@ -3072,8 +3677,26 @@ async def chat_view(
                     upsert_chat_messages(page, formatted_msgs)
 
                 # Avoid wiping and re-rendering if cached messages already matched the server response
-                if not (cached_ids and network_ids == cached_ids):
+                if not cached_history:
                     _render_history(chronological)
+                elif cached_ids and network_ids != cached_ids:
+                    # Incremental append of new delta messages instead of full wipe & re-render
+                    new_deltas = [m for m in chronological if str(m.get("id")) not in seen_msg_ids]
+                    if new_deltas:
+                        for m in new_deltas:
+                            mid = str(m.get("id"))
+                            if mid:
+                                seen_msg_ids.add(mid)
+                            prev_item = messages_listview.controls[-1].msg_data if (messages_listview.controls and hasattr(messages_listview.controls[-1], "msg_data")) else None
+                            bubble_ctrl = render_message_bubble(m, prev_msg=prev_item, animate_entrance=False)
+                            messages_listview.controls.append(bubble_ctrl)
+                        try:
+                            messages_listview.update()
+                        except Exception:
+                            page.update()
+                        _scroll_to_bottom(animate=False)
+                    elif len(network_ids) != len(cached_ids):
+                        _render_history(chronological)
 
             # Update Online Status in Header
             _is_online = chat_info.get("is_online", False)
@@ -3089,44 +3712,56 @@ async def chat_view(
             except Exception:
                 page.update()
 
-            # --- 3. CONNECT LIVE WEBSOCKET & EMIT READ RECEIPT ---
-            ws_client_ref[0] = ChatWebSocketClient(token)
-            connected = await ws_client_ref[0].connect(handle_incoming_message)
-            if connected:
-                # Mark room read on backend
-                page.run_task(ws_client_ref[0].send_message, chat_id, "", "read_receipt")
-
-                # Fetch and render sticky pinned message, if present
-                async def _fetch_pinned_note(c_id=chat_id):
-                    try:
-                        p_data = await get_pinned_chat_message(token, c_id)
-                        if p_data and isinstance(p_data, dict) and p_data.get("id"):
-                            pinned_msg_target_id[0] = p_data.get("id")
-                            p_snip = p_data.get("content") or "Pinned notice"
-                            pinned_notice_text.value = f"📌 Pinned: {p_snip[:60]}"
-                            pinned_notice_bar.visible = True
-                            unpin_btn.visible = _is_current_user_admin()
+            # --- 3. FETCH PINNED MESSAGE CONCURRENTLY IN BACKGROUND ---
+            async def _fetch_pinned_note(c_id=chat_id):
+                try:
+                    p_data = await get_pinned_chat_message(token, c_id)
+                    if current_chat_id[0] != c_id:
+                        return
+                    if p_data and isinstance(p_data, dict) and p_data.get("id"):
+                        pinned_msg_target_id[0] = p_data.get("id")
+                        p_snip = p_data.get("content") or "Pinned notice"
+                        pinned_notice_text.value = f"📌 Pinned: {p_snip[:60]}"
+                        pinned_notice_bar.visible = True
+                        unpin_btn.visible = _is_current_user_admin()
+                        try:
+                            pinned_notice_bar.update()
+                        except Exception:
+                            page.update()
+                    else:
+                        pinned_msg_target_id[0] = None
+                        if pinned_notice_bar.visible:
+                            pinned_notice_bar.visible = False
                             try:
                                 pinned_notice_bar.update()
                             except Exception:
                                 page.update()
-                            _restore_scroll_anchor()
-                        else:
-                            pinned_msg_target_id[0] = None
-                            if pinned_notice_bar.visible:
-                                pinned_notice_bar.visible = False
-                                try:
-                                    pinned_notice_bar.update()
-                                except Exception:
-                                    page.update()
-                    except Exception as p_err:
-                        print(f"[NuChat] Error fetching pinned message: {p_err}")
-                page.run_task(_fetch_pinned_note)
+                except Exception as p_err:
+                    print(f"[NuChat] Error fetching pinned message: {p_err}")
+
+            page.run_task(_fetch_pinned_note, chat_id)
+
+            # --- 4. CONNECT LIVE WEBSOCKET IN BACKGROUND (0ms UI BLOCK) ---
+            async def _bg_connect_and_read(c_id=chat_id):
+                try:
+                    if not ws_client_ref[0] or not getattr(ws_client_ref[0], "websocket", None):
+                        if not ws_client_ref[0]:
+                            ws_client_ref[0] = ChatWebSocketClient(token)
+                        connected = await ws_client_ref[0].connect(handle_incoming_message)
+                    else:
+                        connected = True
+                    if connected and current_chat_id[0] == c_id:
+                        await ws_client_ref[0].send_message(c_id, "", "read_receipt")
+                except Exception as conn_err:
+                    print(f"[NuChat] Background websocket connect notice: {conn_err}")
+
+            page.run_task(_bg_connect_and_read, chat_id)
 
         except Exception as ex:
             print(f"[NuChat] Error loading active chat {chat_id}: {ex}")
         finally:
-            chat_load_lock[0] = False
+            if chat_load_seq[0] == my_load_seq:
+                chat_load_lock[0] = False
 
     # ==========================================
     # 11. WEBSOCKET MESSAGE DISPATCHER
@@ -3142,7 +3777,6 @@ async def chat_view(
                 if chat.get("channel_id") == incoming_channel_id:
                     chat["is_online"] = is_online
                     break
-            render_chat_list()
 
             if incoming_channel_id == current_chat_id[0]:
                 active_chat_status_txt.value = "online" if is_online else "Offline"
@@ -3160,19 +3794,7 @@ async def chat_view(
             curr_cid = str(current_chat_id[0] or "").strip().lower()
             incoming_cid = str(incoming_channel_id or "").strip().lower()
             if incoming_cid == curr_cid:
-                for idx, ctrl in enumerate(messages_listview.controls):
-                    if hasattr(ctrl, "data") and str(ctrl.data).strip().lower() == target_mid:
-                        m_d = getattr(ctrl, "msg_data", {})
-                        if isinstance(m_d, dict):
-                            meta = m_d.get("metadata_payload") or {}
-                            if isinstance(meta, str):
-                                try: meta = json.loads(meta)
-                                except: meta = {}
-                            meta["reactions"] = new_reactions
-                            m_d["metadata_payload"] = meta
-                            ctrl.msg_data = m_d
-                            _replace_bubble_in_place(idx, m_d, do_update=True)
-                            break
+                _update_bubble_reactions_in_place(target_mid, new_reactions=new_reactions if isinstance(new_reactions, dict) else {})
             return
 
         # ── Pin Update ────────────────────────────────────────────────────────
@@ -3385,7 +4007,7 @@ async def chat_view(
                     category="chat",
                     icon=ft.Icons.CHAT_BUBBLE_ROUNDED,
                     action_label="Open",
-                    on_action=lambda e, cid=incoming_channel_id: page.go(f"/nu-chat?channel={cid}")
+                    on_action=lambda e, cid=incoming_channel_id: page.navigate(f"/nu-chat?channel={cid}")
                 )
                 page.run_task(sync_learner_notifications, page, True)
             except Exception:
@@ -3518,15 +4140,29 @@ async def chat_view(
         )
         safe_open_dialog(page, dlg, tag="chat_help_dialog")
 
+    async def _safe_focus_input():
+        try:
+            await msg_input.focus()
+        except Exception:
+            pass
+
     def _trigger_ai_prompt():
         msg_input.value = "/ai "
-        page.run_task(msg_input.focus)
-        page.update()
+        _update_send_btn_state(do_update=True)
+        try:
+            msg_input.update()
+        except Exception:
+            page.update()
+        page.run_task(_safe_focus_input)
 
     def _trigger_study_duel():
         msg_input.value = "/duel "
-        page.run_task(msg_input.focus)
-        page.update()
+        _update_send_btn_state(do_update=True)
+        try:
+            msg_input.update()
+        except Exception:
+            page.update()
+        page.run_task(_safe_focus_input)
 
     def open_attachment_actions_modal(e=None):
         if is_modal_open(page, tag="chat_actions_sheet"):
@@ -3537,7 +4173,7 @@ async def chat_view(
             on_open_poll=open_poll_modal,
             on_trigger_ai=_trigger_ai_prompt,
             on_trigger_duel=_trigger_study_duel,
-            on_close_callback=_restore_scroll_anchor,
+            on_close_callback=None,
         )
 
     # ── Poll Creator Dialog ───────────────────────────────────────────────────
@@ -3708,9 +4344,9 @@ async def chat_view(
                     def _nav_to_voter(ev, uid=v_id):
                         _close_modal(dlg)
                         if uid == my_id:
-                            page.go("/profile")
+                            page.navigate("/profile")
                         else:
-                            page.go(f"/member/{uid}")
+                            page.navigate(f"/member/{uid}")
 
                     v_avatar_url = None
                     if v_id == my_id:
@@ -3840,7 +4476,7 @@ async def chat_view(
                     )
                 )
             else:
-                for idx, u in enumerate(filtered):
+                for idx, u in enumerate(filtered[:45]):
                     dname = u.get("name") or u.get("full_name") or u.get("username") or "User"
                     uid = u.get("id") or u.get("user_id")
 
@@ -3859,7 +4495,10 @@ async def chat_view(
                         ], vertical_alignment=ft.CrossAxisAlignment.CENTER)
                     )
                     user_list_col.controls.append(tile)
-            page.update()
+            try:
+                user_list_col.update()
+            except Exception:
+                page.update()
 
         user_search.on_change = lambda e: _render_user_tiles(e.control.value)
 
@@ -3887,6 +4526,10 @@ async def chat_view(
         async def _boot():
             await _load_users_if_needed()
             loading_ring.visible = False
+            try:
+                loading_ring.update()
+            except Exception:
+                pass
             _render_user_tiles()
         page.run_task(_boot)
 
@@ -3920,7 +4563,7 @@ async def chat_view(
         async def _load_group_picker():
             await _load_users_if_needed()
             if all_users_cache:
-                for u in all_users_cache:
+                for u in all_users_cache[:60]:
                     dname = u.get("name") or u.get("full_name") or u.get("username") or "User"
                     uid = u.get("id") or u.get("user_id")
                     if str(uid).strip().lower() != current_user_id[0]:
@@ -3929,7 +4572,10 @@ async def chat_view(
 
                         def toggle_row(e, checkbox=cb):
                             checkbox.value = not checkbox.value
-                            page.update()
+                            try:
+                                checkbox.update()
+                            except Exception:
+                                page.update()
 
                         row = ft.Container(
                             ink=True,
@@ -3943,7 +4589,10 @@ async def chat_view(
                             ], vertical_alignment=ft.CrossAxisAlignment.CENTER)
                         )
                         users_listview.controls.append(row)
-            page.update()
+            try:
+                users_listview.update()
+            except Exception:
+                page.update()
 
         async def handle_create(ev):
             group_name = (name_input.value or "").strip()
@@ -4004,7 +4653,7 @@ async def chat_view(
         async def _load_candidates():
             await _load_users_if_needed()
             existing = await get_group_members(token, channel_id)
-            for u in all_users_cache:
+            for u in all_users_cache[:60]:
                 uid = str(u.get("id") or u.get("user_id")).strip()
                 if uid not in existing:
                     dname = u.get("name") or u.get("full_name") or u.get("username") or "User"
@@ -4013,7 +4662,10 @@ async def chat_view(
 
                     def toggle_row(e, checkbox=cb):
                         checkbox.value = not checkbox.value
-                        page.update()
+                        try:
+                            checkbox.update()
+                        except Exception:
+                            page.update()
 
                     row = ft.Container(
                         ink=True,
@@ -4031,7 +4683,10 @@ async def chat_view(
                 users_listview.controls.append(
                     ft.Container(padding=20, alignment=ft.Alignment.CENTER, content=ft.Text("All available members are in this chat.", size=12, color=palette["text_muted"]))
                 )
-            page.update()
+            try:
+                users_listview.update()
+            except Exception:
+                page.update()
 
         async def _handle_add(ev):
             selected = [cb.data for cb in checkboxes if cb.value]

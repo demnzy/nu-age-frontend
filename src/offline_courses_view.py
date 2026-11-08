@@ -47,7 +47,7 @@ async def offline_courses_view(page: ft.Page, back_target: str = None) -> ft.Vie
     db = get_local_db(page)
 
     def handle_back(e=None):
-        page.go(back_target or "/courses")
+        page.navigate(back_target or "/courses")
 
     # State
     active_tab = ["courses"]  # 'courses' | 'study'
@@ -120,7 +120,7 @@ async def offline_courses_view(page: ft.Page, back_target: str = None) -> ft.Vie
         page.update()
 
     async def handle_open_course(e, course_id: str):
-        page.go(f"/courses/{course_id}/offline")
+        page.navigate(f"/courses/{course_id}/offline")
 
     async def handle_delete_course(e, course_id: str, course_name: str):
         async def confirm_delete(e):
@@ -793,7 +793,7 @@ async def offline_courses_view(page: ft.Page, back_target: str = None) -> ft.Vie
                         padding=ft.Padding.symmetric(horizontal=12, vertical=0),
                     ),
                     tooltip="Review spaced repetition flashcards offline",
-                    on_click=lambda _: page.go(f"/self-study?offline=true&mat_id={mid}&action=flashcards"),
+                    on_click=lambda _: page.navigate(f"/self-study?offline=true&mat_id={mid}&action=flashcards"),
                 ),
                 ft.FilledButton(
                     "Quiz",
@@ -805,7 +805,7 @@ async def offline_courses_view(page: ft.Page, back_target: str = None) -> ft.Vie
                         padding=ft.Padding.symmetric(horizontal=12, vertical=0),
                     ),
                     tooltip="Take quick comprehension quiz offline",
-                    on_click=lambda _: page.go(f"/self-study?offline=true&mat_id={mid}&action=quiz"),
+                    on_click=lambda _: page.navigate(f"/self-study?offline=true&mat_id={mid}&action=quiz"),
                 ),
                 ft.FilledButton(
                     "Exam Sim",
@@ -817,7 +817,7 @@ async def offline_courses_view(page: ft.Page, back_target: str = None) -> ft.Vie
                         padding=ft.Padding.symmetric(horizontal=12, vertical=0),
                     ),
                     tooltip="Run timed mock exam offline",
-                    on_click=lambda _: page.go(f"/self-study?offline=true&mat_id={mid}&action=exam"),
+                    on_click=lambda _: page.navigate(f"/self-study?offline=true&mat_id={mid}&action=exam"),
                 ),
                 ft.OutlinedButton(
                     "Open Vault",
@@ -827,7 +827,7 @@ async def offline_courses_view(page: ft.Page, back_target: str = None) -> ft.Vie
                         shape=ft.RoundedRectangleBorder(radius=8),
                         padding=ft.Padding.symmetric(horizontal=12, vertical=0),
                     ),
-                    on_click=lambda _: page.go(f"/self-study?offline=true&mat_id={mid}"),
+                    on_click=lambda _: page.navigate(f"/self-study?offline=true&mat_id={mid}"),
                 ),
             ],
         )
@@ -937,7 +937,7 @@ async def offline_courses_view(page: ft.Page, back_target: str = None) -> ft.Vie
                                     icon=ft.Icons.EXPLORE_ROUNDED,
                                     height=38,
                                     style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
-                                    on_click=lambda e: page.go("/courses"),
+                                    on_click=lambda e: page.navigate("/courses"),
                                 ),
                             ],
                             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -1019,7 +1019,7 @@ async def offline_courses_view(page: ft.Page, back_target: str = None) -> ft.Vie
                                     icon=ft.Icons.FOLDER_SPECIAL_ROUNDED,
                                     height=38,
                                     style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
-                                    on_click=lambda e: page.go("/self-study?offline=true"),
+                                    on_click=lambda e: page.navigate("/self-study?offline=true"),
                                 ),
                             ],
                             horizontal_alignment=ft.CrossAxisAlignment.CENTER,

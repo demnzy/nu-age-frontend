@@ -101,7 +101,7 @@ def get_next_best_action_card(
                 shape=ft.RoundedRectangleBorder(radius=10),
                 padding=ft.Padding.symmetric(horizontal=16, vertical=10),
             ),
-            on_click=lambda _: page.go(f"/courses/{c_id}/view"),
+            on_click=lambda _: page.navigate(f"/courses/{c_id}/view"),
         )
 
         return ft.Container(
@@ -243,7 +243,7 @@ def get_next_best_action_card(
                                 shape=ft.RoundedRectangleBorder(radius=10),
                                 padding=ft.Padding.symmetric(horizontal=14, vertical=8),
                             ),
-                            on_click=lambda _: page.go("/self-study"),
+                            on_click=lambda _: page.navigate("/self-study"),
                         ),
                         ft.OutlinedButton(
                             content=ft.Row(
@@ -258,7 +258,7 @@ def get_next_best_action_card(
                                 shape=ft.RoundedRectangleBorder(radius=10),
                                 padding=ft.Padding.symmetric(horizontal=14, vertical=8),
                             ),
-                            on_click=lambda _: page.go("/courses"),
+                            on_click=lambda _: page.navigate("/courses"),
                         ),
                     ],
                 ),

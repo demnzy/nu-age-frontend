@@ -45,7 +45,7 @@ Check it out 👉 : nu-age.com.ng"""
             icon=ft.Icons.ARROW_BACK_ROUNDED,
             icon_color=ft.Colors.ON_SURFACE,
             tooltip="Back",
-            on_click=lambda _: page.go(back_target),
+            on_click=lambda _: page.navigate(back_target),
         ),
         actions=[
             ft.IconButton(
@@ -86,7 +86,7 @@ Check it out 👉 : nu-age.com.ng"""
                 enrol_user(token, course_id, None), timeout=15
             )
             if status == 200:
-                page.go(f"/courses/{course_id}/view")
+                page.navigate(f"/courses/{course_id}/view")
                 e.control.disabled = False
                 e.control.content = orig_content
                 page.update()
@@ -115,7 +115,7 @@ Check it out 👉 : nu-age.com.ng"""
     is_mobile_screen = bool(page.width and page.width < 768)
     mobile_cta_label = ft.Text("Enroll Now", size=13, weight=ft.FontWeight.W_800, color=ft.Colors.ON_PRIMARY)
     mobile_cta_icon = ft.Icon(ft.Icons.ROCKET_LAUNCH_ROUNDED, size=15, color=ft.Colors.ON_PRIMARY)
-    mobile_cta_btn = ft.ElevatedButton(
+    mobile_cta_btn = ft.Button(
         content=ft.Row(
             tight=True,
             spacing=6,
@@ -188,7 +188,7 @@ Check it out 👉 : nu-age.com.ng"""
                 if status in (200, 204):
                     dlg.open = False
                     page.update()
-                    page.go("/courses")
+                    page.navigate("/courses")
                 else:
                     confirm_btn.disabled = False
                     confirm_btn.content = ft.Row(
@@ -283,7 +283,7 @@ Check it out 👉 : nu-age.com.ng"""
             if is_already_enrolled:
                 mobile_cta_label.value = "Continue"
                 mobile_cta_icon.name = ft.Icons.PLAY_ARROW_ROUNDED
-                mobile_cta_btn.on_click = lambda _: page.go(f"/courses/{cid}/view")
+                mobile_cta_btn.on_click = lambda _: page.navigate(f"/courses/{cid}/view")
                 _attach_leave_course_menu(cid, name)
 
             # Eagerly load curriculum modules with their nested lessons
@@ -556,7 +556,7 @@ Check it out 👉 : nu-age.com.ng"""
                         def make_lesson_click(enrolled):
                             def on_click(_):
                                 if enrolled:
-                                    page.go(f"/courses/{course_id}/view")
+                                    page.navigate(f"/courses/{course_id}/view")
                                 else:
                                     page.show_dialog(
                                         ft.SnackBar(
@@ -798,7 +798,7 @@ Check it out 👉 : nu-age.com.ng"""
             )
 
             # ── 5. Sticky Enrollment Card (Sidebar on desktop) ────────────────
-            enrol_action_btn = ft.ElevatedButton(
+            enrol_action_btn = ft.Button(
                 width=float("inf"),
                 content=ft.Row(
                     alignment=ft.MainAxisAlignment.CENTER,
@@ -825,7 +825,7 @@ Check it out 👉 : nu-age.com.ng"""
                     elevation=2,
                 ),
                 on_click=(
-                    (lambda _: page.go(f"/courses/{course_id}/view"))
+                    (lambda _: page.navigate(f"/courses/{course_id}/view"))
                     if is_already_enrolled
                     else handle_enrol_click
                 ),
@@ -975,7 +975,7 @@ Check it out 👉 : nu-age.com.ng"""
                 ft.Text("Couldn't load course", size=16, weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE),
                 ft.Text(message, size=13, color=ft.Colors.ON_SURFACE_VARIANT, text_align=ft.TextAlign.CENTER),
                 ft.Container(height=4),
-                ft.ElevatedButton(
+                ft.Button(
                     "Retry",
                     bgcolor=ft.Colors.PRIMARY,
                     color=ft.Colors.ON_PRIMARY,

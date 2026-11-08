@@ -10,6 +10,7 @@ Preserves quick-linking value for 1-tap navigation to core platform utilities:
 """
 
 import flet as ft
+from src.utils.theme_bridge import LucideIcons
 
 
 def get_quick_hub(page: ft.Page) -> ft.Container:
@@ -22,28 +23,28 @@ def get_quick_hub(page: ft.Page) -> ft.Container:
         {
             "title": "Study Hub",
             "desc": "AI Quiz & Cards",
-            "icon": ft.Icons.STYLE_ROUNDED,
+            "icon": LucideIcons.SPARKLES,
             "color": ft.Colors.PURPLE_400,
             "route": "/self-study",
         },
         {
             "title": "Network",
             "desc": "Peers & Squads",
-            "icon": ft.Icons.PEOPLE_ALT_ROUNDED,
+            "icon": LucideIcons.USERS,
             "color": ft.Colors.TEAL_400,
             "route": "/network",
         },
         {
             "title": "Nu-Chat",
             "desc": "Courses & DMs",
-            "icon": ft.Icons.FORUM_ROUNDED,
+            "icon": LucideIcons.MESSAGES_SQUARE,
             "color": ft.Colors.LIGHT_BLUE_400,
             "route": "/nu-chat",
         },
         {
             "title": "Courses",
             "desc": "Explore Catalog",
-            "icon": ft.Icons.EXPLORE_ROUNDED,
+            "icon": LucideIcons.COMPASS,
             "color": ft.Colors.INDIGO_400,
             "route": "/courses",
         },
@@ -71,7 +72,7 @@ def get_quick_hub(page: ft.Page) -> ft.Container:
                 offset=ft.Offset(0, 2),
             ),
             ink=True,
-            on_click=lambda _: page.go(item["route"]),
+            on_click=lambda _: page.navigate(item["route"]),
             content=ft.Row(
                 spacing=10,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -117,7 +118,7 @@ def get_quick_hub(page: ft.Page) -> ft.Container:
                     [
                         ft.Row(
                             [
-                                ft.Icon(ft.Icons.GRID_VIEW_ROUNDED, size=14, color=ft.Colors.PRIMARY),
+                                ft.Icon(LucideIcons.LAYOUT_GRID, size=14, color=ft.Colors.PRIMARY),
                                 ft.Text("QUICK LAUNCH HUB", size=11, weight=ft.FontWeight.W_800, color=ft.Colors.GREY_500),
                             ],
                             spacing=6,

@@ -7,9 +7,16 @@ from src.components.bottom_appbar import get_bottom_appbar, NotificationManager
 from src.requests.auth import logout_request, logout_all_devices_request
 from src.requests.enrollments import get_enrollments
 from src.theme.typography import build_typography_switcher_button
+from src.utils.theme_bridge import (
+    build_theme_switcher_button,
+    LucideIcons,
+    get_theme_palette,
+    THEME_PALETTES,
+    DEFAULT_THEME_KEY,
+)
 from src.components.badge_pill import build_glossy_badge_pill
 from src.requests.promo import redeem_promo_code_api, get_my_badges_api, equip_primary_badge_api
-from src.utils.file_opener import show_page_snackbar
+from src.utils.file_opener import show_page_snackbar, safe_share_text
 from src.requests.auth import upload_avatar_request, remove_avatar_request, set_account_password_request
 from src.services.auth_session import AuthSession
 import base64
@@ -26,20 +33,28 @@ def _is_dark_mode(page: ft.Page) -> bool:
     return True
 
 
-def get_profile_palette(is_dark: bool) -> dict:
-    """Central palette tokens for the profile view."""
+def get_profile_palette(theme_arg: Any = None) -> dict:
+    """Central palette tokens for the profile view, fully unified with multi-mode presets."""
+    if isinstance(theme_arg, str) and theme_arg in THEME_PALETTES:
+        tp = THEME_PALETTES[theme_arg]
+    elif isinstance(theme_arg, bool):
+        tp = THEME_PALETTES["dark" if theme_arg else "light"]
+    else:
+        tp = THEME_PALETTES[DEFAULT_THEME_KEY]
+
+    is_dark = tp["is_dark"]
     return {
-        "card_bg": "#181B24" if is_dark else "#FFFFFF",
-        "card_bg_alt": "#222736" if is_dark else "#F1F5F9",
-        "border_clr": ft.Colors.with_opacity(0.12, ft.Colors.WHITE) if is_dark else ft.Colors.with_opacity(0.08, ft.Colors.BLACK),
-        "text_primary": "#F8FAFC" if is_dark else "#0F172A",
-        "text_muted": "#94A3B8" if is_dark else "#64748B",
-        "divider_clr": ft.Colors.with_opacity(0.12, ft.Colors.WHITE) if is_dark else ft.Colors.with_opacity(0.06, ft.Colors.BLACK),
-        "icon_bg": ft.Colors.with_opacity(0.15 if is_dark else 0.08, ft.Colors.PRIMARY),
-        "theme_icon_bg": ft.Colors.with_opacity(0.14, ft.Colors.AMBER_400 if is_dark else ft.Colors.INDIGO_400),
-        "theme_icon_color": ft.Colors.AMBER_400 if is_dark else ft.Colors.INDIGO_400,
-        "theme_icon": ft.Icons.DARK_MODE_ROUNDED if is_dark else ft.Icons.LIGHT_MODE_ROUNDED,
-        "theme_sub": "Dark Mode Enabled" if is_dark else "Light Mode Enabled",
+        "card_bg": tp["card_bg"],
+        "card_bg_alt": tp.get("surface_container", tp["card_bg"]),
+        "border_clr": tp["outline"],
+        "text_primary": tp["on_surface"],
+        "text_muted": tp["muted"],
+        "divider_clr": tp["outline"],
+        "icon_bg": ft.Colors.with_opacity(0.15 if is_dark else 0.08, tp["primary"]),
+        "theme_icon_bg": ft.Colors.with_opacity(0.14, tp["primary"]),
+        "theme_icon_color": tp["primary"],
+        "theme_icon": tp["icon"],
+        "theme_sub": f"{tp['name']} · Active",
     }
 
 
@@ -117,7 +132,7 @@ async def profile_view(page: ft.Page):
             except Exception:
                 pass
 
-        page.go("/login")
+        page.navigate("/login")
         page.update()
 
     async def execute_logout_all(e):
@@ -231,8 +246,9 @@ async def profile_view(page: ft.Page):
         nonlocal cached_enrollments
 
         # ── Theme & Palette Determination ─────────────────────────────────────
-        is_dark = _is_dark_mode(page)
-        palette = get_profile_palette(is_dark)
+        active_theme_key = page.data.get("current_theme_key", "dark") if hasattr(page, "data") and isinstance(page.data, dict) else ("dark" if _is_dark_mode(page) else "light")
+        palette = get_profile_palette(active_theme_key)
+        is_dark = palette["theme_sub"].startswith("Dark") or _is_dark_mode(page)
 
         async def handle_logout_click(e):
             current_dark = page.theme_mode == ft.ThemeMode.DARK
@@ -373,7 +389,7 @@ async def profile_view(page: ft.Page):
         def _go_edit(ev=None):
             sheet.open = False
             page.update()
-            page.go("/edit-profile")
+            page.navigate("/edit-profile")
 
         sheet = ft.BottomSheet(
             content=ft.Container(
@@ -528,7 +544,7 @@ async def profile_view(page: ft.Page):
     bgcolor={ft.ControlState.DEFAULT: ft.Colors.with_opacity(0.18, ft.Colors.WHITE)},
     shape=ft.CircleBorder()
 ),
-                        on_click=lambda _: page.go("/edit-profile")
+                        on_click=lambda _: page.navigate("/edit-profile")
                     )
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                 
@@ -632,42 +648,15 @@ async def profile_view(page: ft.Page):
             color=palette["text_muted"],
         )
 
-        async def on_toggle_theme(e):
-            new_is_dark = theme_switch.value
-            
-            # 1. Apply new palette tokens in-place immediately (0ms delay, no re-layout)
-            apply_theme_palette(new_is_dark)
-
-            # Instantly update BottomAppBar colors to match new mode
-            try:
-                from src.components.bottom_appbar import BottomAppBarThemeManager
-                BottomAppBarThemeManager.notify_theme_changed(new_is_dark)
-            except Exception:
-                pass
-
-            # 2. Sync global theme in main.py without duplicate render
-            toggle_fn = page.data.get("toggle_dark_mode") if isinstance(page.data, dict) else None
-            if toggle_fn:
-                try:
-                    await toggle_fn(target_is_dark=new_is_dark, trigger_update=False)
-                except TypeError:
-                    await toggle_fn()
-            else:
-                page.theme_mode = ft.ThemeMode.DARK if new_is_dark else ft.ThemeMode.LIGHT
-                page.bgcolor = "#121212" if new_is_dark else ft.Colors.SURFACE
-
-            # 3. Single unified update: instant, seamless, zero flicker
-            page.update()
-
-        theme_switch = ft.Switch(
-            value=is_dark,
-            active_color=ft.Colors.PRIMARY,
-            on_change=on_toggle_theme,
-        )
-
         font_switcher_btn = build_typography_switcher_button(
             page,
-            on_preset_changed=lambda _: (apply_theme_palette(page.theme_mode == ft.ThemeMode.DARK), page.update()),
+            on_preset_changed=lambda _: (apply_theme_palette(page.data.get("current_theme_key") if hasattr(page, "data") and isinstance(page.data, dict) else "dark"), page.update()),
+            button_height=30,
+        )
+
+        theme_switcher_btn = build_theme_switcher_button(
+            page,
+            on_theme_changed=lambda key: (apply_theme_palette(key), page.update()),
             button_height=30,
         )
 
@@ -684,8 +673,8 @@ async def profile_view(page: ft.Page):
                     theme_subtitle,
                 ], spacing=2, expand=True),
                 font_switcher_btn,
-                theme_switch,
-            ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=10)
+                theme_switcher_btn,
+            ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=8)
         )
 
         # ── 4. Quick LMS Action Shortcuts ─────────────────────────────────────
@@ -703,7 +692,7 @@ async def profile_view(page: ft.Page):
                 padding=ft.Padding.all(10),
                 shadow=ft.BoxShadow(blur_radius=8, color=ft.Colors.with_opacity(0.03, ft.Colors.BLACK), offset=ft.Offset(0, 2)),
                 ink=True,
-                on_click=lambda _: page.go(route),
+                on_click=lambda _: page.navigate(route),
                 content=ft.Row([
                     ft.Container(
                         width=38, height=38, border_radius=12,
@@ -740,7 +729,7 @@ async def profile_view(page: ft.Page):
 
         store_billing_card = ft.Container(
             ink=True,
-            on_click=lambda _: page.go("/store?back=/profile"),
+            on_click=lambda _: page.navigate("/store?back=/profile"),
             border_radius=18,
             border=ft.Border.all(1.2, ft.Colors.with_opacity(0.3, ft.Colors.PRIMARY)),
             bgcolor=palette["card_bg"],
@@ -765,7 +754,7 @@ async def profile_view(page: ft.Page):
                     ], spacing=6, tight=True, wrap=True),
                     store_sub
                 ], spacing=3, expand=True),
-                ft.ElevatedButton(
+                ft.Button(
                     content=ft.Row(
                         tight=True,
                         spacing=4,
@@ -777,7 +766,7 @@ async def profile_view(page: ft.Page):
                     bgcolor=ft.Colors.PRIMARY,
                     height=34,
                     style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), elevation=0),
-                    on_click=lambda _: page.go("/store?back=/profile"),
+                    on_click=lambda _: page.navigate("/store?back=/profile"),
                 )
             ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=12)
         )
@@ -845,19 +834,24 @@ async def profile_view(page: ft.Page):
         )
 
         # ── 6. Refer & Earn CTA ───────────────────────────────────────────────
-        async def open_whatsapp(e):
+        async def share_referral(e=None):
             msg = (
                 "Just found Nu Age and it's honestly a game changer for studying! "
                 "It has curated courses, an AI tutor and peer study network!\n\n"
-                "Check it out 👉 https://nu-age.name.ng\n\n"
+                "Check it out 👉 https://nu-age.com.ng\n\n"
                 "Pro tip: Join and connect with other students to boost your momentum!"
             )
-            encoded = urllib.parse.quote(msg)
-            await page.launch_url(f"https://wa.me/?text={encoded}")
+            await safe_share_text(
+                page,
+                text=msg,
+                title="Join Nu Age",
+                subject="Nu Age Learning Platform",
+                fallback_toast="Referral invite copied to clipboard!",
+            )
 
         referral_card = ft.Container(
             ink=True,
-            on_click=open_whatsapp,
+            on_click=lambda e: page.run_task(share_referral, e),
             border_radius=18,
             padding=ft.Padding.all(18),
             gradient=ft.LinearGradient(
@@ -874,9 +868,9 @@ async def profile_view(page: ft.Page):
                 ),
                 ft.Column([
                     ft.Text("Refer & Earn Study Perks", size=14, weight=ft.FontWeight.W_800, color=ft.Colors.WHITE),
-                    ft.Text("Share Nu Age with classmates on WhatsApp to unlock perks.", size=11, color=ft.Colors.with_opacity(0.9, ft.Colors.WHITE))
+                    ft.Text("Share Nu Age with classmates to unlock perks.", size=11, color=ft.Colors.with_opacity(0.9, ft.Colors.WHITE))
                 ], spacing=2, expand=True),
-                ft.Icon(ft.Icons.CHEVRON_RIGHT_ROUNDED, color=ft.Colors.WHITE, size=20)
+                ft.Icon(ft.Icons.SHARE_ROUNDED, color=ft.Colors.WHITE, size=20)
             ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=14)
         )
 
@@ -898,7 +892,7 @@ async def profile_view(page: ft.Page):
                 bgcolor=cur_p["card_bg_alt"],
                 autofocus=True,
             )
-            submit_btn = ft.ElevatedButton(
+            submit_btn = ft.Button(
                 "Redeem",
                 style=ft.ButtonStyle(
                     bgcolor=ft.Colors.PRIMARY,
@@ -999,7 +993,7 @@ async def profile_view(page: ft.Page):
                     promo_title,
                     promo_sub,
                 ], spacing=3, expand=True),
-                ft.ElevatedButton(
+                ft.Button(
                     content=ft.Row([
                         ft.Text("Redeem", size=11.5, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE),
                         ft.Icon(ft.Icons.ARROW_FORWARD_ROUNDED, size=13, color=ft.Colors.WHITE),
@@ -1187,8 +1181,10 @@ async def profile_view(page: ft.Page):
             ], spacing=6)
 
         # ── In-Place Palette Updater (Zero Rebuild, Seamless Cross-Fade) ───────
-        def apply_theme_palette(dark: bool):
-            p = get_profile_palette(dark)
+        def apply_theme_palette(target_theme: Any = None):
+            if target_theme is None:
+                target_theme = page.data.get("current_theme_key", "dark") if hasattr(page, "data") and isinstance(page.data, dict) else ("dark" if page.theme_mode == ft.ThemeMode.DARK else "light")
+            p = get_profile_palette(target_theme)
 
             # 1. Update Bento KPI cards
             for c in bento_registry:
@@ -1208,8 +1204,6 @@ async def profile_view(page: ft.Page):
             theme_title.color = p["text_primary"]
             theme_subtitle.value = p["theme_sub"]
             theme_subtitle.color = p["text_muted"]
-            if theme_switch.value != dark:
-                theme_switch.value = dark
 
             # 3. Update Shortcut Tiles
             for t in shortcut_registry:
@@ -1279,7 +1273,7 @@ async def profile_view(page: ft.Page):
         admin_sub = ft.Text("User management, Excel export, bulk messaging & platform analytics.", size=11, color=palette["text_muted"])
         admin_card = ft.Container(
             ink=True,
-            on_click=lambda _: page.go("/platform-admin"),
+            on_click=lambda _: page.navigate("/platform-admin"),
             border_radius=16,
             border=ft.Border.all(1.2, ft.Colors.AMBER_400),
             bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.AMBER_500),
@@ -1331,7 +1325,7 @@ async def profile_view(page: ft.Page):
                 hint_text="Repeat your new password",
             )
             err_msg = ft.Text("", size=11, color=ft.Colors.RED_400, visible=False)
-            save_btn = ft.ElevatedButton(
+            save_btn = ft.Button(
                 content=ft.Row([
                     ft.Text("Save Password", size=12, weight=ft.FontWeight.W_700),
                     ft.Icon(ft.Icons.CHECK_ROUNDED, size=15),
@@ -1483,6 +1477,8 @@ async def profile_view(page: ft.Page):
         is_super_admin = _is_platform_super_admin(username, email)
 
         content_items = [
+            theme_card,
+            ft.Container(height=4),
             referral_card,
             ft.Container(height=4),
             promo_redeem_card,
@@ -1506,11 +1502,7 @@ async def profile_view(page: ft.Page):
                 ft.Column([section_heading("Administration & Security", ft.Icons.ADMIN_PANEL_SETTINGS_ROUNDED), admin_card], spacing=10),
             ])
 
-        content_items.extend([
-            ft.Container(height=4),
-            ft.Column([section_heading("System Settings", ft.Icons.TUNE_ROUNDED), theme_card], spacing=10),
-            ft.Container(height=24),
-        ])
+        content_items.append(ft.Container(height=24))
 
         main_content = ft.Container(
             alignment=ft.Alignment.TOP_CENTER,
@@ -1549,7 +1541,7 @@ async def profile_view(page: ft.Page):
                     ft.Icon(ft.Icons.ERROR_OUTLINE_ROUNDED, color=ft.Colors.AMBER_400, size=48),
                     ft.Text("Could not load profile", size=18, weight=ft.FontWeight.BOLD),
                     ft.Text("Please check your connection and try again.", size=13, color=ft.Colors.GREY_500),
-                    ft.ElevatedButton("Retry", on_click=lambda _: page.go("/profile")),
+                    ft.Button("Retry", on_click=lambda _: page.navigate("/profile")),
                 ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=12)
             )
             try:

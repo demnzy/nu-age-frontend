@@ -277,7 +277,7 @@ def build_themed_bubble_menu(
 
     return ft.PopupMenuButton(
         icon=ft.Icons.MORE_HORIZ_ROUNDED,
-        icon_color=ft.Colors.WHITE54 if is_me else palette.get("text_muted", ft.Colors.ON_SURFACE_VARIANT),
+        icon_color=ft.Colors.WHITE_54 if is_me else palette.get("text_muted", ft.Colors.ON_SURFACE_VARIANT),
         icon_size=15,
         tooltip="Message actions",
         bgcolor=palette.get("card_bg", ft.Colors.SURFACE),
@@ -353,7 +353,28 @@ def open_message_actions_sheet(
 
     def _close(e=None):
         safe_close_dialog(page, dlg)
-        _on_dismiss()
+
+    def _run_after_close(action_fn: Callable):
+        _close()
+
+        async def _deferred():
+            import asyncio
+            import inspect
+            await asyncio.sleep(0.05)
+            try:
+                res = action_fn()
+                if inspect.isawaitable(res):
+                    await res
+            except Exception as ex:
+                print(f"[message_actions] Action error: {ex}")
+
+        try:
+            page.run_task(_deferred)
+        except Exception:
+            try:
+                action_fn()
+            except Exception as ex:
+                print(f"[message_actions] Action error: {ex}")
 
     # 1. Emoji Reaction Bar
     emoji_pills = []
@@ -372,8 +393,7 @@ def open_message_actions_sheet(
 
         def _make_react_fn(char=em):
             def _fn(e):
-                _close()
-                on_send_reaction(msg_id_str, char)
+                _run_after_close(lambda: on_send_reaction(msg_id_str, char))
             return _fn
 
         emoji_pills.append(
@@ -425,8 +445,7 @@ def open_message_actions_sheet(
     # 3. Action Tiles Helper
     def _action_tile(icon, title: str, subtitle: str, color, on_click_action, is_destructive: bool = False):
         def _act(e):
-            _close()
-            on_click_action()
+            _run_after_close(on_click_action)
 
         return ft.Container(
             ink=True,

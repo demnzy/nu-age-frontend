@@ -98,7 +98,7 @@ async def create_courses_view(page: ft.Page, org_id: str = None):
 
         # ── action buttons ────────────────────────────────────────────────────
         # "Curriculum" → course builder / content editor
-        curriculum_btn = ft.ElevatedButton(
+        curriculum_btn = ft.Button(
             content=ft.Row(
                 alignment=ft.MainAxisAlignment.CENTER,
                 tight=True,
@@ -116,7 +116,7 @@ async def create_courses_view(page: ft.Page, org_id: str = None):
                 elevation=0,
                 padding=ft.Padding.symmetric(vertical=0, horizontal=8),
             ),
-            on_click=lambda e, cid=course_id: page.go(f"/courses/{cid}/manage"),
+            on_click=lambda e, cid=course_id: page.navigate(f"/courses/{cid}/manage"),
         )
 
         # "Analytics" → course stats / performance
@@ -137,7 +137,7 @@ async def create_courses_view(page: ft.Page, org_id: str = None):
                 side=ft.BorderSide(1, theme_color),
                 padding=ft.Padding.symmetric(vertical=0, horizontal=8),
             ),
-            on_click=lambda e, oid=effective_org_id, cid=course_id: page.go(
+            on_click=lambda e, oid=effective_org_id, cid=course_id: page.navigate(
     f"/organisations/{oid}/courses/{cid}/analytics"
 ),
         )
@@ -148,7 +148,7 @@ async def create_courses_view(page: ft.Page, org_id: str = None):
             icon_size=16,
             icon_color=ft.Colors.GREY_400,
             tooltip="Course Settings",
-            on_click=lambda e, oid=effective_org_id, cid=course_id: page.go(f"/organisations/{oid}/courses/{cid}/settings"),
+            on_click=lambda e, oid=effective_org_id, cid=course_id: page.navigate(f"/organisations/{oid}/courses/{cid}/settings"),
         )
 
         return ft.Container(
@@ -313,7 +313,7 @@ async def create_courses_view(page: ft.Page, org_id: str = None):
                                         ],
                                     ),
                                     ft.Row([
-                                        ft.ElevatedButton(
+                                        ft.Button(
                                             content=ft.Row(
                                                 tight=True,
                                                 spacing=5,
@@ -447,7 +447,7 @@ async def create_courses_view(page: ft.Page, org_id: str = None):
                 ft.Text(message, size=13, color=ft.Colors.GREY_500,
                         text_align=ft.TextAlign.CENTER),
                 ft.Container(height=4),
-                ft.ElevatedButton(
+                ft.Button(
                     "Retry",
                     bgcolor=ft.Colors.PRIMARY,
                     color=ft.Colors.WHITE,

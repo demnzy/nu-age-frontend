@@ -177,7 +177,7 @@ def build_org_members_tab(
             ft.PopupMenuItem(
                 content=ft.Text("View Profile", size=13),
                 icon=ft.Icons.PERSON_SEARCH_ROUNDED,
-                on_click=lambda _, u=uid: page.go(f"/member/{u}"),
+                on_click=lambda _, u=uid: page.navigate(f"/member/{u}"),
             ),
             ft.PopupMenuItem(
                 content=ft.Text("Copy Email", size=13),
@@ -330,7 +330,7 @@ def build_org_members_tab(
                                     "Send New Invite",
                                     icon=ft.Icons.PERSON_ADD_ROUNDED,
                                     style=ft.ButtonStyle(bgcolor=theme_color, shape=ft.RoundedRectangleBorder(radius=10)),
-                                    on_click=lambda _: page.go(f"/organisations/{org_id}/invite-members"),
+                                    on_click=lambda _: page.navigate(f"/organisations/{org_id}/invite-members"),
                                 ),
                             ],
                         ),
@@ -412,7 +412,7 @@ def build_org_members_tab(
                                         bgcolor=theme_color,
                                         shape=ft.RoundedRectangleBorder(radius=10),
                                     ),
-                                    on_click=lambda _: page.go(f"/organisations/{org_id}/invite-members"),
+                                    on_click=lambda _: page.navigate(f"/organisations/{org_id}/invite-members"),
                                 ),
                             ],
                         ),
@@ -534,7 +534,7 @@ def build_org_members_tab(
                     shape=ft.RoundedRectangleBorder(radius=10),
                     padding=ft.Padding.symmetric(horizontal=12, vertical=8),
                 ),
-                on_click=lambda _: page.go(f"/organisations/{org_id}/invite-members"),
+                on_click=lambda _: page.navigate(f"/organisations/{org_id}/invite-members"),
             ),
         ],
     )

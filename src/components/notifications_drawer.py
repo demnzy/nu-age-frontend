@@ -260,7 +260,7 @@ class NotificationManager:
             def _make_action(rt=action_route):
                 def _act():
                     if rt and page:
-                        page.go(rt)
+                        page.navigate(rt)
                 return _act
 
             hydrated.append({
@@ -477,7 +477,7 @@ def open_notifications_drawer(page: ft.Page):
                                     page.pop_dialog()
                             except Exception:
                                 pass
-                            page.go(target_n["action_route"])
+                            page.navigate(target_n["action_route"])
                         render_notifications()
                         page.update()
                     return _do
@@ -490,7 +490,7 @@ def open_notifications_drawer(page: ft.Page):
                     claim_text = ft.Text("Claim Reward", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE)
                     claim_icon = nu_coin_icon(size=14)
 
-                    claim_btn = ft.ElevatedButton(
+                    claim_btn = ft.Button(
                         content=ft.Row([claim_spinner, claim_icon, claim_text], tight=True, spacing=4),
                         bgcolor=ft.Colors.AMBER_800,
                         height=28,

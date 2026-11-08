@@ -52,7 +52,7 @@ async def course_settings_view(page: ft.Page, course_id: str, org_id: str = None
         elif hasattr(page, "on_view_pop") and callable(page.on_view_pop):
             page.on_view_pop(None)
         else:
-            page.go(f"/organisations/{effective_org_id}" if effective_org_id else "/organisations")
+            page.navigate(f"/organisations/{effective_org_id}" if effective_org_id else "/organisations")
 
     theme_color = ft.Colors.INDIGO_600
 
@@ -133,7 +133,7 @@ async def course_settings_view(page: ft.Page, course_id: str, org_id: str = None
                     ft.FilledButton(
                         "Return to Dashboard",
                         icon=ft.Icons.ARROW_BACK_ROUNDED,
-                        on_click=lambda _: page.go("/organisations"),
+                        on_click=lambda _: page.navigate("/organisations"),
                     ),
                 ],
             ),
@@ -211,21 +211,21 @@ async def course_settings_view(page: ft.Page, course_id: str, org_id: str = None
                                 icon_color=ft.Colors.WHITE,
                                 icon_size=17,
                                 tooltip="Analytics Telemetry",
-                                on_click=lambda _: page.go(f"/organisations/{effective_org_id}/courses/{course_id}/analytics" if effective_org_id else f"/courses/{course_id}/analytics"),
+                                on_click=lambda _: page.navigate(f"/organisations/{effective_org_id}/courses/{course_id}/analytics" if effective_org_id else f"/courses/{course_id}/analytics"),
                             ),
                             ft.IconButton(
                                 ft.Icons.SCHOOL_ROUNDED,
                                 icon_color=ft.Colors.WHITE,
                                 icon_size=17,
                                 tooltip="Curriculum Builder",
-                                on_click=lambda _: page.go(f"/courses/{course_id}/manage"),
+                                on_click=lambda _: page.navigate(f"/courses/{course_id}/manage"),
                             ),
                             ft.IconButton(
                                 ft.Icons.VISIBILITY_OUTLINED,
                                 icon_color=ft.Colors.WHITE,
                                 icon_size=17,
                                 tooltip="Preview Course",
-                                on_click=lambda _: page.go(f"/courses/{course_id}/view"),
+                                on_click=lambda _: page.navigate(f"/courses/{course_id}/view"),
                             ),
                         ], spacing=2),
                     ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
@@ -767,14 +767,14 @@ async def course_settings_view(page: ft.Page, course_id: str, org_id: str = None
                     await delete_course(token, course_id)
                     close_del()
                     show_toast("Course permanently deleted.", ft.Colors.RED_700)
-                    page.go(f"/organisations/{effective_org_id}" if effective_org_id else "/organisations")
+                    page.navigate(f"/organisations/{effective_org_id}" if effective_org_id else "/organisations")
                 except Exception as ex:
                     show_error_toast(f"Failed to delete course: {ex}")
                     del_btn.disabled = False
                     del_btn.text = "Yes, Permanently Delete"
                     page.update()
 
-            del_btn = ft.ElevatedButton(
+            del_btn = ft.Button(
                 "Yes, Permanently Delete",
                 bgcolor=ft.Colors.RED_700,
                 color=ft.Colors.WHITE,

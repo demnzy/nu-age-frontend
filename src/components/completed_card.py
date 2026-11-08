@@ -199,7 +199,7 @@ def get_completed_card(
                 except TypeError:
                     fn()
 
-    review_button = ft.ElevatedButton(
+    review_button = ft.Button(
         content=ft.Row(
             spacing=6,
             tight=True,

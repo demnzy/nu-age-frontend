@@ -84,12 +84,16 @@ def Signup_view(page: ft.Page):
         label="First Name",
         hint_text="e.g. Alex",
         prefix_icon=ft.Icons.PERSON_OUTLINE_ROUNDED,
+        autofill_hints=[ft.AutofillHint.GIVEN_NAME],
+        text_input_action=ft.TextInputAction.NEXT,
         expand=True,
     )
     last_name = field(
         label="Last Name",
         hint_text="e.g. Morgan",
         prefix_icon=ft.Icons.PERSON_OUTLINE_ROUNDED,
+        autofill_hints=[ft.AutofillHint.FAMILY_NAME],
+        text_input_action=ft.TextInputAction.NEXT,
         expand=True,
     )
     email = field(
@@ -97,12 +101,16 @@ def Signup_view(page: ft.Page):
         hint_text="name@example.com",
         prefix_icon=ft.Icons.EMAIL_OUTLINED,
         keyboard_type=ft.KeyboardType.EMAIL,
+        autofill_hints=[ft.AutofillHint.EMAIL],
+        text_input_action=ft.TextInputAction.NEXT,
         expand=True,
     )
     username = field(
         label="Username",
         hint_text="username",
         prefix_icon=ft.Icons.ALTERNATE_EMAIL_ROUNDED,
+        autofill_hints=[ft.AutofillHint.NEW_USERNAME, ft.AutofillHint.USERNAME],
+        text_input_action=ft.TextInputAction.NEXT,
         expand=True,
     )
     password = field(
@@ -111,6 +119,8 @@ def Signup_view(page: ft.Page):
         prefix_icon=ft.Icons.LOCK_OUTLINE_ROUNDED,
         password=True,
         can_reveal_password=True,
+        autofill_hints=[ft.AutofillHint.NEW_PASSWORD],
+        text_input_action=ft.TextInputAction.NEXT,
         expand=True,
     )
     confirm_password = field(
@@ -119,6 +129,8 @@ def Signup_view(page: ft.Page):
         prefix_icon=ft.Icons.LOCK_RESET_ROUNDED,
         password=True,
         can_reveal_password=True,
+        autofill_hints=[ft.AutofillHint.NEW_PASSWORD],
+        text_input_action=ft.TextInputAction.DONE,
         expand=True,
     )
 
@@ -276,7 +288,7 @@ def Signup_view(page: ft.Page):
         page.update()
 
     # ── Submit Button ─────────────────────────────────────────────
-    Submit = ft.ElevatedButton(
+    Submit = ft.Button(
         content=ft.Text("Create Account", size=13, weight=ft.FontWeight.W_600),
         expand=True,
         color=ft.Colors.ON_PRIMARY,
@@ -396,7 +408,7 @@ def Signup_view(page: ft.Page):
             otp_btn.content = ft.Text("Verify & Activate Account", size=13, weight=ft.FontWeight.W_600)
             page.update()
 
-    otp_btn = ft.ElevatedButton(
+    otp_btn = ft.Button(
         content=ft.Text("Verify & Activate Account", size=13, weight=ft.FontWeight.W_600),
         width=260,
         height=42,
@@ -457,7 +469,7 @@ def Signup_view(page: ft.Page):
                 await page.shared_preferences.set("prefill_login_identifier", identifier)
             except Exception:
                 pass
-        page.go("/")
+        page.navigate("/")
 
     # ── Stage Builders ────────────────────────────────────────────
 
@@ -629,7 +641,7 @@ def Signup_view(page: ft.Page):
             ),
             ft.Row(topic_chips, wrap=True, spacing=6, run_spacing=6),
             ft.Container(height=10),
-            ft.ElevatedButton(
+            ft.Button(
                 content=ft.Row(
                     [
                         ft.Text("Continue to Registration", size=13, weight=ft.FontWeight.W_600),
@@ -661,7 +673,7 @@ def Signup_view(page: ft.Page):
                     ft.Text("Already have an account?", size=12, color=ft.Colors.GREY_400 if is_dark else ft.Colors.GREY_600),
                     ft.TextButton(
                         "Sign In",
-                        on_click=lambda _: page.go("/"),
+                        on_click=lambda _: page.navigate("/"),
                         style=ft.ButtonStyle(color=ft.Colors.PRIMARY, padding=ft.Padding.only(left=4)),
                     ),
                 ],
@@ -844,7 +856,15 @@ def Signup_view(page: ft.Page):
         if role_info_banner:
             controls.append(role_info_banner)
 
-        controls.extend(field_rows)
+        controls.append(
+            ft.AutofillGroup(
+                content=ft.Column(
+                    spacing=8,
+                    tight=True,
+                    controls=field_rows,
+                )
+            )
+        )
         controls.append(validation_error)
         controls.append(terms_row)
         controls.append(ft.Row(controls=[Submit]))
@@ -867,7 +887,7 @@ def Signup_view(page: ft.Page):
                     ft.Text("Already have an account?", size=12, color=ft.Colors.GREY_400 if is_dark else ft.Colors.GREY_600),
                     ft.TextButton(
                         "Sign In",
-                        on_click=lambda _: page.go("/"),
+                        on_click=lambda _: page.navigate("/"),
                         style=ft.ButtonStyle(color=ft.Colors.PRIMARY, padding=ft.Padding.only(left=4)),
                     ),
                 ],
@@ -990,7 +1010,7 @@ def Signup_view(page: ft.Page):
                 )
             )
 
-        proceed_btn = ft.ElevatedButton(
+        proceed_btn = ft.Button(
             content=ft.Row(
                 [
                     ft.Text("Proceed to Sign In", size=13, weight=ft.FontWeight.W_600),

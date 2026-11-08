@@ -34,7 +34,7 @@ def _section_label(text: str) -> ft.Text:
 
 def _safe_go(page: ft.Page, route: str):
     try:
-        page.go(route)
+        page.navigate(route)
     except Exception as e:
         print(f"Routing error to {route}: {e}")
 
@@ -96,7 +96,7 @@ async def create_playlists_view(page: ft.Page, org_id: str = None):
 
         # ── action buttons ────────────────────────────────────────────────────
         # "Manage Courses" -> add/remove courses from playlist
-        manage_btn = ft.ElevatedButton(
+        manage_btn = ft.Button(
             content=ft.Row(
                 alignment=ft.MainAxisAlignment.CENTER,
                 tight=True,
@@ -135,7 +135,7 @@ async def create_playlists_view(page: ft.Page, org_id: str = None):
                 side=ft.BorderSide(1, theme_color),
                 padding=ft.Padding.symmetric(vertical=0, horizontal=8),
             ),
-            on_click=lambda e, oid=effective_org_id, cid=playlist_id: page.go(
+            on_click=lambda e, oid=effective_org_id, cid=playlist_id: page.navigate(
                 f"/organisations/{oid}/playlists/{cid}/analytics"
             ),
         )
@@ -382,7 +382,7 @@ async def create_playlists_view(page: ft.Page, org_id: str = None):
                                              size=13, weight=ft.FontWeight.W_600)
                 page.update()
 
-        submit_btn = ft.ElevatedButton(
+        submit_btn = ft.Button(
             content=ft.Text("Create Playlist", color=ft.Colors.WHITE,
                             size=13, weight=ft.FontWeight.W_600),
             bgcolor=ft.Colors.PRIMARY,
@@ -475,7 +475,7 @@ async def create_playlists_view(page: ft.Page, org_id: str = None):
                                             ),
                                         ],
                                     ),
-                                    ft.ElevatedButton(
+                                    ft.Button(
                                         content=ft.Row(
                                             tight=True,
                                             spacing=6,
@@ -569,7 +569,7 @@ async def create_playlists_view(page: ft.Page, org_id: str = None):
                 ft.Text(message, size=13, color=ft.Colors.GREY_500,
                         text_align=ft.TextAlign.CENTER),
                 ft.Container(height=4),
-                ft.ElevatedButton(
+                ft.Button(
                     "Retry",
                     bgcolor=ft.Colors.PRIMARY,
                     color=ft.Colors.WHITE,
