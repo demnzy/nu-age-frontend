@@ -1594,6 +1594,9 @@ async def cohort_page_view(
 
             elif ex_status == "SCHEDULED":
 
+                raw_time = ex.get("start_time") or ex.get("opens_at") or ex.get("scheduled_start") or "Soon"
+                o_time = str(raw_time)[:16].replace("T", " ") if raw_time != "Soon" else "Soon"
+
                 action_btn = ft.Container(
 
                     padding=ft.Padding.symmetric(horizontal=10, vertical=6),

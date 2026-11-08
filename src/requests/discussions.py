@@ -6,6 +6,7 @@ Handles fetching threads, creating posts, replying, upvoting, and resolving topi
 Includes resilient fallback handling for offline or network delays.
 """
 
+import uuid
 import httpx
 from src.requests.net import ssl_context
 from typing import Optional, List, Dict, Any

@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timezone
 import flet as ft
 from src.components.bottom_appbar import get_bottom_appbar

@@ -564,7 +564,7 @@ def build_dashboard_duo_section(
                     duel_btn.on_click = (lambda pid=pack_id, pt=title: lambda _: page.run_task(_start_pack_duel, pid, pt))()
                     action_controls.append(duel_btn)
 
-                async def _preview_pack(pid=pack_id, p_title=title, pack_item=sp):
+                async def _preview_pack(pid=pack_id, p_title=title, pack_item=s):
                     fcs = pack_item.get("flashcards") if isinstance(pack_item, dict) else None
                     if fcs and isinstance(fcs, list):
                         show_flashcard_preview_dialog(
@@ -605,7 +605,7 @@ def build_dashboard_duo_section(
                     ),
                     height=30,
                     style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
-                    on_click=(lambda pid=pack_id, pt=title, item=sp: lambda _: page.run_task(_preview_pack, pid, pt, item))(),
+                    on_click=(lambda pid=pack_id, pt=title, item=s: lambda _: page.run_task(_preview_pack, pid, pt, item))(),
                 )
                 action_controls.append(preview_btn)
 

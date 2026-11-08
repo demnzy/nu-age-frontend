@@ -459,6 +459,7 @@ def build_journal_cockpit(
     # ── Modal 3: Edit Course Journal Details ─────────────────────────────────
     def _open_edit_journal_dialog(e=None):
         j = state["journal"] or {}
+        color_token = resolve_journal_color(j.get("color"))
         edit_dlg = [None]
         picked_color = [j.get("color") or "teal"]
 

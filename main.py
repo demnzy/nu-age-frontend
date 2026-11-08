@@ -1,6 +1,7 @@
 import asyncio
 import time
 import sys
+from typing import Any, Optional, Dict, List, Union
 import flet as ft
 
 # ── Windows asyncio IOCP Signal 2 Race Condition Patch (Python 3.14+) ─────────

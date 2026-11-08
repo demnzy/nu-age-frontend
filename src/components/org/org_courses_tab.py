@@ -1046,7 +1046,7 @@ def build_org_courses_tab(
 
     def _on_created_sync(new_c):
 
-        courses_list.insert(0, new_c)
+        courses.insert(0, new_c)
 
         _rebuild_cards()
 
