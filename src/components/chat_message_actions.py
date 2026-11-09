@@ -353,6 +353,11 @@ def open_message_actions_sheet(
 
     def _close(e=None):
         safe_close_dialog(page, dlg)
+        if on_close_callback:
+            try:
+                on_close_callback()
+            except Exception:
+                pass
 
     def _run_after_close(action_fn: Callable):
         _close()
@@ -367,6 +372,12 @@ def open_message_actions_sheet(
                     await res
             except Exception as ex:
                 print(f"[message_actions] Action error: {ex}")
+            finally:
+                if on_close_callback:
+                    try:
+                        on_close_callback()
+                    except Exception:
+                        pass
 
         try:
             page.run_task(_deferred)
@@ -375,6 +386,12 @@ def open_message_actions_sheet(
                 action_fn()
             except Exception as ex:
                 print(f"[message_actions] Action error: {ex}")
+            finally:
+                if on_close_callback:
+                    try:
+                        on_close_callback()
+                    except Exception:
+                        pass
 
     # 1. Emoji Reaction Bar
     emoji_pills = []

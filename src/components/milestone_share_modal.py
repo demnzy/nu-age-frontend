@@ -13,7 +13,7 @@ import tempfile
 from typing import Optional, Dict, Any
 import flet as ft
 from src.services.shareable_card_engine import generate_milestone_card, MilestoneType
-from src.utils.file_opener import safe_set_clipboard
+from src.utils.file_opener import safe_set_clipboard, show_page_snackbar, get_system_downloads_dir
 from src.utils.modal_guard import safe_open_dialog, safe_close_dialog, safe_update_dialog
 
 
@@ -209,17 +209,34 @@ def open_milestone_share_modal(
     async def _handle_download(e=None):
         if not async_state["ready"] or not async_state.get("img_path"):
             return
-        downloads_dir = os.path.join(os.path.expanduser("~"), "Downloads")
-        if not os.path.exists(downloads_dir):
-            downloads_dir = tempfile.gettempdir()
-
+        downloads_dir = get_system_downloads_dir()
         fname = f"Nu_Age_{milestone_type.value}_{metric_value.replace('%', '').replace('/', '_')}.png"
         target_dest = os.path.join(downloads_dir, fname)
 
-        def _do_copy():
-            shutil.copy2(async_state["img_path"], target_dest)
+        save_success = False
+        try:
+            def _do_copy():
+                shutil.copy2(async_state["img_path"], target_dest)
 
-        await asyncio.to_thread(_do_copy)
+            await asyncio.to_thread(_do_copy)
+            save_success = True
+        except Exception as copy_err:
+            print(f"[milestone_share_modal] direct copy to {target_dest} failed: {copy_err}")
+
+        # If direct filesystem save was blocked (e.g. Android scoped storage permissions),
+        # invoke the native share sheet with the image file so the user can save to device/photos
+        if not save_success:
+            try:
+                share_svc = ft.Share()
+                if getattr(share_svc, "_i", None) is None and hasattr(page, "_services") and page._services is not None:
+                    page._services.register_service(share_svc)
+                share_file = ft.ShareFile(async_state["img_path"])
+                res = share_svc.share_files([share_file], title="Save Milestone Card")
+                if asyncio.iscoroutine(res):
+                    await asyncio.wait_for(res, timeout=12.0)
+                save_success = True
+            except Exception as share_err:
+                print(f"[milestone_share_modal] share fallback failed: {share_err}")
 
         orig_controls = list(download_btn.content.controls)
         download_btn.content = ft.Row(
@@ -228,13 +245,18 @@ def open_milestone_share_modal(
             spacing=6,
             controls=[
                 ft.Icon(ft.Icons.CHECK_ROUNDED, size=13, color=ft.Colors.GREEN_600),
-                ft.Text("Saved to Downloads!", size=11.5, weight=ft.FontWeight.W_700, color=ft.Colors.GREEN_600),
+                ft.Text("Saved!", size=11.5, weight=ft.FontWeight.W_700, color=ft.Colors.GREEN_600, no_wrap=True),
             ],
         )
         try:
             download_btn.update()
         except Exception:
             pass
+
+        toast_msg = "Card saved to Downloads!" if save_success else "Could not save card to device."
+        toast_icon = ft.Icons.DOWNLOAD_DONE_ROUNDED if save_success else ft.Icons.ERROR_OUTLINE_ROUNDED
+        show_page_snackbar(page, toast_msg, icon=toast_icon)
+
         await asyncio.sleep(2.5)
         download_btn.content = ft.Row(alignment=ft.MainAxisAlignment.CENTER, tight=True, spacing=6, controls=orig_controls)
         try:

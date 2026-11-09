@@ -4,6 +4,8 @@ Provides:
 1. Universal press feedback: scales buttons to 0.95 on press for tactile response.
 2. Return to normal: restores scale to 1.0 on release.
 3. Success confirmation pulse: triggers a subtle 1.04 pulse on successful action completion.
+4. Circuit-breaker protection: drops in-flight events targeting unmounted controls to eliminate RuntimeError crashes.
+Non-blocking: Executes animations asynchronously without delaying event dispatch or locking UI.
 """
 
 from __future__ import annotations
@@ -15,12 +17,54 @@ import flet as ft
 _TACTILE_INSTALLED = False
 
 
+def is_control_mounted(ctrl: ft.Control) -> bool:
+    """Safely determines if a control is mounted to an active Page without triggering RuntimeError."""
+    try:
+        parent = ctrl
+        while parent:
+            if isinstance(parent, ft.Page):
+                return True
+            parent = parent.parent
+        return False
+    except Exception:
+        return False
+
+
+async def _run_tactile_animation(ctrl: ft.Control):
+    """Executes smooth tactile scale-down, release, and confirmation pulse in background."""
+    try:
+        if not is_control_mounted(ctrl):
+            return
+        if not getattr(ctrl, "animate_scale", None):
+            ctrl.animate_scale = ft.Animation(75, ft.AnimationCurve.EASE_OUT)
+        ctrl.scale = 0.95
+        ctrl.update()
+        await asyncio.sleep(0.06)
+        if not is_control_mounted(ctrl):
+            return
+        ctrl.scale = 1.0
+        ctrl.update()
+        await asyncio.sleep(0.04)
+        if not is_control_mounted(ctrl):
+            return
+        ctrl.scale = 1.04
+        ctrl.update()
+        await asyncio.sleep(0.06)
+        if not is_control_mounted(ctrl):
+            return
+        ctrl.scale = 1.0
+        ctrl.update()
+    except Exception:
+        pass
+
+
 def enable_tactile_button_physics():
     """
-    Hooks into `ft.Control._trigger_event` so that ANY button click event
+    Hooks into `ft.Control._trigger_event` so that standard button click events
     (ft.Button, ft.IconButton, ft.FilledButton, ft.OutlinedButton, ft.TextButton, etc.)
-    automatically executes snappy tactile scale-down (0.95), smooth release (1.0),
-    and a subtle success confirmation pulse (1.04) without modifying individual button call-sites.
+    automatically execute snappy tactile scale-down (0.95), smooth release (1.0),
+    and a subtle success confirmation pulse (1.04) without delaying event callbacks.
+    Also acts as a resilient circuit-breaker against unmounted control race conditions.
     """
     global _TACTILE_INSTALLED
     if _TACTILE_INSTALLED:
@@ -53,41 +97,26 @@ def enable_tactile_button_physics():
         event_data: Any,
         e: Optional[Any] = None,
     ):
-        is_btn = isinstance(self, button_classes)
-        # Also check custom clickable containers that opt into tactile physics
-        is_tactile_container = isinstance(self, ft.Container) and getattr(self, "ink", False) and bool(self.on_click)
+        # Guard 1: Drop stale in-flight events targeting unmounted/detached controls
+        if not is_control_mounted(self):
+            return None
 
-        should_animate = (is_btn or is_tactile_container) and event_name == "click"
+        # Only apply tactile physics to standard buttons on click events (never arbitrary containers)
+        if isinstance(self, button_classes) and event_name == "click":
+            asyncio.create_task(_run_tactile_animation(self))
 
-        if should_animate:
-            try:
-                if not getattr(self, "animate_scale", None):
-                    self.animate_scale = ft.Animation(75, ft.AnimationCurve.EASE_OUT)
-                self.scale = 0.95
-                if getattr(self, "page", None):
-                    self.update()
-                    await asyncio.sleep(0.06)
-                    self.scale = 1.0
-                    self.update()
-            except Exception:
-                pass
-
-        # Execute original event handler
-        result = await orig_trigger(self, event_name, event_data, e)
-
-        # Success confirmation pulse
-        if should_animate:
-            try:
-                if getattr(self, "page", None):
-                    self.scale = 1.04
-                    self.update()
-                    await asyncio.sleep(0.07)
-                    if getattr(self, "page", None):
-                        self.scale = 1.0
-                        self.update()
-            except Exception:
-                pass
-
-        return result
+        # Execute original event handler safely, suppressing unmounted control race conditions
+        try:
+            return await orig_trigger(self, event_name, event_data, e)
+        except RuntimeError as err:
+            err_msg = str(err)
+            if "must be added to the page first" in err_msg or "must be added to a page" in err_msg:
+                return None
+            raise
+        except Exception as ex:
+            ex_msg = str(ex)
+            if "must be added to the page first" in ex_msg or "must be added to a page" in ex_msg:
+                return None
+            raise
 
     ft.Control._trigger_event = _tactile_trigger_event

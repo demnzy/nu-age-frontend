@@ -445,6 +445,62 @@ def build_flashcard_session(
             except Exception as err:
                 print(f"[Flashcards] Share milestone failed: {err}")
 
+        compact = ui.is_compact(page)
+        if compact:
+            action_buttons = ft.Column(
+                spacing=8,
+                tight=True,
+                controls=[
+                    ui.primary_button(
+                        "Study again",
+                        lambda _: on_restart(),
+                        icon=ft.Icons.REPLAY_ROUNDED,
+                        width=float("inf"),
+                    ),
+                    ft.Row(
+                        spacing=8,
+                        controls=[
+                            ui.ghost_button(
+                                "Cockpit" if material else "Hub",
+                                lambda _: on_exit(),
+                                icon=ft.Icons.ARROW_BACK_ROUNDED if material else ft.Icons.HOME_ROUNDED,
+                                expand=True,
+                            ),
+                            ui.ghost_button(
+                                "Share",
+                                lambda _: _share_flashcard_milestone(),
+                                icon=ft.Icons.SHARE_ROUNDED,
+                                expand=True,
+                            ),
+                        ],
+                    ),
+                ],
+            )
+        else:
+            action_buttons = ft.Row(
+                spacing=10,
+                controls=[
+                    ui.ghost_button(
+                        "Back to Cockpit" if material else "Back to Hub",
+                        lambda _: on_exit(),
+                        icon=ft.Icons.ARROW_BACK_ROUNDED if material else ft.Icons.HOME_ROUNDED,
+                        expand=True,
+                    ),
+                    ui.ghost_button(
+                        "Share",
+                        lambda _: _share_flashcard_milestone(),
+                        icon=ft.Icons.SHARE_ROUNDED,
+                        expand=True,
+                    ),
+                    ui.primary_button(
+                        "Study again",
+                        lambda _: on_restart(),
+                        icon=ft.Icons.REPLAY_ROUNDED,
+                        expand=True,
+                    ),
+                ],
+            )
+
         summary = ft.Column(
             spacing=18,
             controls=[
@@ -505,30 +561,11 @@ def build_flashcard_session(
                         ),
                     ],
                 ),
-                ft.Row(
-                    spacing=10,
-                    controls=[
-                        ui.ghost_button(
-                            "Back to Cockpit" if material else "Back to Hub",
-                            lambda _: on_exit(),
-                            icon=ft.Icons.ARROW_BACK_ROUNDED if material else ft.Icons.HOME_ROUNDED,
-                            expand=True,
-                        ),
-                        ui.ghost_button(
-                            "Share",
-                            lambda _: _share_flashcard_milestone(),
-                            icon=ft.Icons.SHARE_ROUNDED,
-                            expand=True,
-                        ),
-                        ui.primary_button("Study again", lambda _: on_restart(),
-                                          icon=ft.Icons.REPLAY_ROUNDED, expand=True),
-                    ],
-                ),
+                action_buttons,
                 ft.Container(height=20),
             ],
         )
 
-        compact = ui.is_compact(page)
         session_socket.content = ft.Column(
             expand=True,
             scroll=ft.ScrollMode.AUTO,

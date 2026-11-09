@@ -830,14 +830,21 @@ async def dashboard_view(page: ft.Page):
             border_radius=ft.BorderRadius.all(8),
             bgcolor=ft.Colors.with_opacity(0.15, ft.Colors.AMBER_600),
             ink=True,
-            tooltip="Tap to view & share your habit streak card!",
+            tooltip="Tap to view & share your streak card!",
             on_click=lambda _: show_streak_celebration_dialog(page, streak_count if streak_count > 0 else 2),
-            content=ft.Text(badge_text, size=10.5, weight=ft.FontWeight.W_800, color=ft.Colors.ORANGE_900 if not is_dark else ft.Colors.AMBER_300),
+            content=ft.Text(
+                badge_text,
+                size=10.5,
+                weight=ft.FontWeight.W_800,
+                color=ft.Colors.ORANGE_900 if not is_dark else ft.Colors.AMBER_300,
+                no_wrap=True,
+            ),
         )
 
         action_btn = ft.Button(
             content=ft.Row(
                 tight=True,
+                alignment=ft.MainAxisAlignment.CENTER,
                 spacing=6,
                 controls=[
                     ft.Icon(ft.Icons.BOLT_ROUNDED, size=16, color=ft.Colors.WHITE),
@@ -857,7 +864,6 @@ async def dashboard_view(page: ft.Page):
         left_side = ft.Row(
             spacing=12,
             tight=True,
-            expand=True,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
             controls=[
                 ft.Container(
@@ -878,10 +884,18 @@ async def dashboard_view(page: ft.Page):
                     expand=True,
                     controls=[
                         ft.Row(
-                            spacing=8,
-                            tight=True,
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
                             controls=[
-                                ft.Text(title_text, size=13.5, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
+                                ft.Text(
+                                    title_text,
+                                    size=12.5 if is_mobile else 13.5,
+                                    weight=ft.FontWeight.W_800,
+                                    color=ft.Colors.ON_SURFACE,
+                                    expand=True,
+                                    max_lines=2,
+                                    overflow=ft.TextOverflow.ELLIPSIS,
+                                ),
                                 streak_badge,
                             ],
                         ),
@@ -898,23 +912,22 @@ async def dashboard_view(page: ft.Page):
         )
 
         if is_mobile:
+            action_btn.width = float("inf")
             content_layout = ft.Column(
                 spacing=12,
                 tight=True,
                 controls=[
                     left_side,
-                    ft.Row(
-                        alignment=ft.MainAxisAlignment.END,
-                        controls=[action_btn],
-                    ),
+                    action_btn,
                 ],
             )
         else:
+            action_btn.width = None
             content_layout = ft.Row(
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 controls=[
-                    left_side,
+                    ft.Container(content=left_side, expand=True),
                     action_btn,
                 ],
             )

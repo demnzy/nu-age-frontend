@@ -19,6 +19,72 @@ from src.utils.modal_guard import (
 _toast_registry = {}  # {page_id: {"container": c, "text": t, "icon": i, "card": k, "dismiss_id": int}}
 
 
+def get_system_downloads_dir() -> str:
+    """
+    Returns the user's public Downloads directory across platforms.
+    On Android, resolves public external storage directories (/storage/emulated/0/Download,
+    /sdcard/Download) so downloaded cards and files are directly accessible in
+    Android file managers and Downloads apps rather than isolated in private sandboxes.
+    Falls back to standard desktop ~/Downloads or tempdir.
+    """
+    import tempfile
+
+    android_candidates = [
+        "/storage/emulated/0/Download",
+        "/storage/emulated/0/Downloads",
+        "/sdcard/Download",
+        "/sdcard/Downloads",
+    ]
+    ext_storage = os.environ.get("EXTERNAL_STORAGE")
+    if ext_storage:
+        android_candidates.insert(0, os.path.join(ext_storage, "Download"))
+        android_candidates.insert(1, os.path.join(ext_storage, "Downloads"))
+
+    for p in android_candidates:
+        try:
+            if os.path.exists(p) and os.path.isdir(p):
+                test_file = os.path.join(p, f".nuage_probe_{os.getpid()}")
+                try:
+                    with open(test_file, "wb") as f:
+                        f.write(b"1")
+                    os.remove(test_file)
+                    return p
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    is_android_env = (
+        sys.platform in ("android", "ios")
+        or bool(os.environ.get("ANDROID_ROOT") or os.environ.get("ANDROID_DATA"))
+        or os.path.exists("/storage/emulated/0")
+    )
+    if is_android_env:
+        for p in android_candidates:
+            try:
+                os.makedirs(p, exist_ok=True)
+                test_file = os.path.join(p, f".nuage_probe_{os.getpid()}")
+                with open(test_file, "wb") as f:
+                    f.write(b"1")
+                os.remove(test_file)
+                return p
+            except Exception:
+                pass
+
+    std_downloads = os.path.join(os.path.expanduser("~"), "Downloads")
+    if os.path.exists(std_downloads) and os.path.isdir(std_downloads):
+        return std_downloads
+
+    try:
+        os.makedirs(std_downloads, exist_ok=True)
+        if os.path.exists(std_downloads):
+            return std_downloads
+    except Exception:
+        pass
+
+    return tempfile.gettempdir()
+
+
 def show_page_snackbar(
     page: ft.Page,
     snack: Any,
@@ -397,7 +463,7 @@ async def open_or_download_asset(page: ft.Page, target_url_or_path: str, file_na
         return
 
     # ── A. Copy to User's Personal Downloads Folder ───────────────────────────
-    downloads_dir = os.path.join(os.path.expanduser("~"), "Downloads")
+    downloads_dir = get_system_downloads_dir()
     exported_path = None
     already_in_downloads = os.path.dirname(os.path.abspath(norm_path)).lower() == os.path.abspath(downloads_dir).lower()
     if os.path.exists(downloads_dir) and not already_in_downloads:
@@ -525,9 +591,7 @@ async def export_text_or_markdown_as_pdf(
     if not safe_base.lower().endswith(".pdf"):
         safe_base = f"{safe_base}.pdf"
 
-    downloads_dir = os.path.join(os.path.expanduser("~"), "Downloads")
-    if not os.path.exists(downloads_dir):
-        downloads_dir = tempfile.gettempdir()
+    downloads_dir = get_system_downloads_dir()
 
     target_pdf = os.path.join(downloads_dir, safe_base)
     base_stem, ext_part = os.path.splitext(safe_base)

@@ -1017,6 +1017,10 @@ async def chat_view(
     last_scroll_time = [0.0]
 
     def _on_messages_scroll(e):
+        # Ignore scroll events when any modal or dialog is open; modal barriers
+        # can cause Flutter to dispatch spurious 0.0 offset defocus events
+        if is_modal_open(page):
+            return
         now = datetime.now().timestamp()
         if now - last_scroll_time[0] < 0.08:
             return
@@ -1032,10 +1036,11 @@ async def chat_view(
             pass
 
     messages_listview = ft.ListView(
+        key="nu_chat_messages_listview",
         expand=True,
         spacing=4,
         auto_scroll=False,
-        build_controls_on_demand=True,
+        build_controls_on_demand=False,
         cache_extent=500,
         on_scroll=_on_messages_scroll,
         padding=ft.Padding.symmetric(horizontal=8 if not is_desktop[0] else 12, vertical=8 if not is_desktop[0] else 10)
@@ -1051,14 +1056,19 @@ async def chat_view(
                 chronological = list(reversed(history))
                 new_deltas = [m for m in chronological if str(m.get("id")) not in seen_msg_ids]
                 if new_deltas:
+                    new_bubble_ctrls = []
                     for m in new_deltas:
                         mid = str(m.get("id"))
                         if mid:
                             seen_msg_ids.add(mid)
                         prev_item = messages_listview.controls[-1].msg_data if (messages_listview.controls and hasattr(messages_listview.controls[-1], "msg_data")) else None
-                        messages_listview.controls.append(render_message_bubble(m, prev_msg=prev_item, animate_entrance=False))
+                        bubble_ctrl = render_message_bubble(m, prev_msg=prev_item, animate_entrance=True)
+                        messages_listview.controls.append(bubble_ctrl)
+                        new_bubble_ctrls.append(bubble_ctrl)
                     if getattr(messages_listview, "page", None) is not None:
                         messages_listview.update()
+                    _scroll_to_bottom(animate=True)
+                    page.run_task(_animate_batch_entrance, new_bubble_ctrls)
         except Exception as ex:
             print(f"[NuChat] Pull-to-refresh messages error: {ex}")
 
@@ -1098,19 +1108,34 @@ async def chat_view(
         except Exception:
             pass
 
-    async def _async_restore_scroll_anchor(saved_near_bottom: bool, saved_pixels: float):
+    async def _async_restore_scroll_anchor(
+        saved_near_bottom: bool,
+        saved_pixels: float,
+        target_scroll_key: Optional[str] = None,
+    ):
         try:
             await asyncio.sleep(0.02)
             if saved_near_bottom:
                 await messages_listview.scroll_to(offset=-1, duration=0)
+            elif target_scroll_key:
+                try:
+                    await messages_listview.scroll_to(scroll_key=target_scroll_key, duration=0)
+                except Exception:
+                    if saved_pixels > 0:
+                        await messages_listview.scroll_to(offset=saved_pixels, duration=0)
             elif saved_pixels > 0:
                 await messages_listview.scroll_to(offset=saved_pixels, duration=0)
         except Exception:
             pass
 
-    def _restore_scroll_anchor():
+    def _restore_scroll_anchor(target_scroll_key: Optional[str] = None):
         try:
-            page.run_task(_async_restore_scroll_anchor, is_near_bottom[0], last_scroll_pixels[0])
+            page.run_task(
+                _async_restore_scroll_anchor,
+                is_near_bottom[0],
+                last_scroll_pixels[0],
+                target_scroll_key,
+            )
         except Exception:
             pass
 
@@ -1133,6 +1158,28 @@ async def chat_view(
                 page.update()
             except Exception:
                 pass
+
+    async def _animate_batch_entrance(new_bubble_controls: list):
+        """Animates a list of newly fetched network bubbles with a staggered WhatsApp spring-in cascade."""
+        if not new_bubble_controls:
+            return
+        await asyncio.sleep(0.04)
+        for i, bubble_w in enumerate(new_bubble_controls):
+            if not bubble_w:
+                continue
+            inner_b = getattr(bubble_w, "bubble_ref", None) or bubble_w
+            is_me = getattr(bubble_w, "is_me_bubble", False)
+            _unfreeze_control(inner_b)
+            align = ft.Alignment.BOTTOM_RIGHT if is_me else (ft.Alignment.CENTER if isinstance(bubble_w, ft.Row) else ft.Alignment.BOTTOM_LEFT)
+            inner_b.scale = ft.Scale(1.0, alignment=align)
+            inner_b.opacity = 1.0
+            inner_b.offset = ft.Offset(0, 0)
+            try:
+                inner_b.update()
+            except Exception:
+                pass
+            if i < len(new_bubble_controls) - 1:
+                await asyncio.sleep(0.035)
 
     async def _animate_history_bubbles(controls_list):
         # Optimization: History messages mount with instant crisp visibility (no async sleep loops)
@@ -2620,103 +2667,91 @@ async def chat_view(
                     o_str = str(o).strip().lower()
                     opt_counts[o_str] = opt_counts.get(o_str, 0) + 1
 
-            # Voter profile photo and name lookup helper for mini avatar badges
-            def _get_voter_avatar_info(uid_str):
-                uid_clean = str(uid_str or "").strip().lower()
-                if uid_clean == my_id:
-                    cu = {}
-                    if hasattr(page, "session") and hasattr(page.session, "store"):
-                        cu = page.session.store.get("current_user") or {}
-                    img_url = cu.get("profile_picture_url") or cu.get("avatar_url")
-                    my_name = f"{cu.get('first_name', '')} {cu.get('last_name', '')}".strip() or cu.get("username", "You")
-                    if not img_url:
-                        for u in all_users_cache:
-                            if str(u.get("id") or u.get("user_id", "")).strip().lower() == my_id:
-                                img_url = u.get("profile_picture_url") or u.get("avatar_url")
-                                if not my_name or my_name == "You":
-                                    my_name = (u.get("name") or u.get("full_name") or u.get("username") or "You").strip()
-                                break
-                    tokens = [t for t in my_name.split() if t]
-                    if len(tokens) >= 2:
-                        inits = (tokens[0][0] + tokens[1][0]).upper()
-                    elif tokens and len(tokens[0]) >= 2:
-                        inits = tokens[0][:2].upper()
-                    elif tokens:
-                        inits = tokens[0][0].upper()
-                    else:
-                        inits = "U"
-                    has_img = bool(img_url and isinstance(img_url, str) and (img_url.startswith("http") or img_url.startswith("data:")))
-                    return (img_url if has_img else None, inits, my_name)
-
-                u = all_users_dict.get(uid_clean)
-                if u:
-                    name = (u.get("name") or u.get("full_name") or u.get("username") or "User").strip()
-                    img_url = u.get("profile_picture_url") or u.get("avatar_url")
-                    tokens = [t for t in name.split() if t]
-                    if len(tokens) >= 2:
-                        inits = (tokens[0][0] + tokens[1][0]).upper()
-                    elif tokens and len(tokens[0]) >= 2:
-                        inits = tokens[0][:2].upper()
-                    elif tokens:
-                        inits = tokens[0][0].upper()
-                    else:
-                        inits = "U"
-                    has_img = bool(img_url and isinstance(img_url, str) and (img_url.startswith("http") or img_url.startswith("data:")))
-                    return (img_url if has_img else None, inits, name)
-
-                return (None, "U", "User")
-
             is_multi = meta.get("is_multi_select", False)
             opt_ui_map = {}
-            poll_options_col = []
 
-            def _build_voter_avatars(opt_voters_list):
-                voter_avatars_list = []
-                if opt_voters_list:
-                    for v_uid in opt_voters_list[:3]:
-                        v_img, v_inits, v_name = _get_voter_avatar_info(v_uid)
-                        is_me_voter = (v_uid == my_id)
+            # Background vote dispatch (WebSocket + REST fallback)
+            async def _cast_vote_async(target_opt, p_id):
+                if str(p_id or "").startswith("client_"):
+                    for _ in range(15):
+                        await asyncio.sleep(0.1)
+                        for ctrl in messages_listview.controls:
+                            c_msg = getattr(ctrl, "msg_data", None)
+                            if c_msg is msg or getattr(ctrl, "client_msg_id", None) == str(p_id):
+                                real_d = str(getattr(ctrl, "data", "") or "")
+                                if real_d and not real_d.startswith("client_"):
+                                    p_id = real_d
+                                    msg["id"] = real_d
+                                    break
+                        if not str(p_id or "").startswith("client_"):
+                            break
 
-                        if v_img:
-                            avatar_content = ft.CircleAvatar(
-                                foreground_image_src=v_img,
-                                radius=9,
-                            )
+                sent = False
+                if ws_client_ref[0] and current_chat_id[0] and getattr(ws_client_ref[0], "websocket", None):
+                    try:
+                        sent = await ws_client_ref[0].send_message(
+                            current_chat_id[0],
+                            target_opt,
+                            "poll_vote",
+                            poll_id=p_id,
+                        )
+                    except Exception as ws_err:
+                        print(f"[NuChat] Poll vote WS error: {ws_err}")
+                        sent = False
+
+                if not sent and current_chat_id[0]:
+                    curr_token = token or (await page.shared_preferences.get("auth_token"))
+                    if curr_token:
+                        try:
+                            rest_res = await vote_poll_message_api(curr_token, current_chat_id[0], p_id, target_opt)
+                            if rest_res and "metadata_payload" in rest_res:
+                                sent = True
+                        except Exception as rest_err:
+                            print(f"[NuChat] Poll vote REST fallback error: {rest_err}")
+
+                if not sent:
+                    show_page_snackbar(page, ft.SnackBar(content=ft.Text("Vote failed to send. Check connection."), bgcolor=ft.Colors.AMBER_800))
+
+            def _handle_vote_change(target_opt, is_checked=None):
+                if not target_opt:
+                    return
+                active_poll_id = str(msg.get("id") or poll_id)
+                try:
+                    v_dict = meta.get("votes") or {}
+                    if isinstance(v_dict, str):
+                        try: v_dict = json.loads(v_dict)
+                        except Exception: v_dict = {}
+                    if not isinstance(v_dict, dict):
+                        v_dict = {}
+
+                    existing_key = next((k for k in list(v_dict.keys()) if str(k).strip().lower() == my_id), None)
+                    current_val = v_dict.pop(existing_key) if existing_key is not None else None
+
+                    if is_multi:
+                        u_v = list(current_val) if isinstance(current_val, list) else ([current_val] if current_val else [])
+                        u_v_clean = [str(x).strip().lower() for x in u_v]
+                        t_lower = target_opt.strip().lower()
+                        if is_checked is True or (is_checked is None and t_lower not in u_v_clean):
+                            if t_lower not in u_v_clean:
+                                u_v.append(target_opt)
                         else:
-                            avatar_content = ft.Text(
-                                v_inits,
-                                size=7.5,
-                                weight=ft.FontWeight.BOLD,
-                                color=ft.Colors.WHITE
-                            )
+                            u_v = [x for x in u_v if str(x).strip().lower() != t_lower]
+                        if u_v:
+                            v_dict[my_id] = u_v
+                    else:
+                        v_dict[my_id] = target_opt
 
-                        voter_avatars_list.append(
-                            ft.Container(
-                                width=18,
-                                height=18,
-                                border_radius=9,
-                                clip_behavior=ft.ClipBehavior.HARD_EDGE,
-                                bgcolor=palette["accent"] if is_me_voter else palette["accent_glow"],
-                                border=ft.Border.all(1.5, bg),
-                                alignment=ft.Alignment.CENTER,
-                                tooltip=v_name,
-                                content=avatar_content
-                            )
-                        )
-                    if len(opt_voters_list) > 3:
-                        voter_avatars_list.append(
-                            ft.Container(
-                                height=18,
-                                padding=ft.Padding.symmetric(horizontal=4),
-                                border_radius=9,
-                                bgcolor=palette["surface_variant"],
-                                border=ft.Border.all(1.5, bg),
-                                alignment=ft.Alignment.CENTER,
-                                content=ft.Text(f"+{len(opt_voters_list) - 3}", size=8, weight=ft.FontWeight.BOLD, color=palette["text_muted"])
-                            )
-                        )
-                return ft.Row(voter_avatars_list, spacing=-4, tight=True) if voter_avatars_list else ft.Container()
+                    meta["votes"] = v_dict
+                    msg["metadata_payload"] = meta
 
+                    if poll_updater_fn[0] is not None:
+                        poll_updater_fn[0](meta)
+                except Exception as opt_err:
+                    print(f"[NuChat] Fast vote update error: {opt_err}")
+
+                page.run_task(_cast_vote_async, target_opt, active_poll_id)
+
+            option_rows = []
             for opt in options:
                 opt_str = str(opt).strip()
                 count = opt_counts.get(opt_str.lower(), 0)
@@ -2729,239 +2764,116 @@ async def chat_view(
                 else:
                     has_voted_this = False
 
-                async def _cast_vote_async(target_opt, p_id):
-                    # If poll ID is temporary client ID, wait briefly for server UUID reconciliation
-                    if str(p_id or "").startswith("client_"):
-                        for _ in range(15):
-                            await asyncio.sleep(0.1)
-                            for ctrl in messages_listview.controls:
-                                c_msg = getattr(ctrl, "msg_data", None)
-                                if c_msg is msg or getattr(ctrl, "client_msg_id", None) == str(p_id):
-                                    real_d = str(getattr(ctrl, "data", "") or "")
-                                    if real_d and not real_d.startswith("client_"):
-                                        p_id = real_d
-                                        msg["id"] = real_d
-                                        break
-                            if not str(p_id or "").startswith("client_"):
-                                break
+                vote_label = f"{count} ({int(pct * 100)}%)" if total_votes > 0 else f"{count} votes"
 
-                    sent = False
-                    if ws_client_ref[0] and current_chat_id[0] and getattr(ws_client_ref[0], "websocket", None):
-                        try:
-                            sent = await ws_client_ref[0].send_message(
-                                current_chat_id[0],
-                                target_opt,
-                                "poll_vote",
-                                poll_id=p_id
-                            )
-                        except Exception as ws_err:
-                            print(f"[NuChat] Poll vote WS error: {ws_err}")
-                            sent = False
-
-                    if not sent and current_chat_id[0]:
-                        curr_token = token or (await page.shared_preferences.get("auth_token"))
-                        if curr_token:
-                            try:
-                                rest_res = await vote_poll_message_api(curr_token, current_chat_id[0], p_id, target_opt)
-                                if rest_res and "metadata_payload" in rest_res:
-                                    sent = True
-                            except Exception as rest_err:
-                                print(f"[NuChat] Poll vote REST fallback error: {rest_err}")
-
-                    if not sent:
-                        show_page_snackbar(page, ft.SnackBar(content=ft.Text("Vote failed to send. Check connection."), bgcolor=ft.Colors.AMBER_800))
-
-                def _cast_vote(e, target_opt=opt_str):
-                    # 1. OPTIMISTIC IN-MEMORY UPDATE (Instant 0ms visual latency)
-                    active_poll_id = str(msg.get("id") or poll_id)
-                    try:
-                        v_dict = meta.get("votes") or {}
-                        if isinstance(v_dict, str):
-                            try: v_dict = json.loads(v_dict)
-                            except Exception: v_dict = {}
-                        if not isinstance(v_dict, dict):
-                            v_dict = {}
-
-                        # Find and pop any existing vote for current user case-insensitively
-                        existing_user_key = next((k for k in list(v_dict.keys()) if str(k).strip().lower() == my_id), None)
-                        current_val = v_dict.pop(existing_user_key) if existing_user_key is not None else None
-
-                        if is_multi:
-                            u_v = current_val if isinstance(current_val, list) else ([current_val] if current_val else [])
-                            match_idx = next((i for i, x in enumerate(u_v) if str(x).strip().lower() == target_opt.lower()), None)
-                            if match_idx is not None:
-                                u_v.pop(match_idx)
-                            else:
-                                u_v.append(target_opt)
-                            if u_v:
-                                v_dict[my_id] = u_v
-                        else:
-                            # Single-choice: toggle off if tapping identical choice, otherwise switch choice to new option!
-                            if current_val and str(current_val).strip().lower() == target_opt.lower():
-                                pass
-                            else:
-                                v_dict[my_id] = target_opt
-
-                        meta["votes"] = v_dict
-                        msg["metadata_payload"] = meta
-
-                        # Tactile micro-bounce on clicked option tile
-                        target_ui = opt_ui_map.get(target_opt.lower())
-                        if target_ui and target_ui.get("tile"):
-                            target_ui["tile"].scale = 0.95
-
-                        # Smooth in-place animated update without destroying the bubble
-                        if poll_updater_fn[0] is not None:
-                            poll_updater_fn[0](meta)
-                        else:
-                            target_idx = None
-                            for idx, ctrl in enumerate(messages_listview.controls):
-                                c_msg = getattr(ctrl, "msg_data", None)
-                                if c_msg is msg:
-                                    target_idx = idx
-                                    c_d = str(getattr(ctrl, "data", "") or "")
-                                    if c_d and not c_d.startswith("client_"):
-                                        active_poll_id = c_d
-                                        msg["id"] = c_d
-                                    break
-                                c_d = str(getattr(ctrl, "data", "") or "")
-                                c_cid = str(getattr(ctrl, "client_msg_id", "") or "")
-                                if (c_d and c_d == active_poll_id) or (c_cid and c_cid == active_poll_id):
-                                    target_idx = idx
-                                    if c_d and not c_d.startswith("client_"):
-                                        active_poll_id = c_d
-                                        msg["id"] = c_d
-                                    break
-
-                            if target_idx is not None:
-                                _replace_bubble_in_place(target_idx, msg, do_update=True)
-                    except Exception as opt_err:
-                        print(f"[NuChat] Optimistic vote render error: {opt_err}")
-
-                    # 2. Resilient background dispatch (WebSocket + REST fallback)
-                    page.run_task(_cast_vote_async, target_opt, active_poll_id)
-
-                # Identify users who voted for this option
-                opt_voters = []
-                for uid_k, u_vote in votes.items():
-                    selected = u_vote if isinstance(u_vote, list) else [u_vote]
-                    if any(str(v).strip().lower() == opt_str.lower() for v in selected):
-                        opt_voters.append(str(uid_k).strip().lower())
-
-                voter_avatars_widget = ft.Container(
-                    content=_build_voter_avatars(opt_voters)
-                )
-
-                vote_label = f"{count} vote{'s' if count != 1 else ''}"
-                if total_votes > 0:
-                    vote_label += f" • {int(pct * 100)}%"
-
-                opt_title_text = ft.Text(
-                    opt_str,
-                    size=13,
-                    weight=ft.FontWeight.BOLD if has_voted_this else ft.FontWeight.W_500,
-                    color=palette["accent"] if has_voted_this else text_color,
-                    no_wrap=False
-                )
-                vote_label_text = ft.Text(
+                pct_text = ft.Text(
                     vote_label,
                     size=11,
-                    weight=ft.FontWeight.BOLD if has_voted_this else ft.FontWeight.W_500,
-                    color=palette["accent"] if has_voted_this else palette["text_muted"]
+                    weight=ft.FontWeight.W_600 if has_voted_this else ft.FontWeight.W_400,
+                    color=palette["accent"] if has_voted_this else palette["text_muted"],
+                    no_wrap=True,
                 )
                 prog_bar = ft.ProgressBar(
                     value=pct,
                     color=palette["accent"] if has_voted_this else palette["bar_other"],
                     bgcolor=palette["surface_variant"],
-                    height=6,
-                    border_radius=3
+                    height=3,
+                    border_radius=2,
                 )
 
-                # Option tile row: [Radio] [Label] ... [Count • %]
-                opt_tile = ft.Container(
-                    ink=True,
-                    on_click=_cast_vote,
-                    border_radius=10,
-                    bgcolor=ft.Colors.with_opacity(0.12, palette["accent"]) if has_voted_this else ft.Colors.TRANSPARENT,
-                    border=ft.Border.all(1.2, ft.Colors.with_opacity(0.5, palette["accent"])) if has_voted_this else ft.Border.all(1, ft.Colors.with_opacity(0.08, palette["text"])),
-                    padding=ft.Padding.symmetric(horizontal=8, vertical=6),
-                    scale=1.0,
-                    animate_scale=ft.Animation(180, ft.AnimationCurve.EASE_OUT_BACK),
-                    animate=ft.Animation(220, ft.AnimationCurve.EASE_OUT_CUBIC),
-                    content=ft.Column([
-                        ft.Row([
-                            ft.Container(
-                                expand=True,
-                                content=opt_title_text
-                            ),
-                            vote_label_text
-                        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                        ft.Row([
-                            ft.Container(
-                                expand=True,
-                                content=prog_bar
-                            ),
-                            voter_avatars_widget
-                        ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER)
-                    ], spacing=5)
-                )
-                poll_options_col.append(opt_tile)
+                if is_multi:
+                    input_ctrl = ft.Checkbox(
+                        label=opt_str,
+                        value=has_voted_this,
+                        active_color=palette["accent"],
+                        label_style=ft.TextStyle(
+                            size=13,
+                            weight=ft.FontWeight.BOLD if has_voted_this else ft.FontWeight.W_500,
+                            color=palette["accent"] if has_voted_this else text_color,
+                        ),
+                        on_change=lambda e, o=opt_str: _handle_vote_change(o, e.control.value),
+                        expand=True,
+                    )
+                else:
+                    input_ctrl = ft.Radio(
+                        value=opt_str,
+                        label=opt_str,
+                        active_color=palette["accent"],
+                        label_style=ft.TextStyle(
+                            size=13,
+                            weight=ft.FontWeight.BOLD if has_voted_this else ft.FontWeight.W_500,
+                            color=palette["accent"] if has_voted_this else text_color,
+                        ),
+                        expand=True,
+                    )
+
+                opt_column = ft.Column([
+                    ft.Row([input_ctrl, pct_text], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                    prog_bar,
+                ], spacing=2)
+
+                option_rows.append(opt_column)
                 opt_ui_map[opt_str.lower()] = {
-                    "tile": opt_tile,
-                    "title": opt_title_text,
-                    "label": vote_label_text,
+                    "control": input_ctrl,
+                    "label": pct_text,
                     "bar": prog_bar,
-                    "voters_holder": voter_avatars_widget,
-                    "opt_str": opt_str
+                    "opt_str": opt_str,
                 }
+
+            if is_multi:
+                options_widget = ft.Column(option_rows, spacing=6, tight=True)
+            else:
+                current_single_vote = str(my_vote).strip() if (my_vote and not isinstance(my_vote, list)) else None
+                options_widget = ft.RadioGroup(
+                    content=ft.Column(option_rows, spacing=6, tight=True),
+                    value=current_single_vote,
+                    on_change=lambda e: _handle_vote_change(e.data or getattr(e.control, "value", None)),
+                )
 
             total_votes_text = ft.Text(
                 f"{total_votes} vote{'s' if total_votes != 1 else ''}",
                 size=11,
                 color=palette["text_muted"],
-                weight=ft.FontWeight.W_500
+                weight=ft.FontWeight.W_500,
             )
             view_votes_link = ft.Container(
                 ink=True,
                 visible=(total_votes > 0),
                 on_click=lambda e, m=msg: open_poll_breakdown_modal(m),
-                content=ft.Text("• View votes", size=11, color=palette["accent"], weight=ft.FontWeight.BOLD)
+                content=ft.Text("• View votes", size=11, color=palette["accent"], weight=ft.FontWeight.BOLD),
             )
 
-            # Clear differentiator for single-choice vs multi-choice voting
             poll_mode_indicator = ft.Row([
                 ft.Icon(
-                    ft.Icons.CHECKLIST_ROUNDED if is_multi else ft.Icons.RADIO_BUTTON_CHECKED_ROUNDED,
+                    ft.Icons.CHECK_BOX_ROUNDED if is_multi else ft.Icons.RADIO_BUTTON_CHECKED_ROUNDED,
                     size=12,
-                    color=palette["accent"]
+                    color=palette["accent"],
                 ),
                 ft.Text(
                     "Select one or more" if is_multi else "Select one",
                     size=11,
                     color=palette["text_muted"],
-                    weight=ft.FontWeight.W_500
+                    weight=ft.FontWeight.W_500,
                 ),
             ], spacing=4, tight=True)
 
-            # Minimalist card body: title + voting mode + options + subtle votes count with "View votes" link + timestamp
             poll_card = ft.Column([
                 ft.Text(poll_title, size=15, weight=ft.FontWeight.BOLD, color=text_color),
                 poll_mode_indicator,
                 ft.Container(height=2),
-                *poll_options_col,
-                ft.Container(height=6),
+                options_widget,
+                ft.Container(height=4),
                 ft.Row([
                     ft.Row([
                         total_votes_text,
-                        view_votes_link
+                        view_votes_link,
                     ], spacing=6, tight=True, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                    ts_row
-                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER)
-            ], spacing=5, tight=True)
+                    ts_row,
+                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            ], spacing=4, tight=True)
             body_controls.append(poll_card)
 
             def _apply_poll_update(new_meta):
-                _unfreeze_control(poll_card)
                 u_votes = new_meta.get("votes") or {}
                 if isinstance(u_votes, str):
                     try: u_votes = json.loads(u_votes)
@@ -2971,16 +2883,11 @@ async def chat_view(
 
                 u_total = len(u_votes)
                 u_opt_counts = {}
-                u_opt_voters = {}
                 for uid_k, v_val in u_votes.items():
-                    uid_clean = str(uid_k).strip().lower()
                     sel = v_val if isinstance(v_val, list) else [v_val]
                     for s_item in sel:
                         s_k = str(s_item).strip().lower()
                         u_opt_counts[s_k] = u_opt_counts.get(s_k, 0) + 1
-                        if s_k not in u_opt_voters:
-                            u_opt_voters[s_k] = []
-                        u_opt_voters[s_k].append(uid_clean)
 
                 u_my_vote = None
                 for u_k, u_v in u_votes.items():
@@ -2999,51 +2906,36 @@ async def chat_view(
                     else:
                         c_voted = False
 
-                    _unfreeze_control(ui["tile"])
-                    ui["tile"].scale = 1.0
-                    ui["tile"].bgcolor = ft.Colors.with_opacity(0.12, palette["accent"]) if c_voted else ft.Colors.TRANSPARENT
-                    ui["tile"].border = ft.Border.all(1.2, ft.Colors.with_opacity(0.5, palette["accent"])) if c_voted else ft.Border.all(1, ft.Colors.with_opacity(0.08, palette["text"]))
-
-                    _unfreeze_control(ui["title"])
-                    ui["title"].weight = ft.FontWeight.BOLD if c_voted else ft.FontWeight.W_500
-                    ui["title"].color = palette["accent"] if c_voted else text_color
-
-                    _unfreeze_control(ui["label"])
-                    vl = f"{c_cnt} vote{'s' if c_cnt != 1 else ''}"
-                    if u_total > 0:
-                        vl += f" • {int(c_pct * 100)}%"
-                    ui["label"].value = vl
-                    ui["label"].weight = ft.FontWeight.BOLD if c_voted else ft.FontWeight.W_500
+                    ui["label"].value = f"{c_cnt} ({int(c_pct * 100)}%)" if u_total > 0 else f"{c_cnt} votes"
+                    ui["label"].weight = ft.FontWeight.W_600 if c_voted else ft.FontWeight.W_400
                     ui["label"].color = palette["accent"] if c_voted else palette["text_muted"]
 
-                    _unfreeze_control(ui["bar"])
                     ui["bar"].value = c_pct
                     ui["bar"].color = palette["accent"] if c_voted else palette["bar_other"]
 
-                    if ui.get("voters_holder"):
-                        _unfreeze_control(ui["voters_holder"])
-                        ui["voters_holder"].content = _build_voter_avatars(u_opt_voters.get(opt_k, []))
+                    if is_multi:
+                        ui["control"].value = c_voted
+                    if hasattr(ui["control"], "label_style") and ui["control"].label_style:
+                        ui["control"].label_style.color = palette["accent"] if c_voted else text_color
+                        ui["control"].label_style.weight = ft.FontWeight.BOLD if c_voted else ft.FontWeight.W_500
 
-                _unfreeze_control(total_votes_text)
+                if not is_multi:
+                    options_widget.value = str(u_my_vote).strip() if (u_my_vote and not isinstance(u_my_vote, list)) else None
+
                 total_votes_text.value = f"{u_total} vote{'s' if u_total != 1 else ''}"
-                _unfreeze_control(view_votes_link)
                 view_votes_link.visible = (u_total > 0)
 
-                # Push patches for every modified child control to client
-                dirty_controls = [poll_card]
-                for ui in opt_ui_map.values():
-                    dirty_controls.extend([ui["tile"], ui["title"], ui["label"], ui["bar"]])
-                    if ui.get("voters_holder"):
-                        dirty_controls.append(ui["voters_holder"])
-                dirty_controls.extend([total_votes_text, view_votes_link])
-
-                try:
-                    page.update(*dirty_controls)
-                except Exception:
+                # Scoped in-place patch: update only the poll_card component
+                if poll_card and getattr(poll_card, "page", None):
                     try:
-                        page.update()
+                        poll_card.update()
+                        return
                     except Exception:
                         pass
+                try:
+                    page.update()
+                except Exception:
+                    pass
 
             poll_updater_fn[0] = _apply_poll_update
 
@@ -3149,23 +3041,37 @@ async def chat_view(
                 asyncio.create_task(safe_set_clipboard(page, raw_content))
                 show_page_snackbar(page, ft.SnackBar(content=ft.Text("Message text copied"), duration=1500))
 
+        msg_stable_key = str(msg.get("id") or msg.get("client_msg_id") or "")
+
         def _open_actions_sheet(e=None):
-            open_message_actions_sheet(
-                page=page,
-                msg=msg,
-                palette=palette,
-                current_user_id=current_user_id[0],
-                is_admin=_is_current_user_admin(),
-                on_set_reply=_set_reply,
-                on_send_reaction=_send_ws_reaction,
-                on_send_pin=_send_ws_pin,
-                on_send_unpin=_send_ws_unpin,
-                on_send_delete=_send_ws_delete,
-                on_copy_text=_copy_bubble_text,
-                pinned_msg_target_id=pinned_msg_target_id,
-                is_me=is_me,
-                on_close_callback=None,
-            )
+            # Capture exact viewport state BEFORE modal opens
+            saved_near = is_near_bottom[0]
+            saved_px = last_scroll_pixels[0]
+            target_key = msg_stable_key if msg_stable_key else None
+
+            def _restore_anchor():
+                page.run_task(_async_restore_scroll_anchor, saved_near, saved_px, target_key)
+
+            try:
+                open_message_actions_sheet(
+                    page=page,
+                    msg=msg,
+                    palette=palette,
+                    current_user_id=current_user_id[0],
+                    is_admin=_is_current_user_admin(),
+                    on_set_reply=_set_reply,
+                    on_send_reaction=_send_ws_reaction,
+                    on_send_pin=_send_ws_pin,
+                    on_send_unpin=_send_ws_unpin,
+                    on_send_delete=_send_ws_delete,
+                    on_copy_text=_copy_bubble_text,
+                    pinned_msg_target_id=pinned_msg_target_id,
+                    is_me=is_me,
+                    on_close_callback=_restore_anchor,
+                )
+                _restore_anchor()
+            except Exception as ex:
+                print(f"[chat_view] open_actions_sheet error: {ex}")
 
         _guarded_actions_click = debounced_click(_open_actions_sheet, min_interval_ms=400)
 
@@ -3235,225 +3141,16 @@ async def chat_view(
             style=ft.ButtonStyle(padding=2)
         )
 
-        # ── WhatsApp-Style Swipe-to-Reply with 50% Hard Clamping Wall ─────────
-        # When is_me: bubble is on the RIGHT -> user MUST swipe LEFT (dx < 0).
-        # When other: bubble is on the LEFT  -> user MUST swipe RIGHT (dx > 0).
-        # Swiping in the wrong direction is strictly ignored (0 movement).
-        # Movement is hard-clamped at exactly 50% (the wall) so it NEVER leaves the screen.
-        reply_badge_icon = ft.Icon(
-            ft.Icons.REPLY_ROUNDED,
-            size=18,
-            color=palette["accent"]
-        )
-        reply_badge = ft.Container(
-            width=36,
-            height=36,
-            border_radius=18,
-            bgcolor=palette["accent_glow"],
-            alignment=ft.Alignment.CENTER,
-            scale=ft.Scale(0.0),
-            opacity=0.0,
-            animate_scale=ft.Animation(150, ft.AnimationCurve.EASE_OUT_BACK),
-            animate_opacity=ft.Animation(150, ft.AnimationCurve.EASE_OUT),
-            shadow=ft.BoxShadow(
-                blur_radius=6,
-                color=ft.Colors.with_opacity(0.25, ft.Colors.BLACK),
-                offset=ft.Offset(0, 2)
-            ),
-            content=reply_badge_icon,
-        )
-
-        badge_holder = ft.Container(
-            content=reply_badge,
-            top=0,
-            bottom=0,
-            right=6 if is_me else None,
-            left=6 if not is_me else None,
-            alignment=ft.Alignment.CENTER,
-        )
-
-        swipe_state = {
-            "dx": 0.0,
-            "triggered": False,
-            "active": False,
-        }
-
-        # Reference width for computing fractional translation:
-        # Clamped at 50% (0.50) of the bubble's extent.
-        ref_extent = float(bubble_width or max_bubble_width or 240)
-
-        def _extract_drag_dx(e) -> float:
-            p_delta = getattr(e, "primary_delta", None)
-            if p_delta is not None:
-                try:
-                    return float(p_delta)
-                except Exception:
-                    pass
-            ld = getattr(e, "local_delta", None)
-            if ld and hasattr(ld, "x"):
-                try:
-                    return float(getattr(ld, "x", 0.0) or 0.0)
-                except Exception:
-                    pass
-            gd = getattr(e, "global_delta", None)
-            if gd and hasattr(gd, "x"):
-                try:
-                    return float(getattr(gd, "x", 0.0) or 0.0)
-                except Exception:
-                    pass
-            return float(getattr(e, "delta_x", 0.0) or 0.0)
-
-        def _on_swipe_start(e):
-            _unfreeze_control(bubble)
-            _unfreeze_control(reply_badge)
-            _unfreeze_control(reply_badge_icon)
-            swipe_state["dx"] = 0.0
-            swipe_state["triggered"] = False
-            swipe_state["active"] = True
-            bubble.animate_offset = None
-
-        def _on_swipe_update(e):
-            if not swipe_state["active"]:
-                return
-            delta_val = _extract_drag_dx(e)
-            swipe_state["dx"] += delta_val
-            raw_dx = swipe_state["dx"]
-
-            # DIRECTION ENFORCEMENT:
-            # is_me: MUST swipe LEFT (raw_dx < 0). Swiping right (raw_dx > 0) is strictly forbidden.
-            # not is_me: MUST swipe RIGHT (raw_dx > 0). Swiping left (raw_dx < 0) is strictly forbidden.
-            if is_me:
-                if raw_dx > 0.0:
-                    raw_dx = 0.0
-                    swipe_state["dx"] = 0.0
-            else:
-                if raw_dx < 0.0:
-                    raw_dx = 0.0
-                    swipe_state["dx"] = 0.0
-
-            # Compute fraction relative to bubble extent
-            raw_frac = raw_dx / max(120.0, ref_extent)
-
-            # HARD CLAMPING AT 50% WALL:
-            # If is_me: clamp strictly between -0.50 and 0.0
-            # If not is_me: clamp strictly between 0.0 and +0.50
-            if is_me:
-                clamped_frac = max(-0.50, min(0.0, raw_frac))
-            else:
-                clamped_frac = min(0.50, max(0.0, raw_frac))
-
-            _unfreeze_control(bubble)
-            _unfreeze_control(reply_badge)
-            _unfreeze_control(reply_badge_icon)
-            bubble.animate_offset = None
-            bubble.offset = ft.Offset(clamped_frac, 0)
-
-            abs_frac = abs(clamped_frac)
-            abs_px = abs(raw_dx)
-
-            if abs_px > 4.0:
-                reply_badge.opacity = min(1.0, abs_px / 22.0)
-                reply_badge.scale = ft.Scale(min(1.0, abs_px / 32.0))
-                # Threshold reached when dragged >= 35% or >= 40px
-                if abs_frac >= 0.35 or abs_px >= 40.0:
-                    swipe_state["triggered"] = True
-                    reply_badge.bgcolor = palette["accent"]
-                    reply_badge_icon.color = ft.Colors.WHITE
-                else:
-                    swipe_state["triggered"] = False
-                    reply_badge.bgcolor = palette["accent_glow"]
-                    reply_badge_icon.color = palette["accent"]
-            else:
-                reply_badge.opacity = 0.0
-                reply_badge.scale = ft.Scale(0.0)
-
-            try:
-                bubble.update()
-                reply_badge.update()
-            except Exception:
-                pass
-
-        def _on_swipe_end(e):
-            if not swipe_state["active"]:
-                return
-            swipe_state["active"] = False
-            velocity = getattr(e, "primary_velocity", 0.0) or 0.0
-            swipe_state["dx"] = 0.0
-
-            # Velocity-based flick recognition in valid direction
-            if is_me and velocity <= -280.0:
-                swipe_state["triggered"] = True
-            elif (not is_me) and velocity >= 280.0:
-                swipe_state["triggered"] = True
-
-            was_triggered = swipe_state["triggered"]
-            swipe_state["triggered"] = False
-
-            _unfreeze_control(bubble)
-            _unfreeze_control(reply_badge)
-            _unfreeze_control(reply_badge_icon)
-            # Spring bounce back to 0 (origin)
-            bubble.animate_offset = ft.Animation(240, ft.AnimationCurve.EASE_OUT_BACK)
-            bubble.offset = ft.Offset(0, 0)
-
-            reply_badge.scale = ft.Scale(0.0)
-            reply_badge.opacity = 0.0
-            reply_badge.bgcolor = palette["accent_glow"]
-            reply_badge_icon.color = palette["accent"]
-
-            try:
-                bubble.update()
-                reply_badge.update()
-            except Exception:
-                pass
-
-            if was_triggered:
-                _set_reply(msg)
-
-        def _on_swipe_cancel(e=None):
-            if not swipe_state["active"]:
-                return
-            swipe_state["active"] = False
-            swipe_state["dx"] = 0.0
-            swipe_state["triggered"] = False
-            _unfreeze_control(bubble)
-            _unfreeze_control(reply_badge)
-            _unfreeze_control(reply_badge_icon)
-            bubble.animate_offset = ft.Animation(240, ft.AnimationCurve.EASE_OUT_BACK)
-            bubble.offset = ft.Offset(0, 0)
-            reply_badge.scale = ft.Scale(0.0)
-            reply_badge.opacity = 0.0
-            try:
-                bubble.update()
-                reply_badge.update()
-            except Exception:
-                pass
-
+        # Message bubble layout:
+        # Message options (3-dots) on the outside; message bubble with on_long_press.
+        # Deterministic, rock-solid, zero-crash implementation.
         if is_deleted:
             bubble_options_btn.visible = False
-            bubble_swipe_stack = bubble
             row_items = [bubble]
             reactions_holder.visible = False
         else:
-            bubble_gesture = ft.GestureDetector(
-                content=bubble,
-                drag_interval=20,
-                on_horizontal_drag_start=_on_swipe_start,
-                on_horizontal_drag_update=_on_swipe_update,
-                on_horizontal_drag_end=_on_swipe_end,
-                on_horizontal_drag_cancel=_on_swipe_cancel,
-                on_long_press=_guarded_actions_click,
-            )
-
-            bubble_swipe_stack = ft.Stack(
-                controls=[
-                    badge_holder,
-                    bubble_gesture,
-                ]
-            )
-
             bubble_options_btn.visible = True
-            row_items = [bubble_options_btn, bubble_swipe_stack] if is_me else [bubble_swipe_stack, bubble_options_btn]
+            row_items = [bubble_options_btn, bubble] if is_me else [bubble, bubble_options_btn]
 
         bubble_col = ft.Column(
             [
@@ -3937,6 +3634,10 @@ async def chat_view(
             if cached_history:
                 cached_ids = [str(m.get("id")) for m in cached_history if m.get("id")]
                 _render_history(cached_history)
+            else:
+                # First time load without cache: start container with subtle fade so network arrival transitions smoothly
+                messages_anim_container.opacity = 0.0
+                messages_anim_container.offset = ft.Offset(0, 0.02)
 
             # --- 2. NETWORK FETCH & SQLITE REFRESH ---
             history = await get_channel_messages(token, chat_id)
@@ -3978,22 +3679,31 @@ async def chat_view(
                 # Avoid wiping and re-rendering if cached messages already matched the server response
                 if not cached_history:
                     _render_history(chronological)
+                    messages_anim_container.opacity = 1.0
+                    messages_anim_container.offset = ft.Offset(0, 0)
+                    try:
+                        messages_anim_container.update()
+                    except Exception:
+                        page.update()
                 elif cached_ids and network_ids != cached_ids:
-                    # Incremental append of new delta messages instead of full wipe & re-render
+                    # Incremental append of new delta messages with smooth WhatsApp-style entrance!
                     new_deltas = [m for m in chronological if str(m.get("id")) not in seen_msg_ids]
                     if new_deltas:
+                        new_bubble_ctrls = []
                         for m in new_deltas:
                             mid = str(m.get("id"))
                             if mid:
                                 seen_msg_ids.add(mid)
                             prev_item = messages_listview.controls[-1].msg_data if (messages_listview.controls and hasattr(messages_listview.controls[-1], "msg_data")) else None
-                            bubble_ctrl = render_message_bubble(m, prev_msg=prev_item, animate_entrance=False)
+                            bubble_ctrl = render_message_bubble(m, prev_msg=prev_item, animate_entrance=True)
                             messages_listview.controls.append(bubble_ctrl)
+                            new_bubble_ctrls.append(bubble_ctrl)
                         try:
                             messages_listview.update()
                         except Exception:
                             page.update()
-                        _scroll_to_bottom(animate=False)
+                        _scroll_to_bottom(animate=True)
+                        page.run_task(_animate_batch_entrance, new_bubble_ctrls)
                     elif len(network_ids) != len(cached_ids):
                         _render_history(chronological)
 

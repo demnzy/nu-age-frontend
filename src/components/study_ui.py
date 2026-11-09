@@ -311,10 +311,11 @@ def stat_tile(value: str, label: str, color, icon=None):
     )
 
 
-def primary_button(text: str, on_click, *, color=None, icon=None, height=46, expand=False):
+def primary_button(text: str, on_click, *, color=None, icon=None, height=46, expand=False, width=None):
     color = color or ft.Colors.PRIMARY
     return ft.Container(
         expand=expand,
+        width=width,
         height=height,
         border_radius=RADIUS_SM,
         bgcolor=color,
@@ -349,10 +350,11 @@ def primary_button(text: str, on_click, *, color=None, icon=None, height=46, exp
     )
 
 
-def ghost_button(text: str, on_click, *, color=None, icon=None, height=46, expand=False):
+def ghost_button(text: str, on_click, *, color=None, icon=None, height=46, expand=False, width=None):
     color = color or ft.Colors.PRIMARY
     return ft.Container(
         expand=expand,
+        width=width,
         height=height,
         border_radius=RADIUS_SM,
         bgcolor=ft.Colors.TRANSPARENT,
