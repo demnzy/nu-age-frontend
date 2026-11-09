@@ -33,7 +33,7 @@ from src.utils.theme_bridge import get_theme_palette, THEME_PALETTES
 # True  -> ALWAYS show on startup (allows instant review/testing)
 # False -> NEVER show
 # None  -> Normal behavior (only shows on compiled first launch, then never again)
-FORCE_SHOW_ONBOARDING = False
+FORCE_SHOW_ONBOARDING = None
 
 
 # ─────────────────────────────────────────────────────────────────────────────

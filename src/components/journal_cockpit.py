@@ -710,6 +710,70 @@ def build_journal_cockpit(
             if m_count == 0:
                 show_page_snackbar(page, "Please attach at least 1 source module before generating.")
                 return
+
+            # Edge case check: person has < 3 generation credits
+            q_info = state.get("quota_info")
+            if q_info and not q_info.get("is_unlimited", False):
+                used = q_info.get("used", 0)
+                limit = q_info.get("limit", 15)
+                remaining = q_info.get("remaining", max(0, limit - used))
+                if remaining < 3:
+                    insuf_dlg = [None]
+                    def _close_insuf(ev=None):
+                        if insuf_dlg[0]:
+                            safe_close_dialog(page, insuf_dlg[0])
+
+                    def _go_store(ev=None):
+                        _close_insuf()
+                        page.navigate("/store")
+
+                    insuf_dlg[0] = ft.AlertDialog(
+                        modal=True,
+                        shape=ft.RoundedRectangleBorder(radius=18),
+                        bgcolor=ft.Colors.SURFACE,
+                        title=ft.Row(
+                            spacing=8,
+                            controls=[
+                                ft.Icon(ft.Icons.AUTO_AWESOME_ROUNDED, color=ft.Colors.AMBER_600, size=20),
+                                ft.Text("Insufficient AI Credits", size=15, weight=ft.FontWeight.W_800),
+                            ],
+                        ),
+                        content=ft.Column(
+                            tight=True,
+                            spacing=8,
+                            controls=[
+                                ft.Text(
+                                    "Synthesizing an integrated Course Mock Exam & Study Guide requires 3 AI Generation Credits.",
+                                    size=12.5,
+                                    weight=ft.FontWeight.W_600,
+                                ),
+                                ft.Text(
+                                    f"You currently have {remaining} credit(s) remaining today (less than 3). Top up credits or upgrade in Store to synthesize.",
+                                    size=12,
+                                    color=ft.Colors.ON_SURFACE_VARIANT,
+                                ),
+                            ],
+                        ),
+                        actions=[
+                            ft.TextButton("Cancel", on_click=_close_insuf),
+                            ft.Button(
+                                content=ft.Row(
+                                    spacing=6,
+                                    tight=True,
+                                    controls=[
+                                        ft.Icon(ft.Icons.SHOPPING_BAG_ROUNDED, size=15, color=ft.Colors.ON_PRIMARY),
+                                        ft.Text("Top Up in Store →", size=12, weight=ft.FontWeight.W_800, color=ft.Colors.ON_PRIMARY),
+                                    ],
+                                ),
+                                bgcolor=ft.Colors.PRIMARY,
+                                style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10), elevation=0),
+                                on_click=_go_store,
+                            ),
+                        ],
+                    )
+                    safe_open_dialog(page, insuf_dlg[0], tag="insufficient_synth_credits")
+                    return
+
             conf_dlg = [None]
 
             def _close_conf(ev=None):

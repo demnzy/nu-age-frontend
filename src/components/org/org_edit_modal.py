@@ -3,6 +3,7 @@ import base64
 import flet as ft
 from src.requests.organisations import update_organisation
 from src.utils.file_opener import show_page_snackbar
+from src.utils.modal_guard import safe_open_dialog, safe_close_dialog
 
 
 def open_org_edit_modal(
@@ -100,6 +101,7 @@ def open_org_edit_modal(
 
     swatches_row = ft.Row(
         spacing=8,
+        wrap=True,
         alignment=ft.MainAxisAlignment.CENTER,
         controls=[
             ft.Container(
@@ -188,8 +190,7 @@ def open_org_edit_modal(
     )
 
     def _close_modal(ev=None):
-        edit_dialog.open = False
-        page.update()
+        safe_close_dialog(page, edit_dialog)
 
     async def _handle_save(ev=None):
         nonlocal selected_bytes, selected_name
@@ -276,6 +277,10 @@ def open_org_edit_modal(
     screen_w = int(w_val) if isinstance(w_val, (int, float)) and w_val > 0 else 540
     dialog_w = min(screen_w - 32, 520)
 
+    h_val = getattr(page, "height", None)
+    screen_h = int(h_val) if isinstance(h_val, (int, float)) and h_val > 0 else 700
+    dialog_h = min(screen_h - 140, 540)
+
     edit_dialog = ft.AlertDialog(
         modal=True,
         bgcolor=ft.Colors.SURFACE,
@@ -291,6 +296,7 @@ def open_org_edit_modal(
         ], spacing=10),
         content=ft.Container(
             width=dialog_w,
+            height=dialog_h,
             content=ft.Column([
                 name_input,
                 phone_input,
@@ -313,6 +319,4 @@ def open_org_edit_modal(
         actions_alignment=ft.MainAxisAlignment.END,
     )
 
-    page.overlay.append(edit_dialog)
-    edit_dialog.open = True
-    page.update()
+    safe_open_dialog(page, edit_dialog, tag="org_edit")

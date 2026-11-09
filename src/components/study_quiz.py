@@ -389,12 +389,6 @@ def build_quiz(
 
     def _show_results():
         progress.fill_all()
-        # Trigger streak celebration dialog (0 coin bonus)
-        try:
-            from src.components.streak_celebration_dialog import show_streak_celebration_dialog
-            show_streak_celebration_dialog(page, 2)
-        except Exception:
-            pass
         root.content = ui.build_results_view(
             page,
             title="Quick Quiz",

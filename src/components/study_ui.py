@@ -935,14 +935,25 @@ def build_results_view(
     )
 
     def _share_results(_=None):
-        from src.utils.file_opener import safe_share_text
+        try:
+            from src.components.milestone_share_modal import open_milestone_share_modal
+            from src.services.shareable_card_engine import MilestoneType
+            m_type = MilestoneType.CBT_EXAM if ("exam" in (title or "").lower() or "cbt" in (title or "").lower()) else MilestoneType.QUIZ_MASTERY
+            open_milestone_share_modal(
+                page,
+                m_type,
+                metric_value=f"{pct}%",
+                subtitle=f"{correct}/{total} Correct • {title}",
+            )
+        except Exception:
+            from src.utils.file_opener import safe_share_text
 
-        share_msg = (
-            f"🎯 I just scored {pct}% ({correct}/{total}) on {title} in Nu-Age Study Hub! "
-            f"(Best streak: {best_streak}🔥)"
-        )
-        if page and hasattr(page, "run_task"):
-            page.run_task(safe_share_text, page, share_msg, f"{title} Score", f"My {title} Result")
+            share_msg = (
+                f"🎯 I just scored {pct}% ({correct}/{total}) on {title} in Nu-Age Study Hub! "
+                f"(Best streak: {best_streak}🔥)"
+            )
+            if page and hasattr(page, "run_task"):
+                page.run_task(safe_share_text, page, share_msg, f"{title} Score", f"My {title} Result")
 
     if compact:
         actions = ft.Column(

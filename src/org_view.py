@@ -111,22 +111,21 @@ async def organisations_view(page: ft.Page):
 
 
 
-    def show_teacher_view(memberships=None):
+    def show_teacher_view(memberships=None, spaces=None):
+        portal_memberships = list(memberships or memberships_cache or [])
+        if owned_org_cache and not any(str(m.get("id")) == str(owned_org_cache.get("id")) for m in portal_memberships):
+            owned_copy = dict(owned_org_cache)
+            owned_copy.setdefault("role", "Owner & Faculty")
+            portal_memberships.insert(0, owned_copy)
 
         content_socket.content = build_teacher_portal(
-
             page=page,
-
             user_data=user_data,
-
-            memberships=memberships or memberships_cache,
-
+            memberships=portal_memberships,
             token=token,
-
             on_back_to_admin=(lambda: page.run_task(show_dashboard, owned_org_cache)) if owned_org_cache else None,
-
+            initial_spaces=spaces,
         )
-
         page.update()
 
 
@@ -373,9 +372,7 @@ async def organisations_view(page: ft.Page):
                 theme_color=org_data.get("theme_color") or theme_color,
 
                 on_info_click=lambda _: _switch_tab("info"),
-
-                on_teacher_portal_click=(lambda _: show_teacher_view()) if role in ("TEACHER", "INSTRUCTOR") else None,
-
+                on_teacher_portal_click=(lambda _: show_teacher_view(spaces=spaces_list)) if (role in ("TEACHER", "INSTRUCTOR", "OWNER", "ADMIN") or owner_id == current_uid) else None,
                 on_edit_click=lambda: open_org_edit_modal(page, org_data, theme_color, token, on_updated=_on_org_updated),
 
             )
@@ -714,9 +711,7 @@ async def organisations_view(page: ft.Page):
                 theme_color=theme_color,
 
                 on_info_click=lambda _: _switch_tab("info"),
-
-                on_teacher_portal_click=(lambda _: show_teacher_view()) if role in ("TEACHER", "INSTRUCTOR") else None,
-
+                on_teacher_portal_click=(lambda _: show_teacher_view(spaces=spaces_list)) if (role in ("TEACHER", "INSTRUCTOR", "OWNER", "ADMIN") or owner_id == current_uid) else None,
                 on_edit_click=lambda: open_org_edit_modal(page, org_data, theme_color, token, on_updated=_on_org_updated),
 
             )

@@ -200,6 +200,8 @@ from src.utils.theme_bridge import (
 
 # Comprehensively upgrade all legacy ft.Icons across the app to crisp Lucide vector icons
 enable_lucide_icon_bridge()
+from src.theme.tactile_feedback import enable_tactile_button_physics
+enable_tactile_button_physics()
 from src.course_analytics import course_analytics_view
 from src.playlist_analytics import playlist_analytics_view
 from src.signup import Signup_view

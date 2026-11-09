@@ -39,18 +39,34 @@ def open_create_journal_modal(
     vault_materials: list = None,
     preselected_material_ids: list = None,
     on_journal_created=None,
+    user_quota: dict = None,
 ):
     """
     Dialog allowing learners to create a Course Journal (Course Notebook):
     1. Multi-Input Batch Upload (up to 5 sources: PDF, docs, images, notes) - NO YouTube URLs.
     2. Group Existing Vault Materials (up to 5 sources).
-    Enforces 3x slot and 3x credit economics with a clean, modern layout.
+    Enforces 3x slot and 3x credit economics with clean edge-case quota conformance.
     """
     vault_mats = vault_materials or []
     preselected = {str(x) for x in (preselected_material_ids or []) if x is not None}
 
+    # Extract or prepare quota trackers for < 3 edge cases
     dlg_ref = [None]
-    active_mode = ["existing" if (preselected or vault_mats) and preselected else "multi_upload"]
+    quota_state = {
+        "mat_rem": None,
+        "gen_rem": None,
+    }
+    if user_quota:
+        m_lim = user_quota.get("mat_lim")
+        m_used = user_quota.get("mat_used", 0)
+        quota_state["mat_rem"] = None if m_lim is None else max(0, m_lim - m_used)
+        g_lim = user_quota.get("gen_lim")
+        g_used = user_quota.get("gen_used", 0)
+        quota_state["gen_rem"] = None if g_lim is None else max(0, g_lim - g_used)
+
+    # Edge case: If user has < 3 material slots remaining, automatically default to vault grouping (0 slots)
+    initial_mode = "existing" if ((preselected or vault_mats) and preselected) or (quota_state["mat_rem"] is not None and quota_state["mat_rem"] < 3) else "multi_upload"
+    active_mode = [initial_mode]
     selected_color = ["teal"]
     queued_files = []  # list of dicts: {"name": str, "bytes": bytes, "mime_type": str, "size_str": str}
     queued_notes = []  # list of dicts: {"title": str, "content": str}
@@ -137,12 +153,19 @@ def open_create_journal_modal(
         content=quota_icon,
     )
 
+    initial_gen_val = bool(active_mode[0] == "multi_upload")
+    if quota_state["gen_rem"] is not None and quota_state["gen_rem"] < 3:
+        initial_gen_val = False
+
     def _on_auto_gen_changed(e=None):
+        if auto_gen_switch.value and quota_state["gen_rem"] is not None and quota_state["gen_rem"] < 3:
+            auto_gen_switch.value = False
+            show_page_snackbar(page, f"Full synthesis requires 3 AI generation credits ({quota_state['gen_rem']} remaining). Creating without synthesis consumes 0 credits.")
         _update_quota_banner()
         safe_update_dialog(page, dlg_ref[0])
 
     auto_gen_switch = ft.Switch(
-        value=(active_mode[0] == "multi_upload"),
+        value=initial_gen_val,
         active_color=ft.Colors.PRIMARY,
         scale=0.85,
         on_change=_on_auto_gen_changed,
@@ -873,8 +896,14 @@ def open_create_journal_modal(
         def _set_mode(m):
             if active_mode[0] == m:
                 return
+            if m == "multi_upload" and quota_state["mat_rem"] is not None and quota_state["mat_rem"] < 3:
+                show_page_snackbar(page, f"Multi-upload requires 3 material slots (you have {quota_state['mat_rem']} left). Grouping vault modules uses 0 slots!")
+                return
             active_mode[0] = m
-            auto_gen_switch.value = (m == "multi_upload")
+            gen_val = bool(m == "multi_upload")
+            if quota_state["gen_rem"] is not None and quota_state["gen_rem"] < 3:
+                gen_val = False
+            auto_gen_switch.value = gen_val
             _render_mode_switch()
             _update_sources_ui()
 
@@ -1060,6 +1089,20 @@ def open_create_journal_modal(
             show_page_snackbar(page, "Course Journals are capped at 5 sources maximum.")
             return
 
+        # Quota edge-case conformance: check slots before initiating multi-upload
+        if active_mode[0] == "multi_upload" and quota_state["mat_rem"] is not None and quota_state["mat_rem"] < 3:
+            show_page_snackbar(page, f"Multi-upload requires 3 material slots (you have {quota_state['mat_rem']} left). Please link existing vault materials or upgrade in Store.")
+            return
+
+        desc = desc_tf.value.strip() if desc_tf.value else ""
+        col = selected_color[0]
+        gen = bool(auto_gen_switch.value)
+
+        # Quota edge-case conformance: check credits before generating
+        if gen and quota_state["gen_rem"] is not None and quota_state["gen_rem"] < 3:
+            gen = False
+            show_page_snackbar(page, f"Creating journal without AI synthesis (you have {quota_state['gen_rem']} of 3 required credits).")
+
         submit_btn.disabled = True
         submit_btn.content = ft.Row(
             spacing=8,
@@ -1070,10 +1113,6 @@ def open_create_journal_modal(
             ],
         )
         safe_update_dialog(page, dlg_ref[0])
-
-        desc = desc_tf.value.strip() if desc_tf.value else ""
-        col = selected_color[0]
-        gen = bool(auto_gen_switch.value)
 
         try:
             if active_mode[0] == "multi_upload":
@@ -1242,5 +1281,38 @@ def open_create_journal_modal(
             submit_btn,
         ],
     )
+
+    async def _async_load_quota():
+        if user_quota:
+            return
+        try:
+            from src.requests.subscription import get_subscription_status
+            from src.requests.study import get_ai_tutor_quota_api
+            sub = await get_subscription_status(token)
+            if sub and not sub.get("error"):
+                m_lim = sub.get("materials_limit")
+                m_used = sub.get("materials_count", 0)
+                quota_state["mat_rem"] = None if m_lim is None else max(0, m_lim - m_used)
+            g_quota = await get_ai_tutor_quota_api(token)
+            if g_quota and not g_quota.get("is_unlimited", False):
+                g_rem = g_quota.get("remaining")
+                quota_state["gen_rem"] = g_rem
+                if g_rem is not None and g_rem < 3:
+                    auto_gen_switch.value = False
+                    _update_quota_banner()
+                    if dlg_ref[0]:
+                        safe_update_dialog(page, dlg_ref[0])
+
+            if quota_state["mat_rem"] is not None and quota_state["mat_rem"] < 3:
+                if active_mode[0] == "multi_upload":
+                    active_mode[0] = "existing"
+                    _render_mode_switch()
+                    _update_sources_ui()
+                    if dlg_ref[0]:
+                        safe_update_dialog(page, dlg_ref[0])
+        except Exception:
+            pass
+
+    page.run_task(_async_load_quota)
 
     safe_open_dialog(page, dlg_ref[0], tag="create_journal_modal")

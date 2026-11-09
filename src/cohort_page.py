@@ -269,7 +269,7 @@ async def cohort_page_view(
         message = (
             f"Learning in '{cohort_name}' by {org_name} on Nu Age!\n\n"
             f"Explore interactive courses, modules, and certified assessments.\n\n"
-            f"Learn more at: https://nu-age.name.ng"
+            f"Learn more at: https://nu-age.com.ng"
         )
         await safe_share_text(page, message, title=f"Cohort: {cohort_name}")
 

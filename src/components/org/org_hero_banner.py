@@ -23,7 +23,7 @@ def build_org_hero_banner(
     plan_data = org_data.get("plan") or {}
     plan_name = plan_data.get("name", "Free Plan") if isinstance(plan_data, dict) else "Free Plan"
 
-    share_url = f"https://nu-age.name.ng/organisations/{org_id}/join"
+    share_url = f"https://nu-age.com.ng/organisations/{org_id}/join"
 
     async def _copy_share_link(e=None):
         try:

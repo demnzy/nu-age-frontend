@@ -3193,13 +3193,49 @@ async def self_study_view(page: ft.Page):
                 if reader_dlg[0]:
                     safe_close_dialog(page, reader_dlg[0])
 
+            dlg_w = min((page.width or 600) - 32, 740)
+            dlg_h = min((page.height or 760) - 160, 560)
+
+            export_btn = ft.TextButton(
+                "Export PDF",
+                icon=ft.Icons.PICTURE_AS_PDF_ROUNDED,
+                style=ft.ButtonStyle(color=ft.Colors.PRIMARY),
+            )
+
+            copy_btn = ft.TextButton(
+                "Copy All",
+                icon=ft.Icons.COPY_ROUNDED,
+                style=ft.ButtonStyle(color=ft.Colors.PRIMARY),
+            )
+
             async def _copy_qbank(ev=None):
                 if not final_markdown:
                     return
                 await safe_set_clipboard(page, final_markdown)
-                show_page_snackbar(page, "Question Bank & notes copied to clipboard!", ft.Colors.GREEN_700)
+                copy_btn.text = "Copied!"
+                copy_btn.icon = ft.Icons.CHECK_ROUNDED
+                copy_btn.style = ft.ButtonStyle(color=ft.Colors.GREEN_400)
+                try:
+                    copy_btn.update()
+                except Exception:
+                    safe_update_dialog(page, reader_dlg[0])
+                await asyncio.sleep(2)
+                copy_btn.text = "Copy All"
+                copy_btn.icon = ft.Icons.COPY_ROUNDED
+                copy_btn.style = ft.ButtonStyle(color=ft.Colors.PRIMARY)
+                try:
+                    copy_btn.update()
+                except Exception:
+                    safe_update_dialog(page, reader_dlg[0])
 
             async def _export_question_bank_pdf(ev=None):
+                export_btn.text = "Opening..."
+                export_btn.icon = ft.Icons.HOURGLASS_EMPTY_ROUNDED
+                try:
+                    export_btn.update()
+                except Exception:
+                    safe_update_dialog(page, reader_dlg[0])
+
                 fname = f"{mtitle} - Question Bank.pdf"
                 ok = await export_text_or_markdown_as_pdf(
                     page,
@@ -3207,16 +3243,53 @@ async def self_study_view(page: ft.Page):
                     final_markdown,
                     subtitle="Nu Age LMS • Question Bank",
                 )
-                if not ok:
-                    show_page_snackbar(page, "Could not generate PDF export.")
+                export_btn.text = "Opened in Browser" if ok else "Export PDF"
+                export_btn.icon = ft.Icons.CHECK_ROUNDED if ok else ft.Icons.PICTURE_AS_PDF_ROUNDED
+                try:
+                    export_btn.update()
+                except Exception:
+                    safe_update_dialog(page, reader_dlg[0])
+                await asyncio.sleep(2.2)
+                export_btn.text = "Export PDF"
+                export_btn.icon = ft.Icons.PICTURE_AS_PDF_ROUNDED
+                try:
+                    export_btn.update()
+                except Exception:
+                    safe_update_dialog(page, reader_dlg[0])
 
-            dlg_w = min((page.width or 600) - 32, 740)
-            dlg_h = min((page.height or 760) - 160, 560)
+            export_btn.on_click = lambda _: page.run_task(_export_question_bank_pdf)
+            copy_btn.on_click = lambda _: page.run_task(_copy_qbank)
 
+            journal_btn = None
+            if not is_cbt_pack:
+                journal_btn = ft.OutlinedButton(
+                    "Bundle into Journal",
+                    icon=ft.Icons.AUTO_STORIES_ROUNDED,
+                    on_click=lambda _: run_after_modal_close(
+                        page,
+                        reader_dlg[0],
+                        lambda: open_create_journal_modal(
+                            page,
+                            token,
+                            vault_materials=state.get("materials", []),
+                            preselected_material_ids=[str(mid)],
+                            on_journal_created=_handle_journal_created,
+                        ),
+                    ),
+                )
+
+            done_btn = ft.Button(
+                "Done",
+                bgcolor=ft.Colors.PRIMARY,
+                color=ft.Colors.ON_PRIMARY,
+                on_click=_close_reader,
+            )
+
+            # Ensure markdown content container occupies full dialog width
             content_controls = [
                 ft.Container(
                     expand=True,
-                    width=float("inf"),
+                    width=dlg_w,
                     padding=ft.Padding.all(14),
                     border_radius=ft.BorderRadius.all(12),
                     bgcolor=ft.Colors.with_opacity(0.03, ft.Colors.ON_SURFACE),
@@ -3227,10 +3300,13 @@ async def self_study_view(page: ft.Page):
                         horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
                         controls=[
                             ft.SelectionArea(
-                                content=ft.Markdown(
-                                    final_markdown,
-                                    selectable=True,
-                                    extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+                                content=ft.Container(
+                                    width=dlg_w,
+                                    content=ft.Markdown(
+                                        final_markdown,
+                                        selectable=True,
+                                        extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+                                    ),
                                 )
                             )
                         ],
@@ -3238,45 +3314,47 @@ async def self_study_view(page: ft.Page):
                 )
             ]
 
-            reader_actions = [
-                ft.TextButton(
-                    "Export PDF",
-                    icon=ft.Icons.PICTURE_AS_PDF_ROUNDED,
-                    style=ft.ButtonStyle(color=ft.Colors.PRIMARY),
-                    on_click=lambda _: page.run_task(_export_question_bank_pdf),
-                ),
-                ft.TextButton(
-                    "Copy All",
-                    icon=ft.Icons.COPY_ROUNDED,
-                    on_click=lambda _: page.run_task(_copy_qbank),
-                ),
-            ]
-            if not is_cbt_pack:
-                reader_actions.append(
-                    ft.OutlinedButton(
-                        "Bundle into Journal",
-                        icon=ft.Icons.AUTO_STORIES_ROUNDED,
-                        on_click=lambda _: run_after_modal_close(
-                            page,
-                            reader_dlg[0],
-                            lambda: open_create_journal_modal(
-                                page,
-                                token,
-                                vault_materials=state.get("materials", []),
-                                preselected_material_ids=[str(mid)],
-                                on_journal_created=_handle_journal_created,
+            # Responsive Actions Layout: never stack 4 buttons vertically on mobile screens
+            is_screen_narrow = (page.width or 600) < 600
+            if is_screen_narrow:
+                actions_layout = ft.Container(
+                    width=dlg_w,
+                    padding=ft.Padding.only(top=4),
+                    content=ft.Column(
+                        spacing=8,
+                        tight=True,
+                        controls=[
+                            ft.Row(
+                                spacing=8,
+                                controls=[
+                                    ft.Container(content=export_btn, expand=True),
+                                    ft.Container(content=copy_btn, expand=True),
+                                ],
                             ),
-                        ),
-                    )
+                            ft.Row(
+                                spacing=8,
+                                controls=[
+                                    *( [ft.Container(content=journal_btn, expand=True)] if journal_btn else [] ),
+                                    ft.Container(content=done_btn, expand=True),
+                                ],
+                            ),
+                        ],
+                    ),
                 )
-            reader_actions.append(
-                ft.Button(
-                    "Done",
-                    bgcolor=ft.Colors.PRIMARY,
-                    color=ft.Colors.ON_PRIMARY,
-                    on_click=_close_reader,
+            else:
+                actions_layout = ft.Container(
+                    width=dlg_w,
+                    content=ft.Row(
+                        alignment=ft.MainAxisAlignment.END,
+                        spacing=10,
+                        controls=[
+                            export_btn,
+                            copy_btn,
+                            *( [journal_btn] if journal_btn else [] ),
+                            done_btn,
+                        ],
+                    ),
                 )
-            )
 
             reader_dlg[0] = ft.AlertDialog(
                 modal=True,
@@ -3339,8 +3417,8 @@ async def self_study_view(page: ft.Page):
                         controls=content_controls,
                     ),
                 ),
-                actions=reader_actions,
-                actions_alignment=ft.MainAxisAlignment.END,
+                actions=[actions_layout],
+                actions_alignment=ft.MainAxisAlignment.CENTER,
             )
             safe_open_dialog(page, reader_dlg[0], tag="study_source_reader")
 
@@ -3683,23 +3761,30 @@ async def self_study_view(page: ft.Page):
         )
 
         # Ambient Background Generation Card (Modern, non-blocking status indicator)
+        gen_card_title = "Crafting study deck" if is_mobile else "Nu Age AI is crafting your study deck"
+        gen_card_sub = (
+            "Synthesizing active-recall drills in background. Feel free to explore or check back soon."
+            if is_mobile
+            else "Your flashcards and active-recall questions are synthesizing in the background. Feel free to explore other courses or study existing materials; your deck will be ready when you return."
+        )
+
         ambient_gen_card = ft.Container(
             visible=is_generating,
-            padding=ft.Padding.symmetric(horizontal=16, vertical=14),
+            padding=ft.Padding.symmetric(horizontal=12 if is_mobile else 16, vertical=10 if is_mobile else 14),
             border_radius=ft.BorderRadius.all(14),
             bgcolor=ft.Colors.with_opacity(0.06, fmt_color),
             border=ft.Border.all(1.2, ft.Colors.with_opacity(0.25, fmt_color)),
             content=ft.Row(
-                spacing=12,
+                spacing=10 if is_mobile else 12,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 controls=[
                     ft.Container(
-                        width=36,
-                        height=36,
-                        border_radius=ft.BorderRadius.all(10),
+                        width=32 if is_mobile else 36,
+                        height=32 if is_mobile else 36,
+                        border_radius=ft.BorderRadius.all(9 if is_mobile else 10),
                         bgcolor=ft.Colors.with_opacity(0.12, fmt_color),
                         alignment=ft.Alignment.CENTER,
-                        content=ft.ProgressRing(width=18, height=18, stroke_width=2.4, color=fmt_color),
+                        content=ft.ProgressRing(width=16 if is_mobile else 18, height=16 if is_mobile else 18, stroke_width=2.4, color=fmt_color),
                     ),
                     ft.Column(
                         spacing=2,
@@ -3708,27 +3793,32 @@ async def self_study_view(page: ft.Page):
                         controls=[
                             ft.Row(
                                 spacing=6,
-                                tight=True,
+                                tight=False,
                                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
                                 controls=[
                                     ft.Text(
-                                        "Nu Age AI is crafting your study deck",
-                                        size=12.5,
+                                        gen_card_title,
+                                        size=12 if is_mobile else 12.5,
                                         weight=ft.FontWeight.W_800,
                                         color=ft.Colors.ON_SURFACE,
+                                        max_lines=1,
+                                        overflow=ft.TextOverflow.ELLIPSIS,
+                                        expand=True,
                                     ),
                                     ft.Container(
-                                        padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+                                        padding=ft.Padding.symmetric(horizontal=5, vertical=2),
                                         border_radius=ft.BorderRadius.all(4),
                                         bgcolor=ft.Colors.with_opacity(0.12, fmt_color),
-                                        content=ft.Text("Background", size=9.5, weight=ft.FontWeight.W_700, color=fmt_color),
+                                        content=ft.Text("Background", size=9, weight=ft.FontWeight.W_700, color=fmt_color),
                                     ),
                                 ],
                             ),
                             ft.Text(
-                                "Your flashcards and active-recall questions are synthesizing in the background. Feel free to explore other courses or study existing materials—your deck will be ready when you return.",
-                                size=11,
+                                gen_card_sub,
+                                size=10.5 if is_mobile else 11,
                                 color=ft.Colors.ON_SURFACE_VARIANT,
+                                max_lines=2,
+                                overflow=ft.TextOverflow.ELLIPSIS,
                             ),
                         ],
                     ),
@@ -3967,10 +4057,7 @@ async def self_study_view(page: ft.Page):
         was_previously_generating = [is_generating]
 
         def _show_readiness_emerald_snackbar():
-            show_page_snackbar(
-                page,
-                f"AI Study Engine Ready for '{display_title}'!",
-            )
+            pass
 
         def _update_cockpit_status_ui(status_data: dict):
             st = str(status_data.get("status") or "completed").lower()
@@ -5870,6 +5957,7 @@ async def self_study_view(page: ft.Page):
                         pass
                 if badge_info and badge_info[0]:
                     b_cont, b_icon, b_txt = badge_info
+                    b_cont.visible = True
                     b_cont.bgcolor = ft.Colors.with_opacity(0.12, ft.Colors.GREEN)
                     b_icon.name = ft.Icons.CHECK_CIRCLE_ROUNDED
                     b_icon.color = ft.Colors.GREEN_700
@@ -5916,11 +6004,7 @@ async def self_study_view(page: ft.Page):
                     pass
             if badge_info and badge_info[0]:
                 b_cont, b_icon, b_txt = badge_info
-                b_cont.bgcolor = ft.Colors.with_opacity(0.12, ft.Colors.GREY_400)
-                b_icon.name = ft.Icons.CLOUD_QUEUE_ROUNDED
-                b_icon.color = ft.Colors.GREY_600
-                b_txt.value = "Cloud"
-                b_txt.color = ft.Colors.GREY_600
+                b_cont.visible = False
                 try:
                     b_cont.update()
                 except Exception:
@@ -6160,20 +6244,21 @@ async def self_study_view(page: ft.Page):
             )
 
             status_icon = ft.Icon(
-                ft.Icons.CHECK_CIRCLE_ROUNDED if is_downloaded else ft.Icons.CLOUD_QUEUE_ROUNDED,
+                ft.Icons.CHECK_CIRCLE_ROUNDED,
                 size=10,
-                color=ft.Colors.GREEN_700 if is_downloaded else ft.Colors.GREY_600,
+                color=ft.Colors.GREEN_700,
             )
             status_text = ft.Text(
-                "Offline" if is_downloaded else "Cloud",
-                size=9.5,
+                "Offline",
+                size=9,
                 weight=ft.FontWeight.W_700,
-                color=ft.Colors.GREEN_700 if is_downloaded else ft.Colors.GREY_600,
+                color=ft.Colors.GREEN_700,
             )
             offline_status_badge = ft.Container(
-                padding=ft.Padding.symmetric(horizontal=6, vertical=2),
-                border_radius=ft.BorderRadius.all(6),
-                bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.GREEN if is_downloaded else ft.Colors.GREY_400),
+                visible=is_downloaded,
+                padding=ft.Padding.symmetric(horizontal=5, vertical=1.5),
+                border_radius=ft.BorderRadius.all(5),
+                bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.GREEN),
                 content=ft.Row(
                     spacing=3,
                     tight=True,
@@ -6328,21 +6413,27 @@ async def self_study_view(page: ft.Page):
                     ],
                 )
 
-            # Offline toggle / download button
+            # Offline toggle / download button (compact bounding for mobile)
             if is_downloaded:
                 offline_btn = ft.IconButton(
                     icon=ft.Icons.OFFLINE_PIN_ROUNDED,
-                    icon_size=17,
+                    icon_size=15,
                     icon_color=ft.Colors.GREEN_600,
                     tooltip="Saved offline (tap to remove offline copy)",
+                    padding=0,
+                    width=26,
+                    height=26,
                     on_click=lambda e, m=mat: page.run_task(_remove_mat_offline, m, e.control, badge_info),
                 )
             elif not is_hub_offline:
                 offline_btn = ft.IconButton(
                     icon=ft.Icons.FILE_DOWNLOAD_OUTLINED,
-                    icon_size=17,
+                    icon_size=15,
                     icon_color=ft.Colors.GREY_600,
                     tooltip="Save for offline study",
+                    padding=0,
+                    width=26,
+                    height=26,
                     on_click=lambda e, m=mat: page.run_task(_download_mat_offline, m, e.control, badge_info),
                 )
             else:
@@ -6416,16 +6507,19 @@ async def self_study_view(page: ft.Page):
                                     ],
                                 ),
                                 ft.Row(
-                                    spacing=0,
+                                    spacing=2,
                                     tight=True,
                                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                                     controls=[
                                         offline_btn,
                                         ft.IconButton(
                                             icon=ft.Icons.AUTO_STORIES_ROUNDED,
-                                            icon_size=16,
+                                            icon_size=15,
                                             icon_color=ft.Colors.TEAL_600,
                                             tooltip="Bundle into Course Journal",
+                                            padding=0,
+                                            width=26,
+                                            height=26,
                                             on_click=lambda e, m=mat: open_create_journal_modal(
                                                 page,
                                                 token,
@@ -6436,16 +6530,22 @@ async def self_study_view(page: ft.Page):
                                         ),
                                         ft.IconButton(
                                             icon=ft.Icons.SHARE_ROUNDED,
-                                            icon_size=16,
+                                            icon_size=15,
                                             icon_color=ft.Colors.PRIMARY,
                                             tooltip="Share with Study Partner",
+                                            padding=0,
+                                            width=26,
+                                            height=26,
                                             on_click=lambda e, m=mat: page.run_task(_share_material_with_partner, m),
                                         ),
                                         ft.IconButton(
                                             icon=ft.Icons.DELETE_OUTLINE_ROUNDED,
-                                            icon_size=16,
+                                            icon_size=15,
                                             icon_color=ft.Colors.GREY_500,
                                             tooltip="Remove from Vault",
+                                            padding=0,
+                                            width=26,
+                                            height=26,
                                             on_click=lambda e, m=mat: _confirm_delete_material(m),
                                         ),
                                     ],
@@ -6816,6 +6916,12 @@ async def self_study_view(page: ft.Page):
                         token,
                         vault_materials=materials,
                         on_journal_created=_handle_journal_created,
+                        user_quota={
+                            "mat_used": state.get("mat_used", 0),
+                            "mat_lim": state.get("mat_lim"),
+                            "gen_used": state.get("gen_used", 0),
+                            "gen_lim": state.get("gen_lim"),
+                        },
                     ),
                 ),
             ],
@@ -7888,6 +7994,10 @@ async def self_study_view(page: ft.Page):
                     )
                     icon_ctrl.name = ft.Icons.RADIO_BUTTON_CHECKED_ROUNDED if is_cur else ft.Icons.RADIO_BUTTON_UNCHECKED_ROUNDED
                     icon_ctrl.color = ft.Colors.PRIMARY if is_cur else ft.Colors.GREY_400
+                    try:
+                        cont.update()
+                    except Exception:
+                        pass
 
         def select_target_mat(m):
             selected_target[0] = m
@@ -7971,7 +8081,10 @@ async def self_study_view(page: ft.Page):
             def toggle_card(e):
                 cb_control.value = not cb_control.value
                 update_card_ui()
-                safe_update_dialog(page, modal)
+                try:
+                    card_box.update()
+                except Exception:
+                    safe_update_dialog(page, modal)
 
             def update_card_ui():
                 is_active = bool(cb_control.value)
@@ -8132,9 +8245,6 @@ async def self_study_view(page: ft.Page):
 
                 # Dismiss modal immediately so user is never stuck with a lingering checkmark
                 safe_close_dialog(page, modal)
-
-                title_disp = format_material_title(target.get("title", "document"))
-                show_page_snackbar(page, f"✓ AI Generation queued for '{title_disp}'! Deck is generating in background.")
 
                 # Switch directly into this material's cockpit so the user sees live generation progress
                 page.run_task(_open_material_cockpit, target)

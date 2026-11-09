@@ -90,39 +90,12 @@ async def check_should_show_onboarding(page: ft.Page) -> bool:
     """Frontend-first persistence check for compiled app first launch.
     
     1. If this compiled installation has NEVER shown the onboarding before,
-       it MUST show on first run (whether the user had an account or not).
+       it MUST show on first run (whether the user had an account or not, learner or guest).
     2. Once it has opened/shown on this app install, it marks a persistent
        marker and will not show again on subsequent launches.
-    3. Does not block the backend first-login check: if a brand-new account
-       logs in later on this device, the backend first-login check still fires.
     """
-    disk_data = _get_app_disk_state()
-    disk_shown = disk_data.get("app_onboarding_shown")
-
-    pref_shown = False
-    try:
-        if hasattr(page, "shared_preferences"):
-            pref_shown = await page.shared_preferences.get("app_onboarding_shown_v1")
-    except Exception:
-        pass
-
-    has_client_shown = disk_shown or pref_shown
-
-    if not has_client_shown:
-        # First time opening this compiled app installation:
-        # Must show whether they've had an account or not!
-        return True
-
-    # Not first install launch. Check backend account first-login check (not blocking it)
-    from src.utils.session_utils import get_session_user
-    user_data = get_session_user(page)
-    if user_data:
-        if user_data.get("has_seen_onboarding"):
-            return False
-        streak = user_data.get("streak", 0) or 0
-        return streak == 0
-
-    return False
+    from src.onboarding import check_should_show_onboarding as _canonical_check
+    return await _canonical_check(page)
 
 
 async def mark_onboarding_seen(page: ft.Page, data: dict = None) -> None:
@@ -856,6 +829,9 @@ async def dashboard_view(page: ft.Page):
             padding=ft.Padding.symmetric(horizontal=8, vertical=3),
             border_radius=ft.BorderRadius.all(8),
             bgcolor=ft.Colors.with_opacity(0.15, ft.Colors.AMBER_600),
+            ink=True,
+            tooltip="Tap to view & share your habit streak card!",
+            on_click=lambda _: show_streak_celebration_dialog(page, streak_count if streak_count > 0 else 2),
             content=ft.Text(badge_text, size=10.5, weight=ft.FontWeight.W_800, color=ft.Colors.ORANGE_900 if not is_dark else ft.Colors.AMBER_300),
         )
 
@@ -969,10 +945,15 @@ async def dashboard_view(page: ft.Page):
         border_clr = ft.Colors.with_opacity(0.12, ft.Colors.WHITE) if is_dark else ft.Colors.GREY_200
         is_mobile = bool(page.width and page.width < 768)
 
+        from src.components.streak_celebration_dialog import show_streak_celebration_dialog
+
         streak_pill = ft.Container(
             padding=ft.Padding.symmetric(horizontal=10, vertical=5),
             border_radius=ft.BorderRadius.all(10),
             bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.ORANGE),
+            ink=True,
+            tooltip="Tap to view & share your habit streak card!",
+            on_click=lambda _: show_streak_celebration_dialog(page, streak_count if streak_count > 0 else 7),
             content=ft.Row(
                 spacing=5,
                 tight=True,

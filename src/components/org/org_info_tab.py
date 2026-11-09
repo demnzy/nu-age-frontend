@@ -36,7 +36,7 @@ def build_org_info_tab(
     max_members = plan_data.get("max_members")
     max_courses = plan_data.get("max_courses")
 
-    share_url = f"https://nu-age.name.ng/organisations/{org_id}/join"
+    share_url = f"https://nu-age.com.ng/organisations/{org_id}/join"
 
     async def _copy_text(text: str, label: str = "Link"):
         try:
@@ -230,6 +230,61 @@ def build_org_info_tab(
                 )
             )
 
+    is_mobile_view = (getattr(page, "width", 600) or 600) < 600
+
+    upgrade_plan_btn = ft.FilledButton(
+        "Upgrade Plan",
+        icon=ft.Icons.ARROW_UPWARD_ROUNDED,
+        style=ft.ButtonStyle(
+            bgcolor=ft.Colors.PURPLE_600,
+            shape=ft.RoundedRectangleBorder(radius=8),
+            padding=ft.Padding.symmetric(horizontal=12, vertical=6),
+        ),
+        on_click=lambda _: open_org_plan_modal(
+            page=page,
+            org_data=org_data,
+            theme_color=theme_color,
+            token=token,
+            on_plan_upgraded=on_plan_upgraded,
+        ),
+    )
+
+    if is_mobile_view:
+        sub_header_block = ft.Column(
+            spacing=10,
+            tight=True,
+            controls=[
+                ft.Row(
+                    spacing=8,
+                    tight=True,
+                    controls=[
+                        ft.Icon(ft.Icons.WORKSPACE_PREMIUM_ROUNDED, color=ft.Colors.PURPLE_500, size=20),
+                        ft.Text("Subscription & Capacity", size=15, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
+                    ],
+                ),
+                ft.Row(
+                    controls=[
+                        ft.Container(content=upgrade_plan_btn, expand=True),
+                    ],
+                ),
+            ],
+        )
+    else:
+        sub_header_block = ft.Row(
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            controls=[
+                ft.Row(
+                    spacing=8,
+                    tight=True,
+                    controls=[
+                        ft.Icon(ft.Icons.WORKSPACE_PREMIUM_ROUNDED, color=ft.Colors.PURPLE_500, size=20),
+                        ft.Text("Subscription & Capacity", size=15, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
+                    ],
+                ),
+                upgrade_plan_btn,
+            ],
+        )
+
     plan_card = ft.Container(
         padding=20,
         bgcolor=ft.Colors.SURFACE,
@@ -243,35 +298,7 @@ def build_org_info_tab(
         content=ft.Column(
             spacing=14,
             controls=[
-                ft.Row(
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                    controls=[
-                        ft.Row(
-                            spacing=8,
-                            tight=True,
-                            controls=[
-                                ft.Icon(ft.Icons.WORKSPACE_PREMIUM_ROUNDED, color=ft.Colors.PURPLE_500, size=20),
-                                ft.Text("Subscription & Capacity", size=15, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
-                            ],
-                        ),
-                        ft.FilledButton(
-                            "Upgrade Plan",
-                            icon=ft.Icons.ARROW_UPWARD_ROUNDED,
-                            style=ft.ButtonStyle(
-                                bgcolor=ft.Colors.PURPLE_600,
-                                shape=ft.RoundedRectangleBorder(radius=8),
-                                padding=ft.Padding.symmetric(horizontal=12, vertical=6),
-                            ),
-                            on_click=lambda _: open_org_plan_modal(
-                                page=page,
-                                org_data=org_data,
-                                theme_color=theme_color,
-                                token=token,
-                                on_plan_upgraded=on_plan_upgraded,
-                            ),
-                        ),
-                    ],
-                ),
+                sub_header_block,
                 ft.Divider(height=1, color=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE)),
                 ft.Row(
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -357,7 +384,7 @@ def build_org_info_tab(
 
             rows.append(
                 ft.Container(
-                    padding=ft.Padding.symmetric(horizontal=14, vertical=10),
+                    padding=ft.Padding.symmetric(horizontal=12, vertical=10),
                     border_radius=10,
                     bgcolor=ft.Colors.with_opacity(0.03, ft.Colors.ON_SURFACE),
                     border=ft.Border.all(1, ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE)),
@@ -365,30 +392,55 @@ def build_org_info_tab(
                         ft.Column([
                             ft.Row([
                                 ft.Icon(ft.Icons.RECEIPT_ROUNDED, size=15, color=theme_color),
-                                ft.Text(purpose_raw, size=13, weight=ft.FontWeight.W_600, color=ft.Colors.ON_SURFACE),
+                                ft.Text(
+                                    purpose_raw,
+                                    size=12.5,
+                                    weight=ft.FontWeight.W_600,
+                                    color=ft.Colors.ON_SURFACE,
+                                    max_lines=1,
+                                    overflow=ft.TextOverflow.ELLIPSIS,
+                                ),
                             ], spacing=6, tight=True),
                             ft.Row([
-                                ft.Text(created_str, size=11, color=ft.Colors.ON_SURFACE_VARIANT),
-                                ft.Text("•", size=11, color=ft.Colors.ON_SURFACE_VARIANT),
-                                ft.Text(ref_val, size=11, weight=ft.FontWeight.W_500, color=ft.Colors.ON_SURFACE_VARIANT),
+                                ft.Text(created_str, size=10.5, color=ft.Colors.ON_SURFACE_VARIANT),
+                                ft.Text("•", size=10.5, color=ft.Colors.ON_SURFACE_VARIANT),
+                                ft.Container(
+                                    content=ft.Text(
+                                        ref_val,
+                                        size=10.5,
+                                        weight=ft.FontWeight.W_500,
+                                        color=ft.Colors.ON_SURFACE_VARIANT,
+                                        max_lines=1,
+                                        overflow=ft.TextOverflow.ELLIPSIS,
+                                    ),
+                                    expand=True,
+                                ),
                                 ft.IconButton(
                                     icon=ft.Icons.CONTENT_COPY_ROUNDED,
-                                    icon_size=13,
+                                    icon_size=12,
                                     tooltip="Copy reference",
                                     padding=0,
+                                    width=20,
+                                    height=20,
                                     on_click=lambda _, r=ref_val: page.run_task(_copy_text, r, "Payment reference"),
                                 ),
-                            ], spacing=4, tight=True),
-                        ], spacing=2, expand=True),
+                            ], spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                        ], spacing=3, expand=True),
                         ft.Column([
-                            ft.Text(f"₦{amount_val:,.0f}", size=13, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
+                            ft.Text(f"₦{amount_val:,.0f}", size=12.5, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),
                             ft.Container(
-                                padding=ft.Padding.symmetric(horizontal=8, vertical=2),
+                                padding=ft.Padding.symmetric(horizontal=6, vertical=2),
                                 border_radius=6,
                                 bgcolor=badge_bg,
-                                content=ft.Text(status_label, size=9.5, weight=ft.FontWeight.BOLD, color=badge_color),
+                                content=ft.Text(
+                                    status_label,
+                                    size=9,
+                                    weight=ft.FontWeight.BOLD,
+                                    color=badge_color,
+                                    no_wrap=True,
+                                ),
                             ),
-                        ], horizontal_alignment=ft.CrossAxisAlignment.END, spacing=2),
+                        ], horizontal_alignment=ft.CrossAxisAlignment.END, spacing=3),
                     ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                 )
             )

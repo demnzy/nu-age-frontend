@@ -606,21 +606,56 @@ async def export_text_or_markdown_as_pdf(
 <html>
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{html.escape(display_title)}</title>
   <style>
-    @page {{ size: A4; margin: 18mm 16mm; }}
+    @page {{ size: A4; margin: 16mm 14mm; }}
     body {{
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
       color: #0f172a;
       line-height: 1.65;
       margin: 0;
-      padding: 24px;
+      padding: 16px 20px 32px 20px;
       background: #ffffff;
+    }}
+    @media print {{
+      .no-print {{ display: none !important; }}
+      body {{ padding: 0 !important; }}
+    }}
+    .action-bar {{
+      position: -webkit-sticky;
+      position: sticky;
+      top: 0;
+      background: #ffffff;
+      padding: 10px 0;
+      border-bottom: 1.5px solid #e2e8f0;
+      margin-bottom: 18px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      z-index: 1000;
+    }}
+    .print-btn {{
+      background: #059669;
+      color: #ffffff;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      box-shadow: 0 2px 6px rgba(5, 150, 105, 0.25);
+    }}
+    .print-btn:active {{
+      background: #047857;
     }}
     .header {{
       border-bottom: 2.5px solid #059669;
       padding-bottom: 14px;
-      margin-bottom: 24px;
+      margin-bottom: 22px;
     }}
     .brand {{
       font-size: 11px;
@@ -630,7 +665,7 @@ async def export_text_or_markdown_as_pdf(
       letter-spacing: 1.2px;
     }}
     h1 {{
-      font-size: 24px;
+      font-size: 22px;
       font-weight: 900;
       color: #0f172a;
       margin: 8px 0 4px 0;
@@ -642,17 +677,19 @@ async def export_text_or_markdown_as_pdf(
     .content {{
       font-size: 13.5px;
       color: #334155;
-      white-space: pre-wrap;
-      word-break: break-word;
       line-height: 1.7;
     }}
   </style>
 </head>
 <body>
+  <div class="action-bar no-print">
+    <div style="font-size: 12.5px; font-weight: 800; color: #059669;">Nu Age Learning Platform</div>
+    <button class="print-btn" onclick="window.print()">🖨️ Save as PDF / Print</button>
+  </div>
   <div class="header">
     <div class="brand">{html.escape(subtitle or "Nu Age LMS")}</div>
     <h1>{html.escape(display_title)}</h1>
-    <div class="meta">Study Material & Notes • Exported from Nu Age</div>
+    <div class="meta">Synthesized Question Bank & Notes • Official Study Material</div>
   </div>
   <div class="content">{formatted_body}</div>
 </body>
@@ -715,7 +752,7 @@ async def export_text_or_markdown_as_pdf(
         await open_or_download_asset(page, target_pdf, os.path.basename(target_pdf))
         return True
 
-    return launch_html_in_desktop_browser(html_content, page, file_stem=safe_base.replace(".pdf", ""))
+    return await launch_html_in_desktop_browser(html_content, page, file_stem=safe_base.replace(".pdf", ""), suppress_toast=True)
 
 
 def synthesize_material_question_bank(
@@ -867,11 +904,15 @@ def synthesize_material_question_bank(
     }
 
 
-def launch_html_in_desktop_browser(html_code: str, page: ft.Page = None, file_stem: str = "nu_web_preview") -> bool:
+async def launch_html_in_desktop_browser(
+    html_code: str,
+    page: Optional[ft.Page] = None,
+    file_stem: str = "nu_web_preview",
+    suppress_toast: bool = False,
+) -> bool:
     """
     Writes raw HTML to a local temp file and immediately launches it in Google Chrome if installed,
-    or falls back to the system's default browser (via os.startfile on Windows, open on macOS, xdg-open on Linux).
-    Displays a confirmation SnackBar on the page.
+    or falls back to the system's default browser (via page.launch_url, os.startfile on Windows, open on macOS).
     """
     import os
     import sys
@@ -891,7 +932,7 @@ def launch_html_in_desktop_browser(html_code: str, page: ft.Page = None, file_st
             f.write(raw_html)
     except Exception as err:
         print(f"[file_opener] Failed writing HTML preview file: {err}")
-        if page:
+        if page and not suppress_toast:
             show_page_snackbar(
                 page,
                 ft.SnackBar(
@@ -907,38 +948,57 @@ def launch_html_in_desktop_browser(html_code: str, page: ft.Page = None, file_st
 
     browser_used = None
 
-    # 1. Search for Google Chrome specifically
-    chrome_candidates = []
-    if sys.platform == "win32":
-        prog_files = os.environ.get("ProgramFiles", r"C:\Program Files")
-        prog_files_x86 = os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")
-        local_appdata = os.environ.get("LOCALAPPDATA", "")
-        chrome_candidates.extend([
-            os.path.join(prog_files, "Google", "Chrome", "Application", "chrome.exe"),
-            os.path.join(prog_files_x86, "Google", "Chrome", "Application", "chrome.exe"),
-            os.path.join(local_appdata, "Google", "Chrome", "Application", "chrome.exe"),
-        ])
-    elif sys.platform == "darwin":
-        chrome_candidates.extend([
-            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-            os.path.expanduser("~/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
-        ])
+    # 1. On Android / mobile or if page is available, serve via local media server and launch in default browser / Chrome
+    platform = getattr(page, "platform", None) if page else None
+    platform_str = str(platform or "").lower()
+    is_mobile_env = (
+        platform in (ft.PagePlatform.ANDROID, ft.PagePlatform.IOS, getattr(ft.PagePlatform, "ANDROID_TV", None))
+        or any(m in platform_str for m in ("android", "ios"))
+    ) if platform else (sys.platform.startswith("linux") and not os.path.exists("/usr/bin/xdg-open"))
 
-    for cmd in ("chrome", "google-chrome", "google-chrome-stable", "chromium", "chromium-browser"):
-        found = shutil.which(cmd)
-        if found and found not in chrome_candidates:
-            chrome_candidates.append(found)
+    if page and is_mobile_env:
+        try:
+            from src.local_media_server import asset_url
+            http_url = asset_url(tmp_path)
+            if http_url:
+                await page.launch_url(http_url)
+                browser_used = "Chrome / Default Browser"
+        except Exception as ex:
+            print(f"[file_opener] Mobile launch_url error: {ex}")
 
-    for candidate in chrome_candidates:
-        if candidate and os.path.exists(candidate):
-            try:
-                subprocess.Popen([candidate, tmp_path])
-                browser_used = "Google Chrome"
-                break
-            except Exception as ex:
-                print(f"[file_opener] Could not launch Chrome via {candidate}: {ex}")
+    # 2. Search for Google Chrome specifically on Desktop
+    if not browser_used:
+        chrome_candidates = []
+        if sys.platform == "win32":
+            prog_files = os.environ.get("ProgramFiles", r"C:\Program Files")
+            prog_files_x86 = os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")
+            local_appdata = os.environ.get("LOCALAPPDATA", "")
+            chrome_candidates.extend([
+                os.path.join(prog_files, "Google", "Chrome", "Application", "chrome.exe"),
+                os.path.join(prog_files_x86, "Google", "Chrome", "Application", "chrome.exe"),
+                os.path.join(local_appdata, "Google", "Chrome", "Application", "chrome.exe"),
+            ])
+        elif sys.platform == "darwin":
+            chrome_candidates.extend([
+                "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+                os.path.expanduser("~/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+            ])
 
-    # 2. Fallback to system default handler
+        for cmd in ("chrome", "google-chrome", "google-chrome-stable", "chromium", "chromium-browser"):
+            found = shutil.which(cmd)
+            if found and found not in chrome_candidates:
+                chrome_candidates.append(found)
+
+        for candidate in chrome_candidates:
+            if candidate and os.path.exists(candidate):
+                try:
+                    subprocess.Popen([candidate, tmp_path])
+                    browser_used = "Google Chrome"
+                    break
+                except Exception as ex:
+                    print(f"[file_opener] Could not launch Chrome via {candidate}: {ex}")
+
+    # 3. Fallback to system default handler
     if not browser_used:
         try:
             if sys.platform == "win32" and hasattr(os, "startfile"):
@@ -953,7 +1013,17 @@ def launch_html_in_desktop_browser(html_code: str, page: ft.Page = None, file_st
         except Exception as ex:
             print(f"[file_opener] System default open failed: {ex}")
 
-    # 3. Python webbrowser module fallback
+    # 4. Fallback via page.launch_url or Python webbrowser module
+    if not browser_used and page:
+        try:
+            from src.local_media_server import asset_url
+            http_url = asset_url(tmp_path)
+            if http_url:
+                await page.launch_url(http_url)
+                browser_used = "Browser"
+        except Exception as ex:
+            print(f"[file_opener] Fallback page.launch_url error: {ex}")
+
     if not browser_used:
         try:
             file_url = f"file:///{os.path.abspath(tmp_path).replace(os.sep, '/')}"
@@ -962,7 +1032,7 @@ def launch_html_in_desktop_browser(html_code: str, page: ft.Page = None, file_st
         except Exception as ex:
             print(f"[file_opener] webbrowser.open failed: {ex}")
 
-    if page:
+    if page and not suppress_toast:
         if browser_used:
             show_page_snackbar(
                 page,
@@ -1016,7 +1086,8 @@ def open_web_preview_modal(page: ft.Page, html_code: str, title: str = "Web Prev
 
     # On desktop, bypass the modal completely and launch live preview in Chrome / default browser
     if not is_mobile:
-        launch_html_in_desktop_browser(html_code, page=page)
+        if page:
+            page.run_task(launch_html_in_desktop_browser, html_code, page, "nu_web_preview")
         return
 
     # ── Mobile In-App WebView Modal Dialog ───────────────────────────────────────

@@ -424,18 +424,26 @@ def build_flashcard_session(
     def _finish():
         state["done"] = True
         progress.fill_all(ft.Colors.PRIMARY)
-        # Trigger streak celebration dialog (0 coin bonus)
-        try:
-            from src.components.streak_celebration_dialog import show_streak_celebration_dialog
-            show_streak_celebration_dialog(page, 2)
-        except Exception:
-            pass
         elapsed = int(time.time() - state["started"])
         g = state["grades"]
         recalled = g["good"] + g["easy"]
         pct = round(recalled / max(total, 1) * 100)
         verdict, v_color, v_icon, blurb = ui.verdict_for(pct)
         ring, ring_anim = ui.score_ring(pct, v_color)
+
+        def _share_flashcard_milestone():
+            try:
+                from src.components.milestone_share_modal import open_milestone_share_modal
+                from src.services.shareable_card_engine import MilestoneType
+                mat_title = (material.get("title") or "Flashcard Deck") if material else "Flashcard Deck"
+                open_milestone_share_modal(
+                    page,
+                    MilestoneType.OBJECTIVE,
+                    metric_value=f"{recalled}/{total}",
+                    subtitle=f"{mat_title} ({pct}% Recall)",
+                )
+            except Exception as err:
+                print(f"[Flashcards] Share milestone failed: {err}")
 
         summary = ft.Column(
             spacing=18,
@@ -504,6 +512,12 @@ def build_flashcard_session(
                             "Back to Cockpit" if material else "Back to Hub",
                             lambda _: on_exit(),
                             icon=ft.Icons.ARROW_BACK_ROUNDED if material else ft.Icons.HOME_ROUNDED,
+                            expand=True,
+                        ),
+                        ui.ghost_button(
+                            "Share",
+                            lambda _: _share_flashcard_milestone(),
+                            icon=ft.Icons.SHARE_ROUNDED,
                             expand=True,
                         ),
                         ui.primary_button("Study again", lambda _: on_restart(),

@@ -24,6 +24,9 @@ dependencies = [
     "flet-onesignal>=0.4.4",
     "flet-notifications==1.1.2",
     "yt-dlp>=2026.8.19",
+    "pillow>=11.0.0",
+    "pilmoji>=2.0.5",
+    "emoji>=2.14.0",
 ]
 
 [dependency-groups]
