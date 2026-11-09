@@ -14,6 +14,7 @@ import flet_charts as fch
 
 from src.components.bottom_appbar import get_bottom_appbar
 from src.requests.enrollments import get_enrollment_stats, get_weekly_activity
+from src.utils.file_opener import safe_share_text
 
 
 def format_time_ascension(seconds: int) -> str:
@@ -96,18 +97,17 @@ async def course_stats_view(page: ft.Page, course_id: str) -> ft.View:
         except Exception:
             return str(iso_str)
 
-    # ── WhatsApp Social Share Handler ─────────────────────────────────────────
-    async def open_whatsapp_share(title: str, rank: Optional[int], faster: float):
+    # ── Native Social Share Handler ───────────────────────────────────────────
+    async def handle_share(title: str, rank: Optional[int], faster: float):
         rank_text = f" (Ranked #{rank}) " if rank else " "
-        speed_text = f" Completed faster than {int(faster)}% of learners! ⚡\n\n" if faster > 0 else "\n\n"
+        speed_text = f" Completed faster than {int(faster)}% of learners!\n\n" if faster > 0 else "\n\n"
         message = (
-            f'🎓 I just completed "{title}"{rank_text}on Nu Age!\n'
+            f'I just completed "{title}"{rank_text}on Nu Age!\n'
             f"{speed_text}"
-            f"Finished the complete curriculum with verified modules, flashcards, and exam mastery!\n\n"
-            f"Check it out 👉 : nu-age.com.ng"
+            f"Finished the complete curriculum with verified modules, flashcards, and exam practice.\n\n"
+            f"Explore it here: nu-age.com.ng"
         )
-        encoded = urllib.parse.quote(message)
-        await page.launch_url(f"https://wa.me/?text={encoded}")
+        await safe_share_text(page, message, title=f"Achievement: {title}")
 
     # ── Main Content Builder ──────────────────────────────────────────────────
     def build_main_content(s: Dict[str, Any], activity: List[Dict[str, Any]]) -> ft.Control:
@@ -225,12 +225,12 @@ async def course_stats_view(page: ft.Page, course_id: str) -> ft.View:
                                 icon=ft.Icons.SHARE_ROUNDED,
                                 icon_color=ft.Colors.WHITE,
                                 icon_size=18 if is_mobile else 20,
-                                tooltip="Share Achievement on WhatsApp",
+                                tooltip="Share Achievement",
                                 bgcolor=ft.Colors.with_opacity(0.15, ft.Colors.WHITE),
                                 width=36 if is_mobile else 40,
                                 height=36 if is_mobile else 40,
                                 on_click=lambda _: asyncio.create_task(
-                                    open_whatsapp_share(course_title, rank, faster)
+                                    handle_share(course_title, rank, faster)
                                 ),
                             ),
                         ],

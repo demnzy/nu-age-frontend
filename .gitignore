@@ -68,3 +68,7 @@ desktop.ini
 # Signatures & Stamps
 signature_black_*.png
 stamp_black_*.png
+
+# Keystores & Signing Keys
+*.jks
+*.keystore

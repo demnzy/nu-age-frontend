@@ -2469,8 +2469,8 @@ async def course_space_hub_view(
             [
                 ft.IconButton(
                     ft.Icons.ARROW_BACK_ROUNDED,
-                    tooltip="Back",
-                    on_click=lambda ev: page.navigate(target_back),
+                    tooltip="Back to Courses",
+                    on_click=lambda ev: page.navigate(target_back or "/courses?tab=spaces"),
                 ),
                 ft.Column(
                     [

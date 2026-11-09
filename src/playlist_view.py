@@ -14,6 +14,7 @@ from src.requests.playlists import get_playlist, enroll_in_playlist
 from src.requests.enrollments import enrol_user, get_enrollments
 from src.requests.Courses import get_courses
 from src.components.shimmer_skeletons import build_playlist_view_skeleton
+from src.utils.file_opener import safe_share_text
 
 UI_ACCENT = ft.Colors.PRIMARY
 
@@ -34,17 +35,16 @@ async def playlist_view(page: ft.Page, playlist_id: str, back_target: str = "/co
     # Content Socket Ref
     content_socket = ft.Ref[ft.Container]()
 
-    # ── WhatsApp Share Handler ────────────────────────────────────────────────
-    async def open_whatsapp_share(e):
+    # ── Native Share Handler ──────────────────────────────────────────────────
+    async def handle_share(e=None):
         title = playlist_data.get("name") or "Learning Path"
         num_courses = len(playlist_courses)
         message = (
-            f'Hey! Check out the curated learning path "{title}" ({num_courses} courses) on Nu Age! 🚀\n\n'
-            f"It features step-by-step interactive modules, flashcards, quizzes, and smart AI tutoring!\n\n"
-            f"Check it out 👉 : nu-age.com.ng"
+            f'Check out the "{title}" learning path ({num_courses} courses) on Nu Age!\n\n'
+            f"It has step-by-step interactive modules, flashcards, quizzes, and AI tutoring.\n\n"
+            f"Explore it here: nu-age.com.ng"
         )
-        encoded_message = urllib.parse.quote(message)
-        await page.launch_url(f"https://wa.me/?text={encoded_message}")
+        await safe_share_text(page, message, title=f"Learning Path: {title}")
 
     # ── Top AppBar ────────────────────────────────────────────────────────────
     app_bar = ft.AppBar(
@@ -67,8 +67,8 @@ async def playlist_view(page: ft.Page, playlist_id: str, back_target: str = "/co
             ft.IconButton(
                 icon=ft.Icons.SHARE_OUTLINED,
                 icon_color=ft.Colors.ON_SURFACE,
-                tooltip="Share Learning Path via WhatsApp",
-                on_click=open_whatsapp_share,
+                tooltip="Share Learning Path",
+                on_click=handle_share,
             ),
             ft.IconButton(
                 icon=ft.Icons.REFRESH_ROUNDED,
@@ -79,6 +79,8 @@ async def playlist_view(page: ft.Page, playlist_id: str, back_target: str = "/co
             ft.Container(width=8),
         ],
         elevation=0,
+        elevation_on_scroll=0.0,
+        shadow_color=ft.Colors.TRANSPARENT,
         center_title=False,
     )
 

@@ -1,15 +1,17 @@
 """
-Full-Page Onboarding View for Nu-Age LMS (Flet 1.1.2).
-Integrates the complete 4-screen interactive presentation deck from onboarding_overlay.py:
-1. Self-Study Hub & AI Tools
+Full-Page Onboarding View for Nu Age LMS (Flet 1.1.2).
+Integrates the complete 6-screen interactive presentation deck from onboarding_overlay.py:
+1. Self-Study Hub & Practice Tools
 2. Courses & Spaces
 3. Nu Chat & Nu Owl AI Companion
-4. Interactive Goal Customizer (15m/30m/60m Daily Target & Focus Topics)
+4. Study Network & Duo Streaks
+5. What's New in Nu Age
+6. Interactive Goal Customizer (15m/30m/60m Daily Target & Focus Topics)
 
 Features:
 - Dedicated distraction-free full-page view at /onboarding.
 - Works on first app launch after install, fully independent of auth status.
-- Top-left Nu-Age logo rendered from assets/icon.png.
+- Top-left Nu Age logo rendered from assets/icon.png.
 - Heavily optimized for mobile viewports with snug vertical scaling and smooth touch swipe gestures.
 """
 
@@ -31,7 +33,7 @@ from src.utils.theme_bridge import get_theme_palette, THEME_PALETTES
 # True  -> ALWAYS show on startup (allows instant review/testing)
 # False -> NEVER show
 # None  -> Normal behavior (only shows on compiled first launch, then never again)
-FORCE_SHOW_ONBOARDING = None
+FORCE_SHOW_ONBOARDING = False
 
 
 # ─────────────────────────────────────────────────────────────────────────────

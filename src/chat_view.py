@@ -698,13 +698,25 @@ async def chat_view(
             page.update()
             _restore_scroll_anchor()
 
+    async def _safe_focus(control=None):
+        ctrl = control or msg_input
+        try:
+            try:
+                p = getattr(ctrl, "page", None)
+            except RuntimeError:
+                p = None
+            if p is not None:
+                await ctrl.focus()
+        except Exception:
+            pass
+
     def _toggle_in_room_search(e=None):
         in_room_search_open[0] = not in_room_search_open[0]
         in_room_search_container.visible = in_room_search_open[0]
         if in_room_search_open[0]:
-            page.run_task(in_room_search_in.focus)
             page.update()
             _restore_scroll_anchor()
+            page.run_task(_safe_focus, in_room_search_in)
         else:
             _close_in_room_search(do_update=True)
 
@@ -793,12 +805,19 @@ async def chat_view(
 
     def _set_reply(msg_to_reply: dict):
         s_name = (msg_to_reply.get("sender") or {}).get("name") or msg_to_reply.get("sender_name") or "User"
+        s_id = str((msg_to_reply.get("sender") or {}).get("id") or msg_to_reply.get("sender_id", "")).strip().lower()
         c_txt = msg_to_reply.get("content") or "Message"
+        is_target_ai = (
+            s_id == "ai_assistant"
+            or s_name.strip().lower() in ("nu owl", "nu study ai", "ai assistant")
+        )
         active_reply_state[0] = {
             "message_id": str(msg_to_reply.get("id") or ""),
-            "sender_name": s_name,
+            "sender_id": "ai_assistant" if is_target_ai else s_id,
+            "sender_name": "Nu Owl" if is_target_ai else s_name,
             "snippet": c_txt[:80] + ("..." if len(c_txt) > 80 else ""),
-            "type": msg_to_reply.get("type", "text")
+            "type": "ai_response" if is_target_ai else "text",
+            "is_ai": is_target_ai,
         }
         reply_bar_container.content = build_chat_reply_bar(active_reply_state[0], palette, _cancel_reply)
         try:
@@ -806,7 +825,7 @@ async def chat_view(
         except Exception:
             page.update()
         _restore_scroll_anchor()
-        page.run_task(msg_input.focus)
+        page.run_task(_safe_focus, msg_input)
 
     def _update_bubble_reactions_in_place(
         target_msg_id: str,
@@ -1493,19 +1512,19 @@ async def chat_view(
                     autocomplete_card.visible = False
                     if action_type == "ai":
                         msg_input.value = re.sub(r'(/)[\w.-]*$', '/ai ', msg_input.value or '')
-                        page.run_task(msg_input.focus)
+                        page.run_task(_safe_focus, msg_input)
                     elif action_type == "poll":
                         msg_input.value = re.sub(r'(/)[\w.-]*$', '', msg_input.value or '')
                         open_poll_modal()
                     elif action_type == "code":
                         msg_input.value = re.sub(r'(/)[\w.-]*$', '```python\n# Code\n```', msg_input.value or '')
-                        page.run_task(msg_input.focus)
+                        page.run_task(_safe_focus, msg_input)
                     elif action_type == "duel":
                         msg_input.value = re.sub(r'(/)[\w.-]*$', '/duel ', msg_input.value or '')
-                        page.run_task(msg_input.focus)
+                        page.run_task(_safe_focus, msg_input)
                     elif action_type == "duo":
                         msg_input.value = re.sub(r'(/)[\w.-]*$', '/duo ', msg_input.value or '')
-                        page.run_task(msg_input.focus)
+                        page.run_task(_safe_focus, msg_input)
                     elif action_type == "help":
                         msg_input.value = re.sub(r'(/)[\w.-]*$', '', msg_input.value or '')
                         open_chat_help_dialog()
@@ -2249,11 +2268,10 @@ async def chat_view(
             try: meta_chk = json.loads(meta_chk)
             except: meta_chk = {}
         is_ai = (
-            (msg_type == "ai_response")
-            or (isinstance(meta_chk, dict) and (meta_chk.get("is_ai") or bool(meta_chk.get("prompt"))))
-            or (sender_id == "ai_assistant")
-            or (sender_name.lower() in ("nu study ai", "ai assistant", "nu ai"))
-            or (msg.get("sender", {}).get("name") == "Nu Study AI")
+            (sender_id == "ai_assistant")
+            or (sender_name.lower() in ("nu owl", "nu study ai", "ai assistant", "nu ai"))
+            or (str(msg.get("sender", {}).get("name") or "").lower() in ("nu owl", "nu study ai", "ai assistant"))
+            or (msg_type == "ai_response" and sender_id in ("ai_assistant", "unknown", ""))
         )
         is_me = ((sender_id == my_id) or msg.get("is_me", False)) and not is_ai
         if is_ai:
@@ -3937,12 +3955,16 @@ async def chat_view(
                     if isinstance(meta_p, str):
                         try: meta_p = json.loads(meta_p)
                         except: meta_p = {}
-                    is_m_ai = (m_type == "ai_response") or (isinstance(meta_p, dict) and (meta_p.get("is_ai") or bool(meta_p.get("prompt")))) or str(sdata.get("id")) == "ai_assistant" or str(sdata.get("name")) == "Nu Study AI"
+                    is_m_ai = (
+                        str(sdata.get("id", "")).lower() == "ai_assistant"
+                        or str(sdata.get("name", "")).lower() in ("nu owl", "nu study ai", "ai assistant")
+                        or (m_type == "ai_response" and str(sdata.get("id", "")).lower() in ("ai_assistant", "unknown", ""))
+                    )
                     formatted_msgs.append({
                         "id": str(m.get("id")),
                         "channel_id": str(chat_id),
                         "sender_id": "ai_assistant" if is_m_ai else str(sdata.get("id", m.get("sender_id", ""))),
-                        "sender_name": "Nu Study AI" if is_m_ai else (str(sdata.get("name") or "Unknown").strip() or "Unknown"),
+                        "sender_name": "Nu Owl" if is_m_ai else (str(sdata.get("name") or "Unknown").strip() or "Unknown"),
                         "type": "ai_response" if is_m_ai else m_type,
                         "content": m.get("content", ""),
                         "metadata_payload": json.dumps(meta_p) if meta_p else None,
@@ -4454,10 +4476,7 @@ async def chat_view(
         safe_open_dialog(page, dlg, tag="chat_help_dialog")
 
     async def _safe_focus_input():
-        try:
-            await msg_input.focus()
-        except Exception:
-            pass
+        await _safe_focus(msg_input)
 
     def _trigger_ai_prompt():
         msg_input.value = "/ai "

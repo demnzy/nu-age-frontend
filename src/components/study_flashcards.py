@@ -424,6 +424,12 @@ def build_flashcard_session(
     def _finish():
         state["done"] = True
         progress.fill_all(ft.Colors.PRIMARY)
+        # Trigger streak celebration dialog (0 coin bonus)
+        try:
+            from src.components.streak_celebration_dialog import show_streak_celebration_dialog
+            show_streak_celebration_dialog(page, 2)
+        except Exception:
+            pass
         elapsed = int(time.time() - state["started"])
         g = state["grades"]
         recalled = g["good"] + g["easy"]

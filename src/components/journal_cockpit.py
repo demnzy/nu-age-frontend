@@ -7,6 +7,7 @@ from src.utils.file_opener import (
     safe_close_dialog,
     safe_update_dialog,
     run_after_modal_close,
+    open_or_download_asset,
 )
 from src.utils.typing_animator import stream_typing_animation
 from src.components.create_journal_modal import JOURNAL_COLORS, resolve_journal_color
@@ -181,8 +182,13 @@ def build_journal_cockpit(
         if state["is_generating"] and not state["polling_active"]:
             page.run_task(_poll_generation)
 
-    # ── Modal 1: Module Source Notes Reader ──────────────────────────────────
+    # ── Modal 1: Module Question Bank & Notes Reader ─────────────────────────
     def _open_source_reader(mat_item: dict, color_token: str):
+        from src.utils.file_opener import (
+            synthesize_material_question_bank,
+            export_text_or_markdown_as_pdf,
+        )
+
         mid = str(mat_item.get("id"))
         m_title = mat_item.get("title") or "Course Module"
         m_content = mat_item.get("content") or ""
@@ -191,7 +197,14 @@ def build_journal_cockpit(
         if not m_content and vault_match:
             m_content = vault_match.get("content") or ""
 
-        word_count = len(m_content.split()) if m_content else 0
+        qbank_data = synthesize_material_question_bank(
+            material_id=mid,
+            title=m_title,
+            raw_content=m_content,
+            page=page,
+        )
+        final_markdown = qbank_data["markdown"]
+        summary_label = qbank_data["summary_label"]
         reader_dlg = [None]
 
         def _close_reader(e=None):
@@ -199,9 +212,20 @@ def build_journal_cockpit(
                 safe_close_dialog(page, reader_dlg[0])
 
         async def _copy_source():
-            if m_content:
-                await safe_set_clipboard(page, m_content)
-                show_page_snackbar(page, f"Copied '{m_title}' notes to clipboard.")
+            if final_markdown:
+                await safe_set_clipboard(page, final_markdown)
+                show_page_snackbar(page, f"Copied '{m_title}' Question Bank to clipboard.")
+
+        async def _export_question_bank_pdf(e=None):
+            fname = f"{m_title} - Question Bank.pdf"
+            ok = await export_text_or_markdown_as_pdf(
+                page,
+                fname,
+                final_markdown,
+                subtitle="Nu Age LMS • Question Bank",
+            )
+            if not ok:
+                show_page_snackbar(page, "Could not generate PDF export.")
 
         def _jump_to_material(e=None):
             def _do_jump():
@@ -214,45 +238,58 @@ def build_journal_cockpit(
             else:
                 _do_jump()
 
-        dlg_w = min(680, int((page.width or 420) * 0.94))
-        dlg_h = min(500, int((page.height or 680) * 0.65))
+        dlg_w = min(740, int((page.width or 420) * 0.95))
+        dlg_h = min(560, int((page.height or 680) * 0.75))
 
-        body_control = (
-            ft.SelectionArea(
-                content=ft.Markdown(
-                    m_content,
-                    selectable=True,
-                    extension_set=ft.MarkdownExtensionSet.GITHUB_FLAVORED,
-                    on_tap_link=lambda e: None,
-                )
-            )
-            if m_content.strip()
-            else ft.Container(
-                padding=ft.Padding.all(24),
-                alignment=ft.Alignment.CENTER,
-                content=ft.Text(
-                    "No extracted text preview available for this module.",
-                    size=12,
-                    color=ft.Colors.ON_SURFACE_VARIANT,
+        content_controls = [
+            ft.Container(
+                expand=True,
+                width=float("inf"),
+                padding=ft.Padding.all(14),
+                border_radius=ft.BorderRadius.all(12),
+                bgcolor=ft.Colors.with_opacity(0.03, ft.Colors.ON_SURFACE),
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                content=ft.Column(
+                    scroll=ft.ScrollMode.AUTO,
+                    expand=True,
+                    horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+                    controls=[
+                        ft.SelectionArea(
+                            content=ft.Markdown(
+                                final_markdown,
+                                selectable=True,
+                                extension_set=ft.MarkdownExtensionSet.GITHUB_FLAVORED,
+                            )
+                        )
+                    ],
                 ),
             )
-        )
+        ]
 
-        actions_list = []
-        if m_content.strip():
-            actions_list.append(
-                ft.TextButton(
-                    content=ft.Row(
-                        spacing=5,
-                        tight=True,
-                        controls=[
-                            ft.Icon(ft.Icons.CONTENT_COPY_ROUNDED, size=14),
-                            ft.Text("Copy Notes", size=12),
-                        ],
-                    ),
-                    on_click=lambda _: page.run_task(_copy_source),
-                )
-            )
+        actions_list = [
+            ft.TextButton(
+                content=ft.Row(
+                    spacing=5,
+                    tight=True,
+                    controls=[
+                        ft.Icon(ft.Icons.PICTURE_AS_PDF_ROUNDED, size=14, color=color_token),
+                        ft.Text("Export PDF", size=12, color=color_token, weight=ft.FontWeight.W_600),
+                    ],
+                ),
+                on_click=lambda _: page.run_task(_export_question_bank_pdf),
+            ),
+            ft.TextButton(
+                content=ft.Row(
+                    spacing=5,
+                    tight=True,
+                    controls=[
+                        ft.Icon(ft.Icons.CONTENT_COPY_ROUNDED, size=14),
+                        ft.Text("Copy All", size=12),
+                    ],
+                ),
+                on_click=lambda _: page.run_task(_copy_source),
+            ),
+        ]
         if on_open_material and (vault_match or mat_item.get("id")):
             actions_list.append(
                 ft.OutlinedButton(
@@ -298,7 +335,7 @@ def build_journal_cockpit(
                                 border_radius=ft.BorderRadius.all(9),
                                 bgcolor=ft.Colors.with_opacity(0.12, color_token),
                                 alignment=ft.Alignment.CENTER,
-                                content=ft.Icon(ft.Icons.DESCRIPTION_ROUNDED, color=color_token, size=18),
+                                content=ft.Icon(ft.Icons.MENU_BOOK_ROUNDED, color=color_token, size=18),
                             ),
                             ft.Column(
                                 spacing=1,
@@ -313,7 +350,7 @@ def build_journal_cockpit(
                                         overflow=ft.TextOverflow.ELLIPSIS,
                                     ),
                                     ft.Text(
-                                        f"Constituent Module • {word_count:,} words",
+                                        summary_label,
                                         size=10.5,
                                         color=ft.Colors.ON_SURFACE_VARIANT,
                                     ),
@@ -327,14 +364,11 @@ def build_journal_cockpit(
             content=ft.Container(
                 width=dlg_w,
                 height=dlg_h,
-                padding=ft.Padding.all(14),
-                border_radius=ft.BorderRadius.all(12),
-                bgcolor=ft.Colors.with_opacity(0.03, ft.Colors.ON_SURFACE),
-                border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
                 content=ft.Column(
-                    scroll=ft.ScrollMode.AUTO,
+                    spacing=10,
                     expand=True,
-                    controls=[body_control],
+                    horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+                    controls=content_controls,
                 ),
             ),
             actions=actions_list,
@@ -1347,49 +1381,56 @@ def build_journal_cockpit(
                 )
             )
 
-        # ── Visual Generation Progress Block (Matches _build_material_cockpit) ──
-        init_pct = int(j.get("progress_percent") or (20 if is_gen else 100))
-        init_stage = str(j.get("stage") or ("Analyzing & chunking notes..." if is_gen else "Ready to study"))
-
-        progress_bar = ft.ProgressBar(
-            value=init_pct / 100.0,
-            color=color_token,
-            bgcolor=ft.Colors.with_opacity(0.12, color_token),
-            height=5,
-            border_radius=ft.BorderRadius.all(3),
-        )
-        pct_badge_text = ft.Text(
-            f"{init_pct}%",
-            size=11,
-            color=color_token,
-            weight=ft.FontWeight.W_800,
-        )
-        human_stage_text = ft.Text(
-            init_stage,
-            size=11,
-            color=ft.Colors.ON_SURFACE_VARIANT,
-            max_lines=1,
-            overflow=ft.TextOverflow.ELLIPSIS,
-            expand=True,
-        )
-        progress_block = ft.Container(
+        # ── Ambient Generation Card (Modern non-blocking background status) ──
+        ambient_gen_card = ft.Container(
             visible=is_gen,
-            padding=ft.Padding.only(top=4),
-            content=ft.Column(
-                spacing=5,
-                tight=True,
+            padding=ft.Padding.symmetric(horizontal=16, vertical=14),
+            border_radius=ft.BorderRadius.all(14),
+            bgcolor=ft.Colors.with_opacity(0.06, color_token),
+            border=ft.Border.all(1.2, ft.Colors.with_opacity(0.25, color_token)),
+            content=ft.Row(
+                spacing=12,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 controls=[
-                    ft.Row(
-                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    ft.Container(
+                        width=36,
+                        height=36,
+                        border_radius=ft.BorderRadius.all(10),
+                        bgcolor=ft.Colors.with_opacity(0.12, color_token),
+                        alignment=ft.Alignment.CENTER,
+                        content=ft.ProgressRing(width=18, height=18, stroke_width=2.4, color=color_token),
+                    ),
+                    ft.Column(
+                        spacing=2,
+                        tight=True,
+                        expand=True,
                         controls=[
-                            ft.Row([
-                                ft.Icon(ft.Icons.AUTO_AWESOME_ROUNDED, size=12, color=color_token),
-                                human_stage_text,
-                            ], spacing=5, tight=True, expand=True),
-                            pct_badge_text,
+                            ft.Row(
+                                spacing=6,
+                                tight=True,
+                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                controls=[
+                                    ft.Text(
+                                        "Nu Age AI is synthesizing your course journal",
+                                        size=12.5,
+                                        weight=ft.FontWeight.W_800,
+                                        color=ft.Colors.ON_SURFACE,
+                                    ),
+                                    ft.Container(
+                                        padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+                                        border_radius=ft.BorderRadius.all(4),
+                                        bgcolor=ft.Colors.with_opacity(0.12, color_token),
+                                        content=ft.Text("Background", size=9.5, weight=ft.FontWeight.W_700, color=color_token),
+                                    ),
+                                ],
+                            ),
+                            ft.Text(
+                                "Your study notes, flashcards and quiz questions are synthesizing in the background. Feel free to explore other courses—your notebook will be ready when you return.",
+                                size=11,
+                                color=ft.Colors.ON_SURFACE_VARIANT,
+                            ),
                         ],
                     ),
-                    progress_bar,
                 ],
             ),
         )
@@ -1397,18 +1438,12 @@ def build_journal_cockpit(
         def _update_status_ui_impl(status_data: dict):
             st = str(status_data.get("status") or "completed").lower()
             still_gen = bool(status_data.get("is_generating", st in ("processing", "queued", "pending", "in_progress")))
-            pct = int(status_data.get("progress_percent") or (100 if not still_gen else 25))
-            stage = str(status_data.get("stage") or ("Ready to study" if not still_gen else "Synthesizing course notebook..."))
-
-            progress_bar.value = pct / 100.0
-            pct_badge_text.value = f"{pct}%"
-            human_stage_text.value = stage
-            progress_block.visible = still_gen
+            ambient_gen_card.visible = still_gen
 
             if still_gen:
                 status_pill_icon.name = ft.Icons.AUTO_AWESOME_ROUNDED
                 status_pill_icon.color = ft.Colors.PRIMARY
-                status_pill_text.value = f"{pct}% Synthesizing"
+                status_pill_text.value = "Generating in Background"
                 status_pill_text.color = ft.Colors.PRIMARY
                 status_pill_badge.bgcolor = ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY)
                 hero_cta_slot.content = primary_generating_cta_btn
@@ -1480,7 +1515,7 @@ def build_journal_cockpit(
                         wrap=True,
                         controls=cta_row_controls,
                     ),
-                    progress_block,
+                    ambient_gen_card,
                 ],
             ),
         )
@@ -1530,14 +1565,14 @@ def build_journal_cockpit(
                     border_radius=ft.BorderRadius.all(8),
                     bgcolor=ft.Colors.with_opacity(0.08, color_token),
                     ink=True,
-                    tooltip="Read module source notes",
+                    tooltip="View Question Bank & study notes",
                     on_click=(lambda item=m: lambda _: _open_source_reader(item, color_token))(),
                     content=ft.Row(
                         spacing=4,
                         tight=True,
                         controls=[
-                            ft.Icon(ft.Icons.ARTICLE_OUTLINED, size=13, color=color_token),
-                            ft.Text("Notes" if is_small else "Read Notes", size=10.5, weight=ft.FontWeight.W_700, color=color_token),
+                            ft.Icon(ft.Icons.MENU_BOOK_ROUNDED, size=13, color=color_token),
+                            ft.Text("Q-Bank" if is_small else "Question Bank", size=10.5, weight=ft.FontWeight.W_700, color=color_token),
                         ],
                     ),
                 ),
@@ -2097,7 +2132,7 @@ def build_journal_cockpit(
                         tight=True,
                         expand=True,
                         controls=[
-                            ft.Text("Nu Owl • Course Journal Tutor", size=10.5, weight=ft.FontWeight.W_800, color=color_token),
+                            ft.Text("Nu Owl", size=10.5, weight=ft.FontWeight.W_800, color=color_token),
                             ft.Text(
                                 f"I've read across all {m_count} module(s) in '{j_title}'. Ask me to connect concepts between lectures, explain formulas, or quiz you on exam traps!",
                                 size=12,
@@ -2140,7 +2175,7 @@ def build_journal_cockpit(
                 on_tap_link=lambda e: page.run_task(safe_set_clipboard, page, e.data),
             )
             hdr_color = ft.Colors.AMBER_600 if is_error else color_token
-            hdr_title = "Nu Owl • Service Notice" if is_error else "Nu Owl • Course Journal Tutor"
+            hdr_title = "Nu Owl • Service Notice" if is_error else "Nu Owl"
             bubble_bg = ft.Colors.with_opacity(0.08, ft.Colors.AMBER_600) if is_error else ft.Colors.with_opacity(0.06, color_token)
 
             bubble_controls = [
@@ -2579,7 +2614,7 @@ def build_journal_cockpit(
                                         tight=True,
                                         expand=True,
                                         controls=[
-                                            ft.Text("Course Journal Tutor", size=13.5, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
+                                            ft.Text("Nu Owl", size=13.5, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
                                             ft.Text(
                                                 f"Grounded Socratic dialogue across {m_count} course module(s)",
                                                 size=10,

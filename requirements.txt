@@ -16,6 +16,7 @@ colorama==0.4.6
 cookiecutter==2.7.1
 fastapi==0.136.0
 flet==1.1.2
+flet-audio==1.1.2
 flet-charts==1.1.2
 flet-cli==1.1.2
 flet-desktop==1.1.2
@@ -23,6 +24,8 @@ flet-video==1.1.2
 flet-web==1.1.2
 flet-webview==1.1.2
 flet-shadcn-ui==1.1.2
+flet-notifications==1.1.2
+flet-onesignal==0.4.4
 h11==0.16.0
 httpcore==1.0.9
 httptools==0.7.1

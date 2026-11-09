@@ -57,6 +57,9 @@ from src.components.onboarding_overlay import build_onboarding_overlay
 # Retired legacy modal overlay in favor of full-page carousel at /onboarding
 FORCE_SHOW_ONBOARDING = False
 
+# DEV TOGGLE: Force-show the Day 1 -> Day 2 retention streak card on dashboard
+FORCE_SHOW_STREAK_CARD = False
+
 
 def _get_app_disk_state() -> dict:
     try:
@@ -834,6 +837,132 @@ async def dashboard_view(page: ft.Page):
 
     incoming_duel_container = ft.Container(visible=False)
 
+    def _build_streak_retention_card(streak_count: int = 1) -> ft.Container:
+        is_dark = getattr(page, "theme_mode", None) == ft.ThemeMode.DARK
+        card_bg = ft.Colors.with_opacity(0.12, ft.Colors.AMBER_900) if is_dark else "#FFF8F0"
+        border_clr = ft.Colors.with_opacity(0.4, ft.Colors.AMBER_600) if is_dark else ft.Colors.with_opacity(0.45, ft.Colors.ORANGE_300)
+        is_mobile = bool(page.width and page.width < 768)
+
+        if streak_count <= 1:
+            title_text = "Day 1 Complete! Reach Day 2 Today"
+            desc_text = "Take 2 minutes to review 5 flashcards or answer 1 quick quiz question to build your streak."
+            badge_text = "🔥 Reach Day 2"
+        else:
+            title_text = f"Keep your {streak_count}-day streak alive!"
+            desc_text = "Take 2 minutes for a quick micro-quiz or flashcard drill to protect your daily flame."
+            badge_text = f"🔥 {streak_count}d Active Flame"
+
+        streak_badge = ft.Container(
+            padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+            border_radius=ft.BorderRadius.all(8),
+            bgcolor=ft.Colors.with_opacity(0.15, ft.Colors.AMBER_600),
+            content=ft.Text(badge_text, size=10.5, weight=ft.FontWeight.W_800, color=ft.Colors.ORANGE_900 if not is_dark else ft.Colors.AMBER_300),
+        )
+
+        action_btn = ft.Button(
+            content=ft.Row(
+                tight=True,
+                spacing=6,
+                controls=[
+                    ft.Icon(ft.Icons.BOLT_ROUNDED, size=16, color=ft.Colors.WHITE),
+                    ft.Text("Quick Practice (60s) →", size=12, weight=ft.FontWeight.W_800, color=ft.Colors.WHITE),
+                ],
+            ),
+            bgcolor=ft.Colors.ORANGE_800 if is_dark else ft.Colors.ORANGE_700,
+            height=38,
+            style=ft.ButtonStyle(
+                shape=ft.RoundedRectangleBorder(radius=10),
+                elevation=0,
+                padding=ft.Padding.symmetric(horizontal=14),
+            ),
+            on_click=lambda _: page.navigate("/self-study?tab=quizzes"),
+        )
+
+        left_side = ft.Row(
+            spacing=12,
+            tight=True,
+            expand=True,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                ft.Container(
+                    width=44,
+                    height=44,
+                    border_radius=ft.BorderRadius.all(12),
+                    gradient=ft.LinearGradient(
+                        colors=[ft.Colors.AMBER_500, ft.Colors.DEEP_ORANGE_600],
+                        begin=ft.Alignment.TOP_LEFT,
+                        end=ft.Alignment.BOTTOM_RIGHT,
+                    ),
+                    alignment=ft.Alignment.CENTER,
+                    content=ft.Icon(ft.Icons.LOCAL_FIRE_DEPARTMENT_ROUNDED, color=ft.Colors.WHITE, size=24),
+                ),
+                ft.Column(
+                    spacing=3,
+                    tight=True,
+                    expand=True,
+                    controls=[
+                        ft.Row(
+                            spacing=8,
+                            tight=True,
+                            controls=[
+                                ft.Text(title_text, size=13.5, weight=ft.FontWeight.W_800, color=ft.Colors.ON_SURFACE),
+                                streak_badge,
+                            ],
+                        ),
+                        ft.Text(
+                            desc_text,
+                            size=11,
+                            color=ft.Colors.ON_SURFACE_VARIANT,
+                            max_lines=2,
+                            overflow=ft.TextOverflow.ELLIPSIS,
+                        ),
+                    ],
+                ),
+            ],
+        )
+
+        if is_mobile:
+            content_layout = ft.Column(
+                spacing=12,
+                tight=True,
+                controls=[
+                    left_side,
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.END,
+                        controls=[action_btn],
+                    ),
+                ],
+            )
+        else:
+            content_layout = ft.Row(
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[
+                    left_side,
+                    action_btn,
+                ],
+            )
+
+        return ft.Container(
+            width=float("inf"),
+            bgcolor=card_bg,
+            border_radius=ft.BorderRadius.all(16),
+            border=ft.Border.all(1.5, border_clr),
+            padding=ft.Padding.symmetric(horizontal=16, vertical=14),
+            shadow=ft.BoxShadow(
+                blur_radius=10,
+                color=ft.Colors.with_opacity(0.06, ft.Colors.ORANGE),
+                offset=ft.Offset(0, 2),
+            ),
+            content=content_layout,
+        )
+
+    streak_retention_card = ft.Container(
+        width=float("inf"),
+        visible=FORCE_SHOW_STREAK_CARD,
+        content=_build_streak_retention_card(1),
+    )
+
     def _build_leaderboards_action_card(coins_count: int = 0, streak_count: int = 0) -> ft.Container:
         is_dark = getattr(page, "theme_mode", None) == ft.ThemeMode.DARK
         card_bg = ft.Colors.SURFACE if is_dark else "#FFFFFF"
@@ -1387,6 +1516,8 @@ async def dashboard_view(page: ft.Page):
             coins_count=coins_bal,
             streak_count=streak,
         )
+        streak_retention_card.content = _build_streak_retention_card(streak_count=streak)
+        streak_retention_card.visible = FORCE_SHOW_STREAK_CARD or (streak <= 1)
 
         # ── Learner Training Cohorts Card ─────────────────────────────────────
         learner_cohorts_card = ft.Container()
@@ -1832,6 +1963,7 @@ async def dashboard_view(page: ft.Page):
                                     spacing=16,
                                     controls=[
                                         incoming_duel_container,     # 0. Active Incoming 15-Q Duel Banner (Shows only when challenged!)
+                                        streak_retention_card,       # 0b. Day 1 -> Day 2 Streak Habit Bridge
                                         quick_hub_section,          # 1. 4-tile Quick Launch Hub
                                         leaderboards_action_card,   # 2. Campus Leaderboards & Objectives Card (Prominent & Visible!)
                                         continue_learning_section,  # 3. Continue Learning Course Cards

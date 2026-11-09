@@ -23,7 +23,12 @@ def build_chat_reply_bar(
 
     sender_name = reply_data.get("sender_name") or "User"
     snippet = reply_data.get("snippet") or "Quoted message"
-    is_ai = reply_data.get("type") == "ai_response" or reply_data.get("is_ai")
+    # An AI badge should strictly only appear when replying to Nu Owl / Nu Study AI, never a human peer
+    is_ai = bool(
+        str(reply_data.get("sender_id", "")).strip().lower() == "ai_assistant"
+        or sender_name.strip().lower() in ("nu owl", "nu study ai", "ai assistant")
+        or (reply_data.get("type") == "ai_response" and sender_name.strip().lower() in ("nu owl", "nu study ai", "ai assistant"))
+    )
 
     accent_color = ft.Colors.PURPLE_400 if is_ai else palette.get("accent", ft.Colors.PRIMARY)
 

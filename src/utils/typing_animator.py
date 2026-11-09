@@ -80,15 +80,16 @@ async def stream_typing_animation(
 
     # Calculate dynamic chunk step and base delay based on length
     total_tokens = len(tokens)
-    if total_tokens > 500:
-        step = 4  # ~2 words per chunk for very long text
-        base_delay = 0.012
-    elif total_tokens > 200:
-        step = 2  # 1 word per chunk
-        base_delay = 0.014
+    requested_step = max(2, words_per_chunk * 2)
+    if total_tokens > 600:
+        step = max(requested_step, 8)  # ~4 words per tick for long text
+        base_delay = 0.005
+    elif total_tokens > 250:
+        step = max(requested_step, 6)  # ~3 words per tick
+        base_delay = 0.007
     else:
-        step = 2  # 1 word per chunk for short/medium text
-        base_delay = max(0.012, chunk_interval_ms / 1000.0)
+        step = max(requested_step, 4)  # ~2 words per tick
+        base_delay = max(0.006, chunk_interval_ms / 1000.0)
 
     accumulated = []
     last_scroll_time = 0.0
@@ -105,12 +106,21 @@ async def stream_typing_animation(
             else:
                 target_control.value = current_str
 
-            page.update()
+            updated = False
+            try:
+                if getattr(target_control, "page", None):
+                    target_control.update()
+                    updated = True
+            except Exception:
+                updated = False
+
+            if not updated:
+                page.update()
 
             # Throttled auto-scrolling to prevent fighting Flutter's physics controller
             now = time.monotonic()
             if scroll_container and hasattr(scroll_container, "scroll_to"):
-                if (now - last_scroll_time >= 0.14) or ("\n" in batch):
+                if (now - last_scroll_time >= 0.16) or ("\n" in batch):
                     last_scroll_time = now
                     try:
                         await scroll_container.scroll_to(offset=-1, duration=0)
@@ -121,27 +131,32 @@ async def stream_typing_animation(
             # Control or page was unmounted / closed mid-stream, abort cleanly
             return
 
-        # Adaptive human-cadence delay:
-        # Micro-pause on commas, semicolons, and colons (+30ms)
-        # Sentence-ending pause on periods, question marks, and exclamation marks (+65ms)
-        # Paragraph break pause on double newlines (+90ms)
+        # Adaptive human-cadence delay (snappy, modern AI streaming speed):
         extra_pause = 0.0
         if batch.endswith((",", ";", ":")):
-            extra_pause = 0.030
+            extra_pause = 0.010
         elif batch.endswith((".", "!", "?")):
-            extra_pause = 0.065
+            extra_pause = 0.020
         elif "\n\n" in batch:
-            extra_pause = 0.090
+            extra_pause = 0.030
 
         await asyncio.sleep(base_delay + extra_pause)
 
     # Final cleanup: set exact final text without cursor and ensure final pinned scroll
     try:
         target_control.value = full_text
-        page.update()
+        updated = False
+        try:
+            if getattr(target_control, "page", None):
+                target_control.update()
+                updated = True
+        except Exception:
+            updated = False
+        if not updated:
+            page.update()
         if scroll_container and hasattr(scroll_container, "scroll_to"):
             try:
-                await scroll_container.scroll_to(offset=-1, duration=60)
+                await scroll_container.scroll_to(offset=-1, duration=40)
             except Exception:
                 pass
     except Exception:

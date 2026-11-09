@@ -55,8 +55,8 @@ from src.services.ai_tutor_session import (
 )
 
 from src.utils.file_opener import show_page_snackbar, safe_set_clipboard
-
 from src.utils.typing_animator import stream_typing_animation
+from src.components.pulsing_typing_indicator import build_pulsing_typing_indicator
 
 
 
@@ -526,7 +526,7 @@ def build_need_help_drawer(
 
         welcome_text = (
 
-            f"👋 Hi! I'm your **Nu-AI Study Companion** for **{current_context['lesson_title']}**.\n\n"
+            f"👋 Hi! I'm **Nu Owl**, your study companion for **{current_context['lesson_title']}**.\n\n"
 
             f"Stuck on a formula, concept, or practical problem? "
 
@@ -570,21 +570,7 @@ def build_need_help_drawer(
 
 
 
-    typing_indicator = ft.Row(
-
-        visible=False,
-
-        spacing=8,
-
-        controls=[
-
-            ft.ProgressRing(width=14, height=14, stroke_width=2, color=accent),
-
-            ft.Text("Nu-AI thinking...", size=11, color=ft.Colors.GREY_500, italic=True),
-
-        ],
-
-    )
+    typing_indicator = build_pulsing_typing_indicator(page=page, accent=accent, show_avatar=True, visible=False)
 
 
 
@@ -908,7 +894,7 @@ def build_need_help_drawer(
 
         current_context["is_generating"] = True
 
-        typing_indicator.visible = True
+        typing_indicator.start(page)
 
         send_btn.disabled = True
 
@@ -1054,7 +1040,7 @@ def build_need_help_drawer(
 
 
 
-        typing_indicator.visible = False
+        typing_indicator.stop()
 
         current_context["is_generating"] = False
 
@@ -1084,9 +1070,9 @@ def build_need_help_drawer(
 
                 scroll_container=messages_col,
 
-                words_per_chunk=2,
+                words_per_chunk=3,
 
-                chunk_interval_ms=25,
+                chunk_interval_ms=8,
 
             )
 
@@ -1390,7 +1376,7 @@ def build_need_help_drawer(
 
                 ft.Icon(ft.Icons.AUTO_AWESOME_ROUNDED, size=16, color=ft.Colors.WHITE),
 
-                ft.Text("Nu-AI Tutor · Tap to expand", size=12, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+                ft.Text("Nu Owl · Tap to expand", size=12, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
 
             ],
 
@@ -1672,7 +1658,7 @@ def build_need_help_drawer(
 
                                     ft.Text(
 
-                                        "Course AI Assistant",
+                                        "Nu Owl",
 
                                         size=13.5,
 

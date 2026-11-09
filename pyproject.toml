@@ -22,6 +22,7 @@ dependencies = [
     "urllib3>=2.6.3",
     "websockets>=16.0",
     "flet-onesignal>=0.4.4",
+    "flet-notifications==1.1.2",
     "yt-dlp>=2026.8.19",
 ]
 
@@ -124,6 +125,8 @@ permissions = [
     "android.permission.POST_NOTIFICATIONS",
     # Keep notification service alive in background
     "android.permission.FOREGROUND_SERVICE",
+    # Schedule exact streak alerts on Android 14+
+    "android.permission.SCHEDULE_EXACT_ALARM",
 
     # ─── DEVICE & RUNTIME ─────────────────────────────────────────────────────
     # Prevent screen from sleeping (useful for media or active sessions)

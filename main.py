@@ -683,7 +683,7 @@ async def main(page: ft.Page):
     except Exception as ex:
         print(f"[Main] Error loading typography preset: {ex}")
 
-    page.title = "Nu-age"
+    page.title = "Nu age"
     page.window_width = 400
     page.window_height = 650
     page.appbar = None
@@ -2328,16 +2328,7 @@ async def main(page: ft.Page):
             )
         elif troute.match("/spaces/:space_id"):
             from src.course_space_hub import course_space_hub_view
-            target_back = (
-                previous_route
-                if (
-                    previous_route
-                    and not previous_route.endswith("/view")
-                    and not previous_route.endswith("/offline")
-                    and not previous_route.endswith("/manage")
-                )
-                else "/courses?tab=spaces"
-            )
+            target_back = "/courses?tab=spaces"
             await load_view_and_report(
                 course_space_hub_view(
                     page,
@@ -2591,6 +2582,13 @@ async def main(page: ft.Page):
             page.run_task(setup_user_push_notifications, page, has_token)
     except Exception as push_ex:
         print(f"[main.py] Push notification initialization error: {push_ex!r}")
+
+    # Initialize offline local scheduled notifications (Windows Action Center + Android tray)
+    try:
+        from src.services.local_notification_service import init_local_notifications
+        page.run_task(init_local_notifications, page, navigate_from_push)
+    except Exception as local_notif_ex:
+        print(f"[main.py] Local notification initialization error: {local_notif_ex!r}")
 
     await route_change(None)
     # Belt-and-suspenders: if for any reason the manual call above didn't

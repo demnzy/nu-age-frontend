@@ -49,6 +49,7 @@ from src.utils.file_opener import (
     run_after_modal_close,
 )
 from src.utils.typing_animator import stream_typing_animation
+from src.components.pulsing_typing_indicator import build_pulsing_typing_indicator
 from src.components.adaptive_video_player import AdaptiveVideoPlayer
 from src.utils.youtube import (
     is_youtube_url,
@@ -2016,6 +2017,16 @@ async def self_study_view(page: ft.Page):
         ui.StudyWakelock.disable(page)
         _reset_keyboard()
 
+        # Mark daily study activity and cancel pending evening streak reminders
+        try:
+            from src.utils.db_manager import log_daily_activity
+            log_daily_activity()
+            from src.services.local_notification_service import LocalNotificationManager
+            mgr = LocalNotificationManager.get_instance()
+            page.run_task(mgr.cancel_streak_reminders)
+        except Exception:
+            pass
+
         # Report study session activity to accountability partner
         start_t = state.get("session_start_time")
         if start_t and token:
@@ -2879,7 +2890,8 @@ async def self_study_view(page: ft.Page):
                     for mat_id, raw_result in zip(mats_to_check, raw_results):
                         is_active = False
                         if isinstance(raw_result, dict):
-                            is_active = raw_result.get("status") == "processing"
+                            st_val = str(raw_result.get("status") or "").lower()
+                            is_active = st_val in ("processing", "queued", "pending", "in_progress") or bool(raw_result.get("is_generating"))
                             
                         if is_active:
                             is_generating_anything = True
@@ -3144,9 +3156,12 @@ async def self_study_view(page: ft.Page):
             fmt_tag = "Study Notes"
 
         mat_status = str(mat.get("status") or "completed").lower()
-        is_generating = mat_status in ("processing", "queued", "pending", "in_progress")
+        is_generating = (
+            mat_status in ("processing", "queued", "pending", "in_progress")
+            or bool(mat.get("is_generating"))
+            or str(mid) in {str(x) for x in state.get("generating_mats", set())}
+        )
         current_status = [mat_status]
-        progress_val = [int(mat.get("progress_percent") or (15 if is_generating else 100))]
         stage_val = [str(mat.get("stage") or ("Analyzing material & generating study deck..." if is_generating else "AI Study Engine Ready"))]
 
 
@@ -3157,22 +3172,111 @@ async def self_study_view(page: ft.Page):
         back_label = "Back" if is_small or (page.width and page.width < 500) else "Back to Study Hub"
 
         def _open_material_source_reader(e=None):
+            from src.utils.file_opener import (
+                synthesize_material_question_bank,
+                export_text_or_markdown_as_pdf,
+            )
+
             raw_body = (mat.get("content") or mat.get("pasted_text") or mat.get("extracted_text") or "").strip()
-            word_cnt = len(raw_body.split()) if raw_body else 0
+            qbank_data = synthesize_material_question_bank(
+                material_id=mid,
+                title=mtitle,
+                raw_content=raw_body,
+                scoped_cards=scoped_cards,
+                page=page,
+            )
+            final_markdown = qbank_data["markdown"]
+            summary_label = qbank_data["summary_label"]
             reader_dlg = [None]
 
             def _close_reader(ev=None):
                 if reader_dlg[0]:
                     safe_close_dialog(page, reader_dlg[0])
 
-            async def _copy_notes(ev=None):
-                if not raw_body:
+            async def _copy_qbank(ev=None):
+                if not final_markdown:
                     return
-                await safe_set_clipboard(page, raw_body)
-                show_page_snackbar(page, "Study notes copied to clipboard!", ft.Colors.GREEN_700)
+                await safe_set_clipboard(page, final_markdown)
+                show_page_snackbar(page, "Question Bank & notes copied to clipboard!", ft.Colors.GREEN_700)
 
-            dlg_w = min((page.width or 600) - 32, 680)
-            dlg_h = min((page.height or 760) - 180, 520)
+            async def _export_question_bank_pdf(ev=None):
+                fname = f"{mtitle} - Question Bank.pdf"
+                ok = await export_text_or_markdown_as_pdf(
+                    page,
+                    fname,
+                    final_markdown,
+                    subtitle="Nu Age LMS • Question Bank",
+                )
+                if not ok:
+                    show_page_snackbar(page, "Could not generate PDF export.")
+
+            dlg_w = min((page.width or 600) - 32, 740)
+            dlg_h = min((page.height or 760) - 160, 560)
+
+            content_controls = [
+                ft.Container(
+                    expand=True,
+                    width=float("inf"),
+                    padding=ft.Padding.all(14),
+                    border_radius=ft.BorderRadius.all(12),
+                    bgcolor=ft.Colors.with_opacity(0.03, ft.Colors.ON_SURFACE),
+                    border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                    content=ft.Column(
+                        scroll=ft.ScrollMode.AUTO,
+                        expand=True,
+                        horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+                        controls=[
+                            ft.SelectionArea(
+                                content=ft.Markdown(
+                                    final_markdown,
+                                    selectable=True,
+                                    extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+                                )
+                            )
+                        ],
+                    ),
+                )
+            ]
+
+            reader_actions = [
+                ft.TextButton(
+                    "Export PDF",
+                    icon=ft.Icons.PICTURE_AS_PDF_ROUNDED,
+                    style=ft.ButtonStyle(color=ft.Colors.PRIMARY),
+                    on_click=lambda _: page.run_task(_export_question_bank_pdf),
+                ),
+                ft.TextButton(
+                    "Copy All",
+                    icon=ft.Icons.COPY_ROUNDED,
+                    on_click=lambda _: page.run_task(_copy_qbank),
+                ),
+            ]
+            if not is_cbt_pack:
+                reader_actions.append(
+                    ft.OutlinedButton(
+                        "Bundle into Journal",
+                        icon=ft.Icons.AUTO_STORIES_ROUNDED,
+                        on_click=lambda _: run_after_modal_close(
+                            page,
+                            reader_dlg[0],
+                            lambda: open_create_journal_modal(
+                                page,
+                                token,
+                                vault_materials=state.get("materials", []),
+                                preselected_material_ids=[str(mid)],
+                                on_journal_created=_handle_journal_created,
+                            ),
+                        ),
+                    )
+                )
+            reader_actions.append(
+                ft.Button(
+                    "Done",
+                    bgcolor=ft.Colors.PRIMARY,
+                    color=ft.Colors.ON_PRIMARY,
+                    on_click=_close_reader,
+                )
+            )
 
             reader_dlg[0] = ft.AlertDialog(
                 modal=True,
@@ -3191,9 +3295,9 @@ async def self_study_view(page: ft.Page):
                                     width=34,
                                     height=34,
                                     border_radius=ft.BorderRadius.all(9),
-                                    bgcolor=ft.Colors.with_opacity(0.12, fmt_color),
+                                    bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY),
                                     alignment=ft.Alignment.CENTER,
-                                    content=ft.Icon(fmt_icon, size=18, color=fmt_color),
+                                    content=ft.Icon(ft.Icons.MENU_BOOK_ROUNDED, size=18, color=ft.Colors.PRIMARY),
                                 ),
                                 ft.Column(
                                     spacing=1,
@@ -3209,7 +3313,7 @@ async def self_study_view(page: ft.Page):
                                             overflow=ft.TextOverflow.ELLIPSIS,
                                         ),
                                         ft.Text(
-                                            f"{fmt_tag} • {word_cnt:,} words extracted" if word_cnt else fmt_tag,
+                                            summary_label,
                                             size=11,
                                             color=ft.Colors.GREY_500,
                                         ),
@@ -3228,53 +3332,14 @@ async def self_study_view(page: ft.Page):
                 content=ft.Container(
                     width=dlg_w,
                     height=dlg_h,
-                    padding=ft.Padding.all(14),
-                    border_radius=ft.BorderRadius.all(12),
-                    bgcolor=ft.Colors.with_opacity(0.03, ft.Colors.ON_SURFACE),
-                    border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
                     content=ft.Column(
-                        scroll=ft.ScrollMode.AUTO,
+                        spacing=10,
                         expand=True,
-                        controls=[
-                            ft.SelectionArea(
-                                content=ft.Markdown(
-                                    raw_body if raw_body else "_No text content available for this material._",
-                                    selectable=True,
-                                    extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
-                                )
-                            )
-                        ],
+                        horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+                        controls=content_controls,
                     ),
                 ),
-                actions=[
-                    ft.TextButton(
-                        "Copy Text",
-                        icon=ft.Icons.COPY_ROUNDED,
-                        disabled=not bool(raw_body),
-                        on_click=lambda _: page.run_task(_copy_notes),
-                    ),
-                    ft.OutlinedButton(
-                        "Bundle into Journal",
-                        icon=ft.Icons.AUTO_STORIES_ROUNDED,
-                        on_click=lambda _: run_after_modal_close(
-                            page,
-                            reader_dlg[0],
-                            lambda: open_create_journal_modal(
-                                page,
-                                token,
-                                vault_materials=state.get("materials", []),
-                                preselected_material_ids=[str(mid)],
-                                on_journal_created=_handle_journal_created,
-                            ),
-                        ),
-                    ),
-                    ft.Button(
-                        "Done",
-                        bgcolor=ft.Colors.PRIMARY,
-                        color=ft.Colors.ON_PRIMARY,
-                        on_click=_close_reader,
-                    ),
-                ],
+                actions=reader_actions,
                 actions_alignment=ft.MainAxisAlignment.END,
             )
             safe_open_dialog(page, reader_dlg[0], tag="study_source_reader")
@@ -3299,8 +3364,8 @@ async def self_study_view(page: ft.Page):
                         spacing=8,
                         tight=True,
                         controls=[
-                            ft.Icon(ft.Icons.ARTICLE_OUTLINED, size=15, color=ft.Colors.TEAL_600),
-                            ft.Text("Read Source Notes", size=12.5),
+                            ft.Icon(ft.Icons.MENU_BOOK_ROUNDED, size=15, color=ft.Colors.PRIMARY),
+                            ft.Text("View Question Bank", size=12.5),
                         ],
                     ),
                     on_click=_open_material_source_reader,
@@ -3349,26 +3414,26 @@ async def self_study_view(page: ft.Page):
         )
 
         top_bar_right = []
-        if not is_cbt_pack:
-            top_bar_right.append(
-                ft.OutlinedButton(
-                    content=ft.Row(
-                        spacing=4,
-                        tight=True,
-                        controls=[
-                            ft.Icon(ft.Icons.ARTICLE_OUTLINED, size=13, color=ft.Colors.ON_SURFACE),
-                            ft.Text("Notes", size=10.5, weight=ft.FontWeight.W_700, color=ft.Colors.ON_SURFACE) if is_small else ft.Text("Read Notes", size=10.5, weight=ft.FontWeight.W_700, color=ft.Colors.ON_SURFACE),
-                        ],
-                    ),
-                    style=ft.ButtonStyle(
-                        padding=ft.Padding.symmetric(horizontal=8, vertical=4),
-                        side=ft.BorderSide(1, ft.Colors.with_opacity(0.20, ft.Colors.ON_SURFACE)),
-                        shape=ft.RoundedRectangleBorder(radius=8),
-                    ),
-                    tooltip="Read extracted study notes and source text",
-                    on_click=_open_material_source_reader,
-                )
+        top_bar_right.append(
+            ft.OutlinedButton(
+                content=ft.Row(
+                    spacing=4,
+                    tight=True,
+                    controls=[
+                        ft.Icon(ft.Icons.MENU_BOOK_ROUNDED, size=13, color=ft.Colors.ON_SURFACE),
+                        ft.Text("Q-Bank", size=10.5, weight=ft.FontWeight.W_700, color=ft.Colors.ON_SURFACE) if is_small else ft.Text("Question Bank", size=10.5, weight=ft.FontWeight.W_700, color=ft.Colors.ON_SURFACE),
+                    ],
+                ),
+                style=ft.ButtonStyle(
+                    padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+                    side=ft.BorderSide(1, ft.Colors.with_opacity(0.20, ft.Colors.ON_SURFACE)),
+                    shape=ft.RoundedRectangleBorder(radius=8),
+                ),
+                tooltip="Browse synthesized Question Bank, active-recall drills & notes",
+                on_click=_open_material_source_reader,
             )
+        )
+        if not is_cbt_pack:
             top_bar_right.append(
                 ft.OutlinedButton(
                     content=ft.Row(
@@ -3467,7 +3532,7 @@ async def self_study_view(page: ft.Page):
             color=ft.Colors.PRIMARY if is_generating else ft.Colors.GREEN_700,
         )
         status_pill_text = ft.Text(
-            f"{progress_val[0]}% Synthesizing" if is_generating else "Engine Ready",
+            "Generating in Background" if is_generating else "Engine Ready",
             size=9.5,
             weight=ft.FontWeight.W_800,
             color=ft.Colors.PRIMARY if is_generating else ft.Colors.GREEN_700,
@@ -3617,44 +3682,56 @@ async def self_study_view(page: ft.Page):
             on_click=_on_hero_cta_click,
         )
 
-        # Human-friendly stage text & clean progress bar (no 2/4 fractions, no harsh amber text)
-        human_stage_text = ft.Text(
-            format_human_stage(stage_val[0]),
-            size=11,
-            color=ft.Colors.ON_SURFACE,
-            weight=ft.FontWeight.W_600,
-        )
-        pct_badge_text = ft.Text(
-            f"{progress_val[0]}%",
-            size=11,
-            color=fmt_color,
-            weight=ft.FontWeight.W_800,
-        )
-        progress_bar = ft.ProgressBar(
-            value=progress_val[0] / 100.0,
-            color=fmt_color,
-            bgcolor=ft.Colors.with_opacity(0.12, fmt_color),
-            height=5,
-            border_radius=ft.BorderRadius.all(3),
-        )
-        progress_block = ft.Container(
+        # Ambient Background Generation Card (Modern, non-blocking status indicator)
+        ambient_gen_card = ft.Container(
             visible=is_generating,
-            padding=ft.Padding.only(top=4),
-            content=ft.Column(
-                spacing=5,
-                tight=True,
+            padding=ft.Padding.symmetric(horizontal=16, vertical=14),
+            border_radius=ft.BorderRadius.all(14),
+            bgcolor=ft.Colors.with_opacity(0.06, fmt_color),
+            border=ft.Border.all(1.2, ft.Colors.with_opacity(0.25, fmt_color)),
+            content=ft.Row(
+                spacing=12,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 controls=[
-                    ft.Row(
-                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    ft.Container(
+                        width=36,
+                        height=36,
+                        border_radius=ft.BorderRadius.all(10),
+                        bgcolor=ft.Colors.with_opacity(0.12, fmt_color),
+                        alignment=ft.Alignment.CENTER,
+                        content=ft.ProgressRing(width=18, height=18, stroke_width=2.4, color=fmt_color),
+                    ),
+                    ft.Column(
+                        spacing=2,
+                        tight=True,
+                        expand=True,
                         controls=[
-                            ft.Row([
-                                ft.Icon(ft.Icons.AUTO_AWESOME_ROUNDED, size=12, color=fmt_color),
-                                human_stage_text,
-                            ], spacing=5, tight=True),
-                            pct_badge_text,
+                            ft.Row(
+                                spacing=6,
+                                tight=True,
+                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                controls=[
+                                    ft.Text(
+                                        "Nu Age AI is crafting your study deck",
+                                        size=12.5,
+                                        weight=ft.FontWeight.W_800,
+                                        color=ft.Colors.ON_SURFACE,
+                                    ),
+                                    ft.Container(
+                                        padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+                                        border_radius=ft.BorderRadius.all(4),
+                                        bgcolor=ft.Colors.with_opacity(0.12, fmt_color),
+                                        content=ft.Text("Background", size=9.5, weight=ft.FontWeight.W_700, color=fmt_color),
+                                    ),
+                                ],
+                            ),
+                            ft.Text(
+                                "Your flashcards and active-recall questions are synthesizing in the background. Feel free to explore other courses or study existing materials—your deck will be ready when you return.",
+                                size=11,
+                                color=ft.Colors.ON_SURFACE_VARIANT,
+                            ),
                         ],
                     ),
-                    progress_bar,
                 ],
             ),
         )
@@ -3697,7 +3774,7 @@ async def self_study_view(page: ft.Page):
                         controls=[hero_cta_btn],
                         tight=True,
                     ),
-                    progress_block,
+                    ambient_gen_card,
                 ],
             ),
         )
@@ -3899,24 +3976,16 @@ async def self_study_view(page: ft.Page):
             st = str(status_data.get("status") or "completed").lower()
             current_status[0] = st
             gen = bool(status_data.get("is_generating", st in ("processing", "queued", "pending", "in_progress")))
-            pct = int(status_data.get("progress_percent") or (100 if not gen else 50))
-            stage = str(status_data.get("stage") or ("AI Study Engine Ready" if not gen else "Analyzing material & synthesizing study deck..."))
             fc_count = status_data.get("flashcards_count")
-
-            progress_val[0] = pct
-            stage_val[0] = stage
 
             if gen:
                 status_pill_icon.name = ft.Icons.AUTO_AWESOME_ROUNDED
                 status_pill_icon.color = ft.Colors.PRIMARY
-                status_pill_text.value = f"{pct}% Synthesizing"
+                status_pill_text.value = "Generating in Background"
                 status_pill_text.color = ft.Colors.PRIMARY
                 status_pill_badge.bgcolor = ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY)
 
-                progress_bar.value = pct / 100.0
-                progress_block.visible = True
-                human_stage_text.value = format_human_stage(stage)
-                pct_badge_text.value = f"{pct}%"
+                ambient_gen_card.visible = True
 
                 hero_sub_text.value = "Nu Age AI is analyzing your course material and generating active-recall cards & scenarios."
                 hero_cta_btn.content = _get_cta_content(True)
@@ -3929,7 +3998,8 @@ async def self_study_view(page: ft.Page):
                 status_pill_text.color = ft.Colors.GREEN_700
                 status_pill_badge.bgcolor = ft.Colors.with_opacity(0.12, ft.Colors.GREEN_700)
 
-                progress_block.visible = False
+                ambient_gen_card.visible = False
+                state.get("generating_mats", set()).discard(str(mid))
                 ready_cnt = fc_count if fc_count is not None else len(scoped_cards)
                 if is_cbt_bundle:
                     hero_sub_text.value = f"{len(item_ids)} Subject Papers • Full multi-subject sequential examination combo." if item_ids else "Comprehensive multi-subject sequential examination combo."
@@ -4292,7 +4362,7 @@ async def self_study_view(page: ft.Page):
                 on_tap_link=lambda e: page.run_task(_open_link, e.data),
             )
             hdr_color = ft.Colors.AMBER_600 if is_error else ft.Colors.PRIMARY
-            hdr_title = "Nu-AI Owl • Notice" if is_error else "Nu-AI Owl Tutor"
+            hdr_title = "Nu Owl • Notice" if is_error else "Nu Owl"
             bubble_bg = ft.Colors.with_opacity(0.08, ft.Colors.AMBER_600) if is_error else ft.Colors.with_opacity(0.06, ft.Colors.PRIMARY)
 
             bubble_controls = [
@@ -4491,21 +4561,10 @@ async def self_study_view(page: ft.Page):
             ai_chat_messages.controls.append(_user_bubble(clean_q))
 
             # Typing indicator bubble
-            typing_indicator = ft.Container(
-                bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.PRIMARY),
-                border_radius=ft.BorderRadius.all(12),
-                padding=ft.Padding.all(10),
-                content=ft.Row(
-                    spacing=8,
-                    tight=True,
-                    controls=[
-                        ft.ProgressRing(width=14, height=14, stroke_width=2, color=ft.Colors.PRIMARY),
-                        ft.Text("Thinking and grounding in document…", size=11, color=ft.Colors.GREY_500),
-                    ],
-                ),
-            )
+            typing_indicator = build_pulsing_typing_indicator(page=page, accent=ft.Colors.PRIMARY, show_avatar=True, visible=True)
             ai_chat_messages.controls.append(typing_indicator)
             page.update()
+            typing_indicator.start(page)
 
             # Call ask_ai_tutor_api
             mat_text = mat.get("content") or mat.get("pasted_text") or mat.get("extracted_text") or display_title
@@ -4559,6 +4618,7 @@ async def self_study_view(page: ft.Page):
 
             # Remove typing indicator
             if typing_indicator in ai_chat_messages.controls:
+                typing_indicator.stop()
                 ai_chat_messages.controls.remove(typing_indicator)
 
             # Safeguard conversation history: NEVER persist error messages into session or DB!
@@ -4583,8 +4643,8 @@ async def self_study_view(page: ft.Page):
                     full_text=reply,
                     page=page,
                     scroll_container=ai_chat_messages,
-                    words_per_chunk=2,
-                    chunk_interval_ms=25,
+                    words_per_chunk=3,
+                    chunk_interval_ms=8,
                 )
 
         def _on_chip_click(p_val: str):
@@ -8027,9 +8087,17 @@ async def self_study_view(page: ft.Page):
             )
             safe_update_dialog(page, modal)
 
-            t_id = target["id"]
-            state["generating_mats"].add(t_id)
+            t_id = str(target["id"])
+            state.setdefault("generating_mats", set()).add(t_id)
             state["poll_strikes"][t_id] = 0
+
+            # Optimistically update material status so UI reflects generation instantly
+            target["status"] = "processing"
+            target["is_generating"] = True
+            for m in state.get("materials", []):
+                if str(m.get("id")) == t_id:
+                    m["status"] = "processing"
+                    m["is_generating"] = True
 
             try:
                 result = await asyncio.wait_for(
@@ -8037,6 +8105,12 @@ async def self_study_view(page: ft.Page):
                     timeout=30,
                 )
                 if isinstance(result, dict) and result.get("error"):
+                    target["status"] = "completed"
+                    target["is_generating"] = False
+                    for m in state.get("materials", []):
+                        if str(m.get("id")) == t_id:
+                            m["status"] = "completed"
+                            m["is_generating"] = False
                     gen_error.value = str(result.get("error"))
                     gen_error_box.visible = True
                     gen_btn.disabled = False
@@ -8066,6 +8140,12 @@ async def self_study_view(page: ft.Page):
                 page.run_task(_open_material_cockpit, target)
 
             except asyncio.TimeoutError:
+                target["status"] = "completed"
+                target["is_generating"] = False
+                for m in state.get("materials", []):
+                    if str(m.get("id")) == t_id:
+                        m["status"] = "completed"
+                        m["is_generating"] = False
                 gen_error.value = "Server request timed out. Try again."
                 gen_error_box.visible = True
                 gen_btn.disabled = False
@@ -8082,6 +8162,12 @@ async def self_study_view(page: ft.Page):
                 safe_update_dialog(page, modal)
 
             except Exception as ex:
+                target["status"] = "completed"
+                target["is_generating"] = False
+                for m in state.get("materials", []):
+                    if str(m.get("id")) == t_id:
+                        m["status"] = "completed"
+                        m["is_generating"] = False
                 gen_error.value = f"Failed to queue tasks ({type(ex).__name__})."
                 gen_error_box.visible = True
                 gen_btn.disabled = False

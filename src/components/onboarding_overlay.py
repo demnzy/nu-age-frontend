@@ -2,7 +2,7 @@
 
 Supports responsive multi-device layouts:
   - Laptop / Desktop (>= 880px): Spacious presentation deck
-      - Top Bar: Nu-Age logo (assets/icon.png) pinned to the absolute top-left, step badge & skip on top-right.
+      - Top Bar: Nu Age logo (assets/icon.png) pinned to the absolute top-left, step badge & skip on top-right.
       - Slides 1-3: MacBook App Frame on left + Scannable Highlights & CTAs on right.
       - Slide 4: Dedicated, graphically beautiful interactive setup form (Pace cards, focus chips, habit boosters).
   - Mobile & Tablet (< 880px): Centered single-column vertical deck with touch swipe gestures.
@@ -68,25 +68,61 @@ ONBOARDING_SCREENS = [
         "image": "onboarding_chat.png",
         "accent": ft.Colors.INDIGO_600,
         "badge_bg": "#EEF2FF",
-        "btn_text": "Set Your Practice →",
+        "btn_text": "Meet Study Duos →",
     },
     {
-        "step_label": "Personalize Goals",
-        "tab_name": "Daily Habit",
-        "route_key": "/profile",
-        "title": "Set Your Daily Practice",
-        "desc": "Pick your target study pace to personalize streak rewards and smart practice reminders.",
+        "step_label": "Study Network",
+        "tab_name": "Network",
+        "route_key": "/network",
+        "title": "Accountability & Duo Streaks",
+        "desc": "Pair up with coursemates, build daily study streaks together, and duel on exam questions.",
         "bullets": [
-            ("Daily Streak Shields", ft.Icons.LOCAL_FIRE_DEPARTMENT_ROUNDED),
-            ("Nu Owl Study Copilot", ft.Icons.AUTO_AWESOME_ROUNDED),
-            ("Audio Screen Reader", ft.Icons.HEADPHONES_ROUNDED),
-            ("Study Duels & Quests", ft.Icons.SPORTS_ESPORTS_ROUNDED),
+            ("Duo Study Streaks", ft.Icons.LOCAL_FIRE_DEPARTMENT_ROUNDED),
+            ("Campus Matchmaking", ft.Icons.PEOPLE_ROUNDED),
+            ("Peer Quiz Duels", ft.Icons.SPORTS_ESPORTS_ROUNDED),
+            ("Shared Study Packs", ft.Icons.FOLDER_SHARED_ROUNDED),
         ],
         "gif": "",
         "image": "",
         "accent": ft.Colors.AMBER_700,
         "badge_bg": "#FFFBEB",
-        "btn_text": "Launch Nu-Age 🚀",
+        "btn_text": "See What's New →",
+    },
+    {
+        "step_label": "What's New",
+        "tab_name": "Updates",
+        "route_key": "/updates",
+        "title": "What's New in Nu Age",
+        "desc": "Fresh tools to help you stay consistent, study with friends, and learn at your own pace.",
+        "bullets": [
+            ("Duo Streaks & Duels", ft.Icons.LOCAL_FIRE_DEPARTMENT_ROUNDED),
+            ("Course Spaces & Vaults", ft.Icons.HUB_ROUNDED),
+            ("Custom Themes & Fonts", ft.Icons.PALETTE_ROUNDED),
+            ("Coins & Leaderboards", ft.Icons.LEADERBOARD_ROUNDED),
+        ],
+        "gif": "",
+        "image": "",
+        "accent": ft.Colors.TEAL_600,
+        "badge_bg": "#E6FFFA",
+        "btn_text": "Set Your Goal →",
+    },
+    {
+        "step_label": "Study Goals",
+        "tab_name": "Goals",
+        "route_key": "/profile",
+        "title": "Set Your Daily Goal",
+        "desc": "Choose how much time you want to spend learning each day.",
+        "bullets": [
+            ("Track study streaks", ft.Icons.LOCAL_FIRE_DEPARTMENT_ROUNDED),
+            ("Ask study questions", ft.Icons.AUTO_AWESOME_ROUNDED),
+            ("Listen with screen reader", ft.Icons.HEADPHONES_ROUNDED),
+            ("Practice with peers", ft.Icons.GROUPS_ROUNDED),
+        ],
+        "gif": "",
+        "image": "",
+        "accent": ft.Colors.GREEN_700,
+        "badge_bg": "#ECFDF5",
+        "btn_text": "Open Nu Age",
     },
 ]
 
@@ -97,7 +133,7 @@ def build_onboarding_overlay(page: ft.Page, on_dismiss=None) -> ft.Container:
         "index": 0,
         "dismissed": False,
         "goal_minutes": 30,
-        "study_focus": "Software & Tech",
+        "study_focus": "Engineering",
         "is_animating": False,
     }
     total_screens = len(ONBOARDING_SCREENS)
@@ -223,7 +259,7 @@ def build_onboarding_overlay(page: ft.Page, on_dismiss=None) -> ft.Container:
             (ft.Icons.HOME_ROUNDED, "/dashboard", "Home"),
             (ft.Icons.CHAT_BUBBLE_ROUNDED, "/nu-chat", "Chat"),
             (ft.Icons.SCHOOL_ROUNDED, "/courses", "Learn"),
-            (ft.Icons.NOTIFICATIONS_ROUNDED, "/notifications", "Alerts"),
+            (ft.Icons.PEOPLE_ROUNDED, "/network", "Network"),
             (ft.Icons.PERSON_ROUNDED, "/profile", "Profile"),
         ]
 
@@ -942,32 +978,335 @@ def build_onboarding_overlay(page: ft.Page, on_dismiss=None) -> ft.Container:
             ],
         )
 
-    # ── SLIDE 4 REAL VIEW: GRAPHICALLY BEAUTIFUL INTERACTIVE FORM ─────────────
+    # ── SLIDE 4 REAL VIEW: Study Network & Duo Streaks ─────────────────────────
+    def _build_network_view() -> ft.Control:
+        """1-to-1 recreation of the Study Network with active Duo Streak card and peer recommendations."""
+        net_header = ft.Row(
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                ft.Row(
+                    spacing=6,
+                    tight=True,
+                    controls=[
+                        ft.Icon(ft.Icons.PEOPLE_ROUNDED, size=16, color=ft.Colors.AMBER_700),
+                        ft.Text("Study Network", size=13.5, weight=ft.FontWeight.W_800),
+                    ],
+                ),
+                ft.Container(
+                    padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+                    border_radius=ft.BorderRadius.all(12),
+                    bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.AMBER_700),
+                    content=ft.Row(
+                        spacing=4,
+                        tight=True,
+                        controls=[
+                            ft.Icon(ft.Icons.LOCAL_FIRE_DEPARTMENT_ROUNDED, size=13, color=ft.Colors.AMBER_700),
+                            ft.Text("Duo Active", size=9.5, weight=ft.FontWeight.W_800, color=ft.Colors.AMBER_700),
+                        ],
+                    ),
+                ),
+            ],
+        )
+
+        tabs_row = ft.Row(
+            spacing=4,
+            controls=[
+                ft.Container(
+                    padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+                    border_radius=ft.BorderRadius.all(6),
+                    bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
+                    content=ft.Text("My Network", size=9.5, color=ft.Colors.ON_SURFACE_VARIANT),
+                ),
+                ft.Container(
+                    padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+                    border_radius=ft.BorderRadius.all(6),
+                    bgcolor=ft.Colors.with_opacity(0.14, ft.Colors.AMBER_700),
+                    border=ft.Border.all(1, ft.Colors.with_opacity(0.35, ft.Colors.AMBER_700)),
+                    content=ft.Text("Study Partners", size=9.5, weight=ft.FontWeight.W_700, color=ft.Colors.AMBER_700),
+                ),
+                ft.Container(
+                    padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+                    border_radius=ft.BorderRadius.all(6),
+                    bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
+                    content=ft.Text("Discover", size=9.5, color=ft.Colors.ON_SURFACE_VARIANT),
+                ),
+            ],
+        )
+
+        # Active Duo Partner Card
+        duo_card = ft.Container(
+            padding=ft.Padding.all(10),
+            border_radius=ft.BorderRadius.all(12),
+            bgcolor=ft.Colors.with_opacity(0.05, ft.Colors.ON_SURFACE),
+            border=ft.Border.all(1, ft.Colors.with_opacity(0.14, ft.Colors.AMBER_700)),
+            content=ft.Column(
+                spacing=8,
+                tight=True,
+                controls=[
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[
+                            ft.Row(
+                                spacing=8,
+                                tight=True,
+                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                controls=[
+                                    ft.CircleAvatar(
+                                        radius=15,
+                                        bgcolor=ft.Colors.INDIGO_600,
+                                        content=ft.Text("AY", size=10, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+                                    ),
+                                    ft.Column(
+                                        spacing=1,
+                                        tight=True,
+                                        controls=[
+                                            ft.Text("Amina Yusuf", size=11, weight=ft.FontWeight.W_800),
+                                            ft.Text("Computer Engineering · 400L", size=8.5, color=ft.Colors.ON_SURFACE_VARIANT),
+                                        ],
+                                    ),
+                                ],
+                            ),
+                            ft.Container(
+                                padding=ft.Padding.symmetric(horizontal=7, vertical=3),
+                                border_radius=ft.BorderRadius.all(10),
+                                bgcolor=ft.Colors.with_opacity(0.15, ft.Colors.AMBER_700),
+                                content=ft.Row(
+                                    spacing=3,
+                                    tight=True,
+                                    controls=[
+                                        ft.Icon(ft.Icons.LOCAL_FIRE_DEPARTMENT_ROUNDED, size=13, color=ft.Colors.AMBER_700),
+                                        ft.Text("12d Streak", size=9.5, weight=ft.FontWeight.W_800, color=ft.Colors.AMBER_700),
+                                    ],
+                                ),
+                            ),
+                        ],
+                    ),
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[
+                            ft.Row(
+                                spacing=4,
+                                tight=True,
+                                controls=[
+                                    ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED, size=11, color=ft.Colors.GREEN_600),
+                                    ft.Text("Both practiced today", size=8.5, color=ft.Colors.GREEN_600, weight=ft.FontWeight.W_600),
+                                ],
+                            ),
+                            ft.Row(
+                                spacing=5,
+                                tight=True,
+                                controls=[
+                                    ft.Container(
+                                        padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+                                        border_radius=ft.BorderRadius.all(6),
+                                        bgcolor=ft.Colors.PRIMARY,
+                                        content=ft.Row(
+                                            spacing=3,
+                                            tight=True,
+                                            controls=[
+                                                ft.Icon(ft.Icons.SPORTS_ESPORTS_ROUNDED, size=10, color=ft.Colors.WHITE),
+                                                ft.Text("Quiz Duel", size=8.5, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE),
+                                            ],
+                                        ),
+                                    ),
+                                    ft.Container(
+                                        padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+                                        border_radius=ft.BorderRadius.all(6),
+                                        bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
+                                        content=ft.Row(
+                                            spacing=3,
+                                            tight=True,
+                                            controls=[
+                                                ft.Icon(ft.Icons.TOUCH_APP_ROUNDED, size=10, color=ft.Colors.ON_SURFACE),
+                                                ft.Text("Nudge", size=8.5, weight=ft.FontWeight.W_700, color=ft.Colors.ON_SURFACE),
+                                            ],
+                                        ),
+                                    ),
+                                ],
+                            ),
+                        ],
+                    ),
+                ],
+            ),
+        )
+
+        # Peer Recommendation Card
+        peer_card = ft.Container(
+            padding=ft.Padding.symmetric(horizontal=10, vertical=7),
+            border_radius=ft.BorderRadius.all(10),
+            bgcolor=ft.Colors.with_opacity(0.03, ft.Colors.ON_SURFACE),
+            border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+            content=ft.Row(
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[
+                    ft.Row(
+                        spacing=7,
+                        tight=True,
+                        controls=[
+                            ft.CircleAvatar(
+                                radius=13,
+                                bgcolor=ft.Colors.BLUE_600,
+                                content=ft.Text("DE", size=9, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+                            ),
+                            ft.Column(
+                                spacing=1,
+                                tight=True,
+                                controls=[
+                                    ft.Text("David E. · Mechanical", size=10, weight=ft.FontWeight.W_700),
+                                    ft.Text("5d streak · 8 quizzes completed", size=8, color=ft.Colors.ON_SURFACE_VARIANT),
+                                ],
+                            ),
+                        ],
+                    ),
+                    ft.Container(
+                        padding=ft.Padding.symmetric(horizontal=7, vertical=3),
+                        border_radius=ft.BorderRadius.all(6),
+                        bgcolor=ft.Colors.with_opacity(0.10, ft.Colors.PRIMARY),
+                        content=ft.Text("Invite Duo", size=8.5, weight=ft.FontWeight.W_700, color=ft.Colors.PRIMARY),
+                    ),
+                ],
+            ),
+        )
+
+        return ft.Container(
+            height=250,
+            content=ft.Column(
+                spacing=8,
+                tight=True,
+                controls=[
+                    net_header,
+                    tabs_row,
+                    duo_card,
+                    ft.Text("Coursemates with Similar Goals", size=9.5, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE_VARIANT),
+                    peer_card,
+                ],
+            ),
+        )
+
+    # ── SLIDE 5 REAL VIEW: What's New Feature Grid ────────────────────────────
+    def _build_whats_new_view() -> ft.Control:
+        """Visual release board displaying version 2.0 highlight features."""
+        def _feat_chip(icon, title: str, desc: str, color_token) -> ft.Container:
+            return ft.Container(
+                expand=True,
+                padding=ft.Padding.symmetric(horizontal=8, vertical=6),
+                border_radius=ft.BorderRadius.all(10),
+                bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
+                content=ft.Row(
+                    spacing=7,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[
+                        ft.Container(
+                            width=26,
+                            height=26,
+                            border_radius=ft.BorderRadius.all(8),
+                            bgcolor=ft.Colors.with_opacity(0.12, color_token),
+                            alignment=ft.Alignment.CENTER,
+                            content=ft.Icon(icon, size=13, color=color_token),
+                        ),
+                        ft.Column(
+                            spacing=1,
+                            tight=True,
+                            expand=True,
+                            controls=[
+                                ft.Text(title, size=9.5, weight=ft.FontWeight.W_800, max_lines=1),
+                                ft.Text(desc, size=7.8, color=ft.Colors.ON_SURFACE_VARIANT, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                            ],
+                        ),
+                    ],
+                ),
+            )
+
+        row1 = ft.Row(
+            spacing=6,
+            controls=[
+                _feat_chip(ft.Icons.LOCAL_FIRE_DEPARTMENT_ROUNDED, "Duo Streaks", "Study habits with a partner", ft.Colors.AMBER_700),
+                _feat_chip(ft.Icons.HUB_ROUNDED, "Course Spaces", "Lecture notes & live classes", ft.Colors.BLUE_600),
+            ],
+        )
+        row2 = ft.Row(
+            spacing=6,
+            controls=[
+                _feat_chip(ft.Icons.PALETTE_ROUNDED, "Themes & Fonts", "Custom colors & clean text", ft.Colors.PURPLE_600),
+                _feat_chip(ft.Icons.LEADERBOARD_ROUNDED, "Leaderboards", "Weekly rank among peers", ft.Colors.ORANGE_600),
+            ],
+        )
+        row3 = ft.Row(
+            spacing=6,
+            controls=[
+                _feat_chip(ft.Icons.TOLL_ROUNDED, "Nu-Coins", "Earn rewards from quizzes", ft.Colors.AMBER_600),
+                _feat_chip(ft.Icons.AUTO_AWESOME_ROUNDED, "In-Chat AI", "Nu Owl answers in channels", ft.Colors.PRIMARY),
+            ],
+        )
+
+        header = ft.Row(
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                ft.Row(
+                    spacing=6,
+                    tight=True,
+                    controls=[
+                        ft.Icon(ft.Icons.NEW_RELEASES_ROUNDED, size=15, color=ft.Colors.TEAL_600),
+                        ft.Text("Nu Age 2.0 Highlights", size=13, weight=ft.FontWeight.W_800),
+                    ],
+                ),
+                ft.Container(
+                    padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+                    border_radius=ft.BorderRadius.all(6),
+                    bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.TEAL_600),
+                    content=ft.Text("Latest", size=8.5, weight=ft.FontWeight.W_800, color=ft.Colors.TEAL_600),
+                ),
+            ],
+        )
+
+        return ft.Container(
+            height=250,
+            content=ft.Column(
+                spacing=8,
+                tight=True,
+                controls=[
+                    header,
+                    ft.Text("Everything you need for study routines and exam preparation.", size=9, color=ft.Colors.ON_SURFACE_VARIANT),
+                    ft.Container(height=2),
+                    row1,
+                    row2,
+                    row3,
+                ],
+            ),
+        )
+
+    # ── FINAL SLIDE REAL VIEW: GRAPHICALLY BEAUTIFUL INTERACTIVE FORM ──────────
     def _build_interactive_goals_form() -> ft.Control:
-        """Graphically beautiful, interactive setup form with rich pace cards & focus chips."""
+        """Decluttered, humanized setup form with pace cards and study focus chips."""
         is_desk = is_desktop()
 
         # 1. Study Pace Option Cards
         pace_options = [
             {
                 "mins": 15,
-                "label": "15 min/day",
-                "tag": "CASUAL",
-                "sub": "Bite-sized daily drills",
+                "label": "15 mins",
+                "tag": "LIGHT",
+                "sub": "Quick daily review",
                 "icon": ft.Icons.BOLT_ROUNDED,
             },
             {
                 "mins": 30,
-                "label": "30 min/day",
-                "tag": "RECOMMENDED",
-                "sub": "Steady retention pace",
+                "label": "30 mins",
+                "tag": "REGULAR",
+                "sub": "Steady progress",
                 "icon": ft.Icons.LOCAL_FIRE_DEPARTMENT_ROUNDED,
             },
             {
                 "mins": 60,
-                "label": "60 min/day",
-                "tag": "INTENSE",
-                "sub": "Exam mastery sprint",
+                "label": "60 mins",
+                "tag": "DEEP STUDY",
+                "sub": "Exam revision",
                 "icon": ft.Icons.EMOJI_EVENTS_ROUNDED,
             },
         ]
@@ -980,7 +1319,7 @@ def build_onboarding_overlay(page: ft.Page, on_dismiss=None) -> ft.Container:
 
             def on_pick(e):
                 state["goal_minutes"] = mins
-                slide_box.content = build_slide_content(3)
+                slide_box.content = build_slide_content(total_screens - 1)
                 safe_page_update()
 
             check_icon = ft.Icon(
@@ -1036,17 +1375,12 @@ def build_onboarding_overlay(page: ft.Page, on_dismiss=None) -> ft.Container:
 
         # 2. Field of Study Interactive Chips
         fields_list = [
-            ("Software & Tech", ft.Icons.LAPTOP_MAC_ROUNDED),
-            ("Medicine & Health", ft.Icons.LOCAL_HOSPITAL_ROUNDED),
-            ("Engineering & Math", ft.Icons.SQUARE_FOOT_ROUNDED),
-            ("Business & Finance", ft.Icons.TRENDING_UP_ROUNDED),
-            ("Law & Humanities", ft.Icons.GAVEL_ROUNDED),
-            ("Natural Sciences", ft.Icons.SCIENCE_ROUNDED),
-        ] if is_desk else [
-            ("Software & Tech", ft.Icons.LAPTOP_MAC_ROUNDED),
-            ("Medicine & Health", ft.Icons.LOCAL_HOSPITAL_ROUNDED),
-            ("Engineering & Math", ft.Icons.SQUARE_FOOT_ROUNDED),
-            ("Business & Finance", ft.Icons.TRENDING_UP_ROUNDED),
+            ("Engineering", ft.Icons.SQUARE_FOOT_ROUNDED),
+            ("Technology", ft.Icons.LAPTOP_MAC_ROUNDED),
+            ("Health Sciences", ft.Icons.LOCAL_HOSPITAL_ROUNDED),
+            ("Business", ft.Icons.TRENDING_UP_ROUNDED),
+            ("Pure Sciences", ft.Icons.SCIENCE_ROUNDED),
+            ("Arts & Law", ft.Icons.GAVEL_ROUNDED),
         ]
 
         def _make_focus_chip(name: str, icon_c) -> ft.Container:
@@ -1057,11 +1391,11 @@ def build_onboarding_overlay(page: ft.Page, on_dismiss=None) -> ft.Container:
 
             def on_pick(e):
                 state["study_focus"] = name
-                slide_box.content = build_slide_content(3)
+                slide_box.content = build_slide_content(total_screens - 1)
                 safe_page_update()
 
             return ft.Container(
-                padding=ft.Padding.symmetric(horizontal=8 if is_desk else 7, vertical=4 if is_desk else 3),
+                padding=ft.Padding.symmetric(horizontal=8 if is_desk else 7, vertical=5 if is_desk else 4),
                 border_radius=ft.BorderRadius.all(8),
                 bgcolor=bg,
                 border=ft.Border.all(1.2 if is_sel else 1, border_c),
@@ -1079,75 +1413,31 @@ def build_onboarding_overlay(page: ft.Page, on_dismiss=None) -> ft.Container:
 
         focus_chips = [_make_focus_chip(n, ic) for n, ic in fields_list]
 
-        # 3. Habit Accelerators
-        def _acc_tile(icon, title, desc, icon_color):
-            return ft.Container(
-                expand=True,
-                padding=ft.Padding.symmetric(horizontal=10, vertical=7 if is_desk else 6),
-                border_radius=ft.BorderRadius.all(10),
-                bgcolor=ft.Colors.with_opacity(0.06, icon_color),
-                border=ft.Border.all(1, ft.Colors.with_opacity(0.15, icon_color)),
-                content=ft.Row(
-                    spacing=8,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                    controls=[
-                        ft.Icon(icon, size=18 if is_desk else 16, color=icon_color),
-                        ft.Column(
-                            spacing=1,
-                            tight=True,
-                            expand=True,
-                            controls=[
-                                ft.Text(title, size=10.5 if is_desk else 10, weight=ft.FontWeight.W_800),
-                                ft.Text(desc, size=9 if is_desk else 8.5, color=ft.Colors.ON_SURFACE_VARIANT, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
-                            ],
-                        ),
-                    ],
-                ),
-            )
-
-        tile_streak = _acc_tile(
-            ft.Icons.LOCAL_FIRE_DEPARTMENT_ROUNDED,
-            "Daily Streak Shields",
-            "Auto freeze protection on busy exam days",
-            ft.Colors.AMBER_700,
-        )
-        tile_ai = _acc_tile(
-            ft.Icons.AUTO_AWESOME_ROUNDED,
-            "Nu Owl Study Copilot",
-            "24/7 instant lesson explanations & hints",
-            ft.Colors.PRIMARY,
-        )
-
-        accelerators_row = ft.Row(
-            spacing=8,
-            controls=[tile_streak, tile_ai],
-        )
-
         # Form Header
         form_header = ft.Column(
-            spacing=2,
+            spacing=3,
             tight=True,
             controls=[
-                ft.Text("Set Your Daily Practice", size=18 if is_desk else 15, weight=ft.FontWeight.W_800),
+                ft.Text("Set your study goal", size=18 if is_desk else 15, weight=ft.FontWeight.W_800),
                 ft.Text(
-                    "Choose your daily study target to personalize streak rewards and smart practice reminders.",
-                    size=11 if is_desk else 9.5,
+                    "Choose how much time you want to spend learning each day.",
+                    size=11.5 if is_desk else 10,
                     color=ft.Colors.ON_SURFACE_VARIANT,
                 ),
             ],
         )
 
         return ft.Column(
-            spacing=10 if is_desk else 8,
+            spacing=12 if is_desk else 10,
             tight=True,
             controls=[
                 form_header,
-                ft.Text("1. Target Study Pace", size=11 if is_desk else 10, weight=ft.FontWeight.BOLD),
+                ft.Container(height=2),
+                ft.Text("Daily study time", size=11 if is_desk else 10.5, weight=ft.FontWeight.BOLD),
                 ft.Row(spacing=8 if is_desk else 6, controls=pace_cards),
-                ft.Text("2. Primary Field of Study", size=11 if is_desk else 10, weight=ft.FontWeight.BOLD),
-                ft.Row(spacing=5, wrap=True, controls=focus_chips),
-                ft.Text("3. Built-in Study Accelerators", size=11 if is_desk else 10, weight=ft.FontWeight.BOLD),
-                accelerators_row,
+                ft.Container(height=2),
+                ft.Text("What are you studying?", size=11 if is_desk else 10.5, weight=ft.FontWeight.BOLD),
+                ft.Row(spacing=6, wrap=True, controls=focus_chips),
             ],
         )
 
@@ -1172,8 +1462,14 @@ def build_onboarding_overlay(page: ft.Page, on_dismiss=None) -> ft.Container:
                 component_content = _build_self_study_view()
             elif idx == 1:
                 component_content = _build_courses_view()
-            else:
+            elif idx == 2:
                 component_content = _build_chat_view()
+            elif idx == 3:
+                component_content = _build_network_view()
+            elif idx == 4:
+                component_content = _build_whats_new_view()
+            else:
+                component_content = _build_whats_new_view()
 
         # Window header with 3 dots and clean tab title
         window_dots = ft.Row(
@@ -1268,7 +1564,7 @@ def build_onboarding_overlay(page: ft.Page, on_dismiss=None) -> ft.Container:
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
             controls=[
                 app_logo,
-                ft.Text("Nu-Age", size=14 if not is_desk else 16, weight=ft.FontWeight.W_800),
+                ft.Text("Nu Age", size=14 if not is_desk else 16, weight=ft.FontWeight.W_800),
             ],
         )
 
@@ -1322,8 +1618,8 @@ def build_onboarding_overlay(page: ft.Page, on_dismiss=None) -> ft.Container:
             ],
         )
 
-        if idx == 3:
-            # ── SLIDE 4: GRAPHICALLY BEAUTIFUL INTERACTIVE SETUP FORM ────────
+        if idx == total_screens - 1:
+            # ── FINAL SLIDE: GRAPHICALLY BEAUTIFUL INTERACTIVE SETUP FORM ────
             interactive_form = _build_interactive_goals_form()
 
             if is_desk:

@@ -3,6 +3,7 @@ import urllib.parse
 import flet as ft
 from src.requests.Courses import get_courses, get_course_curriculum
 from src.requests.enrollments import get_enrollments, enrol_user, unenrol_from_course
+from src.utils.file_opener import safe_share_text
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -20,15 +21,14 @@ async def course_details_view(page: ft.Page, course_id: str, back_target: str = 
     # ── share handler ─────────────────────────────────────────────────────────
     course_title_holder = {"name": "Course"}
 
-    async def open_whatsapp_share(e):
+    async def handle_share(e=None):
         c_title = course_title_holder.get("name") or "this course"
-        message = f"""Hey! Check out the course "{c_title}" on Nu Age! 🚀
-
-It comes with interactive modules, flashcards, quizzes, and an AI tutor!
-
-Check it out 👉 : nu-age.com.ng"""
-        encoded_message = urllib.parse.quote(message)
-        await page.launch_url(f"https://wa.me/?text={encoded_message}")
+        message = (
+            f'Check out the course "{c_title}" on Nu Age!\n\n'
+            f"It comes with interactive modules, flashcards, quizzes, and an AI tutor.\n\n"
+            f"Explore it here: nu-age.com.ng"
+        )
+        await safe_share_text(page, message, title=f"Course: {c_title}")
 
     # ── app bar ───────────────────────────────────────────────────────────────
     app_bar = ft.AppBar(
@@ -51,8 +51,8 @@ Check it out 👉 : nu-age.com.ng"""
             ft.IconButton(
                 icon=ft.Icons.SHARE_OUTLINED,
                 icon_color=ft.Colors.ON_SURFACE,
-                tooltip="Share Course via WhatsApp",
-                on_click=open_whatsapp_share,
+                tooltip="Share Course",
+                on_click=handle_share,
             ),
             ft.Container(width=8),
         ],
@@ -887,7 +887,7 @@ Check it out 👉 : nu-age.com.ng"""
                                 spacing=8,
                                 controls=[
                                     ft.Icon(ft.Icons.SHARE_ROUNDED, size=16, color=ft.Colors.PRIMARY),
-                                    ft.Text("Share on WhatsApp", size=13, weight=ft.FontWeight.W_600, color=ft.Colors.PRIMARY),
+                                    ft.Text("Share Course", size=13, weight=ft.FontWeight.W_600, color=ft.Colors.PRIMARY),
                                 ],
                             ),
                             height=44,
@@ -895,7 +895,7 @@ Check it out 👉 : nu-age.com.ng"""
                                 shape=ft.RoundedRectangleBorder(radius=12),
                                 side=ft.BorderSide(1, ft.Colors.with_opacity(0.18, ft.Colors.PRIMARY)),
                             ),
-                            on_click=open_whatsapp_share,
+                            on_click=handle_share,
                         ),
                         ft.Divider(height=1, color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
                         ft.Text("This course includes:", size=13, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE),

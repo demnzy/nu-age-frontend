@@ -27,6 +27,7 @@ import flet as ft
 
 
 from src.requests.Cohorts import get_learner_cohorts
+from src.utils.file_opener import safe_share_text
 
 from src.components.cohort_exam_runner import build_cohort_exam_view
 
@@ -264,37 +265,13 @@ async def cohort_page_view(
 
 
 
-    async def open_whatsapp_share(cohort_name: str, org_name: str):
-
+    async def handle_share(cohort_name: str, org_name: str):
         message = (
-
-            f"🎓 Learning in '{cohort_name}' by {org_name} on Nu Age! 🚀\n"
-
-            f"Explore interactive courses, modules, and certified assessments.\n"
-
+            f"Learning in '{cohort_name}' by {org_name} on Nu Age!\n\n"
+            f"Explore interactive courses, modules, and certified assessments.\n\n"
             f"Learn more at: https://nu-age.name.ng"
-
         )
-
-        encoded_message = urllib.parse.quote(message)
-
-        try:
-
-            await page.launch_url(f"https://wa.me/?text={encoded_message}")
-
-        except Exception:
-
-            try:
-
-                if hasattr(page, "set_clipboard"):
-
-                    await page.set_clipboard(f"https://nu-age.name.ng/cohorts/{state['selected_cohort_id']}")
-
-                show_snack("Cohort link copied to clipboard!")
-
-            except Exception:
-
-                pass
+        await safe_share_text(page, message, title=f"Cohort: {cohort_name}")
 
 
 
@@ -592,7 +569,7 @@ async def cohort_page_view(
 
                         tooltip="Share Cohort",
 
-                        on_click=lambda _: page.run_task(open_whatsapp_share, c_name, c_org),
+                        on_click=lambda _: page.run_task(handle_share, c_name, c_org),
 
                     ),
 

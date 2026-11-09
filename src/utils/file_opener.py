@@ -399,7 +399,8 @@ async def open_or_download_asset(page: ft.Page, target_url_or_path: str, file_na
     # ── A. Copy to User's Personal Downloads Folder ───────────────────────────
     downloads_dir = os.path.join(os.path.expanduser("~"), "Downloads")
     exported_path = None
-    if os.path.exists(downloads_dir):
+    already_in_downloads = os.path.dirname(os.path.abspath(norm_path)).lower() == os.path.abspath(downloads_dir).lower()
+    if os.path.exists(downloads_dir) and not already_in_downloads:
         try:
             _, ext = os.path.splitext(norm_path)
             if not ext:
@@ -491,6 +492,379 @@ async def open_or_download_asset(page: ft.Page, target_url_or_path: str, file_na
                 duration=3500,
             ),
         )
+
+
+async def export_text_or_markdown_as_pdf(
+    page: ft.Page,
+    title: str,
+    text: str,
+    subtitle: Optional[str] = "Nu Age LMS • Study Hub",
+) -> bool:
+    """
+    Converts study notes or markdown into a PDF document directly in the user's
+    Downloads folder and opens it with the default system PDF application.
+    Uses headless Chromium/Edge/Chrome print-to-pdf for authentic PDF rendering.
+    """
+    import os
+    import sys
+    import html
+    import shutil
+    import tempfile
+    import subprocess
+
+    raw_text = str(text or "").strip()
+    if not raw_text:
+        if page:
+            show_page_snackbar(page, "No text content available to export as PDF.", ft.Colors.RED_700)
+        return False
+
+    display_title = str(title or "Study Notes").strip()
+    safe_base = "".join(c for c in display_title if c.isalnum() or c in (" ", "_", "-", "(", ")", ".")).strip()
+    if not safe_base:
+        safe_base = "Nu_Age_Study_Notes"
+    if not safe_base.lower().endswith(".pdf"):
+        safe_base = f"{safe_base}.pdf"
+
+    downloads_dir = os.path.join(os.path.expanduser("~"), "Downloads")
+    if not os.path.exists(downloads_dir):
+        downloads_dir = tempfile.gettempdir()
+
+    target_pdf = os.path.join(downloads_dir, safe_base)
+    base_stem, ext_part = os.path.splitext(safe_base)
+    counter = 1
+    while os.path.exists(target_pdf):
+        target_pdf = os.path.join(downloads_dir, f"{base_stem} ({counter}){ext_part}")
+        counter += 1
+
+    def _md_to_html(raw_md: str) -> str:
+        import re
+        import html
+        lines = raw_md.splitlines()
+        out = []
+        in_list = False
+        for line in lines:
+            s = line.strip()
+            if not s:
+                if in_list:
+                    out.append("</ul>")
+                    in_list = False
+                out.append('<div style="height:6px;"></div>')
+                continue
+            if s.startswith("### "):
+                if in_list:
+                    out.append("</ul>")
+                    in_list = False
+                text = html.escape(s[4:])
+                text = re.sub(r"\*(.+?)\*", r"<em>\1</em>", text)
+                out.append(f'<h3 style="color:#0f172a; margin:14px 0 4px 0; font-size:15px; font-weight:700;">{text}</h3>')
+            elif s.startswith("## "):
+                if in_list:
+                    out.append("</ul>")
+                    in_list = False
+                out.append(f'<h2 style="color:#059669; margin:22px 0 6px 0; font-size:18px; font-weight:800; border-bottom:1.5px solid #d1fae5; padding-bottom:4px;">{html.escape(s[3:])}</h2>')
+            elif s.startswith("# "):
+                if in_list:
+                    out.append("</ul>")
+                    in_list = False
+                out.append(f'<h1 style="color:#0f172a; margin:16px 0 6px 0; font-size:22px; font-weight:900;">{html.escape(s[2:])}</h1>')
+            elif s.startswith("---"):
+                if in_list:
+                    out.append("</ul>")
+                    in_list = False
+                out.append('<hr style="border:0; border-top:1px solid #e2e8f0; margin:14px 0;"/>')
+            elif s.startswith("> "):
+                if in_list:
+                    out.append("</ul>")
+                    in_list = False
+                quote_text = html.escape(s[2:])
+                quote_text = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", quote_text)
+                quote_text = re.sub(r"\*(.+?)\*", r"<em>\1</em>", quote_text)
+                out.append(f'<div style="border-left:3.5px solid #059669; background:#f0fdf4; padding:6px 12px; margin:6px 0; font-size:12.5px; color:#166534; border-radius:0 6px 6px 0; line-height:1.5;">{quote_text}</div>')
+            elif s.startswith("- "):
+                if not in_list:
+                    out.append('<ul style="margin:4px 0 8px 0; padding-left:22px;">')
+                    in_list = True
+                content = html.escape(s[2:])
+                content = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", content)
+                content = re.sub(r"\*(.+?)\*", r"<em>\1</em>", content)
+                out.append(f'<li style="margin-bottom:4px; font-size:13.5px;">{content}</li>')
+            else:
+                if in_list:
+                    out.append("</ul>")
+                    in_list = False
+                content = html.escape(s)
+                content = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", content)
+                content = re.sub(r"\*(.+?)\*", r"<em>\1</em>", content)
+                out.append(f'<p style="margin:4px 0; font-size:13.5px; line-height:1.65; color:#334155;">{content}</p>')
+        if in_list:
+            out.append("</ul>")
+        return "\n".join(out)
+
+    formatted_body = _md_to_html(raw_text)
+
+    html_content = f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>{html.escape(display_title)}</title>
+  <style>
+    @page {{ size: A4; margin: 18mm 16mm; }}
+    body {{
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+      color: #0f172a;
+      line-height: 1.65;
+      margin: 0;
+      padding: 24px;
+      background: #ffffff;
+    }}
+    .header {{
+      border-bottom: 2.5px solid #059669;
+      padding-bottom: 14px;
+      margin-bottom: 24px;
+    }}
+    .brand {{
+      font-size: 11px;
+      font-weight: 800;
+      color: #059669;
+      text-transform: uppercase;
+      letter-spacing: 1.2px;
+    }}
+    h1 {{
+      font-size: 24px;
+      font-weight: 900;
+      color: #0f172a;
+      margin: 8px 0 4px 0;
+    }}
+    .meta {{
+      font-size: 12px;
+      color: #64748b;
+    }}
+    .content {{
+      font-size: 13.5px;
+      color: #334155;
+      white-space: pre-wrap;
+      word-break: break-word;
+      line-height: 1.7;
+    }}
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="brand">{html.escape(subtitle or "Nu Age LMS")}</div>
+    <h1>{html.escape(display_title)}</h1>
+    <div class="meta">Study Material & Notes • Exported from Nu Age</div>
+  </div>
+  <div class="content">{formatted_body}</div>
+</body>
+</html>"""
+
+    tmp_html = os.path.join(tempfile.gettempdir(), f"nu_export_{os.getpid()}.html")
+    try:
+        with open(tmp_html, "w", encoding="utf-8") as f:
+            f.write(html_content)
+    except Exception as err:
+        print(f"[file_opener] Failed writing temp HTML: {err}")
+        return False
+
+    browser_candidates = []
+    if sys.platform == "win32":
+        prog_files = os.environ.get("ProgramFiles", r"C:\Program Files")
+        prog_files_x86 = os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")
+        local_appdata = os.environ.get("LOCALAPPDATA", "")
+        browser_candidates.extend([
+            os.path.join(prog_files_x86, "Microsoft", "Edge", "Application", "msedge.exe"),
+            os.path.join(prog_files, "Microsoft", "Edge", "Application", "msedge.exe"),
+            os.path.join(prog_files, "Google", "Chrome", "Application", "chrome.exe"),
+            os.path.join(prog_files_x86, "Google", "Chrome", "Application", "chrome.exe"),
+            os.path.join(local_appdata, "Google", "Chrome", "Application", "chrome.exe"),
+        ])
+    elif sys.platform == "darwin":
+        browser_candidates.extend([
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+        ])
+
+    for cmd in ("msedge", "chrome", "google-chrome", "google-chrome-stable", "chromium"):
+        found = shutil.which(cmd)
+        if found and found not in browser_candidates:
+            browser_candidates.append(found)
+
+    pdf_created = False
+    for browser_exe in browser_candidates:
+        if browser_exe and os.path.exists(browser_exe):
+            try:
+                cmd = [
+                    browser_exe,
+                    "--headless",
+                    "--disable-gpu",
+                    f"--print-to-pdf={target_pdf}",
+                    tmp_html,
+                ]
+                proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                try:
+                    proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                if os.path.exists(target_pdf) and os.path.getsize(target_pdf) > 0:
+                    pdf_created = True
+                    break
+            except Exception as e:
+                print(f"[file_opener] Browser PDF print error with {browser_exe}: {e}")
+
+    if pdf_created and os.path.exists(target_pdf):
+        await open_or_download_asset(page, target_pdf, os.path.basename(target_pdf))
+        return True
+
+    return launch_html_in_desktop_browser(html_content, page, file_stem=safe_base.replace(".pdf", ""))
+
+
+def synthesize_material_question_bank(
+    material_id: Any,
+    title: str = "Question Bank",
+    raw_content: Optional[str] = None,
+    scoped_cards: Optional[list] = None,
+    page: Optional[ft.Page] = None,
+) -> dict:
+    """
+    Synthesizes a structured Question Bank markdown document from all available
+    local questions, flashcard drills, and extracted notes for a given material.
+    """
+    import json
+    mid = str(material_id or "").strip()
+    raw_body = str(raw_content or "").strip()
+
+    questions = []
+    cards = list(scoped_cards or [])
+
+    try:
+        from src.local_db import get_local_db
+        db = get_local_db(page)
+        cur = db.cursor()
+
+        # 1. Fetch raw content if missing
+        if not raw_body and mid:
+            row = cur.execute(
+                "SELECT content FROM downloaded_study_materials WHERE id = ? LIMIT 1",
+                (mid,),
+            ).fetchone()
+            if row and row[0]:
+                raw_body = str(row[0]).strip()
+
+        # 2. Fetch study questions
+        if mid:
+            q_rows = cur.execute(
+                """SELECT question_text, options, answer_index, explanation, difficulty, topic, exam_year 
+                   FROM downloaded_study_questions 
+                   WHERE material_id = ? 
+                   ORDER BY rowid ASC""",
+                (mid,),
+            ).fetchall()
+            for r in q_rows:
+                q_text = r[0] or ""
+                opts = []
+                try:
+                    opts = json.loads(r[1]) if isinstance(r[1], str) else (r[1] or [])
+                except Exception:
+                    opts = []
+                ans_idx = r[2] if r[2] is not None else 0
+                exp = r[3] or ""
+                diff = r[4] or ""
+                topic = r[5] or ""
+                year = r[6]
+                questions.append({
+                    "question_text": q_text,
+                    "options": opts,
+                    "answer_index": ans_idx,
+                    "explanation": exp,
+                    "difficulty": diff,
+                    "topic": topic,
+                    "exam_year": year,
+                })
+
+        # 3. Fetch flashcards if not already provided
+        if not cards and mid:
+            fc_rows = cur.execute(
+                "SELECT front, back FROM downloaded_flashcards WHERE material_id = ? ORDER BY rowid ASC",
+                (mid,),
+            ).fetchall()
+            for r in fc_rows:
+                cards.append({"front": r[0] or "", "back": r[1] or ""})
+    except Exception as ex:
+        print(f"[synthesize_material_question_bank error]: {ex}")
+
+    # Build markdown
+    md_lines = []
+    md_lines.append(f"# {title}")
+    md_lines.append("*Nu Age LMS • Official Synthesized Question Bank*\n")
+    md_lines.append("---\n")
+
+    if questions:
+        md_lines.append(f"## Practice Questions & Rationales ({len(questions)} items)\n")
+        letters = ["A", "B", "C", "D", "E", "F"]
+        for i, q in enumerate(questions, 1):
+            q_title = f"### Question {i}: {q['question_text']}"
+            if q.get("exam_year"):
+                q_title += f" *({q['exam_year']})*"
+            md_lines.append(q_title)
+            opts = q.get("options") or []
+            ans_idx = q.get("answer_index", 0)
+            for j, opt in enumerate(opts):
+                letter = letters[j] if j < len(letters) else str(j + 1)
+                md_lines.append(f"- **{letter})** {opt}")
+            ans_letter = letters[ans_idx] if 0 <= ans_idx < len(letters) else str(ans_idx + 1)
+            ans_text = opts[ans_idx] if 0 <= ans_idx < len(opts) else ""
+            ans_display = f"Option {ans_letter}" + (f" ({ans_text})" if ans_text else "")
+            md_lines.append(f"\n**Correct Answer:** {ans_display}")
+            if q.get("explanation"):
+                md_lines.append(f"> **Explanation:** {q['explanation']}")
+            md_lines.append("\n---\n")
+
+    if cards:
+        md_lines.append(f"## Active-Recall Drill Deck ({len(cards)} cards)\n")
+        for j, c in enumerate(cards, 1):
+            front = c.get("front") or c.get("question") or ""
+            back = c.get("back") or c.get("answer") or ""
+            exp = c.get("explanation") or ""
+            md_lines.append(f"### Drill {j}: {front}")
+            md_lines.append(f"**Answer / Concept:** {back}")
+            if exp:
+                md_lines.append(f"> **Key Note:** {exp}")
+            md_lines.append("\n---\n")
+
+    if raw_body and raw_body not in ("_No text content available for this material._",):
+        md_lines.append("## Extracted Notes & Source Material\n")
+        md_lines.append(raw_body)
+        md_lines.append("\n---\n")
+
+    if not questions and not cards and not raw_body:
+        md_lines.append("_No question bank items or extracted notes found yet for this material._\n")
+        md_lines.append("> *Tip: Tap 'Generate' to create flashcards, practice quizzes, or mock exams with Nu Age AI.*")
+
+    final_markdown = "\n".join(md_lines)
+    has_content = bool(questions or cards or raw_body)
+
+    if questions and cards:
+        summary_label = f"Question Bank • {len(questions)} questions • {len(cards)} cards"
+    elif questions:
+        summary_label = f"Question Bank • {len(questions)} questions"
+    elif cards:
+        summary_label = f"Question Bank • {len(cards)} flashcards"
+    elif raw_body:
+        words = len(raw_body.split())
+        summary_label = f"Question Bank • {words:,} words"
+    else:
+        summary_label = "Question Bank • 0 items"
+
+    return {
+        "markdown": final_markdown,
+        "questions": questions,
+        "cards": cards,
+        "raw_body": raw_body,
+        "questions_count": len(questions),
+        "cards_count": len(cards),
+        "has_content": has_content,
+        "summary_label": summary_label,
+    }
 
 
 def launch_html_in_desktop_browser(html_code: str, page: ft.Page = None, file_stem: str = "nu_web_preview") -> bool:

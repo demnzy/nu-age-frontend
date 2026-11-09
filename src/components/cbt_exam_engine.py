@@ -1413,6 +1413,14 @@ class CBTExamEngine:
 
         self.page.run_task(_sync_partnership_study)
 
+        # Trigger streak celebration & habit persistence (0 coin bonus)
+        try:
+            from src.components.streak_celebration_dialog import show_streak_celebration_dialog
+            curr_streak = getattr(self, "current_streak", 2) or 2
+            show_streak_celebration_dialog(self.page, curr_streak)
+        except Exception as strk_err:
+            print(f"[CBT] Streak celebration notice: {strk_err}")
+
         # 3. Build Proven Results UI using ui.build_results_view
         results_title = self.exam_title or f"{self.exam_type} Simulation"
         results = ui.build_results_view(
